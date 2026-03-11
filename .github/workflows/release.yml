@@ -159,7 +159,7 @@ jobs:
             artifacts/checksums.txt
 
       - name: Update Homebrew tap
-        uses: peter-evans/repository-dispatch@v3
+        uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           repository: clef-sh/homebrew-tap
