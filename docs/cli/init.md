@@ -1,0 +1,168 @@
+# clef init
+
+Initialise a new Clef-managed repository. Creates the manifest file, SOPS configuration, and scaffolds the encrypted file matrix.
+
+## Syntax
+
+```bash
+clef init [options]
+```
+
+## Description
+
+`clef init` sets up everything Clef needs to manage secrets in a repository:
+
+1. **Creates `clef.yaml`** — the manifest declaring namespaces, environments, and SOPS settings
+2. **Creates `.sops.yaml`** — SOPS creation rules so the `sops` binary knows how to encrypt new files
+3. **Sets up `.sops/`** — a directory for the age key file, with a `.gitignore` to exclude private keys from version control
+4. **Scaffolds the matrix** — creates an encrypted file for every namespace/environment combination
+5. **Installs the pre-commit hook** — a git hook that blocks commits containing unencrypted secret files
+
+If the age key file does not exist yet, `clef init` skips matrix scaffolding and prints instructions for generating a key.
+
+## Flags
+
+| Flag                        | Type      | Default                    | Description                                                     |
+| --------------------------- | --------- | -------------------------- | --------------------------------------------------------------- |
+| `--environments <envs>`     | `string`  | `"dev,staging,production"` | Comma-separated list of environment names                       |
+| `--namespaces <namespaces>` | `string`  | —                          | Comma-separated list of namespace names (required)              |
+| `--backend <backend>`       | `string`  | `"age"`                    | SOPS encryption backend: `age`, `awskms`, `gcpkms`, or `pgp`    |
+| `--age-key-file <path>`     | `string`  | `".sops/keys.txt"`         | Path to the age private key file                                |
+| `--non-interactive`         | `boolean` | `false`                    | Skip interactive prompts and use flag values directly           |
+| `--random-values`           | `boolean` | `false`                    | Scaffold required schema keys with random pending values        |
+| `--include-optional`        | `boolean` | `false`                    | Also scaffold optional schema keys (use with `--random-values`) |
+| `--update`                  | `boolean` | `false`                    | Scaffold new environments without overwriting `clef.yaml`       |
+
+## Examples
+
+### Basic initialisation
+
+```bash
+clef init --namespaces database,payments,auth --non-interactive
+```
+
+Output:
+
+```
+✓ Created clef.yaml
+✓ Created .sops.yaml
+✓ Scaffolded 9 encrypted file(s)
+✓ Installed pre-commit hook
+
+Next steps:
+  clef set <namespace>/<env> <KEY> <value>  — add a secret
+  clef lint                                 — check repo health
+  clef ui                                   — open the web UI
+```
+
+### Interactive initialisation
+
+Without the `--non-interactive` flag, Clef prompts for environments and namespaces:
+
+```bash
+clef init
+```
+
+```
+Environments (comma-separated) [dev,staging,production]: dev,staging,production
+Namespaces (comma-separated): database,payments
+```
+
+### Initialise with AWS KMS
+
+```bash
+clef init \
+  --namespaces database,auth \
+  --backend awskms \
+  --non-interactive
+```
+
+### When the key file does not exist
+
+If the age key is not yet generated:
+
+```
+✓ Created clef.yaml
+✓ Created .sops.yaml
+⚠ Age key file not found at '.sops/keys.txt'. Generate one with: age-keygen -o .sops/keys.txt
+ℹ Skipping file matrix scaffold — key must exist before encrypting.
+
+Next steps:
+  1. age-keygen -o .sops/keys.txt
+  2. clef lint --fix  (to scaffold encrypted files)
+  3. clef set <namespace>/<env> <KEY> <value>
+```
+
+### Initialise with random pending values
+
+When namespaces have schemas defined, `--random-values` scaffolds required keys with cryptographically random placeholders:
+
+```bash
+clef init --namespaces database,payments --random-values --non-interactive
+```
+
+```
+✓ Created clef.yaml
+✓ Created .sops.yaml
+✓ Scaffolded 6 encrypted file(s)
+✓ Installed pre-commit hook
+
+Scaffolding random values for namespaces with schemas...
+
+database (3 environments)
+  ✓ DATABASE_URL        → random (pending)
+  ✓ DATABASE_SSL        → random (pending)
+  ✓ DATABASE_POOL_SIZE  skipped (optional)
+
+⚠ payments — no schema, skipped
+
+Scaffolded 2 pending values across 1 namespace.
+Run clef ui to replace them with real values,
+or: clef set <namespace/environment> <KEY>
+```
+
+Use `--include-optional` to also scaffold optional schema keys:
+
+```bash
+clef init --namespaces database --random-values --include-optional --non-interactive
+```
+
+> **Note:** `--random-values` requires at least one namespace to have a `schema` field pointing to a valid schema YAML file. Namespaces without schemas are skipped. If no namespaces have schemas, the flag has no effect.
+
+#### Recommended workflow
+
+The most reliable way to bootstrap a new repo with pending values:
+
+1. Create schema files first (`schemas/database.yaml`, etc.)
+2. Reference them in the manifest via the `schema` field on each namespace
+3. Run `clef init --random-values --non-interactive`
+4. Open `clef ui` and replace pending values as real credentials become available
+
+See [Pending Values](/guide/pending-values) for more details on the pending workflow.
+
+### Using --update to scaffold after manifest changes
+
+If you've added new namespaces or environments to `clef.yaml` after the initial `clef init`, use `--update` to scaffold the new encrypted files:
+
+```bash
+# 1. Edit clef.yaml to add new namespaces or environments
+# 2. Scaffold missing files
+clef init --update
+
+# With random values for schema-defined keys
+clef init --update --random-values
+```
+
+`--update` reads the existing manifest, scaffolds any missing matrix files, and optionally populates schema keys with random values. It never overwrites `clef.yaml`.
+
+## Error cases
+
+- **Manifest already exists:** If `clef.yaml` already exists, `clef init` exits with an error. Use `--update` to scaffold new environments without overwriting the manifest.
+- **No namespaces provided:** At least one namespace is required. Either pass `--namespaces` or provide them interactively.
+- **Not a git repository:** The pre-commit hook installation will be skipped with a warning, but the rest of the initialisation proceeds normally.
+
+## Related commands
+
+- [`clef lint --fix`](/cli/lint) — scaffold missing matrix files after key generation
+- [`clef hooks install`](/cli/hooks) — reinstall the pre-commit hook
+- [`clef set`](/cli/set) — add your first secret after initialisation

@@ -1,0 +1,174 @@
+# Release workflow — builds standalone Node.js SEA (Single Executable Application)
+# binaries for four platforms and creates a GitHub Release with archives and checksums.
+#
+# Build strategy: Node.js SEA (--experimental-sea-config) is used because it produces
+# self-contained binaries with no runtime dependencies and works reliably with the
+# Node.js version already available in GitHub Actions runners. The CLI package is
+# bundled with esbuild into a single .cjs file, then injected into a copy of the
+# node binary using postject.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: darwin
+            arch: arm64
+            runner: macos-14
+          - os: darwin
+            arch: amd64
+            runner: macos-13
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build all packages
+        run: npm run build
+
+      - name: Bundle CLI into single file
+        run: |
+          npx esbuild packages/cli/dist/index.js \
+            --bundle \
+            --platform=node \
+            --target=node22 \
+            --outfile=packages/cli/sea-entry.cjs \
+            --external:fsevents
+
+      - name: Create SEA config
+        run: |
+          cat > packages/cli/sea-config.json <<'SEACONFIG'
+          {
+            "main": "packages/cli/sea-entry.cjs",
+            "output": "sea-prep.blob",
+            "disableExperimentalSEAWarning": true
+          }
+          SEACONFIG
+
+      - name: Generate SEA blob
+        run: node --experimental-sea-config packages/cli/sea-config.json
+
+      - name: Build standalone binary
+        run: |
+          cp $(command -v node) clef
+          chmod 755 clef
+
+          if [[ "${{ matrix.os }}" == "darwin" ]]; then
+            codesign --remove-signature clef
+            npx postject clef NODE_SEA_BLOB sea-prep.blob \
+              --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 \
+              --macho-segment-name NODE_SEA
+            codesign --sign - clef
+          else
+            npx postject clef NODE_SEA_BLOB sea-prep.blob \
+              --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
+          fi
+
+      - name: Verify binary
+        run: ./clef --version
+
+      - name: Create archive
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          ARCHIVE="clef-${VERSION}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz"
+          tar -czf "${ARCHIVE}" clef
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: clef-${{ matrix.os }}-${{ matrix.arch }}
+          path: ${{ env.ARCHIVE }}
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        id: checksums
+        run: |
+          cd artifacts
+          sha256sum clef-*.tar.gz > checksums.txt
+          cat checksums.txt
+
+          # Export individual checksums for Homebrew tap dispatch
+          for file in clef-*.tar.gz; do
+            hash=$(sha256sum "$file" | awk '{print $1}')
+            # Extract platform from filename: clef-vX.Y.Z-{os}-{arch}.tar.gz
+            platform=$(echo "$file" | sed 's/clef-v[^-]*-//; s/\.tar\.gz//')
+            # Convert dashes to underscores for output name
+            output_name=$(echo "$platform" | tr '-' '_')
+            echo "${output_name}=${hash}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Extract changelog from tag
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Extract the section for this version from CHANGELOG.md if it exists
+          if [ -f CHANGELOG.md ]; then
+            # Get content between this version header and the next version header
+            BODY=$(awk "/^## .*${VERSION}/{flag=1; next} /^## /{flag=0} flag" CHANGELOG.md)
+          fi
+          if [ -z "$BODY" ]; then
+            BODY="Release ${GITHUB_REF_NAME}"
+          fi
+          # Write to file to preserve newlines
+          echo "$BODY" > release-body.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: release-body.md
+          files: |
+            artifacts/clef-*.tar.gz
+            artifacts/checksums.txt
+
+      - name: Update Homebrew tap
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          repository: clef-sh/homebrew-tap
+          event-type: release
+          client-payload: |
+            {
+              "version": "${{ github.ref_name }}",
+              "darwin_arm64_sha256": "${{ steps.checksums.outputs.darwin_arm64 }}",
+              "darwin_amd64_sha256": "${{ steps.checksums.outputs.darwin_amd64 }}",
+              "linux_amd64_sha256": "${{ steps.checksums.outputs.linux_amd64 }}",
+              "linux_arm64_sha256": "${{ steps.checksums.outputs.linux_arm64 }}"
+            }

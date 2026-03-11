@@ -1,0 +1,11 @@
+{
+  "project_name": "clef-docs",
+  "production_branch": "main",
+  "root_directory": "docs",
+  "build_command": "npm run build",
+  "build_output_directory": ".vitepress/dist",
+  "environment_variables": {},
+  "custom_domains": ["docs.clef.sh"],
+  "preview_deployments": true,
+  "notes": "Connected to clef-sh/clef GitHub repo. Deploys automatically on push to main. Preview deployments on all PRs."
+}

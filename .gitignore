@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Decrypted artifacts (must never be committed)
+*.dec.yaml
+*.dec.json
+*.decrypted.yaml
+*.decrypted.json
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.idea/
+*.iml
+
+# Logs
+*.log
+npm-debug.log*
+
+# SOPS age key files (local only)
+.sops/keys.txt
+
+# Clef metadata files (*.clef-meta.yaml) are intentionally
+# committed — they track pending secret state.
+# Do NOT add *.clef-meta.yaml here.
+.development
