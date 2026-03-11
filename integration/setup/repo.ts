@@ -50,31 +50,9 @@ export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
     STRIPE_WEBHOOK_SECRET: "whsec_xyz789",
   });
 
-  // Use sops to encrypt
-  execFileSync(
-    "sops",
-    [
-      "encrypt",
-      "--input-type",
-      "yaml",
-      "--output-type",
-      "yaml",
-      "--filename-override",
-      "payments/dev.enc.yaml",
-      "/dev/stdin",
-    ],
-    {
-      input: plaintext,
-      cwd: dir,
-      env: {
-        ...process.env,
-        SOPS_AGE_KEY_FILE: keys.keyFilePath,
-      },
-      stdio: ["pipe", "pipe", "pipe"],
-    },
-  );
+  const plaintextFile = path.join(dir, "payments", "dev.plain.yaml");
+  fs.writeFileSync(plaintextFile, plaintext);
 
-  // Read the encrypted output and write it
   const encrypted = execFileSync(
     "sops",
     [
@@ -85,10 +63,9 @@ export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
       "yaml",
       "--filename-override",
       "payments/dev.enc.yaml",
-      "/dev/stdin",
+      plaintextFile,
     ],
     {
-      input: plaintext,
       cwd: dir,
       env: {
         ...process.env,
@@ -97,6 +74,7 @@ export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
     },
   );
 
+  fs.unlinkSync(plaintextFile);
   fs.writeFileSync(path.join(dir, "payments", "dev.enc.yaml"), encrypted);
 
   // Also create production file
@@ -104,6 +82,9 @@ export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
     STRIPE_KEY: "sk_live_prod456",
     STRIPE_WEBHOOK_SECRET: "whsec_prod_abc",
   });
+
+  const prodPlaintextFile = path.join(dir, "payments", "production.plain.yaml");
+  fs.writeFileSync(prodPlaintextFile, prodPlaintext);
 
   const prodEncrypted = execFileSync(
     "sops",
@@ -115,10 +96,9 @@ export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
       "yaml",
       "--filename-override",
       "payments/production.enc.yaml",
-      "/dev/stdin",
+      prodPlaintextFile,
     ],
     {
-      input: prodPlaintext,
       cwd: dir,
       env: {
         ...process.env,
@@ -127,6 +107,7 @@ export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
     },
   );
 
+  fs.unlinkSync(prodPlaintextFile);
   fs.writeFileSync(path.join(dir, "payments", "production.enc.yaml"), prodEncrypted);
 
   // Init git repo for git operations
