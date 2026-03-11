@@ -26,7 +26,6 @@ const deps = { runner };
 
 program
   .name("clef")
-  .version(VERSION)
   .option("--repo <path>", "Path to the Clef repository root (overrides auto-detection from cwd)")
   .option("--plain", "Plain output, no emoji or colour");
 

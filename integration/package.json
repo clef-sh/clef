@@ -2,7 +2,7 @@
   "name": "@clef-sh/integration-tests",
   "private": true,
   "scripts": {
-    "test": "jest --config jest.config.js"
+    "test": "jest --config jest.config.js --detectOpenHandles"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
