@@ -143,6 +143,8 @@ describe("clef ui", () => {
     delete process.env.CI;
     const origSSH = process.env.SSH_TTY;
     delete process.env.SSH_TTY;
+    const origPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
 
     (startServer as jest.Mock).mockResolvedValue({
       url: "http://127.0.0.1:7777",
@@ -164,6 +166,7 @@ describe("clef ui", () => {
       expect.stringContaining("Could not open browser"),
     );
 
+    Object.defineProperty(process, "platform", { value: origPlatform, configurable: true });
     if (origCI !== undefined) process.env.CI = origCI;
     if (origSSH !== undefined) process.env.SSH_TTY = origSSH;
   });
