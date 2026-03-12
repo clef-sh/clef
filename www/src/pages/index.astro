@@ -1,0 +1,148 @@
+---
+import "../styles/global.css";
+import Hero from "../components/Hero.astro";
+import StatsStrip from "../components/StatsStrip.astro";
+import DocsPromo from "../components/DocsPromo.astro";
+import HowItWorks from "../components/HowItWorks.astro";
+import Features from "../components/Features.astro";
+import CtaSection from "../components/CtaSection.astro";
+import Footer from "../components/Footer.astro";
+---
+
+<!doctype html>
+<html lang="en" class="scroll-smooth">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clef — Secrets management that lives in your repo</title>
+    <meta
+      name="description"
+      content="Clef brings a structured UI and git workflow to Mozilla SOPS — without a server, without a database, without vendor lock-in."
+    />
+
+    <!-- Open Graph -->
+    <meta
+      property="og:title"
+      content="Clef — Secrets management that lives in your repo"
+    />
+    <meta
+      property="og:description"
+      content="Clef brings a structured UI and git workflow to Mozilla SOPS — without a server, without a database, without vendor lock-in."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://clef.sh" />
+    <meta property="og:image" content="https://clef.sh/og-image.png" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="Clef — Secrets management that lives in your repo"
+    />
+    <meta
+      name="twitter:description"
+      content="Clef brings a structured UI and git workflow to Mozilla SOPS — without a server, without a database, without vendor lock-in."
+    />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Noto+Music&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body
+    class="min-h-screen bg-clef-bg font-sans text-clef-text antialiased"
+    style="background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.025) 1px, transparent 0); background-size: 24px 24px;"
+  >
+    <a
+      href="#main-content"
+      class="absolute -top-full left-2 z-[9999] rounded bg-clef-accent px-4 py-2 text-sm font-semibold text-clef-bg no-underline focus:top-2"
+    >
+      Skip to main content
+    </a>
+
+    <!-- Fixed Header -->
+    <header
+      class="fixed inset-x-0 top-0 z-50 flex h-14 items-center border-b border-clef-border bg-clef-panel/92 backdrop-blur-xl"
+    >
+      <div
+        class="mx-auto flex w-full max-w-[1200px] items-center justify-between px-6"
+      >
+        <a href="/" class="flex items-center gap-2.5 text-clef-text no-underline">
+          <svg xmlns="http://www.w3.org/2000/svg" style="background: transparent; background-color: transparent; color-scheme: light dark;" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="11px" height="30px" viewBox="0 0 11 30" content="&lt;mxfile host=&quot;app.diagrams.net&quot; agent=&quot;Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36&quot; version=&quot;29.6.1&quot;&gt;&#10;  &lt;diagram name=&quot;Page-1&quot; id=&quot;wkVNsO5_5GyDIFuGEuFO&quot;&gt;&#10;    &lt;mxGraphModel dx=&quot;322&quot; dy=&quot;155&quot; grid=&quot;1&quot; gridSize=&quot;10&quot; guides=&quot;1&quot; tooltips=&quot;1&quot; connect=&quot;1&quot; arrows=&quot;1&quot; fold=&quot;1&quot; page=&quot;1&quot; pageScale=&quot;1&quot; pageWidth=&quot;850&quot; pageHeight=&quot;1100&quot; math=&quot;0&quot; shadow=&quot;0&quot;&gt;&#10;      &lt;root&gt;&#10;        &lt;mxCell id=&quot;0&quot; /&gt;&#10;        &lt;mxCell id=&quot;1&quot; parent=&quot;0&quot; /&gt;&#10;        &lt;mxCell id=&quot;3N7BDEdEHleT6AeHqIXh-2&quot; parent=&quot;1&quot; style=&quot;shape=image;verticalLabelPosition=bottom;labelBackgroundColor=default;verticalAlign=top;aspect=fixed;imageAspect=0;editableCssRules=.*;image=data:image/svg+xml,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB3aWR0aD0iMTUuMTg1NDg3NzQ3MTkyMzgzIiBzdHJva2U9IiNGMEE1MDAiIGZpbGw9IiNGMEE1MDAiIHZlcnNpb249IjEuMSIgaGVpZ2h0PSI0MC43NjgyMTEzNjQ3NDYwOTQiIHZpZXdCb3g9IjAuMDAwMDIyODg4MTgzNTkzNzUgLTAuMDAwNDAwMDY2Mzc1NzMyNDIxOSAxNS4xODU0ODc3NDcxOTIzODMgNDAuNzY4MjExMzY0NzQ2MDk0Ij4mI3hhOzxwYXRoIGQ9Im0xMi4wNDkgMy41Mjk2YzAuMzA1IDMuMTI2My0yLjAxOSA1LjY1NjMtNC4wNzcyIDcuNzAxNC0wLjkzNDkgMC44OTctMC4xNTUgMC4xNDgtMC42NDM3IDAuNTk0LTAuMTAyMi0wLjQ3OS0wLjI5ODYtMS43MzEtMC4yODAyLTIuMTEgMC4xMzA0LTIuNjkzOSAyLjMxOTgtNi41ODc1IDQuMjM4MS04LjAyMzYgMC4zMDkgMC41NzY3IDAuNTYzIDAuNjIzMSAwLjc2MyAxLjgzODJ6bTAuNjUxIDE2LjE0MmMtMS4yMzItMC45MDYtMi44NS0xLjE0NC00LjMzMzYtMC44ODUtMC4xOTEzLTEuMjU1LTAuMzgyNy0yLjUxLTAuNTc0LTMuNzY0IDIuMzUwNi0yLjMyOSA0LjkwNjYtNS4wMzIyIDUuMDQwNi04LjUzOTQgMC4wNTktMi4yMzItMC4yNzYtNC42NzE0LTEuNjc4LTYuNDgzNi0xLjcwMDQgMC4xMjgyMy0yLjg5OTUgMi4xNTYtMy44MDE5IDMuNDE2NS0xLjQ4ODkgMi42NzA1LTEuMTQxNCA1LjkxNjktMC41NyA4Ljc5NjUtMC44MDk0IDAuOTUyLTEuOTI5NiAxLjc0My0yLjcyNzQgMi43MzQtMi4zNTYxIDIuMzA4LTQuNDA4NSA1LjQzLTQuMDA0NiA4Ljg3OCAwLjE4MzMyIDMuMzM0IDIuNTg5NCA2LjQzNCA1Ljg3MDIgNy4yMjcgMS4yNDU3IDAuMzE1IDIuNTYzOSAwLjM0NiAzLjgyNDEgMC4wOTkgMC4yMTk5IDIuMjUgMS4wMjY2IDQuNjI5IDAuMDkyNSA2LjgxMy0wLjcwMDcgMS41OTgtMi43ODc1IDMuMDA0LTQuMzMyNSAyLjE5Mi0wLjU5OTQtMC4zMTYtMC4xMTM3LTAuMDUxLTAuNDc4LTAuMjUyIDEuMDY5OC0wLjI1NyAxLjk5OTYtMS4wMzYgMi4yNi0xLjU2NSAwLjgzNzgtMS40NjQtMC4zOTk4LTMuNjM5LTIuMTU1NC0zLjM1OC0yLjI2MiAwLjA0Ni0zLjE5MDQgMy4xNC0xLjczNTYgNC42ODUgMS4zNDY4IDEuNTIgMy44MzMgMS4zMTIgNS40MzAxIDAuMzE4IDEuODEyNS0xLjE4IDIuMDM5NS0zLjU0NCAxLjgzMjUtNS41NjItMC4wNy0wLjY3OC0wLjQwMy0yLjY3LTAuNDQ0LTMuMzg3IDAuNjk3LTAuMjQ5IDAuMjA5LTAuMDU5IDEuMTkzLTAuNDQ5IDIuNjYtMS4wNTMgNC4zNTctNC4yNTkgMy41OTQtNy4xMjItMC4zMTgtMS40NjktMS4wNDQtMi45MTQtMi4zMDItMy43OTJ6bTAuNTYxIDUuNzU3YzAuMjE0IDEuOTkxLTEuMDUzIDQuMzIxLTMuMDc5IDQuOTYtMC4xMzYtMC43OTUtMC4xNzItMS4wMTEtMC4yNjI2LTEuNDc1LTAuNDgyMi0yLjQ2LTAuNzQ0LTQuOTg3LTEuMTE2LTcuNDgxIDEuNjI0Ni0wLjE2OCAzLjQ1NzYgMC41NDMgNC4wMjI2IDIuMTg0IDAuMjQ0IDAuNTc3IDAuMzQzIDEuMTk3IDAuNDM1IDEuODEyem0tNS4xNDg2IDUuMTk2Yy0yLjU0NDEgMC4xNDEtNC45OTk1LTEuNTk1LTUuNjM0My00LjA4MS0wLjc0OS0yLjE1My0wLjUyODMtNC42MyAwLjgyMDctNi41MDQgMS4xMTUxLTEuNzAyIDIuNjA2NS0zLjEwNSA0LjAyODYtNC41NDMgMC4xODMgMS4xMjcgMC4zNjYgMi4yNTQgMC41NDkgMy4zODItMi45OTA2IDAuNzgyLTUuMDA0NiA0LjcyNS0zLjIxNSA3LjQ1MSAwLjUzMjQgMC43NjQgMS45NzY1IDIuMjIzIDIuNzY1NSAxLjYzNC0xLjEwMi0wLjY4My0yLjAwMzMtMS44NTktMS44MDk1LTMuMjI3LTAuMDgyMS0xLjI4MiAxLjM2OTktMi45MTEgMi42NTEzLTMuMTk4IDAuNDM4NCAyLjg2OSAwLjk0MTMgNi4wNzMgMS4zNzk3IDguOTQzLTAuNTA1NCAwLjEtMS4wMjExIDAuMTQzLTEuNTM2IDAuMTQzeiIvPiYjeGE7PC9zdmc+;&quot; value=&quot;&quot; vertex=&quot;1&quot;&gt;&#10;          &lt;mxGeometry height=&quot;30&quot; width=&quot;10.98&quot; x=&quot;450&quot; y=&quot;220&quot; as=&quot;geometry&quot; /&gt;&#10;        &lt;/mxCell&gt;&#10;      &lt;/root&gt;&#10;    &lt;/mxGraphModel&gt;&#10;  &lt;/diagram&gt;&#10;&lt;/mxfile&gt;&#10;"><defs/><g><g data-cell-id="0"><g data-cell-id="1"><g data-cell-id="3N7BDEdEHleT6AeHqIXh-2"><g><image x="0" y="0" width="10.98" height="30" xlink:href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB3aWR0aD0iMTUuMTg1NDg3NzQ3MTkyMzgzIiBzdHJva2U9IiNGMEE1MDAiIGZpbGw9IiNGMEE1MDAiIHZlcnNpb249IjEuMSIgaGVpZ2h0PSI0MC43NjgyMTEzNjQ3NDYwOTQiIHZpZXdCb3g9IjAuMDAwMDIyODg4MTgzNTkzNzUgLTAuMDAwNDAwMDY2Mzc1NzMyNDIxOSAxNS4xODU0ODc3NDcxOTIzODMgNDAuNzY4MjExMzY0NzQ2MDk0Ij4mI3hhOzxwYXRoIGQ9Im0xMi4wNDkgMy41Mjk2YzAuMzA1IDMuMTI2My0yLjAxOSA1LjY1NjMtNC4wNzcyIDcuNzAxNC0wLjkzNDkgMC44OTctMC4xNTUgMC4xNDgtMC42NDM3IDAuNTk0LTAuMTAyMi0wLjQ3OS0wLjI5ODYtMS43MzEtMC4yODAyLTIuMTEgMC4xMzA0LTIuNjkzOSAyLjMxOTgtNi41ODc1IDQuMjM4MS04LjAyMzYgMC4zMDkgMC41NzY3IDAuNTYzIDAuNjIzMSAwLjc2MyAxLjgzODJ6bTAuNjUxIDE2LjE0MmMtMS4yMzItMC45MDYtMi44NS0xLjE0NC00LjMzMzYtMC44ODUtMC4xOTEzLTEuMjU1LTAuMzgyNy0yLjUxLTAuNTc0LTMuNzY0IDIuMzUwNi0yLjMyOSA0LjkwNjYtNS4wMzIyIDUuMDQwNi04LjUzOTQgMC4wNTktMi4yMzItMC4yNzYtNC42NzE0LTEuNjc4LTYuNDgzNi0xLjcwMDQgMC4xMjgyMy0yLjg5OTUgMi4xNTYtMy44MDE5IDMuNDE2NS0xLjQ4ODkgMi42NzA1LTEuMTQxNCA1LjkxNjktMC41NyA4Ljc5NjUtMC44MDk0IDAuOTUyLTEuOTI5NiAxLjc0My0yLjcyNzQgMi43MzQtMi4zNTYxIDIuMzA4LTQuNDA4NSA1LjQzLTQuMDA0NiA4Ljg3OCAwLjE4MzMyIDMuMzM0IDIuNTg5NCA2LjQzNCA1Ljg3MDIgNy4yMjcgMS4yNDU3IDAuMzE1IDIuNTYzOSAwLjM0NiAzLjgyNDEgMC4wOTkgMC4yMTk5IDIuMjUgMS4wMjY2IDQuNjI5IDAuMDkyNSA2LjgxMy0wLjcwMDcgMS41OTgtMi43ODc1IDMuMDA0LTQuMzMyNSAyLjE5Mi0wLjU5OTQtMC4zMTYtMC4xMTM3LTAuMDUxLTAuNDc4LTAuMjUyIDEuMDY5OC0wLjI1NyAxLjk5OTYtMS4wMzYgMi4yNi0xLjU2NSAwLjgzNzgtMS40NjQtMC4zOTk4LTMuNjM5LTIuMTU1NC0zLjM1OC0yLjI2MiAwLjA0Ni0zLjE5MDQgMy4xNC0xLjczNTYgNC42ODUgMS4zNDY4IDEuNTIgMy44MzMgMS4zMTIgNS40MzAxIDAuMzE4IDEuODEyNS0xLjE4IDIuMDM5NS0zLjU0NCAxLjgzMjUtNS41NjItMC4wNy0wLjY3OC0wLjQwMy0yLjY3LTAuNDQ0LTMuMzg3IDAuNjk3LTAuMjQ5IDAuMjA5LTAuMDU5IDEuMTkzLTAuNDQ5IDIuNjYtMS4wNTMgNC4zNTctNC4yNTkgMy41OTQtNy4xMjItMC4zMTgtMS40NjktMS4wNDQtMi45MTQtMi4zMDItMy43OTJ6bTAuNTYxIDUuNzU3YzAuMjE0IDEuOTkxLTEuMDUzIDQuMzIxLTMuMDc5IDQuOTYtMC4xMzYtMC43OTUtMC4xNzItMS4wMTEtMC4yNjI2LTEuNDc1LTAuNDgyMi0yLjQ2LTAuNzQ0LTQuOTg3LTEuMTE2LTcuNDgxIDEuNjI0Ni0wLjE2OCAzLjQ1NzYgMC41NDMgNC4wMjI2IDIuMTg0IDAuMjQ0IDAuNTc3IDAuMzQzIDEuMTk3IDAuNDM1IDEuODEyem0tNS4xNDg2IDUuMTk2Yy0yLjU0NDEgMC4xNDEtNC45OTk1LTEuNTk1LTUuNjM0My00LjA4MS0wLjc0OS0yLjE1My0wLjUyODMtNC42MyAwLjgyMDctNi41MDQgMS4xMTUxLTEuNzAyIDIuNjA2NS0zLjEwNSA0LjAyODYtNC41NDMgMC4xODMgMS4xMjcgMC4zNjYgMi4yNTQgMC41NDkgMy4zODItMi45OTA2IDAuNzgyLTUuMDA0NiA0LjcyNS0zLjIxNSA3LjQ1MSAwLjUzMjQgMC43NjQgMS45NzY1IDIuMjIzIDIuNzY1NSAxLjYzNC0xLjEwMi0wLjY4My0yLjAwMzMtMS44NTktMS44MDk1LTMuMjI3LTAuMDgyMS0xLjI4MiAxLjM2OTktMi45MTEgMi42NTEzLTMuMTk4IDAuNDM4NCAyLjg2OSAwLjk0MTMgNi4wNzMgMS4zNzk3IDguOTQzLTAuNTA1NCAwLjEtMS4wMjExIDAuMTQzLTEuNTM2IDAuMTQzeiIvPiYjeGE7PC9zdmc+" preserveAspectRatio="none"/></g></g></g></g></g></svg>
+          <span class="text-[17px] font-semibold tracking-tight">Clef</span>
+        </a>
+        <a
+          href="https://docs.clef.sh"
+          class="rounded-md border border-clef-accent/30 px-3.5 py-1.5 text-[13px] font-medium text-clef-accent transition-all hover:border-clef-accent hover:bg-clef-accentDim"
+        >
+          Documentation
+        </a>
+      </div>
+    </header>
+
+    <!-- Trust Bar -->
+    <div class="mt-14 border-b border-clef-border bg-clef-panel py-2.5">
+      <div
+        class="mx-auto flex max-w-[1200px] items-center justify-between gap-4 px-6"
+      >
+        <div class="flex flex-wrap items-center gap-2">
+          <span
+            class="mr-1 font-mono text-[11px] font-medium uppercase tracking-widest text-clef-textMuted"
+          >
+            Built on SOPS
+          </span>
+          <span
+            class="rounded border border-clef-border px-2.5 py-0.5 font-mono text-[11px] text-clef-textSecondary"
+          >
+            Git-native
+          </span>
+          <span
+            class="rounded border border-clef-border px-2.5 py-0.5 font-mono text-[11px] text-clef-textSecondary"
+          >
+            Local-first
+          </span>
+          <span
+            class="hidden rounded border border-clef-border px-2.5 py-0.5 font-mono text-[11px] text-clef-textSecondary sm:inline"
+          >
+            No vendor lock-in
+          </span>
+        </div>
+        <a
+          href="https://github.com/clef-sh/clef"
+          class="flex items-center gap-1.5 whitespace-nowrap rounded border border-clef-border px-3 py-1.5 text-[13px] text-clef-textSecondary no-underline transition-colors hover:border-clef-borderMid hover:text-clef-text"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            aria-hidden="true"
+          >
+            <path
+              d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"
+            ></path>
+          </svg>
+          View on GitHub
+        </a>
+      </div>
+    </div>
+
+    <main id="main-content">
+      <Hero />
+      <StatsStrip />
+      <DocsPromo />
+      <HowItWorks />
+      <Features />
+      <CtaSection />
+    </main>
+    <Footer />
+  </body>
+</html>

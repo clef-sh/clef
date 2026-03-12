@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace=packages/core
+      - run: npm run build --workspace=packages/ui
+      - name: Test with coverage
+        run: npm run test:coverage --workspaces --if-present
+        # Fails automatically if Jest thresholds are breached.
+        # Does not fail on coverage drops within thresholds.
+      - name: Coverage summary
+        if: always()
+        run: |
+          echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          for pkg in packages/core packages/cli packages/ui; do
+            if [ -f "$pkg/coverage/coverage-summary.json" ]; then
+              echo "### $pkg" >> $GITHUB_STEP_SUMMARY
+              cat "$pkg/coverage/coverage-summary.json" | \
+                node scripts/format-coverage-summary.js \
+                >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: coverage
+          path: packages/*/coverage/
+
+  format-check:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+
+  commitlint:
+    name: Commitlint
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }}
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace=packages/core
+      - run: npm run build --workspace=packages/ui
+      - run: npm run build --workspace=packages/cli
+
+  docs-build:
+    name: Docs Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: cd docs && npm ci
+      - run: cd docs && npm run build
+
+  www-build:
+    name: WWW Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: cd www && npm ci
+      - run: cd www && npm run build
+
+  integration-test:
+    name: Integration Tests
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      # Pin versions above REQUIREMENTS in packages/core/src/dependencies/checker.ts
+      - name: Install SOPS
+        run: |
+          SOPS_VERSION=3.9.4
+          curl -Lo /usr/local/bin/sops https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64
+          chmod +x /usr/local/bin/sops
+          sops --version
+      - run: npm ci
+      - run: npm run build --workspace=packages/core
+      - run: npm run build --workspace=packages/ui
+      - run: npm run build --workspace=packages/cli
+      - run: npm run test:integration

@@ -1,0 +1,11 @@
+{
+  "project_name": "clef-site",
+  "production_branch": "main",
+  "root_directory": "www",
+  "build_command": "npm run build",
+  "build_output_directory": "dist",
+  "environment_variables": {},
+  "custom_domains": ["clef.sh", "www.clef.sh"],
+  "preview_deployments": true,
+  "notes": "Connected to clef-sh/clef GitHub repo. Deploys automatically on push to main. Preview deployments on all PRs."
+}

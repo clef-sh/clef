@@ -1,0 +1,444 @@
+---
+---
+
+<section class="relative overflow-hidden py-16 pb-16 sm:py-20">
+  <!-- Staff Lines: absolutely positioned SVG, spans full section, lines centred vertically -->
+  <svg
+    aria-hidden="true"
+    xmlns="http://www.w3.org/2000/svg"
+    style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:1;"
+  >
+    <!-- Five lines, 1px stroke, 4px gap (5px centre-to-centre), centred at 50% -->
+    <line x1="0" y1="50%" x2="100%" y2="50%" stroke="var(--staff-bright,#2A2A4A)" stroke-width="1" style="transform:translateY(-10px)"/>
+    <line x1="0" y1="50%" x2="100%" y2="50%" stroke="var(--staff-bright,#2A2A4A)" stroke-width="1" style="transform:translateY(-5px)"/>
+    <line x1="0" y1="50%" x2="100%" y2="50%" stroke="var(--staff-bright,#2A2A4A)" stroke-width="1"/>
+    <line x1="0" y1="50%" x2="100%" y2="50%" stroke="var(--staff-bright,#2A2A4A)" stroke-width="1" style="transform:translateY(5px)"/>
+    <line x1="0" y1="50%" x2="100%" y2="50%" stroke="var(--staff-bright,#2A2A4A)" stroke-width="1" style="transform:translateY(10px)"/>
+  </svg>
+
+  <!-- Ghost Treble Clef: same SVG file as site header, opacity ghost -->
+  <img
+    src="/clef.svg"
+    alt=""
+    aria-hidden="true"
+    style="position:absolute;left:-20px;top:50%;transform:translateY(-50%);height:70px;width:200px;opacity:0.08;pointer-events:none;z-index:0;"
+  />
+
+  <!-- All hero content sits above decorative layers -->
+  <div class="relative z-1">
+
+    <!-- Two-column grid: text left, terminal right -->
+    <div class="hero-inner">
+
+      <div class="hero-text">
+        <!-- Kicker -->
+        <div
+          class="mb-6 inline-flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-widest text-clef-accent"
+        >
+          <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-clef-accent"
+          ></span>
+          Secrets management for dev teams
+        </div>
+
+        <!-- Heading -->
+        <h1
+          class="mb-5 max-w-190 text-[clamp(34px,5vw,62px)] font-bold leading-[1.08] tracking-tight text-clef-text"
+        >
+          Every environment in
+          <br />
+          <span class="text-clef-accent">harmony.</span>
+        </h1>
+
+        <!-- Subtext -->
+        <p class="max-w-140 text-[17px] leading-relaxed text-clef-textSecondary">
+          Clef brings a structured UI and git workflow to Mozilla SOPS — without a
+          server, without a database, without vendor lock-in.
+        </p>
+
+        <!-- Install Command Pill -->
+        <div class="install-pill">
+          <span class="install-prefix">$</span>
+          <span class="install-cmd">npm install -g @clef-sh/cli</span>
+          <button class="install-copy" aria-label="Copy install command">
+            copy
+          </button>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex flex-wrap gap-3">
+          <a
+            href="https://docs.clef.sh/guide/quick-start"
+            class="inline-flex items-center gap-2 rounded-md border border-clef-accent bg-clef-accent px-5.5 py-2.5 text-sm font-semibold text-clef-bg transition-opacity hover:opacity-[0.88]"
+          >
+            Get Started
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
+            </svg>
+          </a>
+          <a
+            href="https://github.com/clef-sh/clef"
+            class="inline-flex items-center gap-2 rounded-md border border-clef-borderMid bg-transparent px-5.5 py-2.5 text-sm font-medium text-clef-textSecondary no-underline transition-colors hover:border-clef-textSecondary hover:text-clef-text"
+          >
+            View on GitHub
+          </a>
+        </div>
+      </div><!-- /.hero-text -->
+
+      <div class="hero-terminal">
+        <div class="terminal">
+          <!-- Window chrome -->
+          <div class="terminal-chrome">
+            <div class="terminal-dots">
+              <span class="dot dot-red"></span>
+              <span class="dot dot-yellow"></span>
+              <span class="dot dot-green"></span>
+            </div>
+            <span class="terminal-path">~/my-app</span>
+          </div>
+
+          <!-- Terminal body -->
+          <div class="terminal-body">
+            <div class="terminal-line">
+              <span class="t-prompt">$</span><span class="t-cmd"> clef init</span>
+            </div>
+            <div class="terminal-line">
+              <span class="t-success">✓</span><span class="t-out">  clef.yaml created</span>
+            </div>
+            <div class="terminal-line">
+              <span class="t-hint">→</span><span class="t-dim">  Add your age recipient to clef.yaml</span>
+            </div>
+
+            <div class="terminal-line t-spacer"></div>
+
+            <div class="terminal-line">
+              <span class="t-prompt">$</span><span class="t-cmd"> clef set database/staging DB_PASSWORD</span>
+            </div>
+            <div class="terminal-line">
+              <span class="t-dim">Enter value (hidden):</span>
+            </div>
+            <div class="terminal-line">
+              <span class="t-success">✓</span><span class="t-out">  DB_PASSWORD set in database/staging</span>
+            </div>
+
+            <div class="terminal-line t-spacer"></div>
+
+            <div class="terminal-line">
+              <span class="t-prompt">$</span><span class="t-cmd"> clef exec payments/production -- ./deploy.sh</span>
+            </div>
+            <div class="terminal-line">
+              <span class="t-success">✓</span><span class="t-out">  Injecting 4 secrets...</span>
+            </div>
+            <div class="terminal-line">
+              <span class="t-dim">Deploying to production...</span>
+            </div>
+
+            <div class="terminal-line t-spacer"></div>
+
+            <div class="terminal-line">
+              <span class="t-prompt">$</span><span class="t-cmd"> clef lint</span>
+            </div>
+            <div class="terminal-line">
+              <span class="t-success">✓</span><span class="t-out">  All environments in sync</span>
+            </div>
+
+            <div class="terminal-line t-spacer"></div>
+
+            <div class="terminal-line">
+              <span class="t-cursor">█</span>
+            </div>
+          </div>
+        </div>
+      </div><!-- /.hero-terminal -->
+
+    </div><!-- /.hero-inner -->
+
+    <!-- Secrets Matrix Widget — full-width row below the two-column hero -->
+    <div class="mx-auto mt-12 max-w-[1200px] px-6">
+      <div
+        class="overflow-hidden rounded-[10px] border border-clef-border bg-clef-panel"
+        role="img"
+        aria-label="Clef secrets matrix preview"
+      >
+        <!-- Widget title bar -->
+        <div
+          class="flex items-center gap-1.5 border-b border-clef-border bg-clef-surface px-3.5 py-2.5"
+        >
+          <div class="h-2 w-2 rounded-full bg-clef-borderMid"></div>
+          <div class="h-2 w-2 rounded-full bg-clef-borderMid"></div>
+          <div class="h-2 w-2 rounded-full bg-clef-borderMid"></div>
+          <span class="ml-1.5 font-mono text-[11px] text-clef-textMuted">
+            clef ui — secrets matrix — acme-corp
+          </span>
+        </div>
+
+        <!-- Matrix table -->
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse font-mono text-xs" role="presentation">
+            <thead>
+              <tr>
+                <th
+                  class="border-b border-clef-border bg-clef-surface px-3.5 py-2 text-left text-[10px] font-medium uppercase tracking-wider text-clef-textMuted"
+                >
+                  Namespace
+                </th>
+                <th
+                  class="border-b border-clef-border bg-clef-surface px-3.5 py-2 text-left text-[10px] font-medium uppercase tracking-wider text-clef-textMuted"
+                >
+                  Dev
+                </th>
+                <th
+                  class="border-b border-clef-border bg-clef-surface px-3.5 py-2 text-left text-[10px] font-medium uppercase tracking-wider text-clef-textMuted"
+                >
+                  Staging
+                </th>
+                <th
+                  class="border-b border-clef-border bg-clef-surface px-3.5 py-2 text-left text-[10px] font-medium uppercase tracking-wider text-clef-textMuted"
+                >
+                  Production
+                </th>
+                <th
+                  class="border-b border-clef-border bg-clef-surface px-3.5 py-2 text-left text-[10px] font-medium uppercase tracking-wider text-clef-textMuted"
+                >
+                  Drift
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Row 1: all aligned -->
+              <tr class="hover:bg-white/1.5">
+                <td class="border-b border-clef-border px-3.5 py-2.5 font-medium text-clef-text whitespace-nowrap">
+                  database
+                </td>
+                <td class="border-b border-clef-border px-3.5 py-2.5 min-w-35">
+                  <div>
+                    <span class="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-clef-success align-middle"></span>
+                    <span class="tracking-wide text-clef-success">6 keys</span>
+                  </div>
+                  <div class="mt-0.5 text-[10px] text-clef-textMuted">encrypted &middot; age</div>
+                </td>
+                <td class="border-b border-clef-border px-3.5 py-2.5 min-w-35">
+                  <div>
+                    <span class="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-clef-success align-middle"></span>
+                    <span class="tracking-wide text-clef-success">6 keys</span>
+                  </div>
+                  <div class="mt-0.5 text-[10px] text-clef-textMuted">encrypted &middot; age</div>
+                </td>
+                <td class="border-b border-clef-border px-3.5 py-2.5 min-w-35">
+                  <div>
+                    <span class="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-clef-success align-middle"></span>
+                    <span class="tracking-wide text-clef-success">6 keys</span>
+                  </div>
+                  <div class="mt-0.5 text-[10px] text-clef-textMuted">encrypted &middot; aws-kms</div>
+                </td>
+                <td class="border-b border-clef-border px-3.5 py-2.5">
+                  <span
+                    class="inline-flex items-center gap-1 whitespace-nowrap rounded border border-clef-success/20 bg-clef-success/[0.07] px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-wide text-clef-success"
+                  >
+                    &#x25cf; Aligned
+                  </span>
+                </td>
+              </tr>
+
+              <!-- Row 2: drift — staging missing key -->
+              <tr class="hover:bg-white/1.5">
+                <td class="border-b border-clef-border px-3.5 py-2.5 font-medium text-clef-text whitespace-nowrap">
+                  auth
+                </td>
+                <td class="border-b border-clef-border px-3.5 py-2.5 min-w-35">
+                  <div>
+                    <span class="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-clef-success align-middle"></span>
+                    <span class="tracking-wide text-clef-success">8 keys</span>
+                  </div>
+                  <div class="mt-0.5 text-[10px] text-clef-textMuted">encrypted &middot; age</div>
+                </td>
+                <td class="border-b border-clef-border px-3.5 py-2.5 min-w-35">
+                  <div>
+                    <span class="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-clef-warning align-middle"></span>
+                    <span class="tracking-wide text-clef-warning">7 keys</span>
+                  </div>
+                  <div class="mt-0.5 text-[10px] text-clef-textMuted">1 missing &middot; age</div>
+                </td>
+                <td class="border-b border-clef-border px-3.5 py-2.5 min-w-35">
+                  <div>
+                    <span class="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-clef-success align-middle"></span>
+                    <span class="tracking-wide text-clef-success">8 keys</span>
+                  </div>
+                  <div class="mt-0.5 text-[10px] text-clef-textMuted">encrypted &middot; aws-kms</div>
+                </td>
+                <td class="border-b border-clef-border px-3.5 py-2.5">
+                  <span
+                    class="inline-flex items-center gap-1 whitespace-nowrap rounded border border-clef-warning/20 bg-clef-warning/10 px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-wide text-clef-warning"
+                  >
+                    &#x26A0; Drifting
+                  </span>
+                </td>
+              </tr>
+
+              <!-- Row 3: pending key -->
+              <tr class="hover:bg-white/1.5">
+                <td class="border-b border-clef-border px-3.5 py-2.5 font-medium text-clef-text whitespace-nowrap">
+                  payments
+                </td>
+                <td class="border-b border-clef-border px-3.5 py-2.5 min-w-35">
+                  <div>
+                    <span
+                      class="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-clef-active align-middle"
+                    ></span>
+                    <span class="tracking-wide text-clef-active">4 keys</span>
+                  </div>
+                  <div class="mt-0.5 text-[10px] text-clef-textMuted">1 pending &middot; age</div>
+                </td>
+                <td class="border-b border-clef-border px-3.5 py-2.5 min-w-35">
+                  <div>
+                    <span class="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-clef-success align-middle"></span>
+                    <span class="tracking-wide text-clef-success">3 keys</span>
+                  </div>
+                  <div class="mt-0.5 text-[10px] text-clef-textMuted">encrypted &middot; age</div>
+                </td>
+                <td class="border-b border-clef-border px-3.5 py-2.5 min-w-35">
+                  <div>
+                    <span class="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-clef-success align-middle"></span>
+                    <span class="tracking-wide text-clef-success">3 keys</span>
+                  </div>
+                  <div class="mt-0.5 text-[10px] text-clef-textMuted">encrypted &middot; gcp-kms</div>
+                </td>
+                <td class="border-b border-clef-border px-3.5 py-2.5">
+                  <span
+                    class="inline-flex items-center gap-1 whitespace-nowrap rounded border border-clef-warning/20 bg-clef-warning/10 px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-wide text-clef-warning"
+                  >
+                    &#x26A0; Drifting
+                  </span>
+                </td>
+              </tr>
+
+              <!-- Row 4: all aligned -->
+              <tr class="hover:bg-white/1.5">
+                <td class="px-3.5 py-2.5 font-medium text-clef-text whitespace-nowrap">
+                  notifications
+                </td>
+                <td class="px-3.5 py-2.5 min-w-35">
+                  <div>
+                    <span class="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-clef-success align-middle"></span>
+                    <span class="tracking-wide text-clef-success">2 keys</span>
+                  </div>
+                  <div class="mt-0.5 text-[10px] text-clef-textMuted">encrypted &middot; age</div>
+                </td>
+                <td class="px-3.5 py-2.5 min-w-35">
+                  <div>
+                    <span class="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-clef-success align-middle"></span>
+                    <span class="tracking-wide text-clef-success">2 keys</span>
+                  </div>
+                  <div class="mt-0.5 text-[10px] text-clef-textMuted">encrypted &middot; age</div>
+                </td>
+                <td class="px-3.5 py-2.5 min-w-35">
+                  <div>
+                    <span class="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-clef-success align-middle"></span>
+                    <span class="tracking-wide text-clef-success">2 keys</span>
+                  </div>
+                  <div class="mt-0.5 text-[10px] text-clef-textMuted">encrypted &middot; aws-kms</div>
+                </td>
+                <td class="px-3.5 py-2.5">
+                  <span
+                    class="inline-flex items-center gap-1 whitespace-nowrap rounded border border-clef-success/20 bg-clef-success/[0.07] px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-wide text-clef-success"
+                  >
+                    &#x25cf; Aligned
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /matrix container -->
+
+  </div><!-- /relative z-1 -->
+</section>
+
+<style>
+  .install-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--bg-raised, #1c1c2e);
+    border: 1px solid var(--staff-bright, #2a2a4a);
+    border-radius: 6px;
+    padding: 10px 16px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 14px;
+    margin-top: 24px;
+    margin-bottom: 32px;
+  }
+
+  .install-prefix {
+    color: var(--gold, #c9a84c);
+  }
+
+  .install-cmd {
+    color: var(--text-primary, #e8e8f0);
+  }
+
+  .install-copy {
+    background: none;
+    border: 1px solid var(--staff-bright, #2a2a4a);
+    border-radius: 4px;
+    color: var(--text-secondary, #8888aa);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    padding: 3px 10px;
+    cursor: pointer;
+    transition:
+      color 150ms,
+      border-color 150ms;
+    margin-left: 8px;
+  }
+
+  .install-copy:hover {
+    color: var(--gold, #c9a84c);
+    border-color: var(--gold, #c9a84c);
+  }
+
+  .install-copy.copied {
+    color: var(--green, #4ade80);
+    border-color: var(--green, #4ade80);
+  }
+</style>
+
+<script>
+  // Install pill copy button
+  document.querySelector(".install-copy").addEventListener("click", function () {
+    navigator.clipboard.writeText("npm install -g @clef-sh/cli");
+    this.textContent = "copied ✓";
+    this.classList.add("copied");
+    setTimeout(() => {
+      this.textContent = "copy";
+      this.classList.remove("copied");
+    }, 2000);
+  });
+
+  // Terminal entrance animation via IntersectionObserver
+  (function () {
+    const terminal = document.querySelector(".terminal");
+    if (!terminal) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          terminal.classList.add("is-visible");
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.2 }
+    );
+    observer.observe(terminal);
+  })();
+</script>

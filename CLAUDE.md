@@ -1,0 +1,81 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+Clef is a git-native secrets management tool built on Mozilla SOPS. It provides a CLI, local web UI, and lint/drift detection for managing encrypted secrets organized in a namespace × environment matrix.
+
+## Monorepo Structure
+
+npm workspaces with three packages:
+
+- **`packages/core`** — Core library (manifest parsing, matrix management, SOPS client, lint runner, schema validation, diff engine). Zero npm dependencies except `yaml`.
+- **`packages/cli`** — Commander.js CLI wrapping core. 12 commands: init, get, set, delete, diff, lint, rotate, hooks, exec, export, doctor, ui.
+- **`packages/ui`** — React + Vite + Express local web UI served at `127.0.0.1:7777`.
+
+## Commands
+
+```bash
+npm install          # Install all workspaces
+npm test             # Run all unit tests across workspaces
+npm run build        # Build all packages
+npm run lint         # ESLint across all .ts/.tsx files
+npm run format       # Prettier format all files
+npm run format:check # Prettier check (CI)
+
+# Run a single package's tests
+npm test -w packages/core
+npm test -w packages/cli
+npm test -w packages/ui
+
+# Run a single test file
+npx jest --config packages/cli/jest.config.js packages/cli/src/commands/get.test.ts
+
+# Integration tests (requires sops + age binaries installed)
+npm run test:integration
+```
+
+## Architecture
+
+### Dependency Injection Pattern
+
+`SubprocessRunner` interface abstracts all SOPS and git subprocess calls. CLI provides `NodeSubprocessRunner` (real `child_process.execFile`). Tests inject mocks via `jest.fn()` — no real subprocess calls in unit tests.
+
+### Core Domain Model
+
+- **Manifest** (`clef.yaml`): version 1, declares namespaces, environments, file patterns, schemas
+- **Matrix**: namespace × environment grid; each cell maps to an encrypted SOPS file (default: `{namespace}/{environment}.enc.yaml`)
+- **ManifestParser** validates and parses YAML; **MatrixManager** resolves cells and scaffolds files
+- **SopsClient** wraps the `sops` binary — all encrypt/decrypt piped via stdin/stdout, never written to disk as plaintext
+- **LintRunner** validates matrix completeness, schema conformance, and SOPS file integrity
+
+### CLI Commands
+
+Each command is in `packages/cli/src/commands/{name}.ts` with a co-located `{name}.test.ts`. Commands register on a Commander program and receive a `SubprocessRunner` + `OutputFormatter` via factory function.
+
+### UI Architecture
+
+Split client (Vite/React) and server (Express). Server binds `127.0.0.1` only. Vite dev server proxies `/api` to port 7777.
+
+## Non-Negotiable Constraints
+
+- **No plaintext to disk** — decrypted values exist in memory only; SOPS pipes via stdin/stdout
+- **`127.0.0.1` only** — UI never binds `0.0.0.0`
+- **No custom crypto** — all encryption/decryption goes through the `sops` subprocess
+- **No `any` types** without a suppression comment explaining why
+- **All namespaces must be encrypted** — unencrypted namespaces are intentionally unsupported
+
+## Code Style
+
+- Prettier: 100-char width, 2-space indent, double quotes, trailing commas, semicolons
+- ESLint: `@typescript-eslint/no-explicit-any` is `error`; unused vars allowed if prefixed with `_`
+- TypeScript: ES2022 target, strict mode, commonjs modules
+- Conventional Commits: `type(scope): description` — types: feat, fix, docs, chore, refactor, test, ci
+
+## Test Coverage Thresholds
+
+- **Core**: 90% branch, 100% function/line/statement
+- **CLI**: 85% branch, 100% function/line/statement
+- Unit tests fully mock `fs`, `SubprocessRunner`, and `OutputFormatter`
+- Integration tests (`integration/`) use real sops + git binaries with temp directories
