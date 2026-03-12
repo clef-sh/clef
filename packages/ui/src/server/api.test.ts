@@ -132,6 +132,11 @@ describe("API routes", () => {
       const res = await request(app).get("/api/matrix");
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
+      // Assert at least one cell has expected namespace/environment properties
+      if (res.body.length > 0) {
+        expect(res.body[0]).toHaveProperty("cell.namespace");
+        expect(res.body[0]).toHaveProperty("cell.environment");
+      }
     });
 
     it("should return 500 when manifest is missing", async () => {
@@ -235,9 +240,18 @@ describe("API routes", () => {
       // Verify sops.encrypt was called twice (once for set, once for rollback)
       const runCalls = (runner.run as jest.Mock).mock.calls;
       const encryptCalls = runCalls.filter(
-        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+        (c: [string, string[], Record<string, unknown>?]) =>
+          c[0] === "sops" && c[1][0] === "encrypt",
       );
       expect(encryptCalls.length).toBeGreaterThanOrEqual(2);
+
+      // Verify the rollback encrypt does NOT contain the new key
+      const rollbackCall = encryptCalls[1];
+      const rollbackStdin = (rollbackCall[2] as { stdin?: string })?.stdin ?? "";
+      expect(rollbackStdin).not.toContain("NEW_KEY");
+      // Verify original values are preserved
+      const parsed = YAML.parse(rollbackStdin);
+      expect(parsed).toEqual({ DB_HOST: "localhost", DB_PORT: "5432" });
     });
 
     it("should return 500 with partial failure when both pending and rollback fail", async () => {
@@ -281,6 +295,7 @@ describe("API routes", () => {
         .send({ random: true });
       expect(res.status).toBe(500);
       expect(res.body.error).toBe("Partial failure");
+      expect(res.body.code).toBe("PARTIAL_FAILURE");
     });
 
     it("should return 500 on encrypt error", async () => {
@@ -341,6 +356,34 @@ describe("API routes", () => {
       expect(res.body.warnings.length).toBeGreaterThan(0);
     });
 
+    it("should set Cache-Control: no-store header on PUT response", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .put("/api/namespace/database/dev/DB_HOST")
+        .send({ value: "newhost" });
+      expect(res.status).toBe(200);
+      expect(res.headers["cache-control"]).toContain("no-store");
+    });
+
+    it("should return 409 when writing to protected environment without confirmation", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .put("/api/namespace/database/production/KEY")
+        .send({ value: "val" });
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("PROTECTED_ENV");
+      expect(res.body.protected).toBe(true);
+    });
+
+    it("should allow writing to protected environment with confirmed: true", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .put("/api/namespace/database/production/KEY")
+        .send({ value: "val", confirmed: true });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+    });
+
     it("should return no warnings when value passes schema", async () => {
       const app = createApp();
       const res = await request(app)
@@ -381,6 +424,29 @@ describe("API routes", () => {
       const app = createApp(runner);
       const res = await request(app).delete("/api/namespace/database/dev/KEY");
       expect(res.status).toBe(500);
+    });
+
+    it("should set Cache-Control: no-store header on DELETE response", async () => {
+      const app = createApp();
+      const res = await request(app).delete("/api/namespace/database/dev/DB_HOST");
+      expect(res.status).toBe(200);
+      expect(res.headers["cache-control"]).toContain("no-store");
+    });
+
+    it("should return 409 when deleting from protected environment without confirmation", async () => {
+      const app = createApp();
+      const res = await request(app).delete("/api/namespace/database/production/DB_HOST");
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("PROTECTED_ENV");
+    });
+
+    it("should allow deleting from protected environment with confirmed: true", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .delete("/api/namespace/database/production/DB_HOST")
+        .send({ confirmed: true });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
     });
 
     it("should call markResolved after successful delete", async () => {
@@ -724,6 +790,15 @@ describe("API routes", () => {
         .send({ file: "database/dev.enc.yaml" });
       expect(res.status).toBe(500);
       expect(res.body.code).toBe("NO_EDITOR");
+    });
+
+    it("should return 400 when file path escapes repo root", async () => {
+      process.env.EDITOR = "nano";
+      delete process.env.TERM_PROGRAM;
+      const app = createApp();
+      const res = await request(app).post("/api/editor/open").send({ file: "../../../etc/passwd" });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
     });
 
     it("should return 500 when the runner throws", async () => {

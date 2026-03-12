@@ -85,7 +85,7 @@ clef set payments/staging STRIPE_PUBLIC_KEY pk_test_abc123
 >
 > ```bash
 > clef set payments/staging STRIPE_PUBLIC_KEY
-> Enter value: (hidden)
+> Enter value for STRIPE_PUBLIC_KEY: ********
 > ```
 >
 > Or use `--random` to scaffold a placeholder.
@@ -98,11 +98,7 @@ Read the value back:
 clef get payments/staging STRIPE_SECRET_KEY
 ```
 
-The output is raw (no labels, no colour) so it pipes cleanly into other tools:
-
-```bash
-clef get payments/staging STRIPE_SECRET_KEY | pbcopy
-```
+The output is a formatted key-value line showing the key name and its decrypted value.
 
 ## 4. Compare environments
 

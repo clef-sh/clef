@@ -103,12 +103,12 @@ describe("clef set", () => {
     expect(mockFormatter.success).toHaveBeenCalledWith("STRIPE_KEY set in payments/dev");
     expect(mockFormatter.hint).toHaveBeenCalledWith("Commit: git add payments/dev.enc.yaml");
 
-    // Verify the secret value never appears in stdout
-    for (const call of (mockFormatter.success as jest.Mock).mock.calls) {
-      expect(call[0]).not.toContain("sk_test_123");
-    }
-    for (const call of (mockFormatter.print as jest.Mock).mock.calls) {
-      expect(call[0]).not.toContain("sk_test_123");
+    // Verify the secret value never appears in any formatter channel
+    const channels = ["success", "print", "error", "warn", "info", "hint", "raw"] as const;
+    for (const channel of channels) {
+      for (const call of (mockFormatter[channel] as jest.Mock).mock.calls) {
+        expect(call[0]).not.toContain("sk_test_123");
+      }
     }
   });
 
@@ -217,6 +217,8 @@ describe("clef set", () => {
     expect(mockFormatter.success).toHaveBeenCalledWith(
       expect.stringContaining("KEY set in payments/dev"),
     );
+    // Non-fatal intent: process.exit(1) should NOT have been called
+    expect(mockExit).not.toHaveBeenCalled();
   });
 
   it("does not call markPending when encrypt fails", async () => {

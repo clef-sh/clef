@@ -71,11 +71,13 @@ export function registerUpdateCommand(program: Command, deps: { runner: Subproce
         }
 
         let scaffoldedCount = 0;
+        let failedCount = 0;
         for (const cell of missing) {
           try {
             await matrixManager.scaffoldCell(cell, sopsClient, manifest);
             scaffoldedCount++;
           } catch (err) {
+            failedCount++;
             formatter.warn(
               `Could not scaffold ${cell.namespace}/${cell.environment}: ${(err as Error).message}`,
             );
@@ -84,6 +86,12 @@ export function registerUpdateCommand(program: Command, deps: { runner: Subproce
 
         if (scaffoldedCount > 0) {
           formatter.success(`Scaffolded ${scaffoldedCount} encrypted file(s)`);
+        }
+
+        if (failedCount > 0) {
+          formatter.error(`${failedCount} cell(s) could not be scaffolded.`);
+          process.exit(1);
+          return;
         }
       } catch (err) {
         if (err instanceof SopsMissingError || err instanceof SopsVersionError) {

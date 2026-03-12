@@ -119,10 +119,15 @@ export function createApiRouter(deps: ApiDeps): Router {
   // body: { value: string } — set a specific value
   // body: { random: true }  — generate random value server-side and mark pending
   router.put("/namespace/:ns/:env/:key", async (req: Request, res: Response) => {
+    setNoCacheHeaders(res);
     try {
       const manifest = loadManifest();
       const { ns, env, key } = req.params;
-      const { value, random } = req.body as { value?: string; random?: boolean };
+      const { value, random, confirmed } = req.body as {
+        value?: string;
+        random?: boolean;
+        confirmed?: boolean;
+      };
 
       if (!random && (value === undefined || value === null)) {
         res.status(400).json({
@@ -143,22 +148,36 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
+      if (matrix.isProtectedEnvironment(manifest, env) && !confirmed) {
+        res.status(409).json({
+          error: "Protected environment requires confirmation",
+          code: "PROTECTED_ENV",
+          protected: true,
+        });
+        return;
+      }
+
       const filePath = `${deps.repoRoot}/${manifest.file_pattern.replace("{namespace}", ns).replace("{environment}", env)}`;
       const decrypted = await sops.decrypt(filePath);
 
       if (random) {
         // Generate random value server-side and mark as pending
         const randomValue = generateRandomValue();
+        const previousValue = decrypted.values[key];
         decrypted.values[key] = randomValue;
-        await sops.encrypt(filePath, decrypted.values, manifest);
+        await sops.encrypt(filePath, decrypted.values, manifest, env);
 
         try {
           await markPendingWithRetry(filePath, [key], "clef ui");
         } catch {
           // Both retry attempts failed — roll back the encrypt
           try {
-            delete decrypted.values[key];
-            await sops.encrypt(filePath, decrypted.values, manifest);
+            if (previousValue !== undefined) {
+              decrypted.values[key] = previousValue;
+            } else {
+              delete decrypted.values[key];
+            }
+            await sops.encrypt(filePath, decrypted.values, manifest, env);
           } catch {
             // Rollback also failed — return 500 with context
             return res.status(500).json({
@@ -180,7 +199,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         res.json({ success: true, key, pending: true });
       } else {
         decrypted.values[key] = String(value);
-        await sops.encrypt(filePath, decrypted.values, manifest);
+        await sops.encrypt(filePath, decrypted.values, manifest, env);
 
         // Validate against schema if defined (B1)
         const nsDef = manifest.namespaces.find((n) => n.name === ns);
@@ -224,9 +243,11 @@ export function createApiRouter(deps: ApiDeps): Router {
 
   // DELETE /api/namespace/:ns/:env/:key
   router.delete("/namespace/:ns/:env/:key", async (req: Request, res: Response) => {
+    setNoCacheHeaders(res);
     try {
       const manifest = loadManifest();
       const { ns, env, key } = req.params;
+      const { confirmed } = req.body as { confirmed?: boolean };
 
       const nsExists = manifest.namespaces.some((n) => n.name === ns);
       const envExists = manifest.environments.some((e) => e.name === env);
@@ -235,6 +256,15 @@ export function createApiRouter(deps: ApiDeps): Router {
         res.status(404).json({
           error: `Namespace '${ns}' or environment '${env}' not found in manifest.`,
           code: "NOT_FOUND",
+        });
+        return;
+      }
+
+      if (matrix.isProtectedEnvironment(manifest, env) && !confirmed) {
+        res.status(409).json({
+          error: "Protected environment requires confirmation",
+          code: "PROTECTED_ENV",
+          protected: true,
         });
         return;
       }
@@ -251,7 +281,7 @@ export function createApiRouter(deps: ApiDeps): Router {
       }
 
       delete decrypted.values[key];
-      await sops.encrypt(filePath, decrypted.values, manifest);
+      await sops.encrypt(filePath, decrypted.values, manifest, env);
 
       // Clean up pending metadata if it exists
       try {
@@ -465,6 +495,15 @@ export function createApiRouter(deps: ApiDeps): Router {
           .json({ error: "Request body must include a 'file' string.", code: "BAD_REQUEST" });
         return;
       }
+      const resolved = path.resolve(deps.repoRoot, file);
+      if (!resolved.startsWith(deps.repoRoot + path.sep) && resolved !== deps.repoRoot) {
+        res.status(400).json({
+          error: "File path must be within the repository.",
+          code: "BAD_REQUEST",
+        });
+        return;
+      }
+
       const editor = process.env.EDITOR || (process.env.TERM_PROGRAM === "vscode" ? "code" : "");
       if (!editor) {
         res.status(500).json({
@@ -645,6 +684,14 @@ export function createApiRouter(deps: ApiDeps): Router {
       res.status(500).json({ error: message, code: "RECIPIENTS_REMOVE_ERROR" });
     }
   });
+
+  function dispose(): void {
+    lastScanResult = null;
+    lastScanAt = null;
+  }
+
+  // Attach dispose to the router for cleanup
+  (router as Router & { dispose: () => void }).dispose = dispose;
 
   return router;
 }

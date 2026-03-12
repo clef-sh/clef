@@ -14,18 +14,18 @@ Detection works in two categories:
 
 Clef maintains a list of known secret formats and matches them against each line of every scanned file:
 
-| Pattern                       | Example                           |
-| ----------------------------- | --------------------------------- |
-| AWS access key                | `AKIAIOSFODNN7EXAMPLE`            |
-| Stripe live key               | `sk_live_4eC39HqLyjW...`          |
-| Stripe test key               | `sk_test_4eC39HqLyjW...`          |
-| GitHub personal access token  | `ghp_16C7e42F292c6...`            |
-| GitHub OAuth token            | `gho_16C7e42F292c6...`            |
-| GitHub Actions token          | `ghs_16C7e42F292c6...`            |
-| Slack token                   | `xoxb-2048-352-1234...`           |
-| Private key header            | `-----BEGIN RSA PRIVATE KEY-----` |
-| Generic API key assignment    | `API_KEY=mysecretkey`             |
-| Database URL with credentials | `postgres://user:pass@host/db`    |
+| Pattern                      | Example                           |
+| ---------------------------- | --------------------------------- |
+| AWS access key               | `AKIAIOSFODNN7EXAMPLE`            |
+| Stripe live key              | `sk_live_4eC39HqLyjW...`          |
+| Stripe test key              | `sk_test_4eC39HqLyjW...`          |
+| GitHub personal access token | `ghp_16C7e42F292c6...`            |
+| GitHub OAuth token           | `gho_16C7e42F292c6...`            |
+| GitHub Actions token         | `ghs_16C7e42F292c6...`            |
+| Slack token                  | `xoxb-2048-352-1234...`           |
+| Private key header           | `-----BEGIN RSA PRIVATE KEY-----` |
+| Generic API key              | `API_KEY=mysecretkey`             |
+| Database URL                 | `postgres://user:pass@host/db`    |
 
 Pattern matches are high-signal. A Stripe live key starting with `sk_live_` is almost certainly a secret. Pattern detection has a very low false positive rate.
 

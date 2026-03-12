@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import * as os from "os";
 import { startServer, ServerHandle } from "../../packages/ui/src/server";
 import { generateAgeKey, checkSopsAvailable, AgeKeyPair } from "../setup/keys";
@@ -39,6 +40,13 @@ describe("Server binding", () => {
       // Best effort cleanup
     }
     repo?.cleanup();
+    if (keys?.tmpDir) {
+      try {
+        fs.rmSync(keys.tmpDir, { recursive: true, force: true });
+      } catch {
+        // Ignore
+      }
+    }
   });
 
   it("binds to 127.0.0.1 only", () => {

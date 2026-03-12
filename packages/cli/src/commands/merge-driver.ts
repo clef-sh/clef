@@ -24,7 +24,7 @@ function findRepoRoot(filePath: string): string {
     if (parent === dir) break;
     dir = parent;
   }
-  return process.cwd();
+  throw new Error("Could not find clef.yaml in any parent directory of: " + filePath);
 }
 
 /**
@@ -79,12 +79,22 @@ export function registerMergeDriverCommand(
             const parser = new ManifestParser();
             manifest = parser.parse(manifestPath);
 
-            // Try to determine the environment from the file path
-            for (const env of manifest.environments) {
-              if (oursPath.includes(env.name)) {
-                environment = env.name;
-                break;
+            // Determine the environment by matching against resolved file patterns
+            for (const ns of manifest.namespaces) {
+              for (const env of manifest.environments) {
+                const expected = manifest.file_pattern
+                  .replace("{namespace}", ns.name)
+                  .replace("{environment}", env.name);
+                const resolvedOurs = path.relative(repoRoot, path.resolve(oursPath));
+                if (
+                  resolvedOurs === expected ||
+                  path.basename(oursPath) === path.basename(expected)
+                ) {
+                  environment = env.name;
+                  break;
+                }
               }
+              if (environment) break;
             }
           }
 
@@ -107,10 +117,10 @@ export function registerMergeDriverCommand(
           );
 
           for (const c of result.conflicts) {
-            formatter.print(`  ${c.key}:`);
-            formatter.print(`    base:   ${c.baseValue ?? "(absent)"}`);
-            formatter.print(`    ours:   ${c.oursValue ?? "(deleted)"}`);
-            formatter.print(`    theirs: ${c.theirsValue ?? "(deleted)"}`);
+            formatter.failure(`  ${c.key}:`);
+            formatter.failure(`    base:   ${c.baseValue ?? "(absent)"}`);
+            formatter.failure(`    ours:   ${c.oursValue ?? "(deleted)"}`);
+            formatter.failure(`    theirs: ${c.theirsValue ?? "(deleted)"}`);
           }
 
           formatter.hint(

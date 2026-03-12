@@ -1,5 +1,5 @@
 import * as path from "path";
-import { randomBytes } from "crypto";
+import { randomBytes, timingSafeEqual } from "crypto";
 import express, { Request, Response, NextFunction } from "express";
 import { Server } from "http";
 import { SubprocessRunner } from "@clef-sh/core";
@@ -38,7 +38,9 @@ export async function startServer(
   app.use("/api", (req: Request, res: Response, next: NextFunction) => {
     const authHeader = req.headers.authorization ?? "";
     const match = authHeader.match(/^Bearer\s+(.+)$/);
-    if (!match || match[1] !== sessionToken) {
+    const provided = Buffer.from(match ? match[1] : "");
+    const expected = Buffer.from(sessionToken);
+    if (!match || provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
@@ -46,8 +48,10 @@ export async function startServer(
   });
 
   // Mount API routes
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dispose is dynamically attached
+  let apiRouter: any;
   if (runner) {
-    const apiRouter = createApiRouter({ runner, repoRoot });
+    apiRouter = createApiRouter({ runner, repoRoot });
     app.use("/api", apiRouter);
   }
 
@@ -72,6 +76,9 @@ export async function startServer(
           stop: () =>
             new Promise<void>((resolveStop, rejectStop) => {
               server.close((err) => {
+                if (apiRouter?.dispose) {
+                  apiRouter.dispose();
+                }
                 if (err) {
                   rejectStop(err);
                 } else {

@@ -18,7 +18,7 @@ function makeRunner(...results: SubprocessResult[]) {
 }
 
 function expectedCachePath(url: string): string {
-  const hash = crypto.createHash("sha256").update(url).digest("hex").slice(0, 16);
+  const hash = crypto.createHash("sha256").update(url).digest("hex").slice(0, 32);
   return path.join(os.homedir(), ".cache", "clef", hash);
 }
 

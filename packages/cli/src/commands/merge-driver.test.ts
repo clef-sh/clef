@@ -95,15 +95,23 @@ describe("clef merge-driver", () => {
     );
 
     const decryptCalls: string[] = [];
+    let encryptStdin: string | undefined;
     const files: Record<string, Record<string, string>> = {
       "/tmp/base": { A: "1", B: "2" },
       "/tmp/ours": { A: "changed", B: "2" },
       "/tmp/theirs": { A: "1", B: "2", C: "new" },
     };
-    const runner = makeMockRunner((filePath) => {
-      decryptCalls.push(filePath);
-      return files[filePath] ?? {};
-    });
+    const runner = makeMockRunner(
+      (filePath) => {
+        decryptCalls.push(filePath);
+        return files[filePath] ?? {};
+      },
+      {
+        onEncrypt: (stdin: string) => {
+          encryptStdin = stdin;
+        },
+      },
+    );
 
     const program = makeProgram(runner);
     await program.parseAsync([
@@ -117,10 +125,30 @@ describe("clef merge-driver", () => {
 
     expect(decryptCalls).toHaveLength(3);
     expect(mockExit).toHaveBeenCalledWith(0);
+
+    // Verify encrypt was called and the merged values are correct
+    const runCalls = (runner.run as jest.Mock).mock.calls;
+    const encryptCalls = runCalls.filter(
+      (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+    );
+    expect(encryptCalls.length).toBeGreaterThanOrEqual(1);
+
+    // Verify the encrypted content contains the expected merged values
+    expect(encryptStdin).toBeDefined();
+    const YAML = await import("yaml");
+    const parsed = YAML.parse(encryptStdin!);
+    expect(parsed).toEqual({ A: "changed", B: "2", C: "new" });
   });
 
   it("should exit 1 on merge conflict", async () => {
-    mockFs.existsSync.mockReturnValue(false);
+    mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
+      const s = p.toString();
+      if (s.includes("clef.yaml")) return true;
+      return false;
+    });
+    mockFs.readFileSync.mockReturnValue(
+      'version: 1\nenvironments:\n  - name: production\n    description: Prod\nnamespaces:\n  - name: db\n    description: DB\nsops:\n  default_backend: age\nfile_pattern: "{namespace}/{environment}.enc.yaml"\n',
+    );
 
     const runner = makeMockRunner((filePath) => {
       if (filePath === "/tmp/base") return { A: "original" };
@@ -142,7 +170,7 @@ describe("clef merge-driver", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
-  it("should exit 1 when manifest is missing and merge is clean", async () => {
+  it("should exit 1 when clef.yaml is not found in any parent directory", async () => {
     mockFs.existsSync.mockReturnValue(false);
 
     const runner = makeMockRunner(() => ({ A: "same" }));
@@ -162,7 +190,14 @@ describe("clef merge-driver", () => {
   });
 
   it("should exit 1 on decryption failure", async () => {
-    mockFs.existsSync.mockReturnValue(false);
+    mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
+      const s = p.toString();
+      if (s.includes("clef.yaml")) return true;
+      return false;
+    });
+    mockFs.readFileSync.mockReturnValue(
+      'version: 1\nenvironments:\n  - name: production\n    description: Prod\nnamespaces:\n  - name: db\n    description: DB\nsops:\n  default_backend: age\nfile_pattern: "{namespace}/{environment}.enc.yaml"\n',
+    );
 
     const runner: SubprocessRunner = {
       run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
@@ -198,8 +233,97 @@ describe("clef merge-driver", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
+  it("should merge cleanly when one side deletes a key", async () => {
+    mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
+      const s = p.toString();
+      if (s.includes("clef.yaml")) return true;
+      return false;
+    });
+    mockFs.readFileSync.mockReturnValue(
+      'version: 1\nenvironments:\n  - name: production\n    description: Prod\nnamespaces:\n  - name: db\n    description: DB\nsops:\n  default_backend: age\nfile_pattern: "{namespace}/{environment}.enc.yaml"\n',
+    );
+
+    let encryptStdin: string | undefined;
+    const runner = makeMockRunner(
+      (filePath): Record<string, string> => {
+        if (filePath === "/tmp/base") return { A: "1", B: "2", C: "3" };
+        if (filePath === "/tmp/ours") return { A: "1", B: "2" }; // C deleted
+        return { A: "1", B: "2", C: "3" }; // theirs unchanged
+      },
+      {
+        onEncrypt: (stdin: string) => {
+          encryptStdin = stdin;
+        },
+      },
+    );
+
+    const program = makeProgram(runner);
+    await program.parseAsync([
+      "node",
+      "clef",
+      "merge-driver",
+      "/tmp/base",
+      "/tmp/ours",
+      "/tmp/theirs",
+    ]);
+
+    expect(mockExit).toHaveBeenCalledWith(0);
+    expect(encryptStdin).toBeDefined();
+    const YAML = await import("yaml");
+    const parsed = YAML.parse(encryptStdin!);
+    expect(parsed).toEqual({ A: "1", B: "2" }); // C should be deleted
+  });
+
+  it("should merge cleanly when both sides add different keys", async () => {
+    mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
+      const s = p.toString();
+      if (s.includes("clef.yaml")) return true;
+      return false;
+    });
+    mockFs.readFileSync.mockReturnValue(
+      'version: 1\nenvironments:\n  - name: production\n    description: Prod\nnamespaces:\n  - name: db\n    description: DB\nsops:\n  default_backend: age\nfile_pattern: "{namespace}/{environment}.enc.yaml"\n',
+    );
+
+    let encryptStdin: string | undefined;
+    const runner = makeMockRunner(
+      (filePath): Record<string, string> => {
+        if (filePath === "/tmp/base") return { A: "1" };
+        if (filePath === "/tmp/ours") return { A: "1", B: "from-ours" };
+        return { A: "1", C: "from-theirs" };
+      },
+      {
+        onEncrypt: (stdin: string) => {
+          encryptStdin = stdin;
+        },
+      },
+    );
+
+    const program = makeProgram(runner);
+    await program.parseAsync([
+      "node",
+      "clef",
+      "merge-driver",
+      "/tmp/base",
+      "/tmp/ours",
+      "/tmp/theirs",
+    ]);
+
+    expect(mockExit).toHaveBeenCalledWith(0);
+    expect(encryptStdin).toBeDefined();
+    const YAML = await import("yaml");
+    const parsed = YAML.parse(encryptStdin!);
+    expect(parsed).toEqual({ A: "1", B: "from-ours", C: "from-theirs" });
+  });
+
   it("should report conflict details to the user", async () => {
-    mockFs.existsSync.mockReturnValue(false);
+    mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
+      const s = p.toString();
+      if (s.includes("clef.yaml")) return true;
+      return false;
+    });
+    mockFs.readFileSync.mockReturnValue(
+      'version: 1\nenvironments:\n  - name: production\n    description: Prod\nnamespaces:\n  - name: db\n    description: DB\nsops:\n  default_backend: age\nfile_pattern: "{namespace}/{environment}.enc.yaml"\n',
+    );
 
     const runner = makeMockRunner((filePath) => {
       if (filePath === "/tmp/base") return { X: "1", Y: "2" };
@@ -218,7 +342,11 @@ describe("clef merge-driver", () => {
     ]);
 
     expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("1 key(s) conflict"));
-    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("X:"));
+    // Conflict details must go to stderr via formatter.failure, not stdout via formatter.print
+    expect(mockFormatter.failure).toHaveBeenCalledWith(expect.stringContaining("X:"));
+    expect(mockFormatter.failure).toHaveBeenCalledWith(expect.stringContaining("base:"));
+    expect(mockFormatter.failure).toHaveBeenCalledWith(expect.stringContaining("ours:"));
+    expect(mockFormatter.failure).toHaveBeenCalledWith(expect.stringContaining("theirs:"));
     expect(mockFormatter.hint).toHaveBeenCalledWith(expect.stringContaining("Resolve conflicts"));
   });
 });

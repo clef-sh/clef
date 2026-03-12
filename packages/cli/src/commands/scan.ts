@@ -28,12 +28,8 @@ export function registerScanCommand(program: Command, deps: { runner: Subprocess
       "all",
     )
     .option("--json", "Output machine-readable JSON")
-    .option("--no-git", "Scan all files regardless of .gitignore")
     .action(
-      async (
-        paths: string[],
-        options: { staged?: boolean; severity?: string; json?: boolean; noGit?: boolean },
-      ) => {
+      async (paths: string[], options: { staged?: boolean; severity?: string; json?: boolean }) => {
         const repoRoot = (program.opts().repo as string) || process.cwd();
 
         let manifest;

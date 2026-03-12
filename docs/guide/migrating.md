@@ -45,8 +45,9 @@ clef import database/staging .env --prefix DB_
 # Import only Stripe keys into the payments namespace
 clef import payments/staging .env --prefix STRIPE_
 
-# Import only auth keys
-clef import auth/staging .env --prefix AUTH_ --prefix JWT_
+# Import auth keys (one prefix per command)
+clef import auth/staging .env --prefix AUTH_
+clef import auth/staging .env --prefix JWT_
 ```
 
 ### Handling non-string values

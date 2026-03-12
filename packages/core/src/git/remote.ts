@@ -16,12 +16,21 @@ import { SubprocessRunner } from "../types";
  * ```
  */
 export function isGitUrl(value: string): boolean {
+  if (value.startsWith("http://")) {
+    process.stderr.write(
+      "Warning: http:// URLs use plaintext transport. Use https:// or SSH for secrets repositories.\n",
+    );
+  }
   return value.startsWith("https://") || value.startsWith("http://") || /^git@[^:]+:/.test(value);
 }
 
 function cachePathForUrl(url: string): string {
-  const hash = crypto.createHash("sha256").update(url).digest("hex").slice(0, 16);
+  const hash = crypto.createHash("sha256").update(url).digest("hex").slice(0, 32);
   return path.join(os.homedir(), ".cache", "clef", hash);
+}
+
+function sanitizeUrl(url: string): string {
+  return url.replace(/\/\/[^@]+@/, "//***@");
 }
 
 /**
@@ -53,7 +62,7 @@ export async function resolveRemoteRepo(
 
     const fetchResult = await runner.run("git", fetchArgs, { cwd: localPath });
     if (fetchResult.exitCode !== 0) {
-      throw new Error(`Failed to fetch '${url}': ${fetchResult.stderr.trim()}`);
+      throw new Error(`Failed to fetch '${sanitizeUrl(url)}': ${fetchResult.stderr.trim()}`);
     }
 
     const ref = branch ? `origin/${branch}` : "origin/HEAD";
@@ -69,7 +78,7 @@ export async function resolveRemoteRepo(
 
     const cloneResult = await runner.run("git", cloneArgs);
     if (cloneResult.exitCode !== 0) {
-      throw new Error(`Failed to clone '${url}': ${cloneResult.stderr.trim()}`);
+      throw new Error(`Failed to clone '${sanitizeUrl(url)}': ${cloneResult.stderr.trim()}`);
     }
   }
 

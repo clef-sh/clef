@@ -40,13 +40,24 @@ export async function generateAgeKey(): Promise<AgeKeyPair> {
  * Check if sops is available in PATH.
  */
 export function checkSopsAvailable(): void {
-  try {
-    execFileSync("sops", ["--version"], { stdio: "pipe" });
-  } catch {
+  if (!isSopsAvailable()) {
     throw new Error(
       "sops not found. Install sops to run integration tests:\n" +
         "  brew install sops  (macOS)\n" +
         "  See https://github.com/getsops/sops/releases  (Linux)\n",
     );
+  }
+}
+
+/**
+ * Returns true if sops is installed and available in PATH.
+ * Use for conditional test skipping.
+ */
+export function isSopsAvailable(): boolean {
+  try {
+    execFileSync("sops", ["--version"], { stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
   }
 }

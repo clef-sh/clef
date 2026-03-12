@@ -9,8 +9,21 @@ let repo: TestRepo;
 
 beforeAll(async () => {
   checkSopsAvailable();
-  keys = await generateAgeKey();
-  repo = scaffoldTestRepo(keys);
+  try {
+    keys = await generateAgeKey();
+    repo = scaffoldTestRepo(keys);
+  } catch (err) {
+    // Clean up temp dirs on setup failure
+    if (keys?.tmpDir) {
+      try {
+        fs.rmSync(keys.tmpDir, { recursive: true, force: true });
+      } catch {
+        // Ignore
+      }
+    }
+    repo?.cleanup();
+    throw err;
+  }
 });
 
 afterAll(() => {

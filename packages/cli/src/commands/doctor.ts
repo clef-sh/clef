@@ -22,6 +22,7 @@ interface DoctorJsonOutput {
   ageKey: { source: string | null; recipients: number; ok: boolean };
   sopsYaml: { found: boolean; ok: boolean; fix?: string };
   scanner: { clefignoreFound: boolean; ok: boolean };
+  mergeDriver: { gitConfig: boolean; gitattributes: boolean; ok: boolean };
 }
 
 export function registerDoctorCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -212,6 +213,11 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
           scanner: {
             clefignoreFound: checks.find((c) => c.name === "scanner")?.ok ?? false,
             ok: checks.find((c) => c.name === "scanner")?.ok ?? false,
+          },
+          mergeDriver: {
+            gitConfig: mergeDriverStatus.gitConfig,
+            gitattributes: mergeDriverStatus.gitattributes,
+            ok: mergeDriverOk,
           },
         };
 

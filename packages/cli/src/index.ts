@@ -29,7 +29,16 @@ const deps = { runner };
 
 // Commands blocked when --repo is a git URL (read-only remote mode).
 // Subcommand parents (hooks, recipients) are checked separately.
-const REMOTE_WRITE_COMMANDS = new Set(["set", "delete", "rotate", "init", "import", "ui"]);
+const REMOTE_WRITE_COMMANDS = new Set([
+  "set",
+  "delete",
+  "rotate",
+  "init",
+  "import",
+  "ui",
+  "update",
+  "merge-driver",
+]);
 
 function isWriteCommand(name: string, parentName: string | undefined): boolean {
   if (REMOTE_WRITE_COMMANDS.has(name)) return true;

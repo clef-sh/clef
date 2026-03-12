@@ -172,12 +172,16 @@ describe("SopsClient", () => {
       const client = new SopsClient({ run: runFn });
       await client.encrypt("database/dev.enc.yaml", { KEY: "value" }, testManifest());
 
-      // Verify sops encrypt was called
-      expect(runFn).toHaveBeenCalledWith(
-        "sops",
-        expect.arrayContaining(["encrypt"]),
-        expect.objectContaining({ stdin: expect.any(String) }),
+      // Verify sops encrypt was called with correct stdin content
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing dynamic mock call args
+      const encryptCall = (runFn.mock.calls as any[]).find(
+        (c: unknown[]) => c[0] === "sops" && (c[1] as string[])[0] === "encrypt",
       );
+      expect(encryptCall).toBeDefined();
+      const stdinContent = (encryptCall[2] as { stdin: string }).stdin;
+      const YAML = await import("yaml");
+      const parsed = YAML.parse(stdinContent);
+      expect(parsed).toEqual({ KEY: "value" });
       // Verify tee was called to write the file
       expect(runFn).toHaveBeenCalledWith(
         "tee",

@@ -89,16 +89,16 @@ jobs:
   deploy:
     docker:
       - image: cimg/base:current
+    environment:
+      SOPS_AGE_KEY: $AGE_PRIVATE_KEY
     steps:
       - checkout
       - run:
           name: Deploy
           command: clef exec payments/production -- ./deploy.sh
-          environment:
-            SOPS_AGE_KEY: $AGE_PRIVATE_KEY
 ```
 
-Store `AGE_PRIVATE_KEY` as a CircleCI project environment variable or context variable in your CircleCI project settings.
+Store `AGE_PRIVATE_KEY` as a CircleCI project environment variable or context variable in your CircleCI project settings. Job-level `environment` entries are interpolated from project/context variables at runtime, whereas `environment` under a `run` step treats values as literal strings without variable expansion.
 
 ## AWS KMS — Zero-Secret Pattern
 
