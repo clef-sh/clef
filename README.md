@@ -39,11 +39,13 @@ npm install -g @clef-sh/cli
 
 ### Prerequisites
 
-- [SOPS](https://github.com/getsops/sops) v3.7+
+- [SOPS](https://github.com/getsops/sops) v3.8+
 - Git
 - Node.js 18+
 
 Run `clef doctor` after installing to verify your environment.
+
+When using the age backend (the default), `clef init` generates your age key pair automatically — no separate age binary needed.
 
 ## Quick Start
 
@@ -78,20 +80,24 @@ clef ui
 
 ## CLI Commands
 
-| Command       | Description                                                                      |
-| ------------- | -------------------------------------------------------------------------------- |
-| `clef init`   | Initialise a Clef repo with manifest, encrypted file matrix, and pre-commit hook |
-| `clef get`    | Retrieve a single decrypted value                                                |
-| `clef set`    | Set a secret value (supports hidden input and random generation)                 |
-| `clef delete` | Delete a key from an encrypted file (`--all-envs` for bulk)                      |
-| `clef diff`   | Compare secrets between two environments                                         |
-| `clef lint`   | Validate matrix completeness, schema compliance, and SOPS integrity              |
-| `clef rotate` | Rotate encryption keys for a namespace/environment                               |
-| `clef hooks`  | Install the pre-commit hook                                                      |
-| `clef exec`   | Run a command with decrypted secrets as environment variables                    |
-| `clef export` | Print decrypted secrets as shell export statements                               |
-| `clef doctor` | Check for required dependencies and configuration                                |
-| `clef ui`     | Launch the local web UI                                                          |
+| Command            | Description                                                                           |
+| ------------------ | ------------------------------------------------------------------------------------- |
+| `clef init`        | Initialise a Clef repo (idempotent — safe to re-run for second-developer onboarding) |
+| `clef update`      | Scaffold missing matrix cells after adding namespaces or environments to `clef.yaml` |
+| `clef get`         | Retrieve a single decrypted value                                                     |
+| `clef set`         | Set a secret value (supports hidden input and random generation)                      |
+| `clef delete`      | Delete a key from an encrypted file (`--all-envs` for bulk)                          |
+| `clef diff`        | Compare secrets between two environments                                              |
+| `clef lint`        | Validate matrix completeness, schema compliance, and SOPS integrity                  |
+| `clef rotate`      | Rotate encryption keys for a namespace/environment                                    |
+| `clef recipients`  | Manage age recipients — list, add, or remove keys that can decrypt the repo           |
+| `clef hooks`       | Install the pre-commit hook                                                           |
+| `clef exec`        | Run a command with decrypted secrets as environment variables                         |
+| `clef export`      | Print decrypted secrets as shell export statements                                    |
+| `clef import`      | Bulk-import secrets from a dotenv, JSON, or YAML file                                |
+| `clef scan`        | Scan the repository for secrets that have escaped the Clef matrix                    |
+| `clef doctor`      | Check for required dependencies and configuration                                     |
+| `clef ui`          | Launch the local web UI                                                               |
 
 ## Web UI
 
