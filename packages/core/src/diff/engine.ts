@@ -14,7 +14,27 @@ import * as path from "path";
 import { ClefManifest, DiffResult, DiffRow, DiffStatus } from "../types";
 import { SopsClient } from "../sops/client";
 
+/**
+ * Compares decrypted values between two environments or two arbitrary key/value maps.
+ *
+ * @example
+ * ```ts
+ * const engine = new DiffEngine();
+ * const result = await engine.diffFiles("app", "staging", "production", manifest, sopsClient, repoRoot);
+ * ```
+ */
 export class DiffEngine {
+  /**
+   * Compare two in-memory value maps and produce a sorted diff result.
+   *
+   * Rows are sorted with missing and changed keys first, identical keys last.
+   *
+   * @param valuesA - Decrypted values from environment A.
+   * @param valuesB - Decrypted values from environment B.
+   * @param envA - Name of environment A.
+   * @param envB - Name of environment B.
+   * @param namespace - Namespace label included in the result (optional).
+   */
   diff(
     valuesA: Record<string, string>,
     valuesB: Record<string, string>,
@@ -60,6 +80,17 @@ export class DiffEngine {
     return { namespace, envA, envB, rows };
   }
 
+  /**
+   * Decrypt two matrix cells and diff their values.
+   *
+   * @param namespace - Namespace containing both cells.
+   * @param envA - Name of environment A.
+   * @param envB - Name of environment B.
+   * @param manifest - Parsed manifest used to resolve file paths.
+   * @param sopsClient - SOPS client used to decrypt both files.
+   * @param repoRoot - Absolute path to the repository root.
+   * @throws {@link SopsDecryptionError} If either file cannot be decrypted.
+   */
   async diffFiles(
     namespace: string,
     envA: string,

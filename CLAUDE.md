@@ -10,8 +10,8 @@ Clef is a git-native secrets management tool built on Mozilla SOPS. It provides 
 
 npm workspaces with three packages:
 
-- **`packages/core`** — Core library (manifest parsing, matrix management, SOPS client, lint runner, schema validation, diff engine). Zero npm dependencies except `yaml`.
-- **`packages/cli`** — Commander.js CLI wrapping core. 12 commands: init, get, set, delete, diff, lint, rotate, hooks, exec, export, doctor, ui.
+- **`packages/core`** — Core library (manifest parsing, matrix management, SOPS client, lint runner, schema validation, diff engine, secret scanning, git integration, bulk ops, import/export, recipient management, pending metadata, age keygen, dependency checking). Production dependencies: `yaml`, `age-encryption`.
+- **`packages/cli`** — Commander.js CLI wrapping core. 17 commands: init, get, set, delete, diff, lint, rotate, hooks, exec, export, import, doctor, update, scan, recipients, ui, merge-driver.
 - **`packages/ui`** — React + Vite + Express local web UI served at `127.0.0.1:7777`.
 
 ## Commands
@@ -34,6 +34,11 @@ npx jest --config packages/cli/jest.config.js packages/cli/src/commands/get.test
 
 # Integration tests (requires sops + age binaries installed)
 npm run test:integration
+
+# Documentation
+npm run docs:dev     # Dev server (typedoc + vitepress)
+npm run docs:build   # Production build
+npm run docs:api     # Generate API docs only (typedoc)
 ```
 
 ## Architecture
@@ -75,7 +80,7 @@ Split client (Vite/React) and server (Express). Server binds `127.0.0.1` only. V
 
 ## Test Coverage Thresholds
 
-- **Core**: 90% branch, 100% function/line/statement
-- **CLI**: 85% branch, 100% function/line/statement
+- **Global** (core & CLI): 80% lines/functions/statements, 75% branches
+- **Tier 1 modules** (sops/client, pending/metadata, scanner/patterns, diff/engine, manifest/parser): 95% lines/functions, 90% branches
 - Unit tests fully mock `fs`, `SubprocessRunner`, and `OutputFormatter`
 - Integration tests (`integration/`) use real sops + git binaries with temp directories

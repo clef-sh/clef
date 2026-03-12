@@ -5,6 +5,15 @@ import { SchemaValidator } from "../schema/validator";
 import { SopsClient } from "../sops/client";
 import { getPendingKeys } from "../pending/metadata";
 
+/**
+ * Runs matrix completeness, schema validation, SOPS integrity, and key-drift checks.
+ *
+ * @example
+ * ```ts
+ * const runner = new LintRunner(matrixManager, schemaValidator, sopsClient);
+ * const result = await runner.run(manifest, repoRoot);
+ * ```
+ */
 export class LintRunner {
   constructor(
     private readonly matrixManager: MatrixManager,
@@ -12,6 +21,13 @@ export class LintRunner {
     private readonly sopsClient: SopsClient,
   ) {}
 
+  /**
+   * Lint the entire matrix: check missing files, schema errors, SOPS integrity,
+   * single-recipient warnings, and cross-environment key drift.
+   *
+   * @param manifest - Parsed manifest.
+   * @param repoRoot - Absolute path to the repository root.
+   */
   async run(manifest: ClefManifest, repoRoot: string): Promise<LintResult> {
     const issues: LintIssue[] = [];
     const cells = this.matrixManager.resolveMatrix(manifest, repoRoot);
@@ -191,12 +207,18 @@ export class LintRunner {
     return { issues, fileCount: fileCount + missingCells.length, pendingCount };
   }
 
+  /**
+   * Auto-fix safe issues (scaffold missing matrix files), then re-run lint.
+   *
+   * @param manifest - Parsed manifest.
+   * @param repoRoot - Absolute path to the repository root.
+   */
   async fix(manifest: ClefManifest, repoRoot: string): Promise<LintResult> {
     // Auto-fix safe issues: scaffold missing files
     const missingCells = this.matrixManager.detectMissingCells(manifest, repoRoot);
 
     for (const cell of missingCells) {
-      await this.matrixManager.scaffoldCell(cell, this.sopsClient);
+      await this.matrixManager.scaffoldCell(cell, this.sopsClient, manifest);
     }
 
     // Re-run lint after fixes

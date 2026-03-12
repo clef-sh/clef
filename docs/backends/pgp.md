@@ -118,15 +118,15 @@ gpg --import teammate-public-key.asc
 
 ## PGP vs age
 
-|                              | PGP                                             | age                              |
-| ---------------------------- | ----------------------------------------------- | -------------------------------- |
-| Key generation               | Complex (interactive prompts, key type choices) | Simple (`age-keygen -o key.txt`) |
-| Key format                   | GPG keyring (binary, opaque)                    | Plain text file                  |
-| Key size                     | Variable (RSA 2048-4096, etc.)                  | Fixed (X25519)                   |
-| Web of trust                 | Full WoT model                                  | None (by design)                 |
-| Key expiration               | Supported                                       | Not applicable                   |
-| Ecosystem                    | Large, complex                                  | Minimal, focused                 |
-| Recommended for new projects | No                                              | Yes                              |
+|                              | PGP                                             | age                                          |
+| ---------------------------- | ----------------------------------------------- | -------------------------------------------- |
+| Key generation               | Complex (interactive prompts, key type choices) | Automatic (`clef init` generates a key pair) |
+| Key format                   | GPG keyring (binary, opaque)                    | Plain text file                              |
+| Key size                     | Variable (RSA 2048-4096, etc.)                  | Fixed (X25519)                               |
+| Web of trust                 | Full WoT model                                  | None (by design)                             |
+| Key expiration               | Supported                                       | Not applicable                               |
+| Ecosystem                    | Large, complex                                  | Minimal, focused                             |
+| Recommended for new projects | No                                              | Yes                                          |
 
 ## See also
 

@@ -14,41 +14,27 @@ For teams that need IAM integration or centralised key management, consider [AWS
 
 ## Key generation
 
-`clef init` automatically generates an age key pair and stores the private key at `.clef/key.txt`. The file is excluded from git via `.clef/.gitignore`. No manual key generation is required.
+`clef init` automatically generates an age key pair using the `age-encryption` npm package — no age binary is required. The private key is written to `~/.config/clef/keys.txt` by default (outside the repository, outside any git working tree). The path to the key is stored in `.clef/config.yaml` (gitignored via `.clef/.gitignore`). No manual key generation is required.
 
 To find your public key:
 
 ```bash
-grep "public key" .clef/key.txt
+grep "public key" ~/.config/clef/keys.txt
 ```
 
-**Important:** The private key must be kept secret. Never commit it to git — the generated `.clef/.gitignore` handles this automatically.
+**Important:** The private key must be kept secret and must never reside inside a git repository. The default location (`~/.config/clef/keys.txt`) enforces this automatically.
 
 ## Configuring SOPS to find your key
 
-SOPS looks for age keys in two locations, checked in order:
+Clef reads the age key path from `.clef/config.yaml` (gitignored) and sets `SOPS_AGE_KEY_FILE` automatically before every SOPS subprocess call. In most cases you do not need to configure anything manually — `clef init` handles this during setup.
 
-1. The `SOPS_AGE_KEY_FILE` environment variable
-2. The default path `~/.config/sops/age/keys.txt`
-
-### Option A: Default path (recommended for personal use)
+If you need to override the key location (for example, in CI), set the environment variable directly:
 
 ```bash
-mkdir -p ~/.config/sops/age
-cp key.txt ~/.config/sops/age/keys.txt
+export SOPS_AGE_KEY_FILE=/path/to/your/keys.txt
 ```
 
-### Option B: Environment variable (recommended for CI and custom setups)
-
-```bash
-export SOPS_AGE_KEY_FILE=/path/to/your/key.txt
-```
-
-Add the export to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.) so it persists across sessions.
-
-### Option C: Repo-local key file
-
-Clef's `clef init` defaults to `.sops/keys.txt` relative to the repo root and sets `age_key_file` in the manifest. SOPS will use this path when Clef sets the `SOPS_AGE_KEY_FILE` environment variable before calling the `sops` binary.
+SOPS checks `SOPS_AGE_KEY_FILE` first, so this override takes precedence over the path stored in `.clef/config.yaml`.
 
 ## Manifest configuration
 
@@ -74,10 +60,11 @@ namespaces:
 
 sops:
   default_backend: age
-  age_key_file: .sops/keys.txt
 
 file_pattern: "{namespace}/{environment}.enc.yaml"
 ```
+
+The age private key path is **not** stored in `clef.yaml`. It is stored in `.clef/config.yaml` on each developer's machine (gitignored).
 
 ## Full working example
 
@@ -90,7 +77,8 @@ git init
 
 # 2. Initialise Clef — generates an age key pair automatically
 clef init --namespaces database,auth --non-interactive
-# Key stored at .clef/key.txt (gitignored)
+# Private key written to ~/.config/clef/keys.txt (outside the repo)
+# Path stored in .clef/config.yaml (gitignored)
 
 # 3. Set your first secret
 clef set database/dev DB_PASSWORD mydevpassword
@@ -112,8 +100,8 @@ age supports multiple recipients. Each team member generates their own key pair 
 
 When a new team member joins:
 
-1. They run `clef init` in a clone of the repository — a key pair is generated and stored at `.clef/key.txt`
-2. They share their public key: `grep "public key" .clef/key.txt`
+1. They run `clef init` in a clone of the repository — a key pair is generated and stored at `~/.config/clef/keys.txt` on their machine (outside the repo)
+2. They share their public key: `grep "public key" ~/.config/clef/keys.txt`
 3. An existing team member adds them as a recipient:
 
 ```bash

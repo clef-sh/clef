@@ -327,7 +327,7 @@ async function handleFullSetup(
   for (const cell of cells) {
     if (!cell.exists) {
       try {
-        await matrixManager.scaffoldCell(cell, sopsClient);
+        await matrixManager.scaffoldCell(cell, sopsClient, manifest);
         scaffoldedCount++;
       } catch (err) {
         formatter.warn(
@@ -386,14 +386,16 @@ async function handleFullSetup(
     formatter.print("  .clefignore already exists — skipping");
   }
 
-  // Install pre-commit hook
+  // Install git hooks and merge driver
   try {
     const git = new GitIntegration(deps.runner);
     await git.installPreCommitHook(repoRoot);
     formatter.success("Installed pre-commit hook");
+    await git.installMergeDriver(repoRoot);
+    formatter.success("Configured SOPS merge driver");
   } catch {
     formatter.warn(
-      "Could not install pre-commit hook. Run 'clef hooks install' inside a git repository.",
+      "Could not install git hooks. Run 'clef hooks install' inside a git repository.",
     );
   }
 
@@ -424,7 +426,7 @@ export function scaffoldSopsConfig(repoRoot: string): void {
 
 function buildSopsYaml(
   manifest: ClefManifest,
-  repoRoot: string,
+  _repoRoot: string,
   agePublicKey: string | undefined,
 ): Record<string, unknown> {
   const creationRules: Record<string, unknown>[] = [];
@@ -434,27 +436,36 @@ function buildSopsYaml(
       const pathRegex = `${ns.name}/${env.name}\\.enc\\.yaml$`;
       const rule: Record<string, unknown> = { path_regex: pathRegex };
 
-      switch (manifest.sops.default_backend) {
+      // Resolve the effective backend for this environment, respecting per-env overrides
+      const backend = env.sops?.backend ?? manifest.sops.default_backend;
+
+      switch (backend) {
         case "age":
           if (agePublicKey) {
             rule.age = agePublicKey;
           }
           break;
-        case "awskms":
-          if (manifest.sops.aws_kms_arn) {
-            rule.kms = manifest.sops.aws_kms_arn;
+        case "awskms": {
+          const arn = env.sops?.aws_kms_arn ?? manifest.sops.aws_kms_arn;
+          if (arn) {
+            rule.kms = arn;
           }
           break;
-        case "gcpkms":
-          if (manifest.sops.gcp_kms_resource_id) {
-            rule.gcp_kms = manifest.sops.gcp_kms_resource_id;
+        }
+        case "gcpkms": {
+          const resourceId = env.sops?.gcp_kms_resource_id ?? manifest.sops.gcp_kms_resource_id;
+          if (resourceId) {
+            rule.gcp_kms = resourceId;
           }
           break;
-        case "pgp":
-          if (manifest.sops.pgp_fingerprint) {
-            rule.pgp = manifest.sops.pgp_fingerprint;
+        }
+        case "pgp": {
+          const fingerprint = env.sops?.pgp_fingerprint ?? manifest.sops.pgp_fingerprint;
+          if (fingerprint) {
+            rule.pgp = fingerprint;
           }
           break;
+        }
       }
 
       creationRules.push(rule);
@@ -564,7 +575,7 @@ async function scaffoldRandomValues(
       }
 
       if (pendingKeys.length > 0) {
-        await sopsClient.encrypt(filePath, decrypted.values, manifest);
+        await sopsClient.encrypt(filePath, decrypted.values, manifest, env.name);
         await markPending(filePath, pendingKeys, "clef init --random-values");
         addCount(pendingKeys.length);
       }

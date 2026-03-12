@@ -8,6 +8,12 @@ const BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const AGE_PREFIX = "age1";
 const MIN_LENGTH = 10;
 
+/**
+ * Validate that a string is a well-formed age public key (bech32, `age1` prefix).
+ *
+ * @param input - The string to validate.
+ * @returns `{ valid: true, key: trimmedKey }` or `{ valid: false, error: message }`.
+ */
 export function validateAgePublicKey(input: string): AgeKeyValidation {
   const trimmed = input.trim();
 
@@ -38,6 +44,11 @@ export function validateAgePublicKey(input: string): AgeKeyValidation {
   return { valid: true, key: trimmed };
 }
 
+/**
+ * Return a short display preview of an age public key: `age1…last8chars`.
+ *
+ * @param key - Full age public key string.
+ */
 export function keyPreview(key: string): string {
   const last8 = key.slice(-8);
   return `age1\u2026${last8}`;

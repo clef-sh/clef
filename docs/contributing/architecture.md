@@ -20,7 +20,9 @@ This page describes Clef's internal architecture: how the packages relate to eac
 │                                                      │
 │  ManifestParser  │  MatrixManager  │  SchemaValidator│
 │  DiffEngine      │  BulkOps        │  GitIntegration │
-│  LintRunner      │  SopsClient     │                 │
+│  LintRunner      │  SopsClient     │  ScanRunner     │
+│  ImportRunner    │  RecipientMgr   │  ConsumptionCli │
+│  PendingMetadata │  DependencyChk  │  AgeKeygen      │
 └──────────────────────────┬──────────────────────────┘
                            │
            ┌───────────────┼───────────────┐
@@ -43,7 +45,7 @@ Loads and validates `clef.yaml`. Parses the YAML, validates all required fields,
 Thin subprocess wrapper around the `sops` binary. Provides three operations:
 
 - **decrypt(filePath)** — calls `sops decrypt` and returns decrypted values in memory
-- **encrypt(filePath, values, manifest)** — pipes plaintext YAML through `sops encrypt` via stdin and writes the encrypted output to disk
+- **encrypt(filePath, values, manifest, environment?)** — pipes plaintext YAML through `sops encrypt` via stdin and writes the encrypted output to disk. When `environment` is provided, per-environment backend overrides are resolved from the manifest.
 - **reEncrypt(filePath, newKey)** — calls `sops rotate` to add a new recipient
 
 The SopsClient takes a `SubprocessRunner` as a constructor dependency, enabling full mocking in tests.
@@ -71,6 +73,38 @@ Wrapper around the `git` binary for commits, status, log, diff, and pre-commit h
 ### LintRunner (`packages/core/src/lint/runner.ts`)
 
 Orchestrates a full repo validation by combining MatrixManager (completeness), SchemaValidator (schema compliance), and SopsClient (encryption integrity).
+
+### ScanRunner (`packages/core/src/scanner/index.ts`)
+
+Scans the repository for plaintext secrets using pattern matching and entropy analysis. Respects `.clefignore` rules to exclude false positives.
+
+### ImportRunner (`packages/core/src/import/index.ts`)
+
+Parses external secret formats (`.env`, JSON, YAML) and imports them into the Clef matrix. Uses format-specific parsers from `import/parsers.ts`.
+
+### RecipientManager (`packages/core/src/recipients/index.ts`)
+
+Manages age recipients in `.sops.yaml` creation rules — listing, adding, and removing public keys. Includes a validator for key format.
+
+### ConsumptionClient (`packages/core/src/consumption/client.ts`)
+
+Reads and resolves secrets for consumption by `clef exec` and `clef export`. Handles namespace/environment targeting and value injection.
+
+### PendingMetadata (`packages/core/src/pending/metadata.ts`)
+
+Tracks keys set with `--random` as pending in `.clef-meta.yaml` files. Provides `markPending` and `markResolved` with retry logic for concurrent access.
+
+### DependencyChecker (`packages/core/src/dependencies/checker.ts`)
+
+Checks that required external binaries (SOPS, git) are installed and meet minimum version requirements. Used by `clef doctor` and as a guard in SopsClient.
+
+### AgeKeygen (`packages/core/src/age/keygen.ts`)
+
+Generates age key pairs using the `age-encryption` npm package. Used during `clef init` to create a local key.
+
+### GitRemote (`packages/core/src/git/remote.ts`)
+
+Handles cloning and fetching remote git repositories for the `--repo <url>` feature. Manages the local cache at `~/.cache/clef/`.
 
 ## Data flow: `clef set`
 

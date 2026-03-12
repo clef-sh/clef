@@ -28,9 +28,27 @@ const ALWAYS_SKIP_NAMES = [".clef-meta.yaml"] as const;
 const ALWAYS_SKIP_DIRS = ["node_modules", ".git"] as const;
 const MAX_FILE_SIZE = 1024 * 1024; // 1 MB
 
+/**
+ * Scans repository files for plaintext secrets using pattern matching and entropy detection.
+ *
+ * @example
+ * ```ts
+ * const scanner = new ScanRunner(runner);
+ * const result = await scanner.scan(repoRoot, manifest, { stagedOnly: true });
+ * ```
+ */
 export class ScanRunner {
   constructor(private readonly runner: SubprocessRunner) {}
 
+  /**
+   * Scan tracked (or staged) files for secret-like values and unencrypted matrix files.
+   *
+   * The scan respects `.clefignore` rules and inline `# clef-ignore` suppressions.
+   *
+   * @param repoRoot - Absolute path to the repository root.
+   * @param manifest - Parsed manifest used to identify matrix file paths.
+   * @param options - Optional scan filters.
+   */
   async scan(
     repoRoot: string,
     manifest: ClefManifest,

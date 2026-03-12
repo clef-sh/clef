@@ -132,7 +132,7 @@ describe("MatrixManager", () => {
   });
 
   describe("scaffoldCell", () => {
-    it("should create directory and call sopsClient.encrypt", async () => {
+    it("should create directory and call sopsClient.encrypt with manifest and environment", async () => {
       mockFs.existsSync.mockReturnValue(false);
       mockFs.mkdirSync.mockReturnValue(undefined);
 
@@ -147,13 +147,15 @@ describe("MatrixManager", () => {
         exists: false,
       };
 
-      await manager.scaffoldCell(cell, mockSopsClient);
+      const manifest = testManifest();
+      await manager.scaffoldCell(cell, mockSopsClient, manifest);
 
       expect(mockFs.mkdirSync).toHaveBeenCalledWith("/repo/database", { recursive: true });
       expect(mockSopsClient.encrypt).toHaveBeenCalledWith(
         "/repo/database/dev.enc.yaml",
         {},
-        expect.any(Object),
+        manifest,
+        "dev",
       );
     });
 
@@ -171,9 +173,48 @@ describe("MatrixManager", () => {
         exists: false,
       };
 
-      await manager.scaffoldCell(cell, mockSopsClient);
+      await manager.scaffoldCell(cell, mockSopsClient, testManifest());
 
       expect(mockFs.mkdirSync).not.toHaveBeenCalled();
+    });
+
+    it("should pass per-env backend via environment param to encrypt", async () => {
+      mockFs.existsSync.mockReturnValue(false);
+      mockFs.mkdirSync.mockReturnValue(undefined);
+
+      const mockSopsClient = {
+        encrypt: jest.fn().mockResolvedValue(undefined),
+      } as unknown as SopsClient;
+
+      const manifest: ClefManifest = {
+        ...testManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Production",
+            sops: {
+              backend: "awskms",
+              aws_kms_arn: "arn:aws:kms:us-east-1:123:key/abc",
+            },
+          },
+        ],
+      };
+
+      const cell = {
+        namespace: "database",
+        environment: "production",
+        filePath: "/repo/database/production.enc.yaml",
+        exists: false,
+      };
+
+      await manager.scaffoldCell(cell, mockSopsClient, manifest);
+
+      expect(mockSopsClient.encrypt).toHaveBeenCalledWith(
+        "/repo/database/production.enc.yaml",
+        {},
+        manifest,
+        "production",
+      );
     });
   });
 

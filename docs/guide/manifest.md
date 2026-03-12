@@ -32,7 +32,6 @@ namespaces:
 
 sops:
   default_backend: age
-  age_key_file: .sops/keys.txt
 
 file_pattern: "{namespace}/{environment}.enc.yaml"
 ```
@@ -53,11 +52,39 @@ file_pattern: "{namespace}/{environment}.enc.yaml"
 
 Each entry in the `environments` array:
 
-| Field         | Type      | Required | Default | Description                                                                                                         |
-| ------------- | --------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
-| `name`        | `string`  | Yes      | —       | Environment identifier. Used in file paths and CLI arguments. Must be unique.                                       |
-| `description` | `string`  | Yes      | —       | Human-readable description. Shown in the UI.                                                                        |
-| `protected`   | `boolean` | No       | `false` | If `true`, writes to this environment require explicit confirmation in the CLI and show a warning banner in the UI. |
+| Field         | Type      | Required | Default | Description                                                                                                                                                                                                              |
+| ------------- | --------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `name`        | `string`  | Yes      | —       | Environment identifier. Used in file paths and CLI arguments. Must be unique.                                                                                                                                            |
+| `description` | `string`  | Yes      | —       | Human-readable description. Shown in the UI.                                                                                                                                                                             |
+| `protected`   | `boolean` | No       | `false` | If `true`, writes to this environment require explicit confirmation in the CLI and show a warning banner in the UI.                                                                                                      |
+| `sops`        | `object`  | No       | —       | Per-environment SOPS backend override. When set, this environment uses a different encryption backend than the global `sops.default_backend`. See [Per-environment SOPS override](#per-environment-sops-override) below. |
+
+#### Per-environment SOPS override
+
+An environment can override the global SOPS backend by including a `sops` object. This is useful when different environments use different encryption providers (e.g., age for development, AWS KMS for production).
+
+```yaml
+environments:
+  - name: dev
+    description: Local development
+  - name: production
+    description: Production environment
+    protected: true
+    sops:
+      backend: awskms
+      aws_kms_arn: "arn:aws:kms:us-east-1:123456789:key/abcd-1234"
+```
+
+The `sops` object on an environment accepts:
+
+| Field                 | Type     | Required      | Description                                                      |
+| --------------------- | -------- | ------------- | ---------------------------------------------------------------- |
+| `backend`             | `string` | Yes           | Encryption backend: `"age"`, `"awskms"`, `"gcpkms"`, or `"pgp"`. |
+| `aws_kms_arn`         | `string` | When `awskms` | AWS KMS key ARN.                                                 |
+| `gcp_kms_resource_id` | `string` | When `gcpkms` | GCP KMS key resource ID.                                         |
+| `pgp_fingerprint`     | `string` | When `pgp`    | PGP key fingerprint.                                             |
+
+When an environment has a `sops` override, Clef uses that backend for encryption instead of `sops.default_backend`. Environments without overrides continue to use the global default.
 
 ### Namespace fields
 
@@ -74,13 +101,16 @@ Each entry in the `namespaces` array:
 
 The `sops` object:
 
-| Field                 | Type     | Required | Default | Description                                                                                          |
-| --------------------- | -------- | -------- | ------- | ---------------------------------------------------------------------------------------------------- |
-| `default_backend`     | `string` | Yes      | —       | Encryption backend: `"age"`, `"awskms"`, `"gcpkms"`, or `"pgp"`.                                     |
-| `age_key_file`        | `string` | No       | —       | Path to the age private key file, relative to the repo root. Used when `default_backend` is `"age"`. |
-| `aws_kms_arn`         | `string` | No       | —       | AWS KMS key ARN. Used when `default_backend` is `"awskms"`.                                          |
-| `gcp_kms_resource_id` | `string` | No       | —       | GCP KMS key resource ID. Used when `default_backend` is `"gcpkms"`.                                  |
-| `pgp_fingerprint`     | `string` | No       | —       | PGP key fingerprint. Used when `default_backend` is `"pgp"`.                                         |
+| Field                 | Type     | Required | Default | Description                                                         |
+| --------------------- | -------- | -------- | ------- | ------------------------------------------------------------------- |
+| `default_backend`     | `string` | Yes      | —       | Encryption backend: `"age"`, `"awskms"`, `"gcpkms"`, or `"pgp"`.    |
+| `aws_kms_arn`         | `string` | No       | —       | AWS KMS key ARN. Used when `default_backend` is `"awskms"`.         |
+| `gcp_kms_resource_id` | `string` | No       | —       | GCP KMS key resource ID. Used when `default_backend` is `"gcpkms"`. |
+| `pgp_fingerprint`     | `string` | No       | —       | PGP key fingerprint. Used when `default_backend` is `"pgp"`.        |
+
+::: tip age key path
+When using the age backend, the private key path is stored in `.clef/config.yaml` on each developer's machine (gitignored) — not in the manifest. This keeps key locations personal and out of version control.
+:::
 
 ### File pattern
 
@@ -106,7 +136,7 @@ Clef validates the manifest on every load. The following conditions cause a vali
 - `file_pattern` is missing or does not contain both `{namespace}` and `{environment}`
 - `sops.default_backend` is missing or not one of the supported values
 - Duplicate environment or namespace names
-- A `schema` path that does not point to a valid file
+- A `schema` path that does not point to a valid file (checked at lint time, not during manifest parsing)
 
 ## Creating the manifest
 

@@ -84,8 +84,9 @@ Clef environment check
 ✓ sops          v3.9.4    (required >= 3.8.0)
 ✓ git           v2.43.0   (required >= 2.28.0)
 ✓ manifest      clef.yaml found
-✓ age key       loaded (from .clef/key.txt)
+✓ age key       loaded (from ~/.config/sops/age/keys.txt)
 ✓ .sops.yaml    found
+✓ scanner       .clefignore found (3 rules)
 
 ✓ Everything looks good.
 ```
@@ -109,12 +110,14 @@ If you see an error like `sops: command not found` when running Clef commands:
 
 If you see `No decryption key found` errors:
 
-1. Verify your key file exists: `ls ~/.config/sops/age/keys.txt`
-2. If the key is in a custom location, set the environment variable:
+1. Verify your key file exists: `ls ~/.config/clef/keys.txt`
+2. Check that `.clef/config.yaml` in the repo points to the correct key path.
+3. If needed, re-run `clef init` in the repository to configure the local key path.
+4. If the key is in a custom location, set the environment variable:
    ```bash
-   export SOPS_AGE_KEY_FILE=/path/to/your/key.txt
+   export SOPS_AGE_KEY_FILE=/path/to/your/keys.txt
    ```
-3. Add the export to your shell profile so it persists across sessions
+5. Add the export to your shell profile so it persists across sessions
 
 ### Node.js version too old
 

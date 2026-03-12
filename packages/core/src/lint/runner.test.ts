@@ -396,7 +396,11 @@ describe("LintRunner", () => {
 
       const result = await runner.fix(testManifest(), "/repo");
 
-      expect(matrixManager.scaffoldCell).toHaveBeenCalledWith(missingCell, sopsClient);
+      expect(matrixManager.scaffoldCell).toHaveBeenCalledWith(
+        missingCell,
+        sopsClient,
+        testManifest(),
+      );
       expect(result.fileCount).toBe(1);
     });
   });

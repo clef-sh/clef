@@ -12,11 +12,12 @@
  */
 import * as fs from "fs";
 import * as YAML from "yaml";
-import { ClefManifest, ManifestValidationError } from "../types";
+import { ClefManifest, ClefEnvironment, ManifestValidationError } from "../types";
 
-// CANONICAL MANIFEST FILENAME
-// This is the single source of truth for the manifest filename.
-// All other references in the codebase must import this constant.
+/**
+ * Canonical filename for the Clef manifest.
+ * All code that references this filename must import this constant.
+ */
 export const CLEF_MANIFEST_FILENAME = "clef.yaml";
 
 const VALID_BACKENDS = ["age", "awskms", "gcpkms", "pgp"] as const;
@@ -24,7 +25,24 @@ const VALID_TOP_LEVEL_KEYS = ["version", "environments", "namespaces", "sops", "
 const ENV_NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
 const FILE_PATTERN_REQUIRED_TOKENS = ["{namespace}", "{environment}"];
 
+/**
+ * Parses and validates `clef.yaml` manifest files.
+ *
+ * @example
+ * ```ts
+ * const parser = new ManifestParser();
+ * const manifest = parser.parse("/path/to/clef.yaml");
+ * ```
+ */
 export class ManifestParser {
+  /**
+   * Read and validate a `clef.yaml` file from disk.
+   *
+   * @param filePath - Absolute or relative path to the manifest file.
+   * @returns Validated {@link ClefManifest}.
+   * @throws {@link ManifestValidationError} If the file cannot be read, contains invalid YAML,
+   *   or fails schema validation.
+   */
   parse(filePath: string): ClefManifest {
     let raw: string;
     try {
@@ -47,6 +65,13 @@ export class ManifestParser {
     return this.validate(parsed);
   }
 
+  /**
+   * Validate an already-parsed object against the manifest schema.
+   *
+   * @param input - Raw value returned by `YAML.parse`.
+   * @returns Validated {@link ClefManifest}.
+   * @throws {@link ManifestValidationError} On any schema violation.
+   */
   validate(input: unknown): ClefManifest {
     if (input === null || input === undefined || typeof input !== "object") {
       throw new ManifestValidationError(
@@ -91,7 +116,7 @@ export class ManifestParser {
         "environments",
       );
     }
-    const environments = obj.environments.map((env: unknown, i: number) => {
+    const environments: ClefEnvironment[] = obj.environments.map((env: unknown, i: number) => {
       if (typeof env !== "object" || env === null) {
         throw new ManifestValidationError(
           `Environment at index ${i} must be an object with 'name' and 'description'.`,
@@ -117,12 +142,84 @@ export class ManifestParser {
           "environments",
         );
       }
-      return {
+
+      const result: ClefEnvironment = {
         name: envObj.name,
         description: envObj.description,
         ...(typeof envObj.protected === "boolean" ? { protected: envObj.protected } : {}),
       };
+
+      // Parse optional per-environment sops override
+      if (envObj.sops !== undefined) {
+        if (typeof envObj.sops !== "object" || envObj.sops === null) {
+          throw new ManifestValidationError(
+            `Environment '${envObj.name}' has an invalid 'sops' field. It must be an object.`,
+            "environments",
+          );
+        }
+        const sopsOverride = envObj.sops as Record<string, unknown>;
+        if (!sopsOverride.backend || typeof sopsOverride.backend !== "string") {
+          throw new ManifestValidationError(
+            `Environment '${envObj.name}' sops override is missing 'backend'. Must be one of: ${VALID_BACKENDS.join(", ")}.`,
+            "environments",
+          );
+        }
+        if (!(VALID_BACKENDS as readonly string[]).includes(sopsOverride.backend)) {
+          throw new ManifestValidationError(
+            `Environment '${envObj.name}' has invalid sops backend '${sopsOverride.backend}'. Must be one of: ${VALID_BACKENDS.join(", ")}.`,
+            "environments",
+          );
+        }
+        const backend = sopsOverride.backend as (typeof VALID_BACKENDS)[number];
+
+        // Validate required fields per backend
+        if (backend === "awskms" && typeof sopsOverride.aws_kms_arn !== "string") {
+          throw new ManifestValidationError(
+            `Environment '${envObj.name}' uses 'awskms' backend but is missing 'aws_kms_arn'.`,
+            "environments",
+          );
+        }
+        if (backend === "gcpkms" && typeof sopsOverride.gcp_kms_resource_id !== "string") {
+          throw new ManifestValidationError(
+            `Environment '${envObj.name}' uses 'gcpkms' backend but is missing 'gcp_kms_resource_id'.`,
+            "environments",
+          );
+        }
+        if (backend === "pgp" && typeof sopsOverride.pgp_fingerprint !== "string") {
+          throw new ManifestValidationError(
+            `Environment '${envObj.name}' uses 'pgp' backend but is missing 'pgp_fingerprint'.`,
+            "environments",
+          );
+        }
+
+        result.sops = {
+          backend,
+          ...(typeof sopsOverride.aws_kms_arn === "string"
+            ? { aws_kms_arn: sopsOverride.aws_kms_arn }
+            : {}),
+          ...(typeof sopsOverride.gcp_kms_resource_id === "string"
+            ? { gcp_kms_resource_id: sopsOverride.gcp_kms_resource_id }
+            : {}),
+          ...(typeof sopsOverride.pgp_fingerprint === "string"
+            ? { pgp_fingerprint: sopsOverride.pgp_fingerprint }
+            : {}),
+        };
+      }
+
+      return result;
     });
+
+    // Check for duplicate environment names
+    const envNames = new Set<string>();
+    for (const env of environments) {
+      if (envNames.has(env.name)) {
+        throw new ManifestValidationError(
+          `Duplicate environment name '${env.name}'. Each environment must have a unique name.`,
+          "environments",
+        );
+      }
+      envNames.add(env.name);
+    }
 
     // namespaces
     // Design decision: all namespaces are encrypted. There is no `encrypted: false`
@@ -167,6 +264,18 @@ export class ManifestParser {
         ...(Array.isArray(nsObj.owners) ? { owners: nsObj.owners as string[] } : {}),
       };
     });
+
+    // Check for duplicate namespace names
+    const nsNames = new Set<string>();
+    for (const ns of namespaces) {
+      if (nsNames.has(ns.name)) {
+        throw new ManifestValidationError(
+          `Duplicate namespace name '${ns.name}'. Each namespace must have a unique name.`,
+          "namespaces",
+        );
+      }
+      nsNames.add(ns.name);
+    }
 
     // sops
     if (!obj.sops) {
@@ -228,6 +337,13 @@ export class ManifestParser {
     };
   }
 
+  /**
+   * Watch a manifest file for changes and invoke a callback on each successful parse.
+   *
+   * @param filePath - Path to the manifest file to watch.
+   * @param onChange - Called with the newly parsed manifest on each valid change.
+   * @returns Unsubscribe function — call it to stop watching.
+   */
   watch(filePath: string, onChange: (manifest: ClefManifest) => void): () => void {
     const watcher = fs.watch(filePath, () => {
       try {

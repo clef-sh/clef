@@ -93,7 +93,7 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
           }
 
           delete decrypted.values[key];
-          await sopsClient.encrypt(filePath, decrypted.values, manifest);
+          await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
 
           // Clean up pending metadata if it exists
           try {

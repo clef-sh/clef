@@ -33,34 +33,51 @@ npm test -- --watch
 
 Each core module has a test file that validates all code paths:
 
-| Module          | Test file                      | What is tested                                                                                |
-| --------------- | ------------------------------ | --------------------------------------------------------------------------------------------- |
-| ManifestParser  | `src/manifest/parser.test.ts`  | Valid manifests, invalid manifests, missing fields, duplicate names, unknown fields           |
-| SopsClient      | `src/sops/client.test.ts`      | Decrypt success/failure, encrypt success/failure, re-encrypt, metadata parsing, key detection |
-| MatrixManager   | `src/matrix/manager.test.ts`   | Matrix resolution, missing cells, scaffolding, protected environment detection                |
-| SchemaValidator | `src/schema/validator.test.ts` | All type validations, required/optional, pattern matching, undeclared keys, max exceeded      |
-| DiffEngine      | `src/diff/engine.test.ts`      | Changed/identical/missing-a/missing-b classifications                                         |
-| BulkOps         | `src/bulk/ops.test.ts`         | Bulk set, bulk delete across all environments                                                 |
-| GitIntegration  | `src/git/integration.test.ts`  | Commit, status, log, diff, hook installation                                                  |
-| LintRunner      | `src/lint/runner.test.ts`      | Full validation runs, fix mode, issue severity classification                                 |
+| Module             | Test file                          | What is tested                                                                                |
+| ------------------ | ---------------------------------- | --------------------------------------------------------------------------------------------- |
+| ManifestParser     | `src/manifest/parser.test.ts`      | Valid manifests, invalid manifests, missing fields, duplicate names, unknown fields           |
+| SopsClient         | `src/sops/client.test.ts`          | Decrypt success/failure, encrypt success/failure, re-encrypt, metadata parsing, key detection |
+| MatrixManager      | `src/matrix/manager.test.ts`       | Matrix resolution, missing cells, scaffolding, protected environment detection                |
+| SchemaValidator    | `src/schema/validator.test.ts`     | All type validations, required/optional, pattern matching, undeclared keys, max exceeded      |
+| DiffEngine         | `src/diff/engine.test.ts`          | Changed/identical/missing-a/missing-b classifications                                         |
+| BulkOps            | `src/bulk/ops.test.ts`             | Bulk set, bulk delete across all environments                                                 |
+| GitIntegration     | `src/git/integration.test.ts`      | Commit, status, log, diff, hook installation                                                  |
+| LintRunner         | `src/lint/runner.test.ts`          | Full validation runs, fix mode, issue severity classification                                 |
+| ScanRunner         | `src/scanner/index.test.ts`        | Secret scanning, staged mode, .clefignore integration                                         |
+| ScanPatterns       | `src/scanner/patterns.test.ts`     | Entropy calculation, pattern matching for known secret formats                                |
+| ScanIgnore         | `src/scanner/ignore.test.ts`       | .clefignore parsing, path matching, comment handling                                          |
+| ImportRunner       | `src/import/index.test.ts`         | Import orchestration, format detection, namespace/environment targeting                       |
+| ImportParsers      | `src/import/parsers.test.ts`       | .env, JSON, YAML format parsing                                                               |
+| RecipientManager   | `src/recipients/index.test.ts`     | Recipient listing, addition, removal from .sops.yaml                                          |
+| RecipientValidator | `src/recipients/validator.test.ts` | Age key format validation                                                                     |
+| ConsumptionClient  | `src/consumption/client.test.ts`   | Secret resolution for exec/export                                                             |
+| PendingMetadata    | `src/pending/metadata.test.ts`     | markPending, markResolved, retry logic                                                        |
+| DependencyChecker  | `src/dependencies/checker.test.ts` | Version parsing, satisfaction checks for sops and git                                         |
+| AgeKeygen          | `src/age/keygen.test.ts`           | Key pair generation                                                                           |
+| GitRemote          | `src/git/remote.test.ts`           | Remote repo cloning, fetching, cache management                                               |
 
 ### CLI tests
 
 Each command has a test file that validates argument parsing, output formatting, and error handling:
 
-| Command       | Test file                     |
-| ------------- | ----------------------------- |
-| `clef init`   | `src/commands/init.test.ts`   |
-| `clef get`    | `src/commands/get.test.ts`    |
-| `clef set`    | `src/commands/set.test.ts`    |
-| `clef delete` | `src/commands/delete.test.ts` |
-| `clef diff`   | `src/commands/diff.test.ts`   |
-| `clef lint`   | `src/commands/lint.test.ts`   |
-| `clef rotate` | `src/commands/rotate.test.ts` |
-| `clef hooks`  | `src/commands/hooks.test.ts`  |
-| `clef exec`   | `src/commands/exec.test.ts`   |
-| `clef export` | `src/commands/export.test.ts` |
-| `clef ui`     | `src/commands/ui.test.ts`     |
+| Command           | Test file                         |
+| ----------------- | --------------------------------- |
+| `clef init`       | `src/commands/init.test.ts`       |
+| `clef get`        | `src/commands/get.test.ts`        |
+| `clef set`        | `src/commands/set.test.ts`        |
+| `clef delete`     | `src/commands/delete.test.ts`     |
+| `clef diff`       | `src/commands/diff.test.ts`       |
+| `clef lint`       | `src/commands/lint.test.ts`       |
+| `clef rotate`     | `src/commands/rotate.test.ts`     |
+| `clef hooks`      | `src/commands/hooks.test.ts`      |
+| `clef exec`       | `src/commands/exec.test.ts`       |
+| `clef export`     | `src/commands/export.test.ts`     |
+| `clef ui`         | `src/commands/ui.test.ts`         |
+| `clef doctor`     | `src/commands/doctor.test.ts`     |
+| `clef import`     | `src/commands/import.test.ts`     |
+| `clef update`     | `src/commands/update.test.ts`     |
+| `clef scan`       | `src/commands/scan.test.ts`       |
+| `clef recipients` | `src/commands/recipients.test.ts` |
 
 ### UI tests
 

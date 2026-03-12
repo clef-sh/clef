@@ -1,5 +1,14 @@
 import { DecryptedFile, ExecOptions, ExportOptions } from "../types";
 
+/**
+ * Prepares decrypted secrets for consumption via environment injection or shell export.
+ *
+ * @example
+ * ```ts
+ * const client = new ConsumptionClient();
+ * const env = client.prepareEnvironment(decrypted, process.env, { prefix: "APP_" });
+ * ```
+ */
 export class ConsumptionClient {
   /**
    * Merges decrypted values into a base environment, respecting --only, --prefix, and --no-override.

@@ -336,7 +336,7 @@ describe("clef init", () => {
 
     await program.parseAsync(["node", "clef", "init", "--namespaces", "db", "--non-interactive"]);
 
-    expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("pre-commit hook"));
+    expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("git hooks"));
   });
 
   it("should handle SopsMissingError and call formatDependencyError", async () => {

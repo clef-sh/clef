@@ -74,7 +74,6 @@ namespaces:
 
 sops:
   default_backend: age
-  age_key_file: .sops/keys.txt
 
 file_pattern: "{namespace}/{environment}.enc.yaml"
 ```
@@ -83,8 +82,12 @@ The manifest declares:
 
 - Which **environments** exist and whether any are protected (requiring confirmation before writes)
 - Which **namespaces** exist, with optional schema references and team ownership
-- The **SOPS configuration** — which encryption backend to use and where to find keys
+- The **SOPS configuration** — which encryption backend to use
 - The **file pattern** — how namespace and environment map to file paths on disk
+
+::: tip Age key location
+When using the age backend, each developer's private key path is stored in `.clef/config.yaml` (gitignored) — not in the manifest. The key itself lives outside the repository at `~/.config/clef/keys.txt` by default.
+:::
 
 Clef reads this file at the start of every operation. The manifest is committed to git alongside your encrypted files, so every team member shares the same structure.
 
@@ -210,11 +213,18 @@ my-app/
 
 **Cons:**
 
-- Every developer who clones the repo gets the encrypted files, even if they cannot decrypt them
-- Access control is all-or-nothing at the repo level — anyone with repo access has the ciphertext
+- With a single age backend, the recipient list is flat — every recipient can decrypt every environment, and any recipient can add new recipients without approval
 - Multi-service teams end up with secrets for unrelated services in the same repo
 
-**Best for:** single-service repositories, small teams, and projects where all contributors should have access to all encrypted files.
+::: warning Access control depends on your backend configuration
+**With a single age backend (the default),** every recipient in `clef.yaml` can decrypt **every** file in the matrix — including production. A developer added with `clef recipients add` immediately gains the ability to run `clef get payments/production` and read live credentials. There is also nothing preventing a recipient from adding another person without approval.
+
+**With per-environment backends,** you can mitigate this by configuring production to use a KMS backend (AWS KMS, GCP KMS) while dev/staging use age. Decryption of production files then requires cloud IAM credentials — developers with only an age key cannot decrypt them. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override).
+
+If you need access control **and** cannot use a KMS backend, use Pattern B with restricted access on the secrets repository.
+:::
+
+**Best for:** single-service repositories, small teams, and projects where all contributors are trusted with all environments.
 
 ### Pattern B — Standalone secrets repository
 
@@ -241,24 +251,32 @@ acme-secrets/                    my-app/
 
 **Cons:**
 
-- Requires a two-checkout CI workflow (see [CI/CD Integration](/guide/ci-cd))
-- Local development requires cloning a second repo or using `--repo` to point at it
+- Write operations (`set`, `delete`, `rotate`, `recipients`) require a local checkout of the secrets repo
 - Secret and code changes are in separate PRs — harder to review atomically
 
 **Best for:** multi-service organisations, regulated environments, and teams with strict separation between infrastructure/secrets and application code.
 
 ### Using `--repo` with Pattern B
 
-When secrets live in a separate repository, use the `--repo` flag to tell Clef where to find them:
+When secrets live in a separate repository, pass its path or git URL directly to `--repo`:
 
 ```bash
-# Point any command at a different repo root
+# Local checkout
 clef --repo ../acme-secrets get database/production DB_URL
 clef --repo ../acme-secrets exec payments/production -- node server.js
-clef --repo /opt/secrets lint
+
+# Git URL — Clef clones/updates automatically, no checkout step needed
+clef --repo git@github.com:acme/secrets.git exec payments/production -- ./deploy.sh
+clef --repo https://github.com/acme/secrets.git lint
 ```
 
-`--repo` overrides the default repo detection (which uses the current working directory). It works with every Clef command.
+When a URL is passed, Clef caches the clone in `~/.cache/clef/` and fetches fresh on every invocation. Use `--branch` to target a specific branch:
+
+```bash
+clef --repo git@github.com:acme/secrets.git --branch feature/xyz get payments/staging STRIPE_KEY
+```
+
+Write operations are blocked when `--repo` is a URL — clone the repo locally to make changes.
 
 ## Pending values
 

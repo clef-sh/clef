@@ -84,18 +84,44 @@ function ensureRecipientsArray(doc: Record<string, unknown>): unknown[] {
   return age.recipients as unknown[];
 }
 
+/**
+ * Manages age recipient keys in the manifest and re-encrypts matrix files on add/remove.
+ * All add/remove operations are transactional — a failure triggers a full rollback.
+ *
+ * @example
+ * ```ts
+ * const manager = new RecipientManager(runner, matrixManager);
+ * const result = await manager.add("age1...", "Alice", manifest, repoRoot);
+ * ```
+ */
 export class RecipientManager {
   constructor(
     private readonly runner: SubprocessRunner,
     private readonly matrixManager: MatrixManager,
   ) {}
 
+  /**
+   * List all age recipients declared in the manifest.
+   *
+   * @param manifest - Parsed manifest.
+   * @param repoRoot - Absolute path to the repository root.
+   */
   async list(manifest: ClefManifest, repoRoot: string): Promise<Recipient[]> {
     const doc = readManifestYaml(repoRoot);
     const entries = getRecipientsArray(doc);
     return entries.map((entry) => toRecipient(parseRecipientEntry(entry)));
   }
 
+  /**
+   * Add a new age recipient and re-encrypt all existing matrix files.
+   * Rolls back the manifest and any already-re-encrypted files on failure.
+   *
+   * @param key - Age public key to add (`age1...`).
+   * @param label - Optional human-readable label for the recipient.
+   * @param manifest - Parsed manifest.
+   * @param repoRoot - Absolute path to the repository root.
+   * @throws `Error` If the key is invalid or already present.
+   */
   async add(
     key: string,
     label: string | undefined,
@@ -197,6 +223,16 @@ export class RecipientManager {
     };
   }
 
+  /**
+   * Remove an age recipient and re-encrypt all existing matrix files.
+   * Rolls back on failure. Note: re-encryption removes _future_ access only;
+   * rotate secret values to fully revoke access.
+   *
+   * @param key - Age public key to remove.
+   * @param manifest - Parsed manifest.
+   * @param repoRoot - Absolute path to the repository root.
+   * @throws `Error` If the key is not in the manifest.
+   */
   async remove(key: string, manifest: ClefManifest, repoRoot: string): Promise<RecipientsResult> {
     const trimmedKey = key.trim();
 

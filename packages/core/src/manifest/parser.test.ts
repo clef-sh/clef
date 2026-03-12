@@ -274,6 +274,201 @@ describe("ManifestParser", () => {
       expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
       expect(() => parser.validate(manifest)).toThrow(/must be an object/);
     });
+
+    // Per-environment sops override tests
+    it("should accept per-env sops override with awskms backend", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: {
+              backend: "awskms",
+              aws_kms_arn: "arn:aws:kms:us-east-1:123:key/abc",
+            },
+          },
+          { name: "dev", description: "Dev" },
+        ],
+      };
+      const result = parser.validate(manifest);
+      expect(result.environments[0].sops).toEqual({
+        backend: "awskms",
+        aws_kms_arn: "arn:aws:kms:us-east-1:123:key/abc",
+      });
+      expect(result.environments[1].sops).toBeUndefined();
+    });
+
+    it("should accept per-env sops override with gcpkms backend", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: {
+              backend: "gcpkms",
+              gcp_kms_resource_id: "projects/test/locations/global/keyRings/test/cryptoKeys/key1",
+            },
+          },
+        ],
+      };
+      const result = parser.validate(manifest);
+      expect(result.environments[0].sops?.backend).toBe("gcpkms");
+      expect(result.environments[0].sops?.gcp_kms_resource_id).toContain("projects/test");
+    });
+
+    it("should accept per-env sops override with pgp backend", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: {
+              backend: "pgp",
+              pgp_fingerprint: "85D77543B3D624B63CEA9E6DBC17301B491B3F21",
+            },
+          },
+        ],
+      };
+      const result = parser.validate(manifest);
+      expect(result.environments[0].sops?.backend).toBe("pgp");
+      expect(result.environments[0].sops?.pgp_fingerprint).toBe(
+        "85D77543B3D624B63CEA9E6DBC17301B491B3F21",
+      );
+    });
+
+    it("should accept per-env sops override with age backend (no extra fields)", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "dev",
+            description: "Dev",
+            sops: { backend: "age" },
+          },
+        ],
+      };
+      const result = parser.validate(manifest);
+      expect(result.environments[0].sops).toEqual({ backend: "age" });
+    });
+
+    it("should reject per-env awskms backend missing aws_kms_arn", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: { backend: "awskms" },
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/missing 'aws_kms_arn'/);
+    });
+
+    it("should reject per-env gcpkms backend missing gcp_kms_resource_id", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: { backend: "gcpkms" },
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/missing 'gcp_kms_resource_id'/);
+    });
+
+    it("should reject per-env pgp backend missing pgp_fingerprint", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: { backend: "pgp" },
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/missing 'pgp_fingerprint'/);
+    });
+
+    it("should reject per-env sops with unknown backend value", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: { backend: "invalid" },
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/invalid sops backend/);
+    });
+
+    it("should reject per-env sops with missing backend field", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: { aws_kms_arn: "arn:aws:kms:us-east-1:123:key/abc" },
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/missing 'backend'/);
+    });
+
+    it("should reject duplicate environment names", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          { name: "dev", description: "Dev 1" },
+          { name: "staging", description: "Staging" },
+          { name: "dev", description: "Dev 2" },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/Duplicate environment name 'dev'/);
+    });
+
+    it("should reject duplicate namespace names", () => {
+      const manifest = {
+        ...validManifest(),
+        namespaces: [
+          { name: "database", description: "DB 1" },
+          { name: "auth", description: "Auth" },
+          { name: "database", description: "DB 2" },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/Duplicate namespace name 'database'/);
+    });
+
+    it("should reject non-object per-env sops field", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: "age",
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/invalid 'sops' field/);
+    });
   });
 
   describe("watch", () => {

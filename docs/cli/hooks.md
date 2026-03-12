@@ -1,6 +1,6 @@
 # clef hooks
 
-Manage git hooks for Clef. Currently provides the `install` subcommand for setting up a pre-commit hook.
+Manage git hooks and merge drivers for Clef. Provides the `install` subcommand for setting up the pre-commit hook and SOPS-aware merge driver.
 
 ## Syntax
 
@@ -79,13 +79,28 @@ Clef pre-commit check...
 Commit blocked — fix errors above and try again.
 ```
 
+## SOPS merge driver
+
+In addition to the pre-commit hook, `clef hooks install` configures a SOPS-aware git merge driver. This allows git to automatically merge encrypted files by decrypting them, performing a three-way merge on the plaintext, and re-encrypting the result.
+
+The merge driver is configured in two places:
+
+- **`.gitattributes`** — maps `*.enc.yaml` and `*.enc.json` files to the `sops` merge strategy
+- **`.git/config`** — defines the `sops` merge driver command as `clef merge-driver %O %A %B`
+
+Both are set up automatically by `clef init` and `clef hooks install`.
+
+See [Merge Conflicts](/guide/merge-conflicts) for a detailed explanation of the problem and how the driver resolves it.
+
 ## Notes
 
-- The hook is installed automatically during `clef init`. Use `clef hooks install` to reinstall it or set it up in an existing repository.
+- The hook and merge driver are installed automatically during `clef init`. Use `clef hooks install` to reinstall them or set them up in an existing repository.
 - The hook runs `clef lint` which validates the entire repo, not just staged files. This ensures the commit does not introduce a broken state.
 - The hook does not block on warnings — only errors prevent a commit.
+- `clef doctor` verifies that both the merge driver and pre-commit hook are configured correctly.
 
 ## Related commands
 
-- [`clef init`](/cli/init) — automatically installs the hook during initialisation
+- [`clef init`](/cli/init) — automatically installs hooks and merge driver during initialisation
 - [`clef lint`](/cli/lint) — the validation command that the hook runs
+- [`clef doctor`](/cli/doctor) — checks that merge driver configuration is present

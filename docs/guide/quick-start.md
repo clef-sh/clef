@@ -1,7 +1,14 @@
 # Quick Start
 
-::: tip Pattern A (co-located)
-This walkthrough uses **Pattern A** — secrets live alongside your application code in the same repository. This is the simplest setup. For a standalone secrets repository (Pattern B), see [Choosing a repository structure](/guide/concepts#choosing-a-repository-structure).
+::: warning Pattern A with a single backend — no per-environment access control
+This walkthrough uses **Pattern A** — secrets live alongside your application code in the same repository. When using a single age backend, every recipient can decrypt every file, including production.
+
+If your team needs production secrets isolated from developers, you have two options:
+
+1. **Per-environment backends** — keep Pattern A but configure production to use a KMS backend (AWS KMS, GCP KMS) while dev/staging use age. Only team members with IAM access to the KMS key can decrypt production. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override).
+2. **Pattern B** — move secrets to a standalone repository with restricted access. See [Choosing a repository structure](/guide/concepts#choosing-a-repository-structure).
+
+Pattern A with a single age backend is the right choice when all contributors are trusted with all environments.
 :::
 
 This walkthrough takes you from an empty git repository to a fully managed secrets setup with encrypted files, schema validation, and a running web UI. Every command is copy-pasteable.
@@ -50,12 +57,12 @@ This creates:
 
 - `clef.yaml` — the manifest declaring your namespaces, environments, and SOPS configuration
 - `.sops.yaml` — SOPS creation rules that tell the `sops` binary how to encrypt new files
-- `.sops/` directory with a `.gitignore` that excludes your private key
+- `.clef/config.yaml` — local config holding the path to your age private key (gitignored via `.clef/.gitignore`)
 - One encrypted file per namespace/environment cell (e.g., `database/dev.enc.yaml`, `payments/staging.enc.yaml`)
 - A pre-commit hook that blocks unencrypted secret commits
 
 ::: tip
-When using the age backend, `clef init` automatically generates an age key pair and stores the private key at `.clef/key.txt` (gitignored). No manual key generation is required.
+When using the age backend, `clef init` automatically generates an age key pair and stores the private key at `~/.config/clef/keys.txt` (outside the repository). No manual key generation is required and no age binary is needed.
 :::
 
 > **Migrating from an existing project?** If you already have secrets in `.env` files or a secrets manager, use `clef import` to bulk-migrate them. See the [migration guide](migrating.md).

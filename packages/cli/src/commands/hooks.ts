@@ -43,7 +43,17 @@ export function registerHooksCommand(program: Command, deps: { runner: Subproces
 
         formatter.success("Pre-commit hook installed");
         formatter.print(`   ${sym("pending")}  ${hookPath}`);
-        formatter.hint("Hook runs: clef lint --pre-commit && clef scan --staged");
+        formatter.hint(
+          "Hook checks SOPS metadata on staged .enc files and runs: clef scan --staged",
+        );
+
+        // Also ensure the merge driver is configured (idempotent)
+        try {
+          await git.installMergeDriver(repoRoot);
+          formatter.success("SOPS merge driver configured");
+        } catch {
+          formatter.warn("Could not configure SOPS merge driver. Run inside a git repository.");
+        }
       } catch (err) {
         formatter.error((err as Error).message);
         process.exit(1);

@@ -208,7 +208,7 @@ This section explains how to try Clef commands against real encrypted files — 
 mkdir -p /tmp/clef-playground && cd /tmp/clef-playground
 git init
 
-# 2. Initialise Clef — generates an age key pair automatically at .clef/key.txt
+# 2. Initialise Clef — generates an age key pair automatically at ~/.config/clef/keys.txt
 node /path/to/clef/packages/cli/bin/clef.js init \
   --namespaces database --non-interactive
 
@@ -226,7 +226,7 @@ node /path/to/clef/packages/cli/bin/clef.js ui
 
 **Important notes:**
 
-- The age private key is stored at `.clef/key.txt` and is gitignored automatically.
+- The age private key is stored at `~/.config/clef/keys.txt` (outside the repository). The path to it is recorded in `.clef/config.yaml` (gitignored).
 - If you see `could not decrypt` errors, run `clef doctor` to diagnose.
 - The `/tmp/clef-playground` directory is safe for experimentation — cleaned up on system restart.
 

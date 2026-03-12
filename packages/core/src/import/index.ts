@@ -21,9 +21,28 @@ export interface ImportResult {
   dryRun: boolean;
 }
 
+/**
+ * Imports secrets from `.env`, JSON, or YAML files into encrypted matrix cells.
+ *
+ * @example
+ * ```ts
+ * const runner = new ImportRunner(sopsClient);
+ * const result = await runner.import("app/staging", null, envContent, manifest, repoRoot, { format: "dotenv" });
+ * ```
+ */
 export class ImportRunner {
   constructor(private readonly sopsClient: SopsClient) {}
 
+  /**
+   * Parse a source file and import its key/value pairs into a target `namespace/environment` cell.
+   *
+   * @param target - Target cell in `namespace/environment` format.
+   * @param sourcePath - Source file path used for format detection (pass `null` when reading from stdin).
+   * @param content - Raw file content to import.
+   * @param manifest - Parsed manifest.
+   * @param repoRoot - Absolute path to the repository root.
+   * @param options - Import options (format, prefix, key filter, overwrite, dry-run).
+   */
   async import(
     target: string,
     sourcePath: string | null,
@@ -96,7 +115,7 @@ export class ImportRunner {
 
       try {
         const newValues = { ...currentValues, [key]: value };
-        await this.sopsClient.encrypt(filePath, newValues, manifest);
+        await this.sopsClient.encrypt(filePath, newValues, manifest, env);
         currentValues = newValues;
         imported.push(key);
       } catch (err) {

@@ -96,7 +96,7 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
           const sopsClient = new SopsClient(deps.runner);
           const decrypted = await sopsClient.decrypt(filePath);
           decrypted.values[key] = secretValue;
-          await sopsClient.encrypt(filePath, decrypted.values, manifest);
+          await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
 
           // Update pending metadata
           if (isPendingValue) {

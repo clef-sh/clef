@@ -4,9 +4,31 @@
 
 This page covers the most common CI/CD patterns with Clef. Every example is production-ready.
 
-## The Recommended Pattern — age with SOPS_AGE_KEY
+## Choosing a CI backend
+
+Before picking a pattern, understand the security tradeoff between the two supported backends:
+
+|                              | age (private key)                                | AWS KMS / GCP KMS                         |
+| ---------------------------- | ------------------------------------------------ | ----------------------------------------- |
+| What the CI runner holds     | Long-lived private key + ciphertext              | Short-lived IAM token + ciphertext        |
+| Master key location          | In the CI secret store, injected into the runner | Stays inside the KMS HSM — never leaves   |
+| If the runner is compromised | Attacker gets a permanent key to all secrets     | Attacker gets a short-lived, scoped token |
+| Revocation                   | Re-encrypt all files with a new key              | Remove the IAM permission — instant       |
+| Audit log                    | None                                             | CloudTrail / Cloud Audit Logs             |
+
+**Use age for lower environments** (dev, staging) where operational simplicity matters and secrets are not production-critical.
+
+**Use KMS for production.** The master key never leaves the HSM. CI authenticates via short-lived IAM credentials — nothing long-lived is stored or injected. If you can only use KMS for one environment, make it production.
+
+---
+
+## age — Simple Setup for Lower Environments
 
 The simplest CI setup uses an age private key stored as a CI secret. SOPS reads the key from the `SOPS_AGE_KEY` environment variable automatically — no key file needs to touch disk.
+
+::: warning Security tradeoff
+The age private key and the ciphertext are both present in the CI runner simultaneously. A compromised runner exposes a long-lived key that grants access to everything it can decrypt until all secrets are rotated. For production secrets, use KMS instead.
+:::
 
 ### GitHub Actions
 
@@ -32,7 +54,7 @@ jobs:
       - name: Run deployment
         env:
           SOPS_AGE_KEY: ${{ secrets.AGE_PRIVATE_KEY }}
-        run: clef exec payments/production -- ./deploy.sh
+        run: clef exec payments/staging -- ./deploy.sh
 ```
 
 **How it works:**
@@ -150,9 +172,9 @@ The service account needs the `cloudkms.cryptoKeyVersions.useToDecrypt` permissi
 
 ## Pattern B — Standalone Secrets Repository
 
-When secrets live in a separate repository from application code, CI must check out both repositories. Every CI system supports this via a second checkout step.
+When secrets live in a separate repository, pass its git URL directly to `--repo`. Clef clones and caches the repository automatically — no separate checkout step required.
 
-### GitHub Actions — Two-Checkout
+### GitHub Actions — URL mode (recommended)
 
 ```yaml
 jobs:
@@ -161,29 +183,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Checkout secrets repo
-        uses: actions/checkout@v4
-        with:
-          repository: acme/secrets
-          path: .secrets
-          token: ${{ secrets.SECRETS_REPO_TOKEN }}
-
       - name: Deploy with secrets
         env:
           SOPS_AGE_KEY: ${{ secrets.AGE_PRIVATE_KEY }}
-        run: clef --repo .secrets exec payments/production -- ./deploy.sh
+          GIT_SSH_COMMAND: "ssh -i ${{ secrets.SECRETS_DEPLOY_KEY_PATH }}"
+        run: |
+          clef --repo git@github.com:acme/secrets.git \
+               exec payments/production -- ./deploy.sh
 ```
 
-The `--repo .secrets` flag tells Clef to look for `clef.yaml` and encrypted files in the `.secrets` directory instead of the working directory.
+Clef fetches the latest commit on each run, so secrets are always current. The runner needs SSH or token access to the secrets repo.
 
-### GitLab CI — Two-Checkout
+**Testing a feature branch against a matching secrets branch:**
+
+```yaml
+- name: Run tests with feature secrets
+  env:
+    SOPS_AGE_KEY: ${{ secrets.AGE_PRIVATE_KEY }}
+  run: |
+    clef --repo git@github.com:acme/secrets.git \
+         --branch ${{ github.head_ref || 'main' }} \
+         exec payments/staging -- npm test
+```
+
+When the secrets branch doesn't exist, `--branch` falls back to an error — make the fallback explicit in your CI config rather than relying on Clef to guess.
+
+### GitLab CI — URL mode
 
 ```yaml
 deploy:
   stage: deploy
   script:
-    - git clone https://oauth2:${SECRETS_TOKEN}@gitlab.com/acme/secrets.git .secrets
-    - clef --repo .secrets exec payments/production -- ./deploy.sh
+    - clef --repo https://oauth2:${SECRETS_TOKEN}@gitlab.com/acme/secrets.git
+      exec payments/production -- ./deploy.sh
   variables:
     SOPS_AGE_KEY: $AGE_PRIVATE_KEY
   only:
@@ -192,12 +224,12 @@ deploy:
 
 ### Local Development with Pattern B
 
-For local development, clone the secrets repo alongside your application:
+For local development where you need to write secrets (set, rotate, add recipients), clone the secrets repo alongside your application:
 
 ```bash
 ~/projects/
 ├── my-app/          # application code
-└── acme-secrets/    # secrets repo
+└── acme-secrets/    # secrets repo (local clone for writes)
 ```
 
 Then use `--repo` or a Makefile target:
@@ -215,7 +247,11 @@ lint-secrets:
 	clef --repo $(SECRETS_REPO) lint
 ```
 
-Developers can override the secrets location: `make dev SECRETS_REPO=/path/to/secrets`.
+For read-only local use (just decrypting, not writing), the git URL form works too:
+
+```bash
+clef --repo git@github.com:acme/secrets.git get database/dev DB_URL
+```
 
 ## Multi-Namespace Exec
 
@@ -288,8 +324,8 @@ Be cautious: build args are visible in the image's build history. Use multi-stag
 
 ## Best Practices
 
-1. **Use `clef exec` over `clef export`** — subprocess injection is more secure than shell eval
-2. **Use KMS over age in production** — IAM-based access (AWS KMS, GCP KMS) eliminates the need to store and rotate a private key
+1. **Use KMS for production secrets** — age keeps the private key and ciphertext together in the runner; KMS keeps the master key in an HSM and uses short-lived IAM credentials. This is not a style preference — it is the materially more secure choice for production.
+2. **Use `clef exec` over `clef export`** — subprocess injection is more secure than shell eval; secrets never appear in intermediate shell state
 3. **Scope CI permissions narrowly** — IAM roles should have `kms:Decrypt` only, on specific keys only
 4. **Use `--only` to limit exposure** — inject only the keys your command actually needs
 5. **Test with `clef exec ... -- env`** — quick way to verify which variables are being injected

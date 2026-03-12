@@ -73,7 +73,7 @@ export function registerUpdateCommand(program: Command, deps: { runner: Subproce
         let scaffoldedCount = 0;
         for (const cell of missing) {
           try {
-            await matrixManager.scaffoldCell(cell, sopsClient);
+            await matrixManager.scaffoldCell(cell, sopsClient, manifest);
             scaffoldedCount++;
           } catch (err) {
             formatter.warn(

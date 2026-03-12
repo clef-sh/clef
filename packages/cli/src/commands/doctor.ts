@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as YAML from "yaml";
 import { Command } from "commander";
-import { checkAll, REQUIREMENTS, SubprocessRunner } from "@clef-sh/core";
+import { checkAll, GitIntegration, REQUIREMENTS, SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { scaffoldSopsConfig } from "./init";
@@ -140,6 +140,20 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
         hint: clefignoreFound
           ? undefined
           : "run clef init or create manually — see https://docs.clef.sh/cli/scan#clefignore",
+      });
+
+      // 9. merge driver
+      const git = new GitIntegration(deps.runner);
+      const mergeDriverStatus = await git.checkMergeDriver(repoRoot);
+      const mergeDriverOk = mergeDriverStatus.gitConfig && mergeDriverStatus.gitattributes;
+      const mergeDriverDetails: string[] = [];
+      if (!mergeDriverStatus.gitConfig) mergeDriverDetails.push("git config missing");
+      if (!mergeDriverStatus.gitattributes) mergeDriverDetails.push(".gitattributes missing");
+      checks.push({
+        name: "merge driver",
+        ok: mergeDriverOk,
+        detail: mergeDriverOk ? "SOPS merge driver configured" : mergeDriverDetails.join(", "),
+        hint: mergeDriverOk ? undefined : "run: clef hooks install",
       });
 
       // --fix: if the only failure is .sops.yaml missing, run clef init

@@ -14,16 +14,16 @@ clef init [options]
 
 1. **Creates `clef.yaml`** — the manifest declaring namespaces, environments, and SOPS settings
 2. **Creates `.sops.yaml`** — SOPS creation rules so the `sops` binary knows how to encrypt new files
-3. **Generates an age key pair** — writes the private key to `.clef/key.txt` with a `.clef/.gitignore` that excludes it from version control (age backend only)
+3. **Generates an age key pair** — writes the private key to `~/.config/clef/keys.txt` (outside the repository) and stores the path in `.clef/config.yaml` (gitignored via `.clef/.gitignore`). Uses the `age-encryption` npm package — no age binary required (age backend only)
 4. **Scaffolds the matrix** — creates an encrypted file for every namespace/environment combination
 5. **Installs the pre-commit hook** — a git hook that blocks commits containing unencrypted secret files
+6. **Configures the SOPS merge driver** — a custom git merge driver that resolves encrypted file conflicts at the plaintext level (see [Merge Conflicts](/guide/merge-conflicts))
 
-`clef init` is idempotent in two ways:
+`clef init` is safe to run at any time — it detects what already exists and does only what is needed:
 
-- **Both `clef.yaml` and `.clef/key.txt` already exist** — prints "Already initialised" and exits without making changes.
-- **`clef.yaml` exists but `.clef/key.txt` does not** — second-developer onboarding mode: generates a key pair and configures `.clef/config.yaml`, but does not overwrite the manifest.
-
-`clef init` refuses to run inside a git repository that already contains a manifest, unless running in second-developer onboarding mode.
+- **Nothing set up yet** — full initialisation: creates the manifest, generates an age key pair, scaffolds the matrix, installs the pre-commit hook.
+- **`clef.yaml` exists but `.clef/config.yaml` does not** — a new developer cloning the repo for the first time. `clef init` prompts for the path to their age private key, writes their local `.clef/config.yaml`, and leaves the manifest untouched.
+- **Both `clef.yaml` and `.clef/config.yaml` already exist** — nothing to do. Prints "Already initialised" and exits.
 
 ## Flags
 
@@ -80,18 +80,19 @@ clef init \
   --non-interactive
 ```
 
-### Second-developer onboarding
+### New developer joining a repo
 
-If `clef.yaml` already exists (e.g., a team member cloning the repository for the first time), `clef init` generates a key pair for the new developer without modifying the manifest:
+If a developer clones a repository that already has `clef.yaml`, running `clef init` sets up their local key configuration without touching the manifest:
 
 ```
-ℹ clef.yaml already exists — running in second-developer onboarding mode.
-✓ Generated age key pair at .clef/key.txt
-✓ Configured .clef/config.yaml
+ℹ clef.yaml found — setting up your local key for this machine.
+  Path to your age private key [~/.config/clef/keys.txt]: (press Enter to generate a new key)
+✓ Generated age key pair at ~/.config/clef/keys.txt
+✓ Created .clef/config.yaml
 
 Next steps:
   Share your public key with a teammate so they can add you as a recipient:
-    grep "public key" .clef/key.txt
+    grep "public key" ~/.config/clef/keys.txt
   Then: clef recipients add <your-public-key>
 ```
 
@@ -154,7 +155,7 @@ clef update
 
 ## Error cases
 
-- **Already initialised:** If both `clef.yaml` and `.clef/key.txt` already exist, `clef init` prints "Already initialised" and exits without making changes.
+- **Already initialised:** If both `clef.yaml` and `.clef/config.yaml` already exist, `clef init` prints "Already initialised" and exits without making changes.
 - **No namespaces provided:** At least one namespace is required. Either pass `--namespaces` or provide them interactively.
 - **Not a git repository:** `clef init` refuses to run outside a git repository to prevent accidental initialisation in arbitrary directories.
 

@@ -29,15 +29,16 @@ const mockExit = jest.spyOn(process, "exit").mockImplementation(() => undefined 
 
 function allGoodRunner(): SubprocessRunner {
   return {
-    run: jest.fn().mockImplementation(async (cmd: string) => {
-      switch (cmd) {
-        case "sops":
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
-        case "git":
-          return { stdout: "git version 2.43.0", stderr: "", exitCode: 0 };
-        default:
-          return { stdout: "", stderr: "", exitCode: 127 };
+    run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === "sops") return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+      if (cmd === "git" && args[0] === "config" && args[1] === "--get") {
+        return { stdout: "clef merge-driver %O %A %B", stderr: "", exitCode: 0 };
       }
+      if (cmd === "git") return { stdout: "git version 2.43.0", stderr: "", exitCode: 0 };
+      if (cmd === "cat") {
+        return { stdout: "*.enc.yaml merge=sops\n*.enc.json merge=sops", stderr: "", exitCode: 0 };
+      }
+      return { stdout: "", stderr: "", exitCode: 127 };
     }),
   };
 }

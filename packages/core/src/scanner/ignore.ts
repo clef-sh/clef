@@ -22,6 +22,13 @@ export function loadIgnoreRules(repoRoot: string): ClefIgnoreRules {
   }
 }
 
+/**
+ * Parse raw `.clefignore` content into structured rules.
+ * Lines starting with `ignore-pattern:` suppress named patterns; lines ending with `/`
+ * suppress entire directory paths; all other lines are treated as file glob patterns.
+ *
+ * @param content - Raw `.clefignore` file content.
+ */
 export function parseIgnoreContent(content: string): ClefIgnoreRules {
   const files: string[] = [];
   const patterns: string[] = [];

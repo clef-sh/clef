@@ -552,6 +552,106 @@ sops:
       expect(sopsCall![1]).toContain("--pgp");
     });
 
+    it("should resolve per-env awskms backend when environment is provided", async () => {
+      const runFn = jest.fn(async (command: string, _args: string[]) => {
+        if (command === "sops") return { stdout: "encrypted", stderr: "", exitCode: 0 };
+        return { stdout: "", stderr: "", exitCode: 0 };
+      });
+
+      const client = new SopsClient({ run: runFn });
+      const manifest: ClefManifest = {
+        ...testManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: { backend: "awskms", aws_kms_arn: "arn:aws:kms:us-east-1:999:key/prod" },
+          },
+          { name: "dev", description: "Dev" },
+        ],
+      };
+
+      await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest, "production");
+
+      const sopsCall = runFn.mock.calls.find(
+        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+      );
+      expect(sopsCall![1]).toContain("--kms");
+      expect(sopsCall![1]).toContain("arn:aws:kms:us-east-1:999:key/prod");
+    });
+
+    it("should resolve per-env gcpkms backend when environment is provided", async () => {
+      const runFn = jest.fn(async (command: string, _args: string[]) => {
+        if (command === "sops") return { stdout: "encrypted", stderr: "", exitCode: 0 };
+        return { stdout: "", stderr: "", exitCode: 0 };
+      });
+
+      const client = new SopsClient({ run: runFn });
+      const manifest: ClefManifest = {
+        ...testManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: {
+              backend: "gcpkms",
+              gcp_kms_resource_id: "projects/prod/locations/global/keyRings/r/cryptoKeys/k",
+            },
+          },
+        ],
+      };
+
+      await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest, "production");
+
+      const sopsCall = runFn.mock.calls.find(
+        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+      );
+      expect(sopsCall![1]).toContain("--gcp-kms");
+      expect(sopsCall![1]).toContain("projects/prod/locations/global/keyRings/r/cryptoKeys/k");
+    });
+
+    it("should fall back to global backend when env has no override", async () => {
+      const runFn = jest.fn(async (command: string, _args: string[]) => {
+        if (command === "sops") return { stdout: "encrypted", stderr: "", exitCode: 0 };
+        return { stdout: "", stderr: "", exitCode: 0 };
+      });
+
+      const client = new SopsClient({ run: runFn });
+      const manifest: ClefManifest = {
+        ...testManifest(),
+        sops: { default_backend: "awskms", aws_kms_arn: "arn:aws:kms:us-east-1:123:key/global" },
+      };
+
+      await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest, "dev");
+
+      const sopsCall = runFn.mock.calls.find(
+        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+      );
+      expect(sopsCall![1]).toContain("--kms");
+      expect(sopsCall![1]).toContain("arn:aws:kms:us-east-1:123:key/global");
+    });
+
+    it("should use global default when environment param is omitted (backward compat)", async () => {
+      const runFn = jest.fn(async (command: string, _args: string[]) => {
+        if (command === "sops") return { stdout: "encrypted", stderr: "", exitCode: 0 };
+        return { stdout: "", stderr: "", exitCode: 0 };
+      });
+
+      const client = new SopsClient({ run: runFn });
+      const manifest: ClefManifest = {
+        ...testManifest(),
+        sops: { default_backend: "pgp", pgp_fingerprint: "ABCD1234" },
+      };
+
+      await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest);
+
+      const sopsCall = runFn.mock.calls.find(
+        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+      );
+      expect(sopsCall![1]).toContain("--pgp");
+      expect(sopsCall![1]).toContain("ABCD1234");
+    });
+
     it("should not pass extra args for age backend without key file", async () => {
       const runFn = jest.fn(async (command: string, _args: string[]) => {
         if (command === "sops") return { stdout: "encrypted", stderr: "", exitCode: 0 };
@@ -774,6 +874,51 @@ describe("buildSopsEnv (ageKeyFile injection)", () => {
 
     const decryptCall = runFn.mock.calls.find((c) => c[0] === "sops" && c[1][0] === "decrypt");
     expect(decryptCall![2]).toEqual({});
+  });
+});
+
+describe("resolveBackendConfig", () => {
+  // Import directly since it's a pure function
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- require() needed for inline import in test
+  const { resolveBackendConfig } = require("../types");
+
+  it("should return env override when present", () => {
+    const manifest: ClefManifest = {
+      ...testManifest(),
+      environments: [
+        {
+          name: "production",
+          description: "Prod",
+          sops: { backend: "awskms", aws_kms_arn: "arn:aws:kms:us-east-1:123:key/prod" },
+        },
+      ],
+    };
+
+    const config = resolveBackendConfig(manifest, "production");
+    expect(config.backend).toBe("awskms");
+    expect(config.aws_kms_arn).toBe("arn:aws:kms:us-east-1:123:key/prod");
+  });
+
+  it("should fall back to global config when env has no override", () => {
+    const manifest: ClefManifest = {
+      ...testManifest(),
+      sops: { default_backend: "awskms", aws_kms_arn: "arn:aws:kms:us-east-1:123:key/global" },
+    };
+
+    const config = resolveBackendConfig(manifest, "dev");
+    expect(config.backend).toBe("awskms");
+    expect(config.aws_kms_arn).toBe("arn:aws:kms:us-east-1:123:key/global");
+  });
+
+  it("should fall back to global config when environment name not found", () => {
+    const manifest: ClefManifest = {
+      ...testManifest(),
+      sops: { default_backend: "pgp", pgp_fingerprint: "ABCD1234" },
+    };
+
+    const config = resolveBackendConfig(manifest, "nonexistent");
+    expect(config.backend).toBe("pgp");
+    expect(config.pgp_fingerprint).toBe("ABCD1234");
   });
 });
 

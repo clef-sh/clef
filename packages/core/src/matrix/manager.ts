@@ -4,7 +4,23 @@ import { ClefManifest, MatrixCell, MatrixIssue, MatrixStatus } from "../types";
 import { SopsClient } from "../sops/client";
 import { getPendingKeys } from "../pending/metadata";
 
+/**
+ * Resolves and manages the namespace × environment matrix of encrypted files.
+ *
+ * @example
+ * ```ts
+ * const manager = new MatrixManager();
+ * const cells = manager.resolveMatrix(manifest, repoRoot);
+ * ```
+ */
 export class MatrixManager {
+  /**
+   * Build the full grid of {@link MatrixCell} objects from the manifest.
+   * Each cell reflects whether its encrypted file exists on disk.
+   *
+   * @param manifest - Parsed manifest.
+   * @param repoRoot - Absolute path to the repository root.
+   */
   resolveMatrix(manifest: ClefManifest, repoRoot: string): MatrixCell[] {
     const cells: MatrixCell[] = [];
 
@@ -27,29 +43,43 @@ export class MatrixManager {
     return cells;
   }
 
+  /**
+   * Return only the cells whose encrypted files do not yet exist on disk.
+   *
+   * @param manifest - Parsed manifest.
+   * @param repoRoot - Absolute path to the repository root.
+   */
   detectMissingCells(manifest: ClefManifest, repoRoot: string): MatrixCell[] {
     return this.resolveMatrix(manifest, repoRoot).filter((cell) => !cell.exists);
   }
 
-  async scaffoldCell(cell: MatrixCell, sopsClient: SopsClient): Promise<void> {
+  /**
+   * Create an empty encrypted SOPS file for a missing matrix cell.
+   *
+   * @param cell - The cell to scaffold (must not already exist).
+   * @param sopsClient - SOPS client used to write the initial encrypted file.
+   * @param manifest - Parsed manifest used to determine the encryption backend.
+   */
+  async scaffoldCell(
+    cell: MatrixCell,
+    sopsClient: SopsClient,
+    manifest: ClefManifest,
+  ): Promise<void> {
     const dir = path.dirname(cell.filePath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    // Create an empty encrypted YAML file via SOPS
-    // We write an empty YAML object through sops encrypt
-    const emptyManifest: ClefManifest = {
-      version: 1,
-      environments: [{ name: cell.environment, description: "" }],
-      namespaces: [{ name: cell.namespace, description: "" }],
-      sops: { default_backend: "age" },
-      file_pattern: "",
-    };
-
-    await sopsClient.encrypt(cell.filePath, {}, emptyManifest);
+    await sopsClient.encrypt(cell.filePath, {}, manifest, cell.environment);
   }
 
+  /**
+   * Decrypt each cell and return key counts, pending counts, and cross-environment issues.
+   *
+   * @param manifest - Parsed manifest.
+   * @param repoRoot - Absolute path to the repository root.
+   * @param sopsClient - SOPS client used to decrypt each cell.
+   */
   async getMatrixStatus(
     manifest: ClefManifest,
     repoRoot: string,
@@ -134,6 +164,12 @@ export class MatrixManager {
     return statuses;
   }
 
+  /**
+   * Check whether an environment has the `protected` flag set in the manifest.
+   *
+   * @param manifest - Parsed manifest.
+   * @param environment - Environment name to check.
+   */
   isProtectedEnvironment(manifest: ClefManifest, environment: string): boolean {
     const env = manifest.environments.find((e) => e.name === environment);
     return env?.protected === true;
