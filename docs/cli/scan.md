@@ -19,7 +19,7 @@ clef scan [paths...] [flags]
 | `--json`             | boolean     | false   | Machine-readable JSON output                       |
 
 ::: tip
-`--repo <path>` is a global option available on all commands, not specific to `clef scan`. It overrides the repository root (default: cwd). See [Global Options](/cli/overview#global-options).
+`--repo <path>` is a global option available on all commands, not specific to `clef scan`. It overrides the repository root (default: cwd). See [Global Options](overview.md#global-options).
 :::
 
 ## Exit codes
