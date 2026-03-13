@@ -25,6 +25,7 @@
 - [SopsDecryptionError](classes/SopsDecryptionError.md)
 - [SopsEncryptionError](classes/SopsEncryptionError.md)
 - [SopsKeyNotFoundError](classes/SopsKeyNotFoundError.md)
+- [SopsMergeDriver](classes/SopsMergeDriver.md)
 - [SopsMissingError](classes/SopsMissingError.md)
 - [SopsVersionError](classes/SopsVersionError.md)
 
@@ -42,6 +43,8 @@
 - [DependencyVersion](interfaces/DependencyVersion.md)
 - [DiffResult](interfaces/DiffResult.md)
 - [DiffRow](interfaces/DiffRow.md)
+- [EncryptionBackend](interfaces/EncryptionBackend.md)
+- [EnvironmentSopsOverride](interfaces/EnvironmentSopsOverride.md)
 - [ExecOptions](interfaces/ExecOptions.md)
 - [ExportOptions](interfaces/ExportOptions.md)
 - [GitCommit](interfaces/GitCommit.md)
@@ -53,6 +56,8 @@
 - [MatrixCell](interfaces/MatrixCell.md)
 - [MatrixIssue](interfaces/MatrixIssue.md)
 - [MatrixStatus](interfaces/MatrixStatus.md)
+- [MergeKey](interfaces/MergeKey.md)
+- [MergeResult](interfaces/MergeResult.md)
 - [NamespaceSchema](interfaces/NamespaceSchema.md)
 - [ParsedImport](interfaces/ParsedImport.md)
 - [PendingKey](interfaces/PendingKey.md)
@@ -78,6 +83,7 @@
 - [ImportFormat](type-aliases/ImportFormat.md)
 - [LintCategory](type-aliases/LintCategory.md)
 - [LintSeverity](type-aliases/LintSeverity.md)
+- [MergeKeyStatus](type-aliases/MergeKeyStatus.md)
 
 ## Variables
 
@@ -87,6 +93,7 @@
 
 ## Functions
 
+- [assertAge](functions/assertAge.md)
 - [assertSops](functions/assertSops.md)
 - [checkAll](functions/checkAll.md)
 - [checkDependency](functions/checkDependency.md)
@@ -95,6 +102,7 @@
 - [generateAgeIdentity](functions/generateAgeIdentity.md)
 - [generateRandomValue](functions/generateRandomValue.md)
 - [getPendingKeys](functions/getPendingKeys.md)
+- [isGitUrl](functions/isGitUrl.md)
 - [isHighEntropy](functions/isHighEntropy.md)
 - [isPending](functions/isPending.md)
 - [keyPreview](functions/keyPreview.md)
@@ -111,6 +119,9 @@
 - [parseJson](functions/parseJson.md)
 - [parseYaml](functions/parseYaml.md)
 - [redactValue](functions/redactValue.md)
+- [resolveBackendConfig](functions/resolveBackendConfig.md)
+- [resolveRecipientsForEnvironment](functions/resolveRecipientsForEnvironment.md)
+- [resolveRemoteRepo](functions/resolveRemoteRepo.md)
 - [saveMetadata](functions/saveMetadata.md)
 - [shannonEntropy](functions/shannonEntropy.md)
 - [shouldIgnoreFile](functions/shouldIgnoreFile.md)

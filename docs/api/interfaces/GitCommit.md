@@ -6,7 +6,7 @@
 
 # Interface: GitCommit
 
-Defined in: [packages/core/src/types/index.ts:207](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L207)
+Defined in: [packages/core/src/types/index.ts:251](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L251)
 
 A single git commit.
 
@@ -14,7 +14,7 @@ A single git commit.
 
 | Property                                | Type     | Defined in                                                                                                                                                  |
 | --------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <a id="property-author"></a> `author`   | `string` | [packages/core/src/types/index.ts:209](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L209) |
-| <a id="property-date"></a> `date`       | `Date`   | [packages/core/src/types/index.ts:210](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L210) |
-| <a id="property-hash"></a> `hash`       | `string` | [packages/core/src/types/index.ts:208](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L208) |
-| <a id="property-message"></a> `message` | `string` | [packages/core/src/types/index.ts:211](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L211) |
+| <a id="property-author"></a> `author`   | `string` | [packages/core/src/types/index.ts:253](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L253) |
+| <a id="property-date"></a> `date`       | `Date`   | [packages/core/src/types/index.ts:254](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L254) |
+| <a id="property-hash"></a> `hash`       | `string` | [packages/core/src/types/index.ts:252](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L252) |
+| <a id="property-message"></a> `message` | `string` | [packages/core/src/types/index.ts:255](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L255) |

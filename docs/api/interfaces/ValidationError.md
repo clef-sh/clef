@@ -6,7 +6,7 @@
 
 # Interface: ValidationError
 
-Defined in: [packages/core/src/types/index.ts:130](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L130)
+Defined in: [packages/core/src/types/index.ts:174](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L174)
 
 A hard validation error produced by `SchemaValidator.validate`.
 
@@ -14,6 +14,6 @@ A hard validation error produced by `SchemaValidator.validate`.
 
 | Property                                | Type                                    | Defined in                                                                                                                                                  |
 | --------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <a id="property-key"></a> `key`         | `string`                                | [packages/core/src/types/index.ts:131](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L131) |
-| <a id="property-message"></a> `message` | `string`                                | [packages/core/src/types/index.ts:132](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L132) |
-| <a id="property-rule"></a> `rule`       | `"required"` \| `"type"` \| `"pattern"` | [packages/core/src/types/index.ts:133](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L133) |
+| <a id="property-key"></a> `key`         | `string`                                | [packages/core/src/types/index.ts:175](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L175) |
+| <a id="property-message"></a> `message` | `string`                                | [packages/core/src/types/index.ts:176](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L176) |
+| <a id="property-rule"></a> `rule`       | `"required"` \| `"type"` \| `"pattern"` | [packages/core/src/types/index.ts:177](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L177) |

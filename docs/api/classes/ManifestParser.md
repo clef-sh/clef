@@ -6,7 +6,7 @@
 
 # Class: ManifestParser
 
-Defined in: [packages/core/src/manifest/parser.ts:37](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/manifest/parser.ts#L37)
+Defined in: [packages/core/src/manifest/parser.ts:38](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/manifest/parser.ts#L38)
 
 Parses and validates `clef.yaml` manifest files.
 
@@ -37,7 +37,7 @@ new ManifestParser(): ManifestParser;
 parse(filePath): ClefManifest;
 ```
 
-Defined in: [packages/core/src/manifest/parser.ts:46](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/manifest/parser.ts#L46)
+Defined in: [packages/core/src/manifest/parser.ts:47](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/manifest/parser.ts#L47)
 
 Read and validate a `clef.yaml` file from disk.
 
@@ -66,7 +66,7 @@ or fails schema validation.
 validate(input): ClefManifest;
 ```
 
-Defined in: [packages/core/src/manifest/parser.ts:75](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/manifest/parser.ts#L75)
+Defined in: [packages/core/src/manifest/parser.ts:76](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/manifest/parser.ts#L76)
 
 Validate an already-parsed object against the manifest schema.
 
@@ -94,7 +94,7 @@ Validated [ClefManifest](../interfaces/ClefManifest.md).
 watch(filePath, onChange): () => void;
 ```
 
-Defined in: [packages/core/src/manifest/parser.ts:263](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/manifest/parser.ts#L263)
+Defined in: [packages/core/src/manifest/parser.ts:413](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/manifest/parser.ts#L413)
 
 Watch a manifest file for changes and invoke a callback on each successful parse.
 

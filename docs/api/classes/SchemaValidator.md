@@ -6,7 +6,7 @@
 
 # Class: SchemaValidator
 
-Defined in: [packages/core/src/schema/validator.ts:21](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/schema/validator.ts#L21)
+Defined in: [packages/core/src/schema/validator.ts:21](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/schema/validator.ts#L21)
 
 Loads namespace schemas and validates decrypted key/value maps against them.
 
@@ -38,7 +38,7 @@ new SchemaValidator(): SchemaValidator;
 loadSchema(filePath): NamespaceSchema;
 ```
 
-Defined in: [packages/core/src/schema/validator.ts:29](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/schema/validator.ts#L29)
+Defined in: [packages/core/src/schema/validator.ts:29](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/schema/validator.ts#L29)
 
 Read and parse a YAML schema file from disk.
 
@@ -66,7 +66,7 @@ Parsed [NamespaceSchema](../interfaces/NamespaceSchema.md).
 validate(values, schema): ValidationResult;
 ```
 
-Defined in: [packages/core/src/schema/validator.ts:99](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/schema/validator.ts#L99)
+Defined in: [packages/core/src/schema/validator.ts:99](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/schema/validator.ts#L99)
 
 Validate a set of decrypted values against a loaded namespace schema.
 

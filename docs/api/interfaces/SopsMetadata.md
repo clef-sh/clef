@@ -6,7 +6,7 @@
 
 # Interface: SopsMetadata
 
-Defined in: [packages/core/src/types/index.ts:233](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L233)
+Defined in: [packages/core/src/types/index.ts:277](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L277)
 
 SOPS metadata extracted from an encrypted file without decrypting its values.
 
@@ -14,6 +14,6 @@ SOPS metadata extracted from an encrypted file without decrypting its values.
 
 | Property                                          | Type                                           | Description                                                                  | Defined in                                                                                                                                                  |
 | ------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <a id="property-backend"></a> `backend`           | `"age"` \| `"awskms"` \| `"gcpkms"` \| `"pgp"` | -                                                                            | [packages/core/src/types/index.ts:234](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L234) |
-| <a id="property-lastmodified"></a> `lastModified` | `Date`                                         | -                                                                            | [packages/core/src/types/index.ts:237](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L237) |
-| <a id="property-recipients"></a> `recipients`     | `string`[]                                     | List of recipient identifiers (age public keys, KMS ARNs, PGP fingerprints). | [packages/core/src/types/index.ts:236](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L236) |
+| <a id="property-backend"></a> `backend`           | `"age"` \| `"awskms"` \| `"gcpkms"` \| `"pgp"` | -                                                                            | [packages/core/src/types/index.ts:278](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L278) |
+| <a id="property-lastmodified"></a> `lastModified` | `Date`                                         | -                                                                            | [packages/core/src/types/index.ts:281](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L281) |
+| <a id="property-recipients"></a> `recipients`     | `string`[]                                     | List of recipient identifiers (age public keys, KMS ARNs, PGP fingerprints). | [packages/core/src/types/index.ts:280](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L280) |

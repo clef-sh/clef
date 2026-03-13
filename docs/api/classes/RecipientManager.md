@@ -6,7 +6,7 @@
 
 # Class: RecipientManager
 
-Defined in: [packages/core/src/recipients/index.ts:97](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/recipients/index.ts#L97)
+Defined in: [packages/core/src/recipients/index.ts:129](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/recipients/index.ts#L129)
 
 Manages age recipient keys in the manifest and re-encrypts matrix files on add/remove.
 All add/remove operations are transactional — a failure triggers a full rollback.
@@ -23,17 +23,17 @@ const result = await manager.add("age1...", "Alice", manifest, repoRoot);
 ### Constructor
 
 ```ts
-new RecipientManager(runner, matrixManager): RecipientManager;
+new RecipientManager(encryption, matrixManager): RecipientManager;
 ```
 
-Defined in: [packages/core/src/recipients/index.ts:98](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/recipients/index.ts#L98)
+Defined in: [packages/core/src/recipients/index.ts:130](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/recipients/index.ts#L130)
 
 #### Parameters
 
-| Parameter       | Type                                                    |
-| --------------- | ------------------------------------------------------- |
-| `runner`        | [`SubprocessRunner`](../interfaces/SubprocessRunner.md) |
-| `matrixManager` | [`MatrixManager`](MatrixManager.md)                     |
+| Parameter       | Type                                                      |
+| --------------- | --------------------------------------------------------- |
+| `encryption`    | [`EncryptionBackend`](../interfaces/EncryptionBackend.md) |
+| `matrixManager` | [`MatrixManager`](MatrixManager.md)                       |
 
 #### Returns
 
@@ -48,22 +48,24 @@ add(
    key,
    label,
    manifest,
-repoRoot): Promise<RecipientsResult>;
+   repoRoot,
+environment?): Promise<RecipientsResult>;
 ```
 
-Defined in: [packages/core/src/recipients/index.ts:125](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/recipients/index.ts#L125)
+Defined in: [packages/core/src/recipients/index.ts:167](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/recipients/index.ts#L167)
 
 Add a new age recipient and re-encrypt all existing matrix files.
 Rolls back the manifest and any already-re-encrypted files on failure.
 
 #### Parameters
 
-| Parameter  | Type                                            | Description                                      |
-| ---------- | ----------------------------------------------- | ------------------------------------------------ |
-| `key`      | `string`                                        | Age public key to add (`age1...`).               |
-| `label`    | `string` \| `undefined`                         | Optional human-readable label for the recipient. |
-| `manifest` | [`ClefManifest`](../interfaces/ClefManifest.md) | Parsed manifest.                                 |
-| `repoRoot` | `string`                                        | Absolute path to the repository root.            |
+| Parameter      | Type                                            | Description                                       |
+| -------------- | ----------------------------------------------- | ------------------------------------------------- |
+| `key`          | `string`                                        | age public key to add (`age1...`).                |
+| `label`        | `string` \| `undefined`                         | Optional human-readable label for the recipient.  |
+| `manifest`     | [`ClefManifest`](../interfaces/ClefManifest.md) | Parsed manifest.                                  |
+| `repoRoot`     | `string`                                        | Absolute path to the repository root.             |
+| `environment?` | `string`                                        | Optional environment name to scope the operation. |
 
 #### Returns
 
@@ -78,19 +80,23 @@ Rolls back the manifest and any already-re-encrypted files on failure.
 ### list()
 
 ```ts
-list(manifest, repoRoot): Promise<Recipient[]>;
+list(
+   manifest,
+   repoRoot,
+environment?): Promise<Recipient[]>;
 ```
 
-Defined in: [packages/core/src/recipients/index.ts:109](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/recipients/index.ts#L109)
+Defined in: [packages/core/src/recipients/index.ts:142](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/recipients/index.ts#L142)
 
 List all age recipients declared in the manifest.
 
 #### Parameters
 
-| Parameter  | Type                                            | Description                           |
-| ---------- | ----------------------------------------------- | ------------------------------------- |
-| `manifest` | [`ClefManifest`](../interfaces/ClefManifest.md) | Parsed manifest.                      |
-| `repoRoot` | `string`                                        | Absolute path to the repository root. |
+| Parameter      | Type                                            | Description                                           |
+| -------------- | ----------------------------------------------- | ----------------------------------------------------- |
+| `manifest`     | [`ClefManifest`](../interfaces/ClefManifest.md) | Parsed manifest.                                      |
+| `repoRoot`     | `string`                                        | Absolute path to the repository root.                 |
+| `environment?` | `string`                                        | Optional environment name to list per-env recipients. |
 
 #### Returns
 
@@ -104,10 +110,11 @@ List all age recipients declared in the manifest.
 remove(
    key,
    manifest,
-repoRoot): Promise<RecipientsResult>;
+   repoRoot,
+environment?): Promise<RecipientsResult>;
 ```
 
-Defined in: [packages/core/src/recipients/index.ts:236](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/recipients/index.ts#L236)
+Defined in: [packages/core/src/recipients/index.ts:286](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/recipients/index.ts#L286)
 
 Remove an age recipient and re-encrypt all existing matrix files.
 Rolls back on failure. Note: re-encryption removes _future_ access only;
@@ -115,11 +122,12 @@ rotate secret values to fully revoke access.
 
 #### Parameters
 
-| Parameter  | Type                                            | Description                           |
-| ---------- | ----------------------------------------------- | ------------------------------------- |
-| `key`      | `string`                                        | Age public key to remove.             |
-| `manifest` | [`ClefManifest`](../interfaces/ClefManifest.md) | Parsed manifest.                      |
-| `repoRoot` | `string`                                        | Absolute path to the repository root. |
+| Parameter      | Type                                            | Description                                       |
+| -------------- | ----------------------------------------------- | ------------------------------------------------- |
+| `key`          | `string`                                        | age public key to remove.                         |
+| `manifest`     | [`ClefManifest`](../interfaces/ClefManifest.md) | Parsed manifest.                                  |
+| `repoRoot`     | `string`                                        | Absolute path to the repository root.             |
+| `environment?` | `string`                                        | Optional environment name to scope the operation. |
 
 #### Returns
 

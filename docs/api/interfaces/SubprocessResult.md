@@ -6,7 +6,7 @@
 
 # Interface: SubprocessResult
 
-Defined in: [packages/core/src/types/index.ts:7](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L7)
+Defined in: [packages/core/src/types/index.ts:7](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L7)
 
 Result returned by a subprocess invocation.
 
@@ -14,6 +14,6 @@ Result returned by a subprocess invocation.
 
 | Property                                  | Type     | Defined in                                                                                                                                                |
 | ----------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <a id="property-exitcode"></a> `exitCode` | `number` | [packages/core/src/types/index.ts:10](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L10) |
-| <a id="property-stderr"></a> `stderr`     | `string` | [packages/core/src/types/index.ts:9](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L9)   |
-| <a id="property-stdout"></a> `stdout`     | `string` | [packages/core/src/types/index.ts:8](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L8)   |
+| <a id="property-exitcode"></a> `exitCode` | `number` | [packages/core/src/types/index.ts:10](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L10) |
+| <a id="property-stderr"></a> `stderr`     | `string` | [packages/core/src/types/index.ts:9](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L9)   |
+| <a id="property-stdout"></a> `stdout`     | `string` | [packages/core/src/types/index.ts:8](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L8)   |

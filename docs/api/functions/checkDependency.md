@@ -10,7 +10,7 @@
 function checkDependency(name, runner): Promise<DependencyVersion | null>;
 ```
 
-Defined in: [packages/core/src/dependencies/checker.ts:77](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/dependencies/checker.ts#L77)
+Defined in: [packages/core/src/dependencies/checker.ts:77](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/dependencies/checker.ts#L77)
 
 Check a single dependency. Returns null if the binary is not found.
 Never throws.

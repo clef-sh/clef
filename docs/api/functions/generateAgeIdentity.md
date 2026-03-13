@@ -10,7 +10,7 @@
 function generateAgeIdentity(): Promise<AgeIdentity>;
 ```
 
-Defined in: [packages/core/src/age/keygen.ts:18](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/age/keygen.ts#L18)
+Defined in: [packages/core/src/age/keygen.ts:18](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/age/keygen.ts#L18)
 
 Generate a new age key pair using the `age-encryption` npm package.
 

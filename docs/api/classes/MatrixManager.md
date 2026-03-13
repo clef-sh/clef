@@ -6,7 +6,7 @@
 
 # Class: MatrixManager
 
-Defined in: [packages/core/src/matrix/manager.ts:16](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/matrix/manager.ts#L16)
+Defined in: [packages/core/src/matrix/manager.ts:16](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/matrix/manager.ts#L16)
 
 Resolves and manages the namespace × environment matrix of encrypted files.
 
@@ -37,7 +37,7 @@ new MatrixManager(): MatrixManager;
 detectMissingCells(manifest, repoRoot): MatrixCell[];
 ```
 
-Defined in: [packages/core/src/matrix/manager.ts:52](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/matrix/manager.ts#L52)
+Defined in: [packages/core/src/matrix/manager.ts:52](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/matrix/manager.ts#L52)
 
 Return only the cells whose encrypted files do not yet exist on disk.
 
@@ -63,17 +63,17 @@ getMatrixStatus(
 sopsClient): Promise<MatrixStatus[]>;
 ```
 
-Defined in: [packages/core/src/matrix/manager.ts:88](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/matrix/manager.ts#L88)
+Defined in: [packages/core/src/matrix/manager.ts:83](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/matrix/manager.ts#L83)
 
 Decrypt each cell and return key counts, pending counts, and cross-environment issues.
 
 #### Parameters
 
-| Parameter    | Type                                            | Description                            |
-| ------------ | ----------------------------------------------- | -------------------------------------- |
-| `manifest`   | [`ClefManifest`](../interfaces/ClefManifest.md) | Parsed manifest.                       |
-| `repoRoot`   | `string`                                        | Absolute path to the repository root.  |
-| `sopsClient` | [`SopsClient`](SopsClient.md)                   | SOPS client used to decrypt each cell. |
+| Parameter    | Type                                                      | Description                            |
+| ------------ | --------------------------------------------------------- | -------------------------------------- |
+| `manifest`   | [`ClefManifest`](../interfaces/ClefManifest.md)           | Parsed manifest.                       |
+| `repoRoot`   | `string`                                                  | Absolute path to the repository root.  |
+| `sopsClient` | [`EncryptionBackend`](../interfaces/EncryptionBackend.md) | SOPS client used to decrypt each cell. |
 
 #### Returns
 
@@ -87,7 +87,7 @@ Decrypt each cell and return key counts, pending counts, and cross-environment i
 isProtectedEnvironment(manifest, environment): boolean;
 ```
 
-Defined in: [packages/core/src/matrix/manager.ts:178](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/matrix/manager.ts#L178)
+Defined in: [packages/core/src/matrix/manager.ts:173](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/matrix/manager.ts#L173)
 
 Check whether an environment has the `protected` flag set in the manifest.
 
@@ -110,7 +110,7 @@ Check whether an environment has the `protected` flag set in the manifest.
 resolveMatrix(manifest, repoRoot): MatrixCell[];
 ```
 
-Defined in: [packages/core/src/matrix/manager.ts:24](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/matrix/manager.ts#L24)
+Defined in: [packages/core/src/matrix/manager.ts:24](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/matrix/manager.ts#L24)
 
 Build the full grid of [MatrixCell](../interfaces/MatrixCell.md) objects from the manifest.
 Each cell reflects whether its encrypted file exists on disk.
@@ -131,19 +131,23 @@ Each cell reflects whether its encrypted file exists on disk.
 ### scaffoldCell()
 
 ```ts
-scaffoldCell(cell, sopsClient): Promise<void>;
+scaffoldCell(
+   cell,
+   sopsClient,
+manifest): Promise<void>;
 ```
 
-Defined in: [packages/core/src/matrix/manager.ts:62](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/matrix/manager.ts#L62)
+Defined in: [packages/core/src/matrix/manager.ts:63](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/matrix/manager.ts#L63)
 
 Create an empty encrypted SOPS file for a missing matrix cell.
 
 #### Parameters
 
-| Parameter    | Type                                        | Description                                           |
-| ------------ | ------------------------------------------- | ----------------------------------------------------- |
-| `cell`       | [`MatrixCell`](../interfaces/MatrixCell.md) | The cell to scaffold (must not already exist).        |
-| `sopsClient` | [`SopsClient`](SopsClient.md)               | SOPS client used to write the initial encrypted file. |
+| Parameter    | Type                                                      | Description                                               |
+| ------------ | --------------------------------------------------------- | --------------------------------------------------------- |
+| `cell`       | [`MatrixCell`](../interfaces/MatrixCell.md)               | The cell to scaffold (must not already exist).            |
+| `sopsClient` | [`EncryptionBackend`](../interfaces/EncryptionBackend.md) | SOPS client used to write the initial encrypted file.     |
+| `manifest`   | [`ClefManifest`](../interfaces/ClefManifest.md)           | Parsed manifest used to determine the encryption backend. |
 
 #### Returns
 

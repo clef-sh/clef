@@ -10,7 +10,7 @@
 function markPending(filePath, keys, setBy): Promise<void>;
 ```
 
-Defined in: [packages/core/src/pending/metadata.ts:92](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/pending/metadata.ts#L92)
+Defined in: [packages/core/src/pending/metadata.ts:92](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/pending/metadata.ts#L92)
 
 Mark one or more keys as pending (placeholder value) for an encrypted file.
 If a key is already pending, its timestamp and `setBy` are updated.

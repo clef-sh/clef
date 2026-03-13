@@ -6,7 +6,7 @@
 
 # Interface: NamespaceSchema
 
-Defined in: [packages/core/src/types/index.ts:113](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L113)
+Defined in: [packages/core/src/types/index.ts:157](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L157)
 
 A namespace schema loaded from a YAML schema file.
 
@@ -14,4 +14,4 @@ A namespace schema loaded from a YAML schema file.
 
 | Property                          | Type                                              | Defined in                                                                                                                                                  |
 | --------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <a id="property-keys"></a> `keys` | `Record`\<`string`, [`SchemaKey`](SchemaKey.md)\> | [packages/core/src/types/index.ts:114](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L114) |
+| <a id="property-keys"></a> `keys` | `Record`\<`string`, [`SchemaKey`](SchemaKey.md)\> | [packages/core/src/types/index.ts:158](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L158) |

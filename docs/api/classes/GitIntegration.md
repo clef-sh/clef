@@ -6,7 +6,7 @@
 
 # Class: GitIntegration
 
-Defined in: [packages/core/src/git/integration.ts:53](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/git/integration.ts#L53)
+Defined in: [packages/core/src/git/integration.ts:53](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/git/integration.ts#L53)
 
 Wraps git operations: staging, committing, log, diff, status, and hook installation.
 
@@ -26,7 +26,7 @@ const hash = await git.commit("chore(secrets): rotate production keys", repoRoot
 new GitIntegration(runner): GitIntegration;
 ```
 
-Defined in: [packages/core/src/git/integration.ts:54](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/git/integration.ts#L54)
+Defined in: [packages/core/src/git/integration.ts:54](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/git/integration.ts#L54)
 
 #### Parameters
 
@@ -40,13 +40,44 @@ Defined in: [packages/core/src/git/integration.ts:54](https://github.com/clef-sh
 
 ## Methods
 
+### checkMergeDriver()
+
+```ts
+checkMergeDriver(repoRoot): Promise<{
+  gitattributes: boolean;
+  gitConfig: boolean;
+}>;
+```
+
+Defined in: [packages/core/src/git/integration.ts:244](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/git/integration.ts#L244)
+
+Check whether the SOPS merge driver is configured in both
+`.git/config` and `.gitattributes`.
+
+#### Parameters
+
+| Parameter  | Type     | Description                           |
+| ---------- | -------- | ------------------------------------- |
+| `repoRoot` | `string` | Absolute path to the repository root. |
+
+#### Returns
+
+`Promise`\<\{
+`gitattributes`: `boolean`;
+`gitConfig`: `boolean`;
+\}\>
+
+An object indicating which parts are configured.
+
+---
+
 ### commit()
 
 ```ts
 commit(message, repoRoot): Promise<string>;
 ```
 
-Defined in: [packages/core/src/git/integration.ts:84](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/git/integration.ts#L84)
+Defined in: [packages/core/src/git/integration.ts:84](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/git/integration.ts#L84)
 
 Create a commit with the given message.
 
@@ -75,7 +106,7 @@ The short commit hash, or an empty string if parsing fails.
 getDiff(repoRoot): Promise<string>;
 ```
 
-Defined in: [packages/core/src/git/integration.ts:143](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/git/integration.ts#L143)
+Defined in: [packages/core/src/git/integration.ts:143](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/git/integration.ts#L143)
 
 Get the staged diff (`git diff --cached`).
 
@@ -106,7 +137,7 @@ getLog(
 limit?): Promise<GitCommit[]>;
 ```
 
-Defined in: [packages/core/src/git/integration.ts:107](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/git/integration.ts#L107)
+Defined in: [packages/core/src/git/integration.ts:107](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/git/integration.ts#L107)
 
 Retrieve recent commits for a specific file.
 
@@ -134,7 +165,7 @@ Retrieve recent commits for a specific file.
 getStatus(repoRoot): Promise<GitStatus>;
 ```
 
-Defined in: [packages/core/src/git/integration.ts:159](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/git/integration.ts#L159)
+Defined in: [packages/core/src/git/integration.ts:159](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/git/integration.ts#L159)
 
 Parse `git status --porcelain` into staged, unstaged, and untracked lists.
 
@@ -154,13 +185,47 @@ Parse `git status --porcelain` into staged, unstaged, and untracked lists.
 
 ---
 
+### installMergeDriver()
+
+```ts
+installMergeDriver(repoRoot): Promise<void>;
+```
+
+Defined in: [packages/core/src/git/integration.ts:207](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/git/integration.ts#L207)
+
+Configure the SOPS-aware git merge driver so that encrypted files
+are merged at the plaintext level instead of producing ciphertext conflicts.
+
+Sets two things:
+
+1. `.gitattributes` — tells git which files use the custom driver.
+2. `.git/config [merge "sops"]` — tells git what command to run.
+
+Both operations are idempotent — safe to call repeatedly.
+
+#### Parameters
+
+| Parameter  | Type     | Description                           |
+| ---------- | -------- | ------------------------------------- |
+| `repoRoot` | `string` | Absolute path to the repository root. |
+
+#### Returns
+
+`Promise`\<`void`\>
+
+#### Throws
+
+[GitOperationError](GitOperationError.md) On failure.
+
+---
+
 ### installPreCommitHook()
 
 ```ts
 installPreCommitHook(repoRoot): Promise<void>;
 ```
 
-Defined in: [packages/core/src/git/integration.ts:201](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/git/integration.ts#L201)
+Defined in: [packages/core/src/git/integration.ts:293](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/git/integration.ts#L293)
 
 Write and chmod the Clef pre-commit hook into `.git/hooks/pre-commit`.
 The hook blocks commits of unencrypted matrix files and scans staged files for secrets.
@@ -187,7 +252,7 @@ The hook blocks commits of unencrypted matrix files and scans staged files for s
 stageFiles(filePaths, repoRoot): Promise<void>;
 ```
 
-Defined in: [packages/core/src/git/integration.ts:63](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/git/integration.ts#L63)
+Defined in: [packages/core/src/git/integration.ts:63](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/git/integration.ts#L63)
 
 Stage one or more file paths with `git add`.
 

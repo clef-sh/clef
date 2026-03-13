@@ -5,7 +5,7 @@
     "test": "jest --config jest.config.js --detectOpenHandles"
   },
   "dependencies": {
-    "age-encryption": "^0.1.0"
+    "age-encryption": "^0.3.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",

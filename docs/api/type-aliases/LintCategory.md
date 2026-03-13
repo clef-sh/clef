@@ -10,6 +10,6 @@
 type LintCategory = "matrix" | "schema" | "sops";
 ```
 
-Defined in: [packages/core/src/types/index.ts:180](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L180)
+Defined in: [packages/core/src/types/index.ts:224](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L224)
 
 Category of a lint issue.

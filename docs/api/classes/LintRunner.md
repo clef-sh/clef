@@ -6,7 +6,7 @@
 
 # Class: LintRunner
 
-Defined in: [packages/core/src/lint/runner.ts:17](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/lint/runner.ts#L17)
+Defined in: [packages/core/src/lint/runner.ts:17](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/lint/runner.ts#L17)
 
 Runs matrix completeness, schema validation, SOPS integrity, and key-drift checks.
 
@@ -28,15 +28,15 @@ new LintRunner(
    sopsClient): LintRunner;
 ```
 
-Defined in: [packages/core/src/lint/runner.ts:18](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/lint/runner.ts#L18)
+Defined in: [packages/core/src/lint/runner.ts:18](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/lint/runner.ts#L18)
 
 #### Parameters
 
-| Parameter         | Type                                    |
-| ----------------- | --------------------------------------- |
-| `matrixManager`   | [`MatrixManager`](MatrixManager.md)     |
-| `schemaValidator` | [`SchemaValidator`](SchemaValidator.md) |
-| `sopsClient`      | [`SopsClient`](SopsClient.md)           |
+| Parameter         | Type                                                      |
+| ----------------- | --------------------------------------------------------- |
+| `matrixManager`   | [`MatrixManager`](MatrixManager.md)                       |
+| `schemaValidator` | [`SchemaValidator`](SchemaValidator.md)                   |
+| `sopsClient`      | [`EncryptionBackend`](../interfaces/EncryptionBackend.md) |
 
 #### Returns
 
@@ -50,7 +50,7 @@ Defined in: [packages/core/src/lint/runner.ts:18](https://github.com/clef-sh/cle
 fix(manifest, repoRoot): Promise<LintResult>;
 ```
 
-Defined in: [packages/core/src/lint/runner.ts:216](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/lint/runner.ts#L216)
+Defined in: [packages/core/src/lint/runner.ts:247](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/lint/runner.ts#L247)
 
 Auto-fix safe issues (scaffold missing matrix files), then re-run lint.
 
@@ -73,7 +73,7 @@ Auto-fix safe issues (scaffold missing matrix files), then re-run lint.
 run(manifest, repoRoot): Promise<LintResult>;
 ```
 
-Defined in: [packages/core/src/lint/runner.ts:31](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/lint/runner.ts#L31)
+Defined in: [packages/core/src/lint/runner.ts:31](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/lint/runner.ts#L31)
 
 Lint the entire matrix: check missing files, schema errors, SOPS integrity,
 single-recipient warnings, and cross-environment key drift.

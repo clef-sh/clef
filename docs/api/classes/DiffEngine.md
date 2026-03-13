@@ -6,7 +6,7 @@
 
 # Class: DiffEngine
 
-Defined in: [packages/core/src/diff/engine.ts:26](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/diff/engine.ts#L26)
+Defined in: [packages/core/src/diff/engine.ts:26](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/diff/engine.ts#L26)
 
 Compares decrypted values between two environments or two arbitrary key/value maps.
 
@@ -49,7 +49,7 @@ diff(
    namespace?): DiffResult;
 ```
 
-Defined in: [packages/core/src/diff/engine.ts:38](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/diff/engine.ts#L38)
+Defined in: [packages/core/src/diff/engine.ts:38](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/diff/engine.ts#L38)
 
 Compare two in-memory value maps and produce a sorted diff result.
 
@@ -83,20 +83,20 @@ diffFiles(
 repoRoot): Promise<DiffResult>;
 ```
 
-Defined in: [packages/core/src/diff/engine.ts:94](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/diff/engine.ts#L94)
+Defined in: [packages/core/src/diff/engine.ts:94](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/diff/engine.ts#L94)
 
 Decrypt two matrix cells and diff their values.
 
 #### Parameters
 
-| Parameter    | Type                                            | Description                                 |
-| ------------ | ----------------------------------------------- | ------------------------------------------- |
-| `namespace`  | `string`                                        | Namespace containing both cells.            |
-| `envA`       | `string`                                        | Name of environment A.                      |
-| `envB`       | `string`                                        | Name of environment B.                      |
-| `manifest`   | [`ClefManifest`](../interfaces/ClefManifest.md) | Parsed manifest used to resolve file paths. |
-| `sopsClient` | [`SopsClient`](SopsClient.md)                   | SOPS client used to decrypt both files.     |
-| `repoRoot`   | `string`                                        | Absolute path to the repository root.       |
+| Parameter    | Type                                                      | Description                                 |
+| ------------ | --------------------------------------------------------- | ------------------------------------------- |
+| `namespace`  | `string`                                                  | Namespace containing both cells.            |
+| `envA`       | `string`                                                  | Name of environment A.                      |
+| `envB`       | `string`                                                  | Name of environment B.                      |
+| `manifest`   | [`ClefManifest`](../interfaces/ClefManifest.md)           | Parsed manifest used to resolve file paths. |
+| `sopsClient` | [`EncryptionBackend`](../interfaces/EncryptionBackend.md) | SOPS client used to decrypt both files.     |
+| `repoRoot`   | `string`                                                  | Absolute path to the repository root.       |
 
 #### Returns
 

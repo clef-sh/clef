@@ -19,7 +19,7 @@ export async function generateAgeIdentity(): Promise<AgeIdentity> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic ESM import of CJS-incompatible package
   const { generateIdentity, identityToRecipient } = await import("age-encryption" as any);
   const privateKey = (await generateIdentity()) as string;
-  const publicKey = identityToRecipient(privateKey) as string;
+  const publicKey = (await identityToRecipient(privateKey)) as string;
   return { privateKey, publicKey };
 }
 

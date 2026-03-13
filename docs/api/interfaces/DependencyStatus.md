@@ -6,7 +6,7 @@
 
 # Interface: DependencyStatus
 
-Defined in: [packages/core/src/types/index.ts:391](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L391)
+Defined in: [packages/core/src/types/index.ts:464](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L464)
 
 Combined dependency check result for all required external tools.
 
@@ -14,5 +14,5 @@ Combined dependency check result for all required external tools.
 
 | Property                          | Type                                                  | Description                                                       | Defined in                                                                                                                                                  |
 | --------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <a id="property-git"></a> `git`   | [`DependencyVersion`](DependencyVersion.md) \| `null` | `null` if `git` is not installed or version could not be parsed.  | [packages/core/src/types/index.ts:395](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L395) |
-| <a id="property-sops"></a> `sops` | [`DependencyVersion`](DependencyVersion.md) \| `null` | `null` if `sops` is not installed or version could not be parsed. | [packages/core/src/types/index.ts:393](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L393) |
+| <a id="property-git"></a> `git`   | [`DependencyVersion`](DependencyVersion.md) \| `null` | `null` if `git` is not installed or version could not be parsed.  | [packages/core/src/types/index.ts:468](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L468) |
+| <a id="property-sops"></a> `sops` | [`DependencyVersion`](DependencyVersion.md) \| `null` | `null` if `sops` is not installed or version could not be parsed. | [packages/core/src/types/index.ts:466](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L466) |

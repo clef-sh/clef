@@ -14,7 +14,7 @@
     "test:integration": "jest --config jest.integration.config.ts"
   },
   "dependencies": {
-    "age-encryption": "^0.1.0",
+    "age-encryption": "^0.3.0",
     "yaml": "^2.4.0"
   },
   "devDependencies": {

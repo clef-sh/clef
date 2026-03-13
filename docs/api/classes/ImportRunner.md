@@ -6,7 +6,7 @@
 
 # Class: ImportRunner
 
-Defined in: [packages/core/src/import/index.ts:33](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/import/index.ts#L33)
+Defined in: [packages/core/src/import/index.ts:33](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/import/index.ts#L33)
 
 Imports secrets from `.env`, JSON, or YAML files into encrypted matrix cells.
 
@@ -27,13 +27,13 @@ const result = await runner.import("app/staging", null, envContent, manifest, re
 new ImportRunner(sopsClient): ImportRunner;
 ```
 
-Defined in: [packages/core/src/import/index.ts:34](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/import/index.ts#L34)
+Defined in: [packages/core/src/import/index.ts:34](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/import/index.ts#L34)
 
 #### Parameters
 
-| Parameter    | Type                          |
-| ------------ | ----------------------------- |
-| `sopsClient` | [`SopsClient`](SopsClient.md) |
+| Parameter    | Type                                                      |
+| ------------ | --------------------------------------------------------- |
+| `sopsClient` | [`EncryptionBackend`](../interfaces/EncryptionBackend.md) |
 
 #### Returns
 
@@ -53,7 +53,7 @@ import(
 options): Promise<ImportResult>;
 ```
 
-Defined in: [packages/core/src/import/index.ts:46](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/import/index.ts#L46)
+Defined in: [packages/core/src/import/index.ts:46](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/import/index.ts#L46)
 
 Parse a source file and import its key/value pairs into a target `namespace/environment` cell.
 

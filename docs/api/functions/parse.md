@@ -10,7 +10,7 @@
 function parse(content, format, filePath?): ParsedImport;
 ```
 
-Defined in: [packages/core/src/import/parsers.ts:233](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/import/parsers.ts#L233)
+Defined in: [packages/core/src/import/parsers.ts:233](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/import/parsers.ts#L233)
 
 Parse content in the given format (or auto-detect) and return flat key/value pairs.
 

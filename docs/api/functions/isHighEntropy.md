@@ -10,7 +10,7 @@
 function isHighEntropy(value, threshold?, minLength?): boolean;
 ```
 
-Defined in: [packages/core/src/scanner/patterns.ts:68](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/scanner/patterns.ts#L68)
+Defined in: [packages/core/src/scanner/patterns.ts:68](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/scanner/patterns.ts#L68)
 
 Returns true if a string has sufficiently high entropy to be considered a potential secret.
 Threshold: > 4.5 bits/char, minimum 20 characters.

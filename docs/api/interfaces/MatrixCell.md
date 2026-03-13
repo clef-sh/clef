@@ -6,15 +6,15 @@
 
 # Interface: MatrixCell
 
-Defined in: [packages/core/src/types/index.ts:81](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L81)
+Defined in: [packages/core/src/types/index.ts:125](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L125)
 
 A single cell in the namespace × environment matrix.
 
 ## Properties
 
-| Property                                        | Type      | Description                                             | Defined in                                                                                                                                                |
-| ----------------------------------------------- | --------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <a id="property-environment"></a> `environment` | `string`  | -                                                       | [packages/core/src/types/index.ts:83](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L83) |
-| <a id="property-exists"></a> `exists`           | `boolean` | Whether the encrypted file exists on disk.              | [packages/core/src/types/index.ts:87](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L87) |
-| <a id="property-filepath"></a> `filePath`       | `string`  | Absolute path to the encrypted SOPS file for this cell. | [packages/core/src/types/index.ts:85](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L85) |
-| <a id="property-namespace"></a> `namespace`     | `string`  | -                                                       | [packages/core/src/types/index.ts:82](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/types/index.ts#L82) |
+| Property                                        | Type      | Description                                             | Defined in                                                                                                                                                  |
+| ----------------------------------------------- | --------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| <a id="property-environment"></a> `environment` | `string`  | -                                                       | [packages/core/src/types/index.ts:127](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L127) |
+| <a id="property-exists"></a> `exists`           | `boolean` | Whether the encrypted file exists on disk.              | [packages/core/src/types/index.ts:131](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L131) |
+| <a id="property-filepath"></a> `filePath`       | `string`  | Absolute path to the encrypted SOPS file for this cell. | [packages/core/src/types/index.ts:129](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L129) |
+| <a id="property-namespace"></a> `namespace`     | `string`  | -                                                       | [packages/core/src/types/index.ts:126](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L126) |

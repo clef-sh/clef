@@ -10,7 +10,7 @@
 function checkAll(runner): Promise<DependencyStatus>;
 ```
 
-Defined in: [packages/core/src/dependencies/checker.ts:119](https://github.com/clef-sh/clef/blob/bd250a27e006f10052d1b448652243e22e4e47a2/packages/core/src/dependencies/checker.ts#L119)
+Defined in: [packages/core/src/dependencies/checker.ts:119](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/dependencies/checker.ts#L119)
 
 Check sops and git dependencies in parallel.
 
