@@ -257,6 +257,74 @@ describe("SopsClient", () => {
     });
   });
 
+  describe("addRecipient", () => {
+    it("should call sops rotate with --add-age flag", async () => {
+      const runFn = jest.fn(async () => ({
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+      }));
+
+      const client = new SopsClient({ run: runFn });
+      await client.addRecipient("database/dev.enc.yaml", "age1newrecipient");
+
+      expect(runFn).toHaveBeenCalledWith(
+        "sops",
+        ["rotate", "-i", "--add-age", "age1newrecipient", "database/dev.enc.yaml"],
+        expect.any(Object),
+      );
+    });
+
+    it("should throw SopsEncryptionError on failure", async () => {
+      const runner = mockRunner({
+        "sops rotate": {
+          stdout: "",
+          stderr: "failed to add recipient",
+          exitCode: 1,
+        },
+      });
+
+      const client = new SopsClient(runner);
+      await expect(client.addRecipient("database/dev.enc.yaml", "age1key")).rejects.toThrow(
+        SopsEncryptionError,
+      );
+    });
+  });
+
+  describe("removeRecipient", () => {
+    it("should call sops rotate with --rm-age flag", async () => {
+      const runFn = jest.fn(async () => ({
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+      }));
+
+      const client = new SopsClient({ run: runFn });
+      await client.removeRecipient("database/dev.enc.yaml", "age1oldrecipient");
+
+      expect(runFn).toHaveBeenCalledWith(
+        "sops",
+        ["rotate", "-i", "--rm-age", "age1oldrecipient", "database/dev.enc.yaml"],
+        expect.any(Object),
+      );
+    });
+
+    it("should throw SopsEncryptionError on failure", async () => {
+      const runner = mockRunner({
+        "sops rotate": {
+          stdout: "",
+          stderr: "failed to remove recipient",
+          exitCode: 1,
+        },
+      });
+
+      const client = new SopsClient(runner);
+      await expect(client.removeRecipient("database/dev.enc.yaml", "age1key")).rejects.toThrow(
+        SopsEncryptionError,
+      );
+    });
+  });
+
   describe("validateEncryption", () => {
     it("should return true for valid encrypted file", async () => {
       const runner = mockRunner({

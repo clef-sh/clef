@@ -193,7 +193,7 @@ describe("clef init", () => {
       "utf-8",
     );
 
-    // Age key should have been generated
+    // age key should have been generated
     expect(getMockGenerateAgeIdentity()).toHaveBeenCalled();
     expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("clef.yaml"));
   });
@@ -270,7 +270,7 @@ describe("clef init", () => {
       expect.stringContaining("pgp"),
       "utf-8",
     );
-    // Age identity should NOT be generated for pgp backend
+    // age identity should NOT be generated for pgp backend
     expect(getMockGenerateAgeIdentity()).not.toHaveBeenCalled();
   });
 

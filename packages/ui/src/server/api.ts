@@ -37,7 +37,7 @@ export function createApiRouter(deps: ApiDeps): Router {
   const lintRunner = new LintRunner(matrix, schemaValidator, sops);
   const git = new GitIntegration(deps.runner);
   const scanRunner = new ScanRunner(deps.runner);
-  const recipientManager = new RecipientManager(deps.runner, matrix);
+  const recipientManager = new RecipientManager(sops, matrix);
 
   // In-session scan cache
   let lastScanResult: ScanResult | null = null;

@@ -19,6 +19,7 @@ import {
   formatAgeKeyFile,
   generateRandomValue,
   markPending,
+  resolveRecipientsForEnvironment,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 
@@ -440,11 +441,16 @@ function buildSopsYaml(
       const backend = env.sops?.backend ?? manifest.sops.default_backend;
 
       switch (backend) {
-        case "age":
-          if (agePublicKey) {
+        case "age": {
+          const envRecipients = resolveRecipientsForEnvironment(manifest, env.name);
+          if (envRecipients && envRecipients.length > 0) {
+            const keys = envRecipients.map((r) => (typeof r === "string" ? r : r.key));
+            rule.age = keys.join(",");
+          } else if (agePublicKey) {
             rule.age = agePublicKey;
           }
           break;
+        }
         case "awskms": {
           const arn = env.sops?.aws_kms_arn ?? manifest.sops.aws_kms_arn;
           if (arn) {

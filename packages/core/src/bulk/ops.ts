@@ -1,6 +1,6 @@
 import * as path from "path";
 import { ClefManifest, MatrixCell } from "../types";
-import { SopsClient } from "../sops/client";
+import { EncryptionBackend } from "../types";
 
 /**
  * Performs bulk set, delete, and copy operations across multiple environments.
@@ -28,7 +28,7 @@ export class BulkOps {
     key: string,
     values: Record<string, string>,
     manifest: ClefManifest,
-    sopsClient: SopsClient,
+    sopsClient: EncryptionBackend,
     repoRoot: string,
   ): Promise<void> {
     const errors: Array<{ environment: string; error: Error }> = [];
@@ -75,7 +75,7 @@ export class BulkOps {
     namespace: string,
     key: string,
     manifest: ClefManifest,
-    sopsClient: SopsClient,
+    sopsClient: EncryptionBackend,
     repoRoot: string,
   ): Promise<void> {
     const errors: Array<{ environment: string; error: Error }> = [];
@@ -119,7 +119,7 @@ export class BulkOps {
     key: string,
     fromCell: MatrixCell,
     toCell: MatrixCell,
-    sopsClient: SopsClient,
+    sopsClient: EncryptionBackend,
     manifest: ClefManifest,
   ): Promise<void> {
     const source = await sopsClient.decrypt(fromCell.filePath);

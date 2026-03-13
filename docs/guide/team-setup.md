@@ -24,6 +24,23 @@ git add clef.yaml && git add -A && git commit -m "add recipient: Alice"
 
 Push so Alice can pull the updated encrypted files.
 
+### Scoping recipients to an environment
+
+By default, a recipient can decrypt every environment. To restrict a recipient to a specific environment, use the `-e` flag:
+
+```bash
+clef recipients add age1abc... --label "Alice" -e production
+```
+
+Alice can now decrypt production files only. She will not be able to decrypt dev or staging. Per-environment recipients are declared in the manifest under each environment's `recipients` array — see [Per-environment recipients](/guide/manifest#per-environment-recipients).
+
+List and remove scoped recipients the same way:
+
+```bash
+clef recipients list -e production
+clef recipients remove age1abc... -e production
+```
+
 ## Removing a team member
 
 ```bash
@@ -124,6 +141,6 @@ Or open `clef ui` and navigate to Recipients.
 
 ## Auditing access
 
-Clef does not maintain an access log — SOPS does not provide one. Access control is entirely key-based. If you need an audit trail of who decrypted what, that is outside Clef's scope.
+Clef does not maintain an access log — SOPS does not provide one. Access control is entirely key-based. You can see who currently has access with `clef recipients list` (or `clef recipients list -e <env>` for per-environment recipients).
 
-For teams with strict audit requirements, consider using a KMS backend (AWS KMS, GCP KMS) instead of age. Age is the simplest default but KMS backends provide server-side logging of key usage.
+For teams with strict audit requirements, consider using a KMS backend (AWS KMS, GCP KMS) instead of age. KMS backends provide server-side logging of every decryption event (e.g., via AWS CloudTrail). For a comparison, see [age vs KMS](/guide/quick-start#age-vs-kms-choosing-an-encryption-backend).

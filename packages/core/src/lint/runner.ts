@@ -1,8 +1,8 @@
 import * as path from "path";
-import { ClefManifest, LintIssue, LintResult } from "../types";
+import { ClefManifest, LintIssue, LintResult, resolveRecipientsForEnvironment } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { SchemaValidator } from "../schema/validator";
-import { SopsClient } from "../sops/client";
+import { EncryptionBackend } from "../types";
 import { getPendingKeys } from "../pending/metadata";
 
 /**
@@ -18,7 +18,7 @@ export class LintRunner {
   constructor(
     private readonly matrixManager: MatrixManager,
     private readonly schemaValidator: SchemaValidator,
-    private readonly sopsClient: SopsClient,
+    private readonly sopsClient: EncryptionBackend,
   ) {}
 
   /**
@@ -95,6 +95,37 @@ export class LintRunner {
             file: cell.filePath,
             message: `File is encrypted with only ${decrypted.metadata.recipients.length} recipient(s). Consider adding a backup key.`,
           });
+        }
+
+        // Per-environment recipient drift check
+        const envRecipients = resolveRecipientsForEnvironment(manifest, cell.environment);
+        if (envRecipients) {
+          const expectedKeys = new Set(
+            envRecipients.map((r) => (typeof r === "string" ? r : r.key)),
+          );
+          const actualKeys = new Set(decrypted.metadata.recipients);
+          for (const expected of expectedKeys) {
+            if (!actualKeys.has(expected)) {
+              issues.push({
+                severity: "warning",
+                category: "sops",
+                file: cell.filePath,
+                message: `Expected recipient '${expected.slice(0, 4)}…${expected.slice(-8)}' is missing from encrypted file.`,
+                fixCommand: `clef recipients add ${expected} -e ${cell.environment}`,
+              });
+            }
+          }
+          for (const actual of actualKeys) {
+            if (!expectedKeys.has(actual)) {
+              issues.push({
+                severity: "warning",
+                category: "sops",
+                file: cell.filePath,
+                message: `Unexpected recipient '${actual.slice(0, 4)}…${actual.slice(-8)}' found in encrypted file.`,
+                fixCommand: `clef recipients remove ${actual} -e ${cell.environment}`,
+              });
+            }
+          }
         }
 
         // Category 2: Schema validation

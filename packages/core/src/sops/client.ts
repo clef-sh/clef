@@ -14,6 +14,7 @@ import * as YAML from "yaml";
 import {
   ClefManifest,
   DecryptedFile,
+  EncryptionBackend,
   SopsDecryptionError,
   SopsEncryptionError,
   SopsKeyNotFoundError,
@@ -37,7 +38,7 @@ function formatFromPath(filePath: string): "yaml" | "json" {
  * const decrypted = await client.decrypt("secrets/production.enc.yaml");
  * ```
  */
-export class SopsClient {
+export class SopsClient implements EncryptionBackend {
   /**
    * @param runner - Subprocess runner used to invoke the `sops` binary.
    * @param ageKeyFile - Optional path to an age private key file. Sets `SOPS_AGE_KEY_FILE`
@@ -181,6 +182,50 @@ export class SopsClient {
     if (result.exitCode !== 0) {
       throw new SopsEncryptionError(
         `Failed to re-encrypt '${filePath}': ${result.stderr.trim()}`,
+        filePath,
+      );
+    }
+  }
+
+  /**
+   * Add an age recipient to an existing SOPS file.
+   *
+   * @param filePath - Path to the encrypted file.
+   * @param key - age public key to add as a recipient.
+   * @throws {@link SopsEncryptionError} On failure.
+   */
+  async addRecipient(filePath: string, key: string): Promise<void> {
+    await assertSops(this.runner);
+    const env = this.buildSopsEnv();
+    const result = await this.runner.run("sops", ["rotate", "-i", "--add-age", key, filePath], {
+      ...(env ? { env } : {}),
+    });
+
+    if (result.exitCode !== 0) {
+      throw new SopsEncryptionError(
+        `Failed to add recipient to '${filePath}': ${result.stderr.trim()}`,
+        filePath,
+      );
+    }
+  }
+
+  /**
+   * Remove an age recipient from an existing SOPS file.
+   *
+   * @param filePath - Path to the encrypted file.
+   * @param key - age public key to remove.
+   * @throws {@link SopsEncryptionError} On failure.
+   */
+  async removeRecipient(filePath: string, key: string): Promise<void> {
+    await assertSops(this.runner);
+    const env = this.buildSopsEnv();
+    const result = await this.runner.run("sops", ["rotate", "-i", "--rm-age", key, filePath], {
+      ...(env ? { env } : {}),
+    });
+
+    if (result.exitCode !== 0) {
+      throw new SopsEncryptionError(
+        `Failed to remove recipient from '${filePath}': ${result.stderr.trim()}`,
         filePath,
       );
     }

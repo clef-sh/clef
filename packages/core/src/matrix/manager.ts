@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { ClefManifest, MatrixCell, MatrixIssue, MatrixStatus } from "../types";
-import { SopsClient } from "../sops/client";
+import { EncryptionBackend } from "../types";
 import { getPendingKeys } from "../pending/metadata";
 
 /**
@@ -62,7 +62,7 @@ export class MatrixManager {
    */
   async scaffoldCell(
     cell: MatrixCell,
-    sopsClient: SopsClient,
+    sopsClient: EncryptionBackend,
     manifest: ClefManifest,
   ): Promise<void> {
     const dir = path.dirname(cell.filePath);
@@ -83,7 +83,7 @@ export class MatrixManager {
   async getMatrixStatus(
     manifest: ClefManifest,
     repoRoot: string,
-    sopsClient: SopsClient,
+    sopsClient: EncryptionBackend,
   ): Promise<MatrixStatus[]> {
     const cells = this.resolveMatrix(manifest, repoRoot);
     const statuses: MatrixStatus[] = [];

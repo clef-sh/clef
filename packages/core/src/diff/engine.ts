@@ -12,7 +12,7 @@
  */
 import * as path from "path";
 import { ClefManifest, DiffResult, DiffRow, DiffStatus } from "../types";
-import { SopsClient } from "../sops/client";
+import { EncryptionBackend } from "../types";
 
 /**
  * Compares decrypted values between two environments or two arbitrary key/value maps.
@@ -96,7 +96,7 @@ export class DiffEngine {
     envA: string,
     envB: string,
     manifest: ClefManifest,
-    sopsClient: SopsClient,
+    sopsClient: EncryptionBackend,
     repoRoot: string,
   ): Promise<DiffResult> {
     const fileA = path.join(

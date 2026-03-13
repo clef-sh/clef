@@ -85,7 +85,7 @@ The manifest declares:
 - The **SOPS configuration** — which encryption backend to use
 - The **file pattern** — how namespace and environment map to file paths on disk
 
-::: tip Age key location
+::: tip age key location
 When using the age backend, each developer's private key path is stored in `.clef/config.yaml` (gitignored) — not in the manifest. The key itself lives outside the repository at `~/.config/clef/keys.txt` by default.
 :::
 
@@ -213,15 +213,16 @@ my-app/
 
 **Cons:**
 
-- With a single age backend, the recipient list is flat — every recipient can decrypt every environment, and any recipient can add new recipients without approval
+- Without per-environment scoping, the recipient list is flat — every recipient can decrypt every environment
 - Multi-service teams end up with secrets for unrelated services in the same repo
 
-::: warning Access control depends on your backend configuration
-**With a single age backend (the default),** every recipient in `clef.yaml` can decrypt **every** file in the matrix — including production. A developer added with `clef recipients add` immediately gains the ability to run `clef get payments/production` and read live credentials. There is also nothing preventing a recipient from adding another person without approval.
+::: tip Access control options
+By default, a recipient added with `clef recipients add` can decrypt all environments. Clef provides two ways to restrict access:
 
-**With per-environment backends,** you can mitigate this by configuring production to use a KMS backend (AWS KMS, GCP KMS) while dev/staging use age. Decryption of production files then requires cloud IAM credentials — developers with only an age key cannot decrypt them. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override).
+- **Per-environment recipients** — scope recipients to specific environments with `clef recipients add <key> -e production`. Only keys explicitly granted access to an environment can decrypt its files.
+- **Per-environment backends** — configure production to use a KMS backend (AWS KMS, GCP KMS) while dev/staging use age. Decryption of production files then requires cloud IAM credentials, and KMS provides server-side audit logging. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override).
 
-If you need access control **and** cannot use a KMS backend, use Pattern B with restricted access on the secrets repository.
+For a comparison of these approaches, see [age vs KMS](/guide/quick-start#age-vs-kms-choosing-an-encryption-backend).
 :::
 
 **Best for:** single-service repositories, small teams, and projects where all contributors are trusted with all environments.

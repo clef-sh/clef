@@ -1,6 +1,6 @@
 import * as path from "path";
 import { ClefManifest } from "../types";
-import { SopsClient } from "../sops/client";
+import { EncryptionBackend } from "../types";
 import { parse, ImportFormat } from "./parsers";
 export type { ImportFormat, ParsedImport } from "./parsers";
 
@@ -31,7 +31,7 @@ export interface ImportResult {
  * ```
  */
 export class ImportRunner {
-  constructor(private readonly sopsClient: SopsClient) {}
+  constructor(private readonly sopsClient: EncryptionBackend) {}
 
   /**
    * Parse a source file and import its key/value pairs into a target `namespace/environment` cell.

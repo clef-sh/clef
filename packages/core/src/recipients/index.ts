@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as YAML from "yaml";
-import { ClefManifest, SubprocessRunner } from "../types";
+import { ClefManifest, EncryptionBackend } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { validateAgePublicKey, keyPreview } from "./validator";
 import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
@@ -84,6 +84,38 @@ function ensureRecipientsArray(doc: Record<string, unknown>): unknown[] {
   return age.recipients as unknown[];
 }
 
+function getEnvironmentRecipientsArray(doc: Record<string, unknown>, envName: string): unknown[] {
+  const environments = doc.environments as Record<string, unknown>[] | undefined;
+  if (!Array.isArray(environments)) return [];
+  const env = environments.find((e) => (e as Record<string, unknown>).name === envName) as
+    | Record<string, unknown>
+    | undefined;
+  if (!env) return [];
+  const recipients = env.recipients;
+  if (!Array.isArray(recipients)) return [];
+  return recipients;
+}
+
+function ensureEnvironmentRecipientsArray(
+  doc: Record<string, unknown>,
+  envName: string,
+): unknown[] {
+  const environments = doc.environments as Record<string, unknown>[] | undefined;
+  if (!Array.isArray(environments)) {
+    throw new Error(`No environments array in manifest.`);
+  }
+  const env = environments.find((e) => (e as Record<string, unknown>).name === envName) as
+    | Record<string, unknown>
+    | undefined;
+  if (!env) {
+    throw new Error(`Environment '${envName}' not found in manifest.`);
+  }
+  if (!Array.isArray(env.recipients)) {
+    env.recipients = [];
+  }
+  return env.recipients as unknown[];
+}
+
 /**
  * Manages age recipient keys in the manifest and re-encrypts matrix files on add/remove.
  * All add/remove operations are transactional — a failure triggers a full rollback.
@@ -96,7 +128,7 @@ function ensureRecipientsArray(doc: Record<string, unknown>): unknown[] {
  */
 export class RecipientManager {
   constructor(
-    private readonly runner: SubprocessRunner,
+    private readonly encryption: EncryptionBackend,
     private readonly matrixManager: MatrixManager,
   ) {}
 
@@ -105,10 +137,19 @@ export class RecipientManager {
    *
    * @param manifest - Parsed manifest.
    * @param repoRoot - Absolute path to the repository root.
+   * @param environment - Optional environment name to list per-env recipients.
    */
-  async list(manifest: ClefManifest, repoRoot: string): Promise<Recipient[]> {
+  async list(manifest: ClefManifest, repoRoot: string, environment?: string): Promise<Recipient[]> {
+    if (environment) {
+      const env = manifest.environments.find((e) => e.name === environment);
+      if (!env) {
+        throw new Error(`Environment '${environment}' not found in manifest.`);
+      }
+    }
     const doc = readManifestYaml(repoRoot);
-    const entries = getRecipientsArray(doc);
+    const entries = environment
+      ? getEnvironmentRecipientsArray(doc, environment)
+      : getRecipientsArray(doc);
     return entries.map((entry) => toRecipient(parseRecipientEntry(entry)));
   }
 
@@ -116,10 +157,11 @@ export class RecipientManager {
    * Add a new age recipient and re-encrypt all existing matrix files.
    * Rolls back the manifest and any already-re-encrypted files on failure.
    *
-   * @param key - Age public key to add (`age1...`).
+   * @param key - age public key to add (`age1...`).
    * @param label - Optional human-readable label for the recipient.
    * @param manifest - Parsed manifest.
    * @param repoRoot - Absolute path to the repository root.
+   * @param environment - Optional environment name to scope the operation.
    * @throws `Error` If the key is invalid or already present.
    */
   async add(
@@ -127,6 +169,7 @@ export class RecipientManager {
     label: string | undefined,
     manifest: ClefManifest,
     repoRoot: string,
+    environment?: string,
   ): Promise<RecipientsResult> {
     const validation = validateAgePublicKey(key);
     if (!validation.valid) {
@@ -134,9 +177,18 @@ export class RecipientManager {
     }
     const normalizedKey = validation.key!;
 
+    if (environment) {
+      const env = manifest.environments.find((e) => e.name === environment);
+      if (!env) {
+        throw new Error(`Environment '${environment}' not found in manifest.`);
+      }
+    }
+
     // Read current manifest
     const doc = readManifestYaml(repoRoot);
-    const currentEntries = getRecipientsArray(doc);
+    const currentEntries = environment
+      ? getEnvironmentRecipientsArray(doc, environment)
+      : getRecipientsArray(doc);
     const currentKeys = currentEntries.map((e) => parseRecipientEntry(e).key);
 
     if (currentKeys.includes(normalizedKey)) {
@@ -148,7 +200,9 @@ export class RecipientManager {
     const manifestBackup = fs.readFileSync(manifestPath, "utf-8");
 
     // Add new recipient to manifest
-    const recipients = ensureRecipientsArray(doc);
+    const recipients = environment
+      ? ensureEnvironmentRecipientsArray(doc, environment)
+      : ensureRecipientsArray(doc);
     if (label) {
       recipients.push({ key: normalizedKey, label });
     } else {
@@ -156,8 +210,9 @@ export class RecipientManager {
     }
     writeManifestYaml(repoRoot, doc);
 
-    // Re-encrypt all existing files
-    const cells = this.matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
+    // Re-encrypt matching files
+    const allCells = this.matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
+    const cells = environment ? allCells.filter((c) => c.environment === environment) : allCells;
     const reEncryptedFiles: string[] = [];
     const failedFiles: string[] = [];
     const fileBackups = new Map<string, string>();
@@ -167,17 +222,7 @@ export class RecipientManager {
         // Save file backup before re-encryption
         fileBackups.set(cell.filePath, fs.readFileSync(cell.filePath, "utf-8"));
 
-        const result = await this.runner.run("sops", [
-          "rotate",
-          "-i",
-          "--add-age",
-          normalizedKey,
-          cell.filePath,
-        ]);
-
-        if (result.exitCode !== 0) {
-          throw new Error(result.stderr.trim());
-        }
+        await this.encryption.addRecipient(cell.filePath, normalizedKey);
 
         reEncryptedFiles.push(cell.filePath);
       } catch {
@@ -196,7 +241,9 @@ export class RecipientManager {
 
         // Re-read the restored manifest for the result
         const restoredDoc = readManifestYaml(repoRoot);
-        const restoredEntries = getRecipientsArray(restoredDoc);
+        const restoredEntries = environment
+          ? getEnvironmentRecipientsArray(restoredDoc, environment)
+          : getRecipientsArray(restoredDoc);
         const restoredRecipients = restoredEntries.map((e) => toRecipient(parseRecipientEntry(e)));
 
         return {
@@ -211,7 +258,9 @@ export class RecipientManager {
 
     // Build final recipient list
     const updatedDoc = readManifestYaml(repoRoot);
-    const updatedEntries = getRecipientsArray(updatedDoc);
+    const updatedEntries = environment
+      ? getEnvironmentRecipientsArray(updatedDoc, environment)
+      : getRecipientsArray(updatedDoc);
     const finalRecipients = updatedEntries.map((e) => toRecipient(parseRecipientEntry(e)));
 
     return {
@@ -228,17 +277,32 @@ export class RecipientManager {
    * Rolls back on failure. Note: re-encryption removes _future_ access only;
    * rotate secret values to fully revoke access.
    *
-   * @param key - Age public key to remove.
+   * @param key - age public key to remove.
    * @param manifest - Parsed manifest.
    * @param repoRoot - Absolute path to the repository root.
+   * @param environment - Optional environment name to scope the operation.
    * @throws `Error` If the key is not in the manifest.
    */
-  async remove(key: string, manifest: ClefManifest, repoRoot: string): Promise<RecipientsResult> {
+  async remove(
+    key: string,
+    manifest: ClefManifest,
+    repoRoot: string,
+    environment?: string,
+  ): Promise<RecipientsResult> {
     const trimmedKey = key.trim();
+
+    if (environment) {
+      const env = manifest.environments.find((e) => e.name === environment);
+      if (!env) {
+        throw new Error(`Environment '${environment}' not found in manifest.`);
+      }
+    }
 
     // Read current manifest
     const doc = readManifestYaml(repoRoot);
-    const currentEntries = getRecipientsArray(doc);
+    const currentEntries = environment
+      ? getEnvironmentRecipientsArray(doc, environment)
+      : getRecipientsArray(doc);
     const parsed = currentEntries.map((e) => parseRecipientEntry(e));
     const matchIndex = parsed.findIndex((p) => p.key === trimmedKey);
 
@@ -253,12 +317,15 @@ export class RecipientManager {
     const manifestBackup = fs.readFileSync(manifestPath, "utf-8");
 
     // Remove recipient from manifest
-    const recipients = ensureRecipientsArray(doc);
+    const recipients = environment
+      ? ensureEnvironmentRecipientsArray(doc, environment)
+      : ensureRecipientsArray(doc);
     recipients.splice(matchIndex, 1);
     writeManifestYaml(repoRoot, doc);
 
-    // Re-encrypt all existing files
-    const cells = this.matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
+    // Re-encrypt matching files
+    const allCells = this.matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
+    const cells = environment ? allCells.filter((c) => c.environment === environment) : allCells;
     const reEncryptedFiles: string[] = [];
     const failedFiles: string[] = [];
     const fileBackups = new Map<string, string>();
@@ -268,17 +335,7 @@ export class RecipientManager {
         // Save file backup before re-encryption
         fileBackups.set(cell.filePath, fs.readFileSync(cell.filePath, "utf-8"));
 
-        const result = await this.runner.run("sops", [
-          "rotate",
-          "-i",
-          "--rm-age",
-          trimmedKey,
-          cell.filePath,
-        ]);
-
-        if (result.exitCode !== 0) {
-          throw new Error(result.stderr.trim());
-        }
+        await this.encryption.removeRecipient(cell.filePath, trimmedKey);
 
         reEncryptedFiles.push(cell.filePath);
       } catch {
@@ -297,7 +354,9 @@ export class RecipientManager {
 
         // Re-read the restored manifest for the result
         const restoredDoc = readManifestYaml(repoRoot);
-        const restoredEntries = getRecipientsArray(restoredDoc);
+        const restoredEntries = environment
+          ? getEnvironmentRecipientsArray(restoredDoc, environment)
+          : getRecipientsArray(restoredDoc);
         const restoredRecipients = restoredEntries.map((e) => toRecipient(parseRecipientEntry(e)));
 
         return {
@@ -315,7 +374,9 @@ export class RecipientManager {
 
     // Build final recipient list
     const updatedDoc = readManifestYaml(repoRoot);
-    const updatedEntries = getRecipientsArray(updatedDoc);
+    const updatedEntries = environment
+      ? getEnvironmentRecipientsArray(updatedDoc, environment)
+      : getRecipientsArray(updatedDoc);
     const finalRecipients = updatedEntries.map((e) => toRecipient(parseRecipientEntry(e)));
 
     return {

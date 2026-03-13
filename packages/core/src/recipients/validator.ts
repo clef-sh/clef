@@ -20,14 +20,14 @@ export function validateAgePublicKey(input: string): AgeKeyValidation {
   if (!trimmed.startsWith(AGE_PREFIX)) {
     return {
       valid: false,
-      error: `Age public key must start with '${AGE_PREFIX}'. Got: '${trimmed.slice(0, 10)}...'`,
+      error: `age public key must start with '${AGE_PREFIX}'. Got: '${trimmed.slice(0, 10)}...'`,
     };
   }
 
   if (trimmed.length < MIN_LENGTH) {
     return {
       valid: false,
-      error: `Age public key is too short. Expected at least ${MIN_LENGTH} characters, got ${trimmed.length}.`,
+      error: `age public key is too short. Expected at least ${MIN_LENGTH} characters, got ${trimmed.length}.`,
     };
   }
 

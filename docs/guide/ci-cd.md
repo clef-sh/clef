@@ -16,18 +16,16 @@ Before picking a pattern, understand the security tradeoff between the two suppo
 | Revocation                   | Re-encrypt all files with a new key              | Remove the IAM permission — instant       |
 | Audit log                    | None                                             | CloudTrail / Cloud Audit Logs             |
 
-**Use age for lower environments** (dev, staging) where operational simplicity matters and secrets are not production-critical.
-
-**Use KMS for production.** The master key never leaves the HSM. CI authenticates via short-lived IAM credentials — nothing long-lived is stored or injected. If you can only use KMS for one environment, make it production.
+age is the simplest option — store a private key in your CI provider's secret store and go. KMS adds short-lived credentials and server-side audit logging at the cost of cloud infrastructure. For a detailed comparison, see [age vs KMS](/guide/quick-start#age-vs-kms-choosing-an-encryption-backend).
 
 ---
 
-## age — Simple Setup for Lower Environments
+## age — Simple Setup
 
 The simplest CI setup uses an age private key stored as a CI secret. SOPS reads the key from the `SOPS_AGE_KEY` environment variable automatically — no key file needs to touch disk.
 
 ::: warning Security tradeoff
-The age private key and the ciphertext are both present in the CI runner simultaneously. A compromised runner exposes a long-lived key that grants access to everything it can decrypt until all secrets are rotated. For production secrets, use KMS instead.
+The age private key and the ciphertext are both present in the CI runner simultaneously. A compromised runner exposes a long-lived key that grants access to everything it can decrypt until the key is rotated. Storing `SOPS_AGE_KEY` in your CI provider's secrets store (GitHub Actions secrets, GitLab CI variables, etc.) keeps it encrypted at rest and scoped to the pipeline. For a comparison of the tradeoffs, see [age vs KMS](/guide/quick-start#age-vs-kms-choosing-an-encryption-backend).
 :::
 
 ### GitHub Actions
@@ -324,7 +322,7 @@ Be cautious: build args are visible in the image's build history. Use multi-stag
 
 ## Best Practices
 
-1. **Use KMS for production secrets** — age keeps the private key and ciphertext together in the runner; KMS keeps the master key in an HSM and uses short-lived IAM credentials. This is not a style preference — it is the materially more secure choice for production.
+1. **Understand the age vs KMS tradeoff** — age keeps the private key and ciphertext together in the runner; KMS keeps the master key in an HSM and uses short-lived IAM credentials. Both are valid — see [age vs KMS](/guide/quick-start#age-vs-kms-choosing-an-encryption-backend) to choose the right fit for each environment.
 2. **Use `clef exec` over `clef export`** — subprocess injection is more secure than shell eval; secrets never appear in intermediate shell state
 3. **Scope CI permissions narrowly** — IAM roles should have `kms:Decrypt` only, on specific keys only
 4. **Use `--only` to limit exposure** — inject only the keys your command actually needs

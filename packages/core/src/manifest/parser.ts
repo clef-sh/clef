@@ -13,6 +13,7 @@
 import * as fs from "fs";
 import * as YAML from "yaml";
 import { ClefManifest, ClefEnvironment, ManifestValidationError } from "../types";
+import { validateAgePublicKey } from "../recipients/validator";
 
 /**
  * Canonical filename for the Clef manifest.
@@ -206,6 +207,58 @@ export class ManifestParser {
         };
       }
 
+      // Parse optional per-environment recipients
+      if (envObj.recipients !== undefined) {
+        if (!Array.isArray(envObj.recipients)) {
+          throw new ManifestValidationError(
+            `Environment '${envObj.name}' has an invalid 'recipients' field. It must be an array.`,
+            "environments",
+          );
+        }
+        const parsedRecipients: (string | { key: string; label?: string })[] = [];
+        for (let ri = 0; ri < envObj.recipients.length; ri++) {
+          const entry = envObj.recipients[ri];
+          if (typeof entry === "string") {
+            const validation = validateAgePublicKey(entry);
+            if (!validation.valid) {
+              throw new ManifestValidationError(
+                `Environment '${envObj.name}' recipient at index ${ri}: ${validation.error}`,
+                "environments",
+              );
+            }
+            parsedRecipients.push(validation.key!);
+          } else if (typeof entry === "object" && entry !== null) {
+            const entryObj = entry as Record<string, unknown>;
+            if (typeof entryObj.key !== "string") {
+              throw new ManifestValidationError(
+                `Environment '${envObj.name}' recipient at index ${ri} must have a 'key' string.`,
+                "environments",
+              );
+            }
+            const validation = validateAgePublicKey(entryObj.key);
+            if (!validation.valid) {
+              throw new ManifestValidationError(
+                `Environment '${envObj.name}' recipient at index ${ri}: ${validation.error}`,
+                "environments",
+              );
+            }
+            const recipientObj: { key: string; label?: string } = { key: validation.key! };
+            if (typeof entryObj.label === "string") {
+              recipientObj.label = entryObj.label;
+            }
+            parsedRecipients.push(recipientObj);
+          } else {
+            throw new ManifestValidationError(
+              `Environment '${envObj.name}' recipient at index ${ri} must be a string or object.`,
+              "environments",
+            );
+          }
+        }
+        if (parsedRecipients.length > 0) {
+          result.recipients = parsedRecipients;
+        }
+      }
+
       return result;
     });
 
@@ -311,6 +364,19 @@ export class ManifestParser {
         ? { pgp_fingerprint: sopsObj.pgp_fingerprint }
         : {}),
     };
+
+    // Post-processing: validate per-env recipients are only used with age backend
+    for (const env of environments) {
+      if (env.recipients && env.recipients.length > 0) {
+        const effectiveBackend = env.sops?.backend ?? sopsConfig.default_backend;
+        if (effectiveBackend !== "age") {
+          throw new ManifestValidationError(
+            `Environment '${env.name}' has per-environment recipients but uses '${effectiveBackend}' backend. Per-environment recipients are only supported with the 'age' backend.`,
+            "environments",
+          );
+        }
+      }
+    }
 
     // file_pattern
     if (!obj.file_pattern || typeof obj.file_pattern !== "string") {

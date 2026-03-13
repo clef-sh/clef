@@ -49,7 +49,7 @@ Each core module has a test file that validates all code paths:
 | ImportRunner       | `src/import/index.test.ts`         | Import orchestration, format detection, namespace/environment targeting                       |
 | ImportParsers      | `src/import/parsers.test.ts`       | .env, JSON, YAML format parsing                                                               |
 | RecipientManager   | `src/recipients/index.test.ts`     | Recipient listing, addition, removal from .sops.yaml                                          |
-| RecipientValidator | `src/recipients/validator.test.ts` | Age key format validation                                                                     |
+| RecipientValidator | `src/recipients/validator.test.ts` | age key format validation                                                                     |
 | ConsumptionClient  | `src/consumption/client.test.ts`   | Secret resolution for exec/export                                                             |
 | PendingMetadata    | `src/pending/metadata.test.ts`     | markPending, markResolved, retry logic                                                        |
 | DependencyChecker  | `src/dependencies/checker.test.ts` | Version parsing, satisfaction checks for sops and git                                         |
@@ -113,7 +113,7 @@ This allows testing all SOPS interactions without the `sops` binary installed. T
 
 ## Integration tests
 
-Integration tests live in the `integration/` directory at the repo root and are excluded from the default `npm test` run. They require the `sops` binary installed on your machine. Age key pairs are generated via the `age-encryption` npm package — no `age` binary is required.
+Integration tests live in the `integration/` directory at the repo root and are excluded from the default `npm test` run. They require the `sops` binary installed on your machine. age key pairs are generated via the `age-encryption` npm package — no `age` binary is required.
 
 ### Prerequisites
 

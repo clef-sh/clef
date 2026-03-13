@@ -57,7 +57,44 @@ Each entry in the `environments` array:
 | `name`        | `string`  | Yes      | —       | Environment identifier. Used in file paths and CLI arguments. Must be unique.                                                                                                                                            |
 | `description` | `string`  | Yes      | —       | Human-readable description. Shown in the UI.                                                                                                                                                                             |
 | `protected`   | `boolean` | No       | `false` | If `true`, writes to this environment require explicit confirmation in the CLI and show a warning banner in the UI.                                                                                                      |
+| `recipients`  | `array`   | No       | —       | Per-environment age recipient list. When set, only these recipients can decrypt this environment's files. See [Per-environment recipients](#per-environment-recipients) below.                                           |
 | `sops`        | `object`  | No       | —       | Per-environment SOPS backend override. When set, this environment uses a different encryption backend than the global `sops.default_backend`. See [Per-environment SOPS override](#per-environment-sops-override) below. |
+
+#### Per-environment recipients
+
+An environment can declare its own list of age recipients. When set, only these recipients can decrypt the environment's files — the global recipient list in `sops.age.recipients` does not apply.
+
+```yaml
+environments:
+  - name: dev
+    description: Local development
+  - name: production
+    description: Production environment
+    protected: true
+    recipients:
+      - key: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"
+        label: "ops-team"
+      - "age1abc123..."
+```
+
+Each entry in the `recipients` array is either:
+
+- A **string** — an age public key (`age1...`)
+- An **object** with `key` (required, age public key) and `label` (optional, human-readable name)
+
+Manage per-environment recipients with the `-e` flag:
+
+```bash
+clef recipients add age1abc... --label "Alice" -e production
+clef recipients list -e production
+clef recipients remove age1abc... -e production
+```
+
+`clef lint` detects recipient drift — when a file's actual recipients do not match the expected list declared in the manifest.
+
+::: warning Per-environment recipients require the age backend
+The `recipients` field is only valid on environments using the `age` backend (either explicitly or via the global default). Clef rejects the manifest if `recipients` is set on an environment with a non-age backend.
+:::
 
 #### Per-environment SOPS override
 

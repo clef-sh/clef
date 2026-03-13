@@ -1,14 +1,9 @@
 # Quick Start
 
-::: warning Pattern A with a single backend — no per-environment access control
-This walkthrough uses **Pattern A** — secrets live alongside your application code in the same repository. When using a single age backend, every recipient can decrypt every file, including production.
+::: info This guide uses Pattern A with a shared age backend
+This walkthrough uses **Pattern A** — secrets live alongside your application code in the same repository — with a single age backend shared across all environments. This is the simplest setup and a good starting point for most teams.
 
-If your team needs production secrets isolated from developers, you have two options:
-
-1. **Per-environment backends** — keep Pattern A but configure production to use a KMS backend (AWS KMS, GCP KMS) while dev/staging use age. Only team members with IAM access to the KMS key can decrypt production. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override).
-2. **Pattern B** — move secrets to a standalone repository with restricted access. See [Choosing a repository structure](/guide/concepts#choosing-a-repository-structure).
-
-Pattern A with a single age backend is the right choice when all contributors are trusted with all environments.
+Clef also supports **Pattern B**, where secrets live in a standalone repository with independent access control. See [Choosing a repository structure](/guide/concepts#choosing-a-repository-structure).
 :::
 
 This walkthrough takes you from an empty git repository to a fully managed secrets setup with encrypted files, schema validation, and a running web UI. Every command is copy-pasteable.
@@ -183,6 +178,25 @@ clef lint
 # Open the UI
 clef ui
 ```
+
+## age vs KMS: choosing an encryption backend
+
+This walkthrough uses the **age** backend for every environment — the simplest configuration. age keys are free, require no cloud infrastructure, and work offline. The tradeoff is that age has no built-in audit logging and key management is entirely self-managed.
+
+Clef provides two mechanisms for restricting who can decrypt a given environment:
+
+1. **Per-environment recipients** — scope age recipients to specific environments with `clef recipients add <key> -e production`. Only keys explicitly added to that environment can decrypt its files. See [Team Setup](/guide/team-setup).
+2. **Per-environment backends** — configure production to use a KMS backend (AWS KMS, GCP KMS) while dev/staging use age. Decryption of production files then requires cloud IAM credentials, providing an additional layer of access control with server-side audit logging. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override).
+
+|                      | age (all envs) | Per-env age recipients | Per-env KMS              |
+| -------------------- | -------------- | ---------------------- | ------------------------ |
+| **Setup complexity** | Lowest         | Low                    | Medium                   |
+| **Access control**   | All-or-nothing | Per-environment        | Per-environment + IAM    |
+| **Audit logging**    | None           | None                   | Server-side (CloudTrail) |
+| **Key management**   | Self-managed   | Self-managed           | Cloud-managed            |
+| **Cost**             | Free           | Free                   | KMS API charges          |
+
+For most teams starting out, age for all environments is sufficient. Add per-environment recipients when you need to restrict access, and move to KMS when you need audit logging or cloud-managed key rotation.
 
 ## Next steps
 

@@ -339,6 +339,121 @@ describe("LintRunner", () => {
       expect(result.fileCount).toBe(5); // 4 existing + 1 missing
     });
 
+    it("should detect missing per-env recipients in encrypted file", async () => {
+      const manifest = testManifest();
+      manifest.environments[1].recipients = [
+        "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
+        "age1deadgyu9nk64as3xhfmz05u94lef3nym6hvqntrrmyzpq28pjxdqs5gfng",
+      ];
+
+      const cells = [allExistCells()[1]]; // database/production
+      jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
+
+      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
+      sopsClient.decrypt = jest.fn().mockResolvedValue({
+        values: { KEY: "val" },
+        metadata: {
+          backend: "age",
+          recipients: ["age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"],
+          lastModified: new Date(),
+        },
+      });
+
+      jest.spyOn(schemaValidator, "loadSchema").mockReturnValue({
+        keys: { KEY: { type: "string", required: true } },
+      });
+      jest.spyOn(schemaValidator, "validate").mockReturnValue({
+        valid: true,
+        errors: [],
+        warnings: [],
+      });
+
+      const result = await runner.run(manifest, "/repo");
+
+      const driftWarnings = result.issues.filter(
+        (i) => i.category === "sops" && i.severity === "warning" && i.message.includes("missing"),
+      );
+      expect(driftWarnings.length).toBe(1);
+      expect(driftWarnings[0].message).toContain("missing from encrypted file");
+      expect(driftWarnings[0].fixCommand).toContain("-e production");
+    });
+
+    it("should detect unexpected recipients in encrypted file", async () => {
+      const manifest = testManifest();
+      manifest.environments[1].recipients = [
+        "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
+      ];
+
+      const cells = [allExistCells()[1]]; // database/production
+      jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
+
+      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
+      sopsClient.decrypt = jest.fn().mockResolvedValue({
+        values: { KEY: "val" },
+        metadata: {
+          backend: "age",
+          recipients: [
+            "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
+            "age1deadgyu9nk64as3xhfmz05u94lef3nym6hvqntrrmyzpq28pjxdqs5gfng",
+          ],
+          lastModified: new Date(),
+        },
+      });
+
+      jest.spyOn(schemaValidator, "loadSchema").mockReturnValue({
+        keys: { KEY: { type: "string", required: true } },
+      });
+      jest.spyOn(schemaValidator, "validate").mockReturnValue({
+        valid: true,
+        errors: [],
+        warnings: [],
+      });
+
+      const result = await runner.run(manifest, "/repo");
+
+      const unexpectedWarnings = result.issues.filter(
+        (i) =>
+          i.category === "sops" && i.severity === "warning" && i.message.includes("Unexpected"),
+      );
+      expect(unexpectedWarnings.length).toBe(1);
+      expect(unexpectedWarnings[0].fixCommand).toContain("clef recipients remove");
+      expect(unexpectedWarnings[0].fixCommand).toContain("-e production");
+    });
+
+    it("should not check per-env recipient drift when no per-env recipients defined", async () => {
+      const cells = [allExistCells()[0]]; // database/dev — no per-env recipients
+      jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
+
+      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
+      sopsClient.decrypt = jest.fn().mockResolvedValue({
+        values: { KEY: "val" },
+        metadata: {
+          backend: "age",
+          recipients: ["age1somekeyhere12345"],
+          lastModified: new Date(),
+        },
+      });
+
+      jest.spyOn(schemaValidator, "loadSchema").mockReturnValue({
+        keys: { KEY: { type: "string", required: true } },
+      });
+      jest.spyOn(schemaValidator, "validate").mockReturnValue({
+        valid: true,
+        errors: [],
+        warnings: [],
+      });
+
+      const result = await runner.run(testManifest(), "/repo");
+
+      const recipientDrift = result.issues.filter(
+        (i) =>
+          i.category === "sops" &&
+          i.severity === "warning" &&
+          (i.message.includes("missing from encrypted") || i.message.includes("Unexpected")),
+      );
+      expect(recipientDrift.length).toBe(0);
+    });
+
     it("should handle schema load failures gracefully", async () => {
       const cells = [allExistCells()[0]];
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);

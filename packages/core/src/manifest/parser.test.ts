@@ -455,6 +455,152 @@ describe("ManifestParser", () => {
       expect(() => parser.validate(manifest)).toThrow(/Duplicate namespace name 'database'/);
     });
 
+    // Per-environment recipients tests
+    it("should accept per-env recipients as string array", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            recipients: ["age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"],
+          },
+          { name: "dev", description: "Dev" },
+        ],
+      };
+      const result = parser.validate(manifest);
+      expect(result.environments[0].recipients).toEqual([
+        "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
+      ]);
+      expect(result.environments[1].recipients).toBeUndefined();
+    });
+
+    it("should accept per-env recipients as object array", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            recipients: [
+              {
+                key: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
+                label: "Alice",
+              },
+            ],
+          },
+        ],
+      };
+      const result = parser.validate(manifest);
+      expect(result.environments[0].recipients).toEqual([
+        {
+          key: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
+          label: "Alice",
+        },
+      ]);
+    });
+
+    it("should accept empty recipients array (no-op)", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [{ name: "dev", description: "Dev", recipients: [] }],
+      };
+      const result = parser.validate(manifest);
+      expect(result.environments[0].recipients).toBeUndefined();
+    });
+
+    it("should reject non-array recipients field", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [{ name: "dev", description: "Dev", recipients: "not-an-array" }],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/must be an array/);
+    });
+
+    it("should reject invalid age key in string recipient", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [{ name: "dev", description: "Dev", recipients: ["not-a-valid-key"] }],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/recipient at index 0/);
+    });
+
+    it("should reject invalid age key in object recipient", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "dev",
+            description: "Dev",
+            recipients: [{ key: "not-valid", label: "Bad" }],
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/recipient at index 0/);
+    });
+
+    it("should reject recipient object without key field", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "dev",
+            description: "Dev",
+            recipients: [{ label: "Missing key" }],
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/must have a 'key' string/);
+    });
+
+    it("should reject non-string/non-object recipient entry", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [{ name: "dev", description: "Dev", recipients: [42] }],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/must be a string or object/);
+    });
+
+    it("should reject per-env recipients with non-age backend", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: {
+              backend: "awskms",
+              aws_kms_arn: "arn:aws:kms:us-east-1:123:key/abc",
+            },
+            recipients: ["age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"],
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/only supported with the 'age' backend/);
+    });
+
+    it("should reject per-env recipients when global backend is non-age and no env override", () => {
+      const manifest = {
+        ...validManifest(),
+        sops: { default_backend: "awskms", aws_kms_arn: "arn:aws:kms:us-east-1:123:key/abc" },
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            recipients: ["age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"],
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/only supported with the 'age' backend/);
+    });
+
     it("should reject non-object per-env sops field", () => {
       const manifest = {
         ...validManifest(),

@@ -1,4 +1,4 @@
-import { SopsClient } from "../sops/client";
+import { EncryptionBackend } from "../types";
 
 /** Status of a single key in a three-way merge. */
 export type MergeKeyStatus = "unchanged" | "ours" | "theirs" | "both_added" | "conflict";
@@ -46,7 +46,7 @@ export interface MergeResult {
  * ```
  */
 export class SopsMergeDriver {
-  constructor(private readonly sopsClient: SopsClient) {}
+  constructor(private readonly sopsClient: EncryptionBackend) {}
 
   /**
    * Perform a three-way merge on three in-memory key/value maps.

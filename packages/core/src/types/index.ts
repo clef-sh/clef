@@ -56,6 +56,8 @@ export interface ClefEnvironment {
   protected?: boolean;
   /** Per-environment SOPS backend override. Falls back to global `sops` config when absent. */
   sops?: EnvironmentSopsOverride;
+  /** Per-environment age recipient overrides. When set, these recipients are used instead of global. */
+  recipients?: (string | { key: string; label?: string })[];
 }
 
 /**
@@ -74,6 +76,20 @@ export function resolveBackendConfig(
     gcp_kms_resource_id: manifest.sops.gcp_kms_resource_id,
     pgp_fingerprint: manifest.sops.pgp_fingerprint,
   };
+}
+
+/**
+ * Resolve per-environment recipients if defined.
+ * Returns the environment's `recipients` array if non-empty, otherwise `undefined`
+ * (caller should fall back to global recipients).
+ */
+export function resolveRecipientsForEnvironment(
+  manifest: ClefManifest,
+  environment: string,
+): (string | { key: string; label?: string })[] | undefined {
+  const env = manifest.environments.find((e) => e.name === environment);
+  if (env?.recipients && env.recipients.length > 0) return env.recipients;
+  return undefined;
 }
 
 /** A secrets namespace declared in the manifest. */
@@ -263,6 +279,35 @@ export interface SopsMetadata {
   /** List of recipient identifiers (age public keys, KMS ARNs, PGP fingerprints). */
   recipients: string[];
   lastModified: Date;
+}
+
+/**
+ * Backend-agnostic interface for all encryption/decryption operations.
+ *
+ * `SopsClient` is the canonical implementation. Consumers should depend on this
+ * interface rather than the concrete class so the encryption backend can be
+ * replaced without touching call sites.
+ */
+export interface EncryptionBackend {
+  /** Decrypt a file and return its values and metadata. */
+  decrypt(filePath: string): Promise<DecryptedFile>;
+  /** Encrypt a key/value map and write it to a file. */
+  encrypt(
+    filePath: string,
+    values: Record<string, string>,
+    manifest: ClefManifest,
+    environment?: string,
+  ): Promise<void>;
+  /** Rotate encryption by adding a new recipient key. */
+  reEncrypt(filePath: string, newKey: string): Promise<void>;
+  /** Add an age recipient to an encrypted file (rotate + add-age). */
+  addRecipient(filePath: string, key: string): Promise<void>;
+  /** Remove an age recipient from an encrypted file (rotate + rm-age). */
+  removeRecipient(filePath: string, key: string): Promise<void>;
+  /** Check whether a file has valid encryption metadata. */
+  validateEncryption(filePath: string): Promise<boolean>;
+  /** Extract encryption metadata without decrypting. */
+  getMetadata(filePath: string): Promise<SopsMetadata>;
 }
 
 // ── Consumption ─────────────────────────────────────────────────────────────
