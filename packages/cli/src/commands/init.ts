@@ -22,6 +22,8 @@ import {
   resolveRecipientsForEnvironment,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
+import { setKeychainKey } from "../keychain";
+import { generateKeyLabel } from "../label-generator";
 
 const CLEF_DIR = ".clef";
 const CLEF_CONFIG_FILENAME = "config.yaml";
@@ -47,11 +49,13 @@ package-lock.json
 yarn.lock
 `;
 
-function defaultAgeKeyPath(): string {
+function defaultAgeKeyPath(label: string): string {
   return path.join(
     process.env.HOME || process.env.USERPROFILE || "",
     ".config",
     "clef",
+    "keys",
+    label,
     "keys.txt",
   );
 }
@@ -104,7 +108,7 @@ export function registerInitCommand(program: Command, deps: { runner: Subprocess
     .option("--include-optional", "When used with --random-values, also scaffold optional keys")
     .action(async (options) => {
       try {
-        const repoRoot = (program.opts().repo as string) || process.cwd();
+        const repoRoot = (program.opts().dir as string) || process.cwd();
         const manifestPath = path.join(repoRoot, "clef.yaml");
         const clefConfigPath = path.join(repoRoot, CLEF_DIR, CLEF_CONFIG_FILENAME);
 
@@ -120,7 +124,7 @@ export function registerInitCommand(program: Command, deps: { runner: Subprocess
 
         // Second-dev onboarding: manifest exists but local config missing
         if (manifestExists && !localConfigExists) {
-          await handleSecondDevOnboarding(repoRoot, clefConfigPath, options);
+          await handleSecondDevOnboarding(repoRoot, clefConfigPath, deps, options);
           return;
         }
 
@@ -149,22 +153,49 @@ export function registerInitCommand(program: Command, deps: { runner: Subprocess
 async function handleSecondDevOnboarding(
   repoRoot: string,
   clefConfigPath: string,
+  deps: { runner: SubprocessRunner },
   options: { nonInteractive?: boolean },
 ): Promise<void> {
-  let keyPath: string;
+  // Always generate a fresh key + label for this repo
+  const label = generateKeyLabel();
+  const identity = await generateAgeIdentity();
+  const privateKey = identity.privateKey;
+  let config: ClefLocalConfig;
 
-  if (options.nonInteractive || !process.stdin.isTTY) {
-    // Non-interactive: use SOPS_AGE_KEY_FILE env or default
-    keyPath = process.env.SOPS_AGE_KEY_FILE || defaultAgeKeyPath();
-    keyPath = path.resolve(keyPath);
+  // Try keychain first
+  const storedInKeychain = await setKeychainKey(deps.runner, privateKey, label);
+
+  if (storedInKeychain) {
+    formatter.success("Stored age key in OS keychain");
+    config = { age_key_storage: "keychain", age_keychain_label: label };
   } else {
-    keyPath = await promptKeyLocation(defaultAgeKeyPath());
-  }
+    // Keychain unavailable — filesystem fallback
+    let keyPath: string;
 
-  if (await isInsideAnyGitRepo(keyPath)) {
-    throw new Error(
-      `Key path '${keyPath}' is inside a git repository. Choose a path outside any git repo to keep your private key secure.`,
-    );
+    if (options.nonInteractive || !process.stdin.isTTY) {
+      keyPath = process.env.SOPS_AGE_KEY_FILE || defaultAgeKeyPath(label);
+      keyPath = path.resolve(keyPath);
+    } else {
+      keyPath = await promptKeyLocation(defaultAgeKeyPath(label));
+    }
+
+    if (await isInsideAnyGitRepo(keyPath)) {
+      throw new Error(
+        `Key path '${keyPath}' is inside a git repository. Choose a path outside any git repo to keep your private key secure.`,
+      );
+    }
+
+    // Write key file
+    const publicKey = identity.publicKey;
+    const keyContent = formatAgeKeyFile(privateKey, publicKey);
+    const keyDir = path.dirname(keyPath);
+    if (!fs.existsSync(keyDir)) {
+      fs.mkdirSync(keyDir, { recursive: true });
+    }
+    fs.writeFileSync(keyPath, keyContent, { encoding: "utf-8", mode: 0o600 });
+    formatter.success(`Generated age key at ${keyPath}`);
+
+    config = { age_key_file: keyPath, age_key_storage: "file", age_keychain_label: label };
   }
 
   // Write .clef/config.yaml and .clef/.gitignore
@@ -172,7 +203,6 @@ async function handleSecondDevOnboarding(
   if (!fs.existsSync(clefDir)) {
     fs.mkdirSync(clefDir, { recursive: true });
   }
-  const config: ClefLocalConfig = { age_key_file: keyPath };
   fs.writeFileSync(clefConfigPath, YAML.stringify(config), "utf-8");
   formatter.success("Created .clef/config.yaml");
 
@@ -181,6 +211,8 @@ async function handleSecondDevOnboarding(
     fs.writeFileSync(gitignorePath, "*\n", "utf-8");
     formatter.success("Created .clef/.gitignore");
   }
+
+  formatter.success(`Key label: ${label}`);
 
   formatter.section("Next steps:");
   formatter.hint("clef update  — scaffold new environments");
@@ -251,7 +283,7 @@ async function handleFullSetup(
     sops: {
       default_backend: backend as ClefManifest["sops"]["default_backend"],
     },
-    file_pattern: "{namespace}/{environment}.enc.yaml",
+    file_pattern: "secrets/{namespace}/{environment}.enc.yaml",
   };
 
   // Validate the manifest
@@ -262,41 +294,72 @@ async function handleFullSetup(
   fs.writeFileSync(manifestPath, YAML.stringify(manifest), "utf-8");
   formatter.success("Created clef.yaml");
 
-  // Handle age backend: generate key and write local config
+  // Handle age backend: generate a fresh key + label and store securely
   let ageKeyFile: string | undefined;
   if (backend === "age") {
-    // Determine key path
-    let keyPath: string;
-    if (options.nonInteractive || !process.stdin.isTTY) {
-      keyPath = defaultAgeKeyPath();
-      if (await isInsideAnyGitRepo(path.resolve(keyPath))) {
-        throw new Error(
-          `Default key path '${keyPath}' is inside a git repository. Set HOME to a non-git location.`,
-        );
-      }
-    } else {
-      keyPath = await promptKeyLocation(defaultAgeKeyPath());
-    }
-
-    // Generate age key pair
+    const label = generateKeyLabel();
     const identity = await generateAgeIdentity();
-    const keyContent = formatAgeKeyFile(identity.privateKey, identity.publicKey);
+    const privateKey = identity.privateKey;
+    const publicKey = identity.publicKey;
 
-    // Write key file
-    const keyDir = path.dirname(keyPath);
-    if (!fs.existsSync(keyDir)) {
-      fs.mkdirSync(keyDir, { recursive: true });
+    // Try to store in keychain
+    const storedInKeychain = await setKeychainKey(deps.runner, privateKey, label);
+
+    if (storedInKeychain) {
+      formatter.success("Stored age key in OS keychain");
+      process.env.SOPS_AGE_KEY = privateKey;
+    } else {
+      // Keychain unavailable — filesystem fallback requires explicit acknowledgment
+      formatter.warn(
+        "OS keychain is not available on this system.\n" +
+          "  The private key must be written to the filesystem instead.\n" +
+          "  See https://docs.clef.sh/guide/key-storage for security implications.",
+      );
+
+      if (!options.nonInteractive && process.stdin.isTTY) {
+        const confirmed = await formatter.confirm("Write the private key to the filesystem?");
+        if (!confirmed) {
+          formatter.error(
+            "Aborted — no key storage available. " +
+              "Set up an OS keychain or re-run on a supported platform.",
+          );
+          process.exit(1);
+          return;
+        }
+      }
+
+      // Determine key path
+      let keyPath: string;
+      if (options.nonInteractive || !process.stdin.isTTY) {
+        keyPath = defaultAgeKeyPath(label);
+        if (await isInsideAnyGitRepo(path.resolve(keyPath))) {
+          throw new Error(
+            `Default key path '${keyPath}' is inside a git repository. Set HOME to a non-git location.`,
+          );
+        }
+      } else {
+        keyPath = await promptKeyLocation(defaultAgeKeyPath(label));
+      }
+
+      // Write key file
+      const keyContent = formatAgeKeyFile(privateKey, publicKey);
+      const keyDir = path.dirname(keyPath);
+      if (!fs.existsSync(keyDir)) {
+        fs.mkdirSync(keyDir, { recursive: true });
+      }
+      fs.writeFileSync(keyPath, keyContent, { encoding: "utf-8", mode: 0o600 });
+      formatter.success(`Generated age key at ${keyPath}`);
+      ageKeyFile = keyPath;
     }
-    fs.writeFileSync(keyPath, keyContent, { encoding: "utf-8", mode: 0o600 });
-    formatter.success(`Generated age key at ${keyPath}`);
-    ageKeyFile = keyPath;
 
     // Write .clef/config.yaml and .clef/.gitignore
     const clefDir = path.dirname(clefConfigPath);
     if (!fs.existsSync(clefDir)) {
       fs.mkdirSync(clefDir, { recursive: true });
     }
-    const config: ClefLocalConfig = { age_key_file: keyPath };
+    const config: ClefLocalConfig = ageKeyFile
+      ? { age_key_file: ageKeyFile, age_key_storage: "file", age_keychain_label: label }
+      : { age_key_storage: "keychain", age_keychain_label: label };
     fs.writeFileSync(clefConfigPath, YAML.stringify(config), "utf-8");
     formatter.success("Created .clef/config.yaml");
 
@@ -306,9 +369,11 @@ async function handleFullSetup(
       formatter.success("Created .clef/.gitignore");
     }
 
-    // Generate .sops.yaml using the new public key
+    formatter.success(`Key label: ${label}`);
+
+    // Generate .sops.yaml using the public key
     const sopsYamlPath = path.join(repoRoot, ".sops.yaml");
-    const sopsConfig = buildSopsYaml(manifest, repoRoot, identity.publicKey);
+    const sopsConfig = buildSopsYaml(manifest, repoRoot, publicKey);
     fs.writeFileSync(sopsYamlPath, YAML.stringify(sopsConfig), "utf-8");
     formatter.success("Created .sops.yaml");
   } else {
@@ -511,17 +576,6 @@ function resolveAgePublicKeyFromEnvOrFile(repoRoot: string): string | undefined 
       // ignore parse errors
     }
   }
-
-  // 4. Try default SOPS path
-  const defaultPath = path.join(
-    process.env.HOME || process.env.USERPROFILE || "",
-    ".config",
-    "sops",
-    "age",
-    "keys.txt",
-  );
-  const pubKey = extractAgePublicKey(defaultPath);
-  if (pubKey) return pubKey;
 
   return undefined;
 }

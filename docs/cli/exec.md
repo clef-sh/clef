@@ -26,7 +26,7 @@ The `--` separator is **required**. Everything before `--` is parsed as Clef fla
 | `--no-override`     | boolean | `false` | Do not override environment variables that already exist in the current shell. Existing values take precedence.                                  |
 | `--also <target>`   | string  | —       | Also inject secrets from another namespace/environment. Can be specified multiple times. Later targets override earlier ones for duplicate keys. |
 
-> `--repo` is a global option. See [Global options](overview.md#global-options).
+> `--dir` is a global option. See [Global options](overview.md#global-options).
 
 ## Exit Codes
 

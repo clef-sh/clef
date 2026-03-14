@@ -14,15 +14,18 @@ For teams that need IAM integration or centralised key management, consider [AWS
 
 ## Key generation
 
-`clef init` automatically generates an age key pair using the `age-encryption` npm package — no age binary is required. The private key is written to `~/.config/clef/keys.txt` by default (outside the repository, outside any git working tree). The path to the key is stored in `.clef/config.yaml` (gitignored via `.clef/.gitignore`). No manual key generation is required.
+`clef init` automatically generates an age key pair with a unique per-repo label (e.g., `coral-tiger`) using the `age-encryption` npm package — no age binary is required. The private key is stored in your OS keychain when available (macOS Keychain, Linux libsecret, Windows Credential Manager), namespaced by label. If the keychain is unavailable, Clef falls back to writing the key to `~/.config/clef/keys/{label}/keys.txt` after explicit confirmation. See [Key Storage](/guide/key-storage) for full details on the storage hierarchy and security tradeoffs.
 
-To find your public key:
+Each repository gets its own key and label, so compromising one repo's key does not expose any other repo's secrets.
+
+To find your public key (when using filesystem storage):
 
 ```bash
-grep "public key" ~/.config/clef/keys.txt
+# The label is shown during init and stored in .clef/config.yaml
+grep "public key" ~/.config/clef/keys/<label>/keys.txt
 ```
 
-**Important:** The private key must be kept secret and must never reside inside a git repository. The default location (`~/.config/clef/keys.txt`) enforces this automatically.
+**Important:** The private key must be kept secret and must never reside inside a git repository.
 
 ## Configuring SOPS to find your key
 
@@ -61,24 +64,24 @@ namespaces:
 sops:
   default_backend: age
 
-file_pattern: "{namespace}/{environment}.enc.yaml"
+file_pattern: "secrets/{namespace}/{environment}.enc.yaml"
 ```
 
-The age private key path is **not** stored in `clef.yaml`. It is stored in `.clef/config.yaml` on each developer's machine (gitignored).
+The age private key path and key label are **not** stored in `clef.yaml`. They are stored in `.clef/config.yaml` on each developer's machine (gitignored).
 
 ## Full working example
 
-From scratch to first encrypted secret:
+From scratch to first encrypted secret, with secrets co-located alongside application code:
 
 ```bash
-# 1. Create a new project
-mkdir my-secrets && cd my-secrets
-git init
+# 1. Inside your existing project
+cd my-app
 
-# 2. Initialise Clef — generates an age key pair automatically
+# 2. Initialise Clef — generates an age key pair with a unique label
 clef init --namespaces database,auth --non-interactive
-# Private key written to ~/.config/clef/keys.txt (outside the repo)
-# Path stored in .clef/config.yaml (gitignored)
+# Key label: coral-tiger (unique to this repo)
+# Private key stored in OS keychain (or ~/.config/clef/keys/coral-tiger/keys.txt)
+# Label and storage method stored in .clef/config.yaml (gitignored)
 
 # 3. Set your first secret
 clef set database/dev DB_PASSWORD mydevpassword
@@ -88,7 +91,7 @@ clef get database/dev DB_PASSWORD
 # Output: mydevpassword
 
 # 5. Check the encrypted file — plaintext is never on disk
-cat database/dev.enc.yaml
+cat secrets/database/dev.enc.yaml
 # Output: SOPS-encrypted YAML with age metadata
 ```
 
@@ -100,8 +103,8 @@ age supports multiple recipients. Each team member generates their own key pair 
 
 When a new team member joins:
 
-1. They run `clef init` in a clone of the repository — a key pair is generated and stored at `~/.config/clef/keys.txt` on their machine (outside the repo)
-2. They share their public key: `grep "public key" ~/.config/clef/keys.txt`
+1. They run `clef init` in a clone of the repository — a key pair is generated with a unique label and stored in their OS keychain (or at `~/.config/clef/keys/{label}/keys.txt`)
+2. They share their public key: `grep "public key" ~/.config/clef/keys/<label>/keys.txt`
 3. An existing team member adds them as a recipient:
 
 ```bash
@@ -135,6 +138,7 @@ New files created by SOPS will be encrypted for all listed recipients.
 
 ## See also
 
+- [Key Storage](/guide/key-storage) — keychain vs filesystem storage, security tradeoffs
 - [Installation](/guide/installation) — installing SOPS
 - [clef rotate](/cli/rotate) — adding new recipient keys
 - [AWS KMS](/backends/aws-kms) — cloud-based alternative with IAM integration

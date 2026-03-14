@@ -69,7 +69,7 @@ function diffRunner(devVals: string, prodVals: string): SubprocessRunner {
 
 function makeProgram(runner: SubprocessRunner): Command {
   const program = new Command();
-  program.option("--repo <path>", "Path to the Clef repository root");
+  program.option("--dir <path>", "Path to a local Clef repository root");
   program.exitOverride();
   registerDiffCommand(program, { runner });
   return program;
@@ -237,14 +237,14 @@ describe("clef diff", () => {
     expect(tableRows.length).toBe(2); // both rows shown
   });
 
-  it("should use --repo path instead of cwd for manifest lookup", async () => {
+  it("should use --dir path instead of cwd for manifest lookup", async () => {
     const runner = diffRunner("KEY: same\n", "KEY: same\n");
     const program = makeProgram(runner);
 
     await program.parseAsync([
       "node",
       "clef",
-      "--repo",
+      "--dir",
       "/custom/repo",
       "diff",
       "database",

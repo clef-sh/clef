@@ -82,7 +82,7 @@ const defaultRunner: SubprocessRunner = {
 
 function makeProgram(runner: SubprocessRunner = defaultRunner): Command {
   const program = new Command();
-  program.option("--repo <path>", "Repository root");
+  program.option("--dir <path>", "Path to a local Clef repository root");
   program.exitOverride();
   registerRecipientsCommand(program, { runner });
   return program;

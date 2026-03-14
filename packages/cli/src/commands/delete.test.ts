@@ -75,7 +75,7 @@ function sopsRunner(): SubprocessRunner {
 
 function makeProgram(runner: SubprocessRunner): Command {
   const program = new Command();
-  program.option("--repo <path>", "Repository root");
+  program.option("--dir <path>", "Path to a local Clef repository root");
   program.exitOverride();
   registerDeleteCommand(program, { runner });
   return program;

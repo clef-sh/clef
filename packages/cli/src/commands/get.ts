@@ -23,7 +23,7 @@ export function registerGetCommand(program: Command, deps: { runner: SubprocessR
     .action(async (target: string, key: string) => {
       try {
         const [namespace, environment] = parseTarget(target);
-        const repoRoot = (program.opts().repo as string) || process.cwd();
+        const repoRoot = (program.opts().dir as string) || process.cwd();
 
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));

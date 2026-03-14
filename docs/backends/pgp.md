@@ -78,7 +78,7 @@ sops:
   default_backend: pgp
   pgp_fingerprint: "ABCDEF1234567890ABCDEF1234567890ABCDEF12"
 
-file_pattern: "{namespace}/{environment}.enc.yaml"
+file_pattern: "secrets/{namespace}/{environment}.enc.yaml"
 ```
 
 ## Example workflow

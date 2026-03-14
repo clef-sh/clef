@@ -26,7 +26,7 @@ export function registerRotateCommand(program: Command, deps: { runner: Subproce
     .action(async (target: string, options: { newKey: string }) => {
       try {
         const [namespace, environment] = parseTarget(target);
-        const repoRoot = (program.opts().repo as string) || process.cwd();
+        const repoRoot = (program.opts().dir as string) || process.cwd();
 
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));

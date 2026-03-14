@@ -10,11 +10,13 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   release:
     name: Publish to npm
     runs-on: ubuntu-latest
+    environment: prod
     steps:
       - uses: actions/checkout@v6
 
@@ -55,11 +57,11 @@ jobs:
           body_path: release-body.md
 
       - name: Publish @clef-sh/core
-        run: npm publish -w packages/core
+        run: npm publish --provenance -w packages/core
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/cli
-        run: npm publish -w packages/cli
+        run: npm publish --provenance -w packages/cli
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

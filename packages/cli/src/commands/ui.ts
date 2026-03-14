@@ -1,8 +1,20 @@
+import * as path from "path";
 import { Command } from "commander";
 import { SubprocessRunner } from "@clef-sh/core";
-import { startServer, ServerHandle } from "@clef-sh/ui/dist/server";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
+
+interface ServerHandle {
+  url: string;
+  token: string;
+  stop: () => Promise<void>;
+  address: () => { address: string; port: number };
+}
+
+// When the CLI is distributed as a self-contained esbuild bundle, all code
+// lives in dist/index.js and __dirname resolves to that file's directory.
+// The build script copies UI client assets to dist/client/ alongside the bundle.
+const UI_CLIENT_DIR = path.resolve(__dirname, "client");
 
 export function registerUiCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -18,11 +30,23 @@ export function registerUiCommand(program: Command, deps: { runner: SubprocessRu
         return;
       }
 
-      const repoRoot = (program.opts().repo as string) || process.cwd();
+      const repoRoot = (program.opts().dir as string) || process.cwd();
+
+      // Lazy-load @clef-sh/ui so the CLI doesn't fail at startup when the UI
+      // module hasn't been resolved yet for commands other than `clef ui`.
+      const uiModule = await import("@clef-sh/ui/dist/server");
+      const { startServer } = uiModule as {
+        startServer: (
+          port: number,
+          repoRoot: string,
+          runner?: SubprocessRunner,
+          clientDir?: string,
+        ) => Promise<ServerHandle>;
+      };
 
       let handle: ServerHandle;
       try {
-        handle = await startServer(port, repoRoot, deps.runner);
+        handle = await startServer(port, repoRoot, deps.runner, UI_CLIENT_DIR);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
         formatter.error(`Failed to start UI server: ${message}`);

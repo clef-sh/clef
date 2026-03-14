@@ -14,7 +14,7 @@ clef init [options]
 
 1. **Creates `clef.yaml`** — the manifest declaring namespaces, environments, and SOPS settings
 2. **Creates `.sops.yaml`** — SOPS creation rules so the `sops` binary knows how to encrypt new files
-3. **Generates an age key pair** — writes the private key to `~/.config/clef/keys.txt` (outside the repository) and stores the path in `.clef/config.yaml` (gitignored via `.clef/.gitignore`). Uses the `age-encryption` npm package — no age binary required (age backend only)
+3. **Generates an age key pair** — creates a unique per-repo label (e.g., `coral-tiger`) and stores the private key in the OS keychain (or at `~/.config/clef/keys/{label}/keys.txt` as a fallback). The label and storage method are recorded in `.clef/config.yaml` (gitignored via `.clef/.gitignore`). Uses the `age-encryption` npm package — no age binary required (age backend only)
 4. **Scaffolds the matrix** — creates an encrypted file for every namespace/environment combination
 5. **Installs the pre-commit hook** — a git hook that blocks commits containing unencrypted secret files
 6. **Configures the SOPS merge driver** — a custom git merge driver that resolves encrypted file conflicts at the plaintext level (see [Merge Conflicts](/guide/merge-conflicts))
@@ -86,13 +86,13 @@ If a developer clones a repository that already has `clef.yaml`, running `clef i
 
 ```
 ℹ clef.yaml found — setting up your local key for this machine.
-  Path to your age private key [~/.config/clef/keys.txt]: (press Enter to generate a new key)
-✓ Generated age key pair at ~/.config/clef/keys.txt
+✓ Generated age key pair (label: azure-hawk)
+✓ Private key stored in OS keychain
 ✓ Created .clef/config.yaml
 
 Next steps:
   Share your public key with a teammate so they can add you as a recipient:
-    grep "public key" ~/.config/clef/keys.txt
+    grep "public key" ~/.config/clef/keys/azure-hawk/keys.txt
   Then: clef recipients add <your-public-key>
 ```
 

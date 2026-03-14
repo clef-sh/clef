@@ -29,7 +29,7 @@ afterAll(() => {
   }
 });
 
-const clefBin = path.resolve(__dirname, "../../packages/cli/dist/index.js");
+const clefBin = path.resolve(__dirname, "../../packages/cli/dist/index.cjs");
 
 describe("clef exec roundtrip", () => {
   it("should inject decrypted values into child process environment", () => {

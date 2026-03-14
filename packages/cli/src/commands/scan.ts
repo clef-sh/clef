@@ -30,7 +30,7 @@ export function registerScanCommand(program: Command, deps: { runner: Subprocess
     .option("--json", "Output machine-readable JSON")
     .action(
       async (paths: string[], options: { staged?: boolean; severity?: string; json?: boolean }) => {
-        const repoRoot = (program.opts().repo as string) || process.cwd();
+        const repoRoot = (program.opts().dir as string) || process.cwd();
 
         let manifest;
         try {

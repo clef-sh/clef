@@ -61,7 +61,7 @@ const validManifestYaml = YAML.stringify({
 
 function makeProgram(runner: SubprocessRunner): Command {
   const program = new Command();
-  program.option("--repo <path>", "Repository root");
+  program.option("--dir <path>", "Path to a local Clef repository root");
   program.exitOverride();
   registerUpdateCommand(program, { runner });
   return program;

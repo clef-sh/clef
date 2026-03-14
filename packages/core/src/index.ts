@@ -17,18 +17,11 @@ export { SchemaValidator } from "./schema/validator";
 export { DiffEngine } from "./diff/engine";
 export { BulkOps } from "./bulk/ops";
 export { GitIntegration } from "./git/integration";
-export { isGitUrl, resolveRemoteRepo } from "./git/remote";
 export { SopsClient } from "./sops/client";
 export { LintRunner } from "./lint/runner";
 export { ConsumptionClient } from "./consumption/client";
-export {
-  checkDependency,
-  checkAll,
-  assertSops,
-  assertAge,
-  REQUIREMENTS,
-} from "./dependencies/checker";
-export { generateAgeIdentity, formatAgeKeyFile } from "./age/keygen";
+export { checkDependency, checkAll, assertSops, REQUIREMENTS } from "./dependencies/checker";
+export { generateAgeIdentity, deriveAgePublicKey, formatAgeKeyFile } from "./age/keygen";
 export type { AgeIdentity } from "./age/keygen";
 export {
   metadataPath,

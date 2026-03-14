@@ -21,7 +21,7 @@ clef export <namespace/environment> [options]
 | `--format <format>` | string  | `env`   | Output format. Only `env` is supported.                      |
 | `--no-export`       | boolean | `false` | Omit the `export` keyword — output bare `KEY='value'` pairs. |
 
-> `--repo` is a global option. See [Global options](overview.md#global-options).
+> `--dir` is a global option. See [Global options](overview.md#global-options).
 
 ## Exit Codes
 

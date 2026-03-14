@@ -45,7 +45,42 @@ projects/my-project/locations/global/keyRings/clef-keyring/cryptoKeys/clef-secre
 
 ## Manifest configuration
 
-In your `clef.yaml`:
+### Per-environment override (recommended)
+
+The most common pattern is to use age for dev/staging and GCP KMS for production. This gives you simple local development with cloud-managed keys and audit logging in production:
+
+```yaml
+version: 1
+
+environments:
+  - name: dev
+    description: Local development
+  - name: staging
+    description: Staging environment
+  - name: production
+    description: Production environment
+    protected: true
+    sops:
+      backend: gcpkms
+      gcp_kms_resource_id: "projects/my-project/locations/global/keyRings/clef-keyring/cryptoKeys/clef-secrets-key"
+
+namespaces:
+  - name: database
+    description: Database credentials
+  - name: payments
+    description: Payment provider secrets
+
+sops:
+  default_backend: age
+
+file_pattern: "secrets/{namespace}/{environment}.enc.yaml"
+```
+
+In this configuration, dev and staging use the global default (age), while production uses GCP KMS. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override) for details.
+
+### All environments with KMS
+
+If you want every environment to use GCP KMS:
 
 ```yaml
 version: 1
@@ -69,7 +104,7 @@ sops:
   default_backend: gcpkms
   gcp_kms_resource_id: "projects/my-project/locations/global/keyRings/clef-keyring/cryptoKeys/clef-secrets-key"
 
-file_pattern: "{namespace}/{environment}.enc.yaml"
+file_pattern: "secrets/{namespace}/{environment}.enc.yaml"
 ```
 
 ## IAM permissions

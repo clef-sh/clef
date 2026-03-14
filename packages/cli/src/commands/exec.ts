@@ -68,7 +68,7 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
           }
 
           const [namespace, environment] = parseTarget(target);
-          const repoRoot = (program.opts().repo as string) || process.cwd();
+          const repoRoot = (program.opts().dir as string) || process.cwd();
 
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));

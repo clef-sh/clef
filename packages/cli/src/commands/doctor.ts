@@ -6,12 +6,21 @@ import { checkAll, GitIntegration, REQUIREMENTS, SubprocessRunner } from "@clef-
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { scaffoldSopsConfig } from "./init";
+import {
+  resolveAgeCredential,
+  getExpectedKeyStorage,
+  getExpectedKeyLabel,
+} from "../age-credential";
 
 interface DoctorCheckResult {
   name: string;
   ok: boolean;
   detail: string;
   hint?: string;
+}
+
+interface AgeKeyCheckResult extends DoctorCheckResult {
+  source: string | null;
 }
 
 interface DoctorJsonOutput {
@@ -40,7 +49,7 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
       "Attempt to auto-fix issues (runs clef init if .sops.yaml is the only failure)",
     )
     .action(async (options: { json?: boolean; fix?: boolean }) => {
-      const repoRoot = (program.opts().repo as string) || process.cwd();
+      const repoRoot = (program.opts().dir as string) || process.cwd();
       const clefVersion = program.version() ?? "unknown";
 
       const checks: DoctorCheckResult[] = [];
@@ -102,7 +111,7 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
       });
 
       // 6. age key
-      const ageKeyResult = checkAgeKey(repoRoot);
+      const ageKeyResult = await checkAgeKey(repoRoot, deps.runner);
       checks.push(ageKeyResult);
 
       // 7. .sops.yaml
@@ -201,7 +210,7 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
           },
           manifest: { found: manifestFound, ok: manifestFound },
           ageKey: {
-            source: ageKeyResult.ok ? (process.env.SOPS_AGE_KEY ? "env" : "file") : null,
+            source: ageKeyResult.source,
             recipients: countAgeRecipients(sopsYamlPath),
             ok: ageKeyResult.ok,
           },
@@ -255,60 +264,72 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
     });
 }
 
-function checkAgeKey(repoRoot: string): DoctorCheckResult {
-  // Check SOPS_AGE_KEY env var first
-  if (process.env.SOPS_AGE_KEY) {
-    return {
-      name: "age key",
-      ok: true,
-      detail: "loaded (via SOPS_AGE_KEY env var)",
-    };
-  }
+async function checkAgeKey(repoRoot: string, runner: SubprocessRunner): Promise<AgeKeyCheckResult> {
+  const credential = await resolveAgeCredential(repoRoot, runner);
 
-  // Check SOPS_AGE_KEY_FILE or default path
-  const defaultKeyPath = path.join(
-    process.env.HOME || process.env.USERPROFILE || "",
-    ".config",
-    "sops",
-    "age",
-    "keys.txt",
-  );
-  const sopsAgeKeyFile = process.env.SOPS_AGE_KEY_FILE || defaultKeyPath;
-
-  if (fs.existsSync(sopsAgeKeyFile)) {
-    return {
-      name: "age key",
-      ok: true,
-      detail: `loaded (from ${sopsAgeKeyFile})`,
-    };
-  }
-
-  // Check .clef/config.yaml age_key_file
-  const clefConfigPath = path.join(repoRoot, ".clef", "config.yaml");
-  if (fs.existsSync(clefConfigPath)) {
-    try {
-      const configContent = fs.readFileSync(clefConfigPath, "utf-8");
-      const config = YAML.parse(configContent);
-      if (config?.age_key_file) {
-        if (fs.existsSync(config.age_key_file)) {
-          return {
-            name: "age key",
-            ok: true,
-            detail: `loaded (from ${config.age_key_file})`,
-          };
-        }
-      }
-    } catch {
-      // Failed to parse config — fall through
+  if (!credential) {
+    const expected = getExpectedKeyStorage(repoRoot);
+    let hint: string;
+    if (expected === "keychain") {
+      hint =
+        "your key was stored in the OS keychain during init but is not available now — " +
+        "check that your keychain service is running (see https://docs.clef.sh/guide/key-storage)";
+    } else if (expected === "file") {
+      hint = "the key file configured in .clef/config.yaml is missing or unreadable";
+    } else {
+      hint = "run: clef init to auto-generate your age key";
     }
+    return {
+      name: "age key",
+      ok: false,
+      detail: "not configured",
+      hint,
+      source: null,
+    };
   }
 
-  return {
-    name: "age key",
-    ok: false,
-    detail: "not configured",
-    hint: "set SOPS_AGE_KEY_FILE or run: clef init to auto-generate your age key",
-  };
+  const label = getExpectedKeyLabel(repoRoot);
+  const labelSuffix = label ? `, label: ${label}` : "";
+
+  switch (credential.source) {
+    case "keychain":
+      return {
+        name: "age key",
+        ok: true,
+        detail: `loaded (from OS keychain${labelSuffix})`,
+        source: "keychain",
+      };
+    case "env-key":
+      return {
+        name: "age key",
+        ok: true,
+        detail: "loaded (via SOPS_AGE_KEY env var)",
+        source: "env",
+      };
+    case "env-file":
+      return {
+        name: "age key",
+        ok: true,
+        detail: `loaded (via SOPS_AGE_KEY_FILE: ${process.env.SOPS_AGE_KEY_FILE})`,
+        source: "env",
+      };
+    case "config-file":
+      if (!fs.existsSync(credential.path)) {
+        return {
+          name: "age key",
+          ok: false,
+          detail: `configured (${credential.path}) — file not found`,
+          hint: "run: clef init to regenerate your age key",
+          source: null,
+        };
+      }
+      return {
+        name: "age key",
+        ok: true,
+        detail: `loaded (from ${credential.path}${labelSuffix})`,
+        source: "file",
+      };
+  }
 }
 
 function countAgeRecipients(sopsYamlPath: string): number {

@@ -5,9 +5,16 @@ import { Command } from "commander";
 import { registerInitCommand, scaffoldSopsConfig } from "./init";
 import { SubprocessRunner, markPending } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
+import { setKeychainKey } from "../keychain";
 
 jest.mock("fs");
 jest.mock("readline");
+jest.mock("../keychain", () => ({
+  setKeychainKey: jest.fn().mockResolvedValue(false),
+}));
+jest.mock("../label-generator", () => ({
+  generateKeyLabel: jest.fn().mockReturnValue("test-label"),
+}));
 
 jest.mock("@clef-sh/core", () => {
   const actual = jest.requireActual("@clef-sh/core");
@@ -63,6 +70,8 @@ const mockFs = fs as jest.Mocked<typeof fs>;
 const mockFormatter = formatter as jest.Mocked<typeof formatter>;
 const mockExit = jest.spyOn(process, "exit").mockImplementation(() => undefined as never);
 
+const mockSetKeychainKey = setKeychainKey as jest.Mock;
+
 // Helpers to access mocked functions after hoisting
 function getMockGenerateAgeIdentity(): jest.Mock {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -109,7 +118,7 @@ function mockRunner(): SubprocessRunner {
 
 function makeProgram(runner: SubprocessRunner): Command {
   const program = new Command();
-  program.option("--repo <path>", "Repository root");
+  program.option("--dir <path>", "Path to a local Clef repository root");
   program.exitOverride();
   registerInitCommand(program, { runner });
   return program;
@@ -124,6 +133,10 @@ describe("clef init", () => {
     Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
     // Default: key path is not inside a git repo
     setupNotGitRepo();
+    // Default: keychain store fails (filesystem fallback)
+    mockSetKeychainKey.mockResolvedValue(false);
+    // Clean up env vars that may be set by keychain-success tests
+    delete process.env.SOPS_AGE_KEY;
   });
 
   it("should print 'Already initialised' when both clef.yaml and .clef/config.yaml exist", async () => {
@@ -213,7 +226,7 @@ describe("clef init", () => {
     );
   });
 
-  it("should write .clef/config.yaml with the key path", async () => {
+  it("should write .clef/config.yaml with the key path and label", async () => {
     const runner = mockRunner();
     const program = makeProgram(runner);
 
@@ -223,7 +236,9 @@ describe("clef init", () => {
       String(c[0]).includes("config.yaml"),
     );
     expect(configCall).toBeDefined();
-    expect(String(configCall![1])).toContain("age_key_file");
+    const configContent = String(configCall![1]);
+    expect(configContent).toContain("age_key_file");
+    expect(configContent).toContain("age_keychain_label: test-label");
   });
 
   it("should write .clef/.gitignore during full setup", async () => {
@@ -524,7 +539,194 @@ describe("clef init", () => {
     expect(String(gitignoreCall![1])).toBe("*\n");
   });
 
-  it("second-dev onboarding: should use SOPS_AGE_KEY_FILE env if set", async () => {
+  it("should store key in keychain and skip filesystem when keychain succeeds", async () => {
+    mockSetKeychainKey.mockResolvedValue(true);
+    const runner = mockRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "init", "--namespaces", "db", "--non-interactive"]);
+
+    expect(mockSetKeychainKey).toHaveBeenCalledWith(
+      runner,
+      "AGE-SECRET-KEY-1MOCKPRIVATEKEY1234",
+      "test-label",
+    );
+    expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("OS keychain"));
+    // No key file should be written to disk
+    const keyFileCall = mockFs.writeFileSync.mock.calls.find((c) =>
+      String(c[0]).includes("keys.txt"),
+    );
+    expect(keyFileCall).toBeUndefined();
+  });
+
+  it("should set SOPS_AGE_KEY env when keychain succeeds", async () => {
+    mockSetKeychainKey.mockResolvedValue(true);
+    const runner = mockRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "init", "--namespaces", "db", "--non-interactive"]);
+
+    expect(process.env.SOPS_AGE_KEY).toBe("AGE-SECRET-KEY-1MOCKPRIVATEKEY1234");
+  });
+
+  it("should write age_key_storage: keychain and label in config.yaml when keychain succeeds", async () => {
+    mockSetKeychainKey.mockResolvedValue(true);
+    const runner = mockRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "init", "--namespaces", "db", "--non-interactive"]);
+
+    const configCall = mockFs.writeFileSync.mock.calls.find((c) =>
+      String(c[0]).includes("config.yaml"),
+    );
+    expect(configCall).toBeDefined();
+    const configContent = String(configCall![1]);
+    expect(configContent).not.toContain("age_key_file");
+    expect(configContent).toContain("age_key_storage: keychain");
+    expect(configContent).toContain("age_keychain_label: test-label");
+  });
+
+  it("should write age_key_storage: file and label in config.yaml when keychain fails", async () => {
+    mockSetKeychainKey.mockResolvedValue(false);
+    const runner = mockRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "init", "--namespaces", "db", "--non-interactive"]);
+
+    const configCall = mockFs.writeFileSync.mock.calls.find((c) =>
+      String(c[0]).includes("config.yaml"),
+    );
+    expect(configCall).toBeDefined();
+    const configContent = String(configCall![1]);
+    expect(configContent).toContain("age_key_file");
+    expect(configContent).toContain("age_key_storage: file");
+    expect(configContent).toContain("age_keychain_label: test-label");
+  });
+
+  it("should use labeled filesystem path when keychain fails", async () => {
+    mockSetKeychainKey.mockResolvedValue(false);
+    const runner = mockRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "init", "--namespaces", "db", "--non-interactive"]);
+
+    const configCall = mockFs.writeFileSync.mock.calls.find((c) =>
+      String(c[0]).includes("config.yaml"),
+    );
+    expect(configCall).toBeDefined();
+    const configContent = String(configCall![1]);
+    expect(configContent).toContain("keys/test-label/keys.txt");
+  });
+
+  it("should warn with docs link when keychain fails", async () => {
+    mockSetKeychainKey.mockResolvedValue(false);
+    const runner = mockRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "init", "--namespaces", "db", "--non-interactive"]);
+
+    expect(mockFormatter.warn).toHaveBeenCalledWith(
+      expect.stringContaining("https://docs.clef.sh/guide/key-storage"),
+    );
+  });
+
+  it("should prompt for confirmation before filesystem write in interactive mode", async () => {
+    mockSetKeychainKey.mockResolvedValue(false);
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+
+    let questionCallCount = 0;
+    const mockRl = {
+      question: jest.fn((_prompt: string, cb: (answer: string) => void) => {
+        questionCallCount++;
+        if (questionCallCount === 1) cb("dev");
+        else if (questionCallCount === 2) cb("db");
+        else cb("");
+      }),
+      close: jest.fn(),
+    };
+    (readline.createInterface as jest.Mock).mockReturnValue(mockRl);
+
+    const runner = mockRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "init"]);
+
+    expect(mockFormatter.confirm).toHaveBeenCalledWith(expect.stringContaining("filesystem"));
+
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+  });
+
+  it("should abort when user declines filesystem storage", async () => {
+    mockSetKeychainKey.mockResolvedValue(false);
+    mockFormatter.confirm.mockResolvedValueOnce(false);
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+
+    let questionCallCount = 0;
+    const mockRl = {
+      question: jest.fn((_prompt: string, cb: (answer: string) => void) => {
+        questionCallCount++;
+        if (questionCallCount === 1) cb("dev");
+        else if (questionCallCount === 2) cb("db");
+        else cb("");
+      }),
+      close: jest.fn(),
+    };
+    (readline.createInterface as jest.Mock).mockReturnValue(mockRl);
+
+    const runner = mockRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "init"]);
+
+    expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("Aborted"));
+    expect(mockExit).toHaveBeenCalledWith(1);
+
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+  });
+
+  it("should print key label during full setup", async () => {
+    mockSetKeychainKey.mockResolvedValue(true);
+    const runner = mockRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "init", "--namespaces", "db", "--non-interactive"]);
+
+    expect(mockFormatter.success).toHaveBeenCalledWith("Key label: test-label");
+  });
+
+  it("second-dev onboarding: should generate fresh key and label", async () => {
+    mockSetKeychainKey.mockResolvedValue(true);
+    mockFs.existsSync.mockImplementation((p) => {
+      const s = String(p);
+      if (s.endsWith("clef.yaml")) return true;
+      return false;
+    });
+    mockFs.readFileSync.mockReturnValue("");
+    const runner = mockRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "init", "--non-interactive"]);
+
+    // Should always generate a new key
+    expect(getMockGenerateAgeIdentity()).toHaveBeenCalled();
+    // Should store with label
+    expect(mockSetKeychainKey).toHaveBeenCalledWith(
+      runner,
+      "AGE-SECRET-KEY-1MOCKPRIVATEKEY1234",
+      "test-label",
+    );
+    // Config should include label
+    const configCall = mockFs.writeFileSync.mock.calls.find((c) =>
+      String(c[0]).includes("config.yaml"),
+    );
+    expect(configCall).toBeDefined();
+    const configContent = String(configCall![1]);
+    expect(configContent).toContain("age_keychain_label: test-label");
+    // Should print the label
+    expect(mockFormatter.success).toHaveBeenCalledWith("Key label: test-label");
+  });
+
+  it("second-dev onboarding: should use SOPS_AGE_KEY_FILE env if set (filesystem fallback)", async () => {
     const origKeyFile = process.env.SOPS_AGE_KEY_FILE;
     process.env.SOPS_AGE_KEY_FILE = "/custom/keys.txt";
 

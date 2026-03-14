@@ -43,7 +43,7 @@ export function registerRecipientsCommand(
     .option("-e, --environment <env>", "List recipients for a specific environment")
     .action(async (opts: { environment?: string }) => {
       try {
-        const repoRoot = (program.opts().repo as string) || process.cwd();
+        const repoRoot = (program.opts().dir as string) || process.cwd();
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
@@ -98,7 +98,7 @@ export function registerRecipientsCommand(
     .option("-e, --environment <env>", "Scope recipient to a specific environment")
     .action(async (key: string, opts: { label?: string; environment?: string }) => {
       try {
-        const repoRoot = (program.opts().repo as string) || process.cwd();
+        const repoRoot = (program.opts().dir as string) || process.cwd();
 
         // Validate key format before anything else
         const validation = validateAgePublicKey(key);
@@ -235,7 +235,7 @@ export function registerRecipientsCommand(
           return;
         }
 
-        const repoRoot = (program.opts().repo as string) || process.cwd();
+        const repoRoot = (program.opts().dir as string) || process.cwd();
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 

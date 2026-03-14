@@ -54,7 +54,6 @@ Each core module has a test file that validates all code paths:
 | PendingMetadata    | `src/pending/metadata.test.ts`     | markPending, markResolved, retry logic                                                        |
 | DependencyChecker  | `src/dependencies/checker.test.ts` | Version parsing, satisfaction checks for sops and git                                         |
 | AgeKeygen          | `src/age/keygen.test.ts`           | Key pair generation                                                                           |
-| GitRemote          | `src/git/remote.test.ts`           | Remote repo cloning, fetching, cache management                                               |
 
 ### CLI tests
 

@@ -28,7 +28,7 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
     .option("--all-envs", "Delete from all environments in the namespace")
     .action(async (target: string, key: string, options: { allEnvs?: boolean }) => {
       try {
-        const repoRoot = (program.opts().repo as string) || process.cwd();
+        const repoRoot = (program.opts().dir as string) || process.cwd();
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 

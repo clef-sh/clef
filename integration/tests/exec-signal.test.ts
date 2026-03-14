@@ -29,7 +29,7 @@ afterAll(() => {
   }
 });
 
-const clefBin = path.resolve(__dirname, "../../packages/cli/dist/index.js");
+const clefBin = path.resolve(__dirname, "../../packages/cli/dist/index.cjs");
 
 /**
  * C2: When a child process spawned by `clef exec` is killed by a signal,

@@ -45,9 +45,12 @@ import Footer from "../components/Footer.astro";
     />
 
     <!-- Favicon -->
-    <link rel="icon" type="image/png" href="/favicon.png" />
-    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-
+    <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Clef" />
+    <link rel="manifest" href="/site.webmanifest" />
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -74,8 +77,8 @@ import Footer from "../components/Footer.astro";
       <div
         class="mx-auto flex w-full max-w-300 items-center justify-between px-6"
       >
-        <a href="/" class="flex items-center gap-2.5 text-clef-text no-underline">
-          <span class="font-mono text-clef-accent text-xl">&</span>
+        <a href="/" class="flex items-center text-clef-text no-underline">
+          <img src="/clef.svg" alt="Clef logo" class="h-5 w-5" />
           <span class="text-[17px] font-semibold tracking-tight">Clef</span>
         </a>
         <a

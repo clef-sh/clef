@@ -39,7 +39,42 @@ aws kms create-alias \
 
 ## Manifest configuration
 
-In your `clef.yaml`:
+### Per-environment override (recommended)
+
+The most common pattern is to use age for dev/staging and AWS KMS for production. This gives you simple local development with cloud-managed keys and audit logging in production:
+
+```yaml
+version: 1
+
+environments:
+  - name: dev
+    description: Local development
+  - name: staging
+    description: Staging environment
+  - name: production
+    description: Production environment
+    protected: true
+    sops:
+      backend: awskms
+      aws_kms_arn: "arn:aws:kms:us-east-1:123456789012:key/abcd1234-5678-90ab-cdef-ghijklmnopqr"
+
+namespaces:
+  - name: database
+    description: Database credentials
+  - name: payments
+    description: Payment provider secrets
+
+sops:
+  default_backend: age
+
+file_pattern: "secrets/{namespace}/{environment}.enc.yaml"
+```
+
+In this configuration, dev and staging use the global default (age), while production uses AWS KMS. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override) for details.
+
+### All environments with KMS
+
+If you want every environment to use AWS KMS:
 
 ```yaml
 version: 1
@@ -63,7 +98,7 @@ sops:
   default_backend: awskms
   aws_kms_arn: "arn:aws:kms:us-east-1:123456789012:key/abcd1234-5678-90ab-cdef-ghijklmnopqr"
 
-file_pattern: "{namespace}/{environment}.enc.yaml"
+file_pattern: "secrets/{namespace}/{environment}.enc.yaml"
 ```
 
 ## IAM policy

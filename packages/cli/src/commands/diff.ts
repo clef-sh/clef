@@ -34,7 +34,7 @@ export function registerDiffCommand(program: Command, deps: { runner: Subprocess
         options: { showIdentical?: boolean; showValues?: boolean; json?: boolean },
       ) => {
         try {
-          const repoRoot = (program.opts().repo as string) || process.cwd();
+          const repoRoot = (program.opts().dir as string) || process.cwd();
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 

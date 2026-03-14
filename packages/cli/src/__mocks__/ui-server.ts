@@ -8,7 +8,12 @@ export interface ServerHandle {
 }
 
 export const startServer = jest.fn(
-  async (port: number, _repoRoot: string, _runner?: SubprocessRunner): Promise<ServerHandle> => ({
+  async (
+    port: number,
+    _repoRoot: string,
+    _runner?: SubprocessRunner,
+    _clientDir?: string,
+  ): Promise<ServerHandle> => ({
     url: `http://127.0.0.1:${port}`,
     token: "a".repeat(64),
     stop: jest.fn().mockResolvedValue(undefined),

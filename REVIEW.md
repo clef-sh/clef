@@ -211,25 +211,6 @@ Check:
 - SOPS MAC is valid on the re-encrypted output — confirm
   SOPS verifies integrity on re-encryption
 
-### 1.9 Git remote — no credential leakage
-
-Read:
-
-- `packages/core/src/git/remote.ts`
-- `packages/cli/src/index.ts` — the remote URL handling
-
-Check:
-
-- `resolveRemoteRepo()` uses shallow clone (`--depth 1`) —
-  no full history transfer
-- No authentication credentials are stored in the cache
-  directory
-- Cache path is derived from URL hash — no raw URLs in
-  filesystem paths
-- Write commands (`set`, `delete`, `rotate`, `init`,
-  `import`, `ui`) are blocked on remote repos — confirm
-  the `REMOTE_WRITE_COMMANDS` set is complete
-
 ---
 
 ## 2. Correctness Audit
@@ -373,26 +354,18 @@ Check:
   clean error and no partial environment is injected into
   the child process
 
-### 2.8 `--repo` flag
+### 2.8 `--dir` flag
 
 Read all command files in `packages/cli/src/commands/`.
 Read `packages/cli/src/index.ts` — the global option
-registration and remote URL handling.
+registration.
 
 Check:
 
-- `--repo` flag exists on every command (all 17)
+- `--dir` flag exists on every command (all 17)
 - It correctly overrides the auto-detected repo root in
   every command
-- Tests cover `--repo` on at least three commands
-- `--repo` accepts git URLs (SSH and HTTPS) in addition
-  to local paths — `isGitUrl()` correctly distinguishes
-- Write commands are blocked on remote repos via
-  `REMOTE_WRITE_COMMANDS` — verify the set includes all
-  write commands (`set`, `delete`, `rotate`, `init`,
-  `import`, `ui`)
-- `--branch` flag works with remote URLs to select a
-  specific branch
+- Tests cover `--dir` on at least three commands
 
 ### 2.9 Merge driver correctness
 
@@ -446,26 +419,6 @@ Check:
   `formatDependencyError()`
 - Command is idempotent — running twice produces no changes
   on second run
-
-### 2.11 Git remote resolution
-
-Read:
-
-- `packages/core/src/git/remote.ts`
-- `packages/core/src/git/remote.test.ts`
-
-Check:
-
-- `isGitUrl()` accepts SSH (`git@host:path`) and HTTPS
-  (`https://...`) URLs, rejects local paths
-- `resolveRemoteRepo()` clones with `--depth 1` on first
-  call, fetches on subsequent calls
-- Cache directory is deterministic — same URL always maps
-  to same local path via SHA-256 hash
-- Different URLs map to different cache directories
-- Clone failure error message includes the URL
-- Fetch and reset failures produce clear error messages
-- Tests cover all URL formats, cache hits, and error cases
 
 ---
 
@@ -566,23 +519,6 @@ Check:
 - `docs/guide/merge-conflicts.md` explains the problem,
   solution, setup, and security invariants
 - `docs/cli/hooks.md` documents merge driver installation
-
-### 3.7 Remote repository support
-
-Read `packages/cli/src/index.ts` — the `--repo` handling.
-
-Check:
-
-- `--repo` accepts both local paths and git URLs
-  (SSH/HTTPS)
-- Remote repos are cloned to `~/.cache/clef/<hash>/`
-- `--branch` flag selects a specific branch for remote
-  repos
-- Write commands produce a clear error when `--repo`
-  points to a remote URL
-- Read-only commands (`get`, `diff`, `lint`, `exec`,
-  `export`, `doctor`, `scan`, `recipients list`) work
-  on remote repos
 
 ---
 

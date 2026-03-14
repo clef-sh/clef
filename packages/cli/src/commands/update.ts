@@ -1,9 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
-import * as YAML from "yaml";
 import { Command } from "commander";
 import {
-  ClefLocalConfig,
   ManifestParser,
   MatrixManager,
   SopsClient,
@@ -12,9 +10,7 @@ import {
   SopsVersionError,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
-
-const CLEF_DIR = ".clef";
-const CLEF_CONFIG_FILENAME = "config.yaml";
+import { resolveAgeCredential, prepareSopsEnv } from "../age-credential";
 
 export function registerUpdateCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -28,7 +24,7 @@ export function registerUpdateCommand(program: Command, deps: { runner: Subproce
     )
     .action(async () => {
       try {
-        const repoRoot = (program.opts().repo as string) || process.cwd();
+        const repoRoot = (program.opts().dir as string) || process.cwd();
         const manifestPath = path.join(repoRoot, "clef.yaml");
 
         if (!fs.existsSync(manifestPath)) {
@@ -40,27 +36,11 @@ export function registerUpdateCommand(program: Command, deps: { runner: Subproce
         const parser = new ManifestParser();
         const manifest = parser.parse(manifestPath);
 
-        // Read ageKeyFile from .clef/config.yaml if present and env vars not already set
-        let ageKeyFile: string | undefined;
-        if (
-          manifest.sops.default_backend === "age" &&
-          !process.env.SOPS_AGE_KEY &&
-          !process.env.SOPS_AGE_KEY_FILE
-        ) {
-          const clefConfigPath = path.join(repoRoot, CLEF_DIR, CLEF_CONFIG_FILENAME);
-          if (fs.existsSync(clefConfigPath)) {
-            try {
-              const config = YAML.parse(
-                fs.readFileSync(clefConfigPath, "utf-8"),
-              ) as ClefLocalConfig;
-              ageKeyFile = config?.age_key_file;
-            } catch {
-              // ignore parse errors
-            }
-          }
-        }
-
-        const sopsClient = new SopsClient(deps.runner, ageKeyFile);
+        const credential =
+          manifest.sops.default_backend === "age"
+            ? await resolveAgeCredential(repoRoot, deps.runner)
+            : null;
+        const sopsClient = new SopsClient(deps.runner, prepareSopsEnv(credential));
         const matrixManager = new MatrixManager();
         const cells = matrixManager.resolveMatrix(manifest, repoRoot);
         const missing = cells.filter((c) => !c.exists);

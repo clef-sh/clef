@@ -1,37 +1,43 @@
 {
   "name": "@clef-sh/cli",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "description": "CLI for Clef — git-native secrets management",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/index.cjs",
+  "exports": {
+    "import": "./dist/index.mjs",
+    "require": "./dist/index.cjs"
+  },
   "bin": {
     "clef": "bin/clef.js"
   },
   "files": [
-    "dist",
+    "dist/index.mjs",
+    "dist/index.mjs.map",
+    "dist/index.cjs",
+    "dist/index.cjs.map",
+    "dist/client",
     "bin"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc --noEmit && node scripts/build.mjs",
+    "build:sea": "tsc --noEmit && node scripts/build.mjs --sea",
     "test": "jest",
     "test:coverage": "jest --coverage"
   },
-  "dependencies": {
+  "dependencies": {},
+  "devDependencies": {
     "@clef-sh/core": "*",
     "@clef-sh/ui": "*",
-    "commander": "^12.0.0",
-    "picocolors": "^1.0.0",
-    "yaml": "^2.4.0"
-  },
-  "bundleDependencies": [
-    "@clef-sh/ui"
-  ],
-  "devDependencies": {
     "@types/jest": "^29.5.0",
     "@types/node": "^20.11.0",
+    "commander": "^12.0.0",
+    "esbuild": "^0.25.0",
+    "postject": "^1.0.0-alpha.6",
     "jest": "^29.7.0",
+    "picocolors": "^1.0.0",
     "ts-jest": "^29.1.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "yaml": "^2.4.0"
   },
   "publishConfig": {
     "access": "public"

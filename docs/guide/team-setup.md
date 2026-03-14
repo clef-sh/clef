@@ -4,10 +4,11 @@ This guide covers adding and removing team members from a Clef-managed repositor
 
 ## Adding your first team member
 
-When adding a new developer, you need their age public key. Ask them to run `clef init` in a clone of the repository — it automatically generates an age key pair and stores the private key at `~/.config/clef/keys.txt` on their machine (outside the repository, never committed to git). They can find their public key with:
+When adding a new developer, you need their age public key. Ask them to run `clef init` in a clone of the repository — it automatically generates an age key pair with a unique per-repo label and stores the private key in their OS keychain (or at `~/.config/clef/keys/{label}/keys.txt` as a fallback). They can find their public key from the key file:
 
 ```bash
-grep "public key" ~/.config/clef/keys.txt
+# The label is shown during init and stored in .clef/config.yaml
+grep "public key" ~/.config/clef/keys/<label>/keys.txt
 ```
 
 Then add them:
