@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/cli",
-  "version": "1.0.0",
+  "version": "0.1.4",
   "description": "CLI for Clef — git-native secrets management",
   "main": "dist/index.cjs",
   "exports": {
