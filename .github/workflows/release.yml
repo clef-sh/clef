@@ -57,11 +57,7 @@ jobs:
           body_path: release-body.md
 
       - name: Publish @clef-sh/core
-        run: npm publish --provenance -w packages/core
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish -w packages/core
 
       - name: Publish @clef-sh/cli
-        run: npm publish --provenance -w packages/cli
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish -w packages/cli
