@@ -1,28 +1,37 @@
 # Release workflow — publishes @clef-sh/core and @clef-sh/cli to npm
 # and creates a GitHub Release with changelog notes.
+#
+# Authentication: uses GitHub Actions OIDC for npm publish (no NPM_TOKEN).
+# Prerequisite: on npmjs.com, each published package (@clef-sh/core,
+# @clef-sh/cli) must have publishing linked to this GitHub repository
+# under Settings → "Configure trusted publishing".
 
 name: Release
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches: [main]
 
 permissions:
   contents: write
   id-token: write
+  issues: write
+  pull-requests: write
 
 jobs:
   release:
-    name: Publish to npm
+    name: Semantic Release
     runs-on: ubuntu-latest
     environment: prod
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           registry-url: https://registry.npmjs.org
 
@@ -34,30 +43,8 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Extract changelog from tag
-        id: changelog
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          # Extract the section for this version from CHANGELOG.md if it exists
-          if [ -f CHANGELOG.md ]; then
-            # Get content between this version header and the next version header
-            BODY=$(awk "/^## .*${VERSION}/{flag=1; next} /^## /{flag=0} flag" CHANGELOG.md)
-          fi
-          if [ -z "$BODY" ]; then
-            BODY="Release ${GITHUB_REF_NAME}"
-          fi
-          # Write to file to preserve newlines
-          echo "$BODY" > release-body.md
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          body_path: release-body.md
-
-      - name: Publish @clef-sh/core
-        run: npm publish -w packages/core
-
-      - name: Publish @clef-sh/cli
-        run: npm publish -w packages/cli
+      - name: Release
+        run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
