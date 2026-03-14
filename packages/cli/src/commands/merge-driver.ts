@@ -1,9 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
-import * as YAML from "yaml";
 import { Command } from "commander";
 import {
-  ClefLocalConfig,
   ClefManifest,
   ManifestParser,
   SopsMergeDriver,
@@ -11,6 +9,7 @@ import {
   SubprocessRunner,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
+import { resolveAgeCredential, prepareSopsEnv } from "../age-credential";
 
 /**
  * Locate the repo root by walking up from a file path looking for clef.yaml.
@@ -25,26 +24,6 @@ function findRepoRoot(filePath: string): string {
     dir = parent;
   }
   throw new Error("Could not find clef.yaml in any parent directory of: " + filePath);
-}
-
-/**
- * Resolve the age key file path from environment or .clef/config.yaml.
- */
-function resolveAgeKeyFile(repoRoot: string): string | undefined {
-  if (process.env.SOPS_AGE_KEY_FILE) return process.env.SOPS_AGE_KEY_FILE;
-  if (process.env.SOPS_AGE_KEY) return undefined; // inline key, no file needed
-
-  const configPath = path.join(repoRoot, ".clef", "config.yaml");
-  if (fs.existsSync(configPath)) {
-    try {
-      const config = YAML.parse(fs.readFileSync(configPath, "utf-8")) as ClefLocalConfig;
-      if (config?.age_key_file) return config.age_key_file;
-    } catch {
-      // ignore parse errors
-    }
-  }
-
-  return undefined;
 }
 
 export function registerMergeDriverCommand(
@@ -62,9 +41,9 @@ export function registerMergeDriverCommand(
     .argument("<theirs>", "Path to incoming branch file (%B)")
     .action(async (basePath: string, oursPath: string, theirsPath: string) => {
       try {
-        const repoRoot = (program.opts().repo as string) || findRepoRoot(oursPath);
-        const ageKeyFile = resolveAgeKeyFile(repoRoot);
-        const sopsClient = new SopsClient(deps.runner, ageKeyFile);
+        const repoRoot = (program.opts().dir as string) || findRepoRoot(oursPath);
+        const credential = await resolveAgeCredential(repoRoot, deps.runner);
+        const sopsClient = new SopsClient(deps.runner, prepareSopsEnv(credential));
         const driver = new SopsMergeDriver(sopsClient);
 
         const result = await driver.mergeFiles(basePath, oursPath, theirsPath);

@@ -93,7 +93,6 @@
 
 ## Functions
 
-- [assertAge](functions/assertAge.md)
 - [assertSops](functions/assertSops.md)
 - [checkAll](functions/checkAll.md)
 - [checkDependency](functions/checkDependency.md)
@@ -102,7 +101,6 @@
 - [generateAgeIdentity](functions/generateAgeIdentity.md)
 - [generateRandomValue](functions/generateRandomValue.md)
 - [getPendingKeys](functions/getPendingKeys.md)
-- [isGitUrl](functions/isGitUrl.md)
 - [isHighEntropy](functions/isHighEntropy.md)
 - [isPending](functions/isPending.md)
 - [keyPreview](functions/keyPreview.md)
@@ -121,7 +119,6 @@
 - [redactValue](functions/redactValue.md)
 - [resolveBackendConfig](functions/resolveBackendConfig.md)
 - [resolveRecipientsForEnvironment](functions/resolveRecipientsForEnvironment.md)
-- [resolveRemoteRepo](functions/resolveRemoteRepo.md)
 - [saveMetadata](functions/saveMetadata.md)
 - [shannonEntropy](functions/shannonEntropy.md)
 - [shouldIgnoreFile](functions/shouldIgnoreFile.md)

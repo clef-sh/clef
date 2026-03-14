@@ -2,7 +2,7 @@ import { defineConfig } from "vitepress";
 
 export default defineConfig({
   title: "Clef",
-  description: "Git-native secrets management built on Mozilla SOPS",
+  description: "Keep encrypted secrets alongside your code. One commit hash = your entire system.",
 
   appearance: "dark",
 
@@ -54,6 +54,7 @@ export default defineConfig({
             { text: "Quick Start", link: "/guide/quick-start" },
             { text: "Migrating to Clef", link: "/guide/migrating" },
             { text: "Core Concepts", link: "/guide/concepts" },
+            { text: "Key Storage", link: "/guide/key-storage" },
             { text: "Pending Values", link: "/guide/pending-values" },
             { text: "CI/CD Integration", link: "/guide/ci-cd" },
             { text: "Team Setup", link: "/guide/team-setup" },

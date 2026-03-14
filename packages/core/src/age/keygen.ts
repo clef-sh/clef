@@ -24,6 +24,15 @@ export async function generateAgeIdentity(): Promise<AgeIdentity> {
 }
 
 /**
+ * Derive the age public key (`age1...`) from an existing private key (`AGE-SECRET-KEY-1...`).
+ */
+export async function deriveAgePublicKey(privateKey: string): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic ESM import of CJS-incompatible package
+  const { identityToRecipient } = await import("age-encryption" as any);
+  return (await identityToRecipient(privateKey)) as string;
+}
+
+/**
  * Format an age private key and public key into the standard key file format.
  * The output includes a `created` timestamp comment and is ready to write to disk.
  *

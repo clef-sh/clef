@@ -1,4 +1,5 @@
 import * as path from "path";
+import { extname } from "path";
 import { randomBytes, timingSafeEqual } from "crypto";
 import express, { Request, Response, NextFunction } from "express";
 import { Server } from "http";
@@ -12,10 +13,79 @@ export interface ServerHandle {
   address: () => { address: string; port: number };
 }
 
+// ── SEA (Single Executable Application) helpers ───────────────────────────────
+
+// node:sea is available in Node 20+.  When running as a plain npm package the
+// module still exists but isSea() returns false.  Wrap in try/catch for Node 18.
+interface SeaModule {
+  isSea(): boolean;
+  getAsset(key: string, encoding: "buffer"): ArrayBuffer;
+}
+
+function getSea(): SeaModule | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require("node:sea") as SeaModule;
+  } catch {
+    return null;
+  }
+}
+
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".map": "application/json",
+};
+
+function mimeFor(filePath: string): string {
+  return MIME[extname(filePath)] ?? "application/octet-stream";
+}
+
+// Register express routes that serve static assets from the embedded SEA blob.
+// Assets are keyed by their path relative to the dist/ root, e.g.
+// "client/index.html", "client/assets/index-abc123.js".
+function mountSeaStaticRoutes(app: ReturnType<typeof express>, sea: SeaModule): void {
+  const serveAsset = (key: string, res: Response, next: NextFunction): void => {
+    try {
+      const buf = Buffer.from(sea.getAsset(key, "buffer"));
+      res.setHeader("Content-Type", mimeFor(key));
+      res.setHeader("Content-Length", buf.length);
+      res.end(buf);
+    } catch {
+      next();
+    }
+  };
+
+  // Serve any request whose path maps to a known asset key
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const reqPath = req.path === "/" ? "/index.html" : req.path;
+    const key = `client${reqPath}`;
+    serveAsset(key, res, next);
+  });
+
+  // SPA fallback — anything unmatched gets index.html
+  app.get("*", (_req: Request, res: Response, next: NextFunction) => {
+    serveAsset("client/index.html", res, next);
+  });
+}
+
+// ── Server ────────────────────────────────────────────────────────────────────
+
 export async function startServer(
   port: number,
   repoRoot: string,
   runner?: SubprocessRunner,
+  clientDir?: string,
 ): Promise<ServerHandle> {
   const app = express();
   const sessionToken = randomBytes(32).toString("hex");
@@ -55,14 +125,24 @@ export async function startServer(
     app.use("/api", apiRouter);
   }
 
-  // Serve static client files
-  const clientDir = path.resolve(__dirname, "../client");
-  app.use(express.static(clientDir));
+  // Serve static client files.
+  // Priority: SEA blob > explicit clientDir > default path relative to this file.
+  const sea = getSea();
+  if (sea?.isSea()) {
+    mountSeaStaticRoutes(app, sea);
+  } else {
+    // When the CLI bundles this code with esbuild, all modules land in a single
+    // dist/index.js, so __dirname resolves to that file's directory.  The caller
+    // passes an explicit clientDir (dist/client/) to handle that case.
+    // In standalone/dev use, the default path relative to this file works.
+    const resolvedClientDir = clientDir ?? path.resolve(__dirname, "../client");
+    app.use(express.static(resolvedClientDir));
 
-  // SPA fallback — serve index.html for non-API routes
-  app.get("*", (_req, res) => {
-    res.sendFile(path.join(clientDir, "index.html"));
-  });
+    // SPA fallback — serve index.html for non-API routes
+    app.get("*", (_req, res) => {
+      res.sendFile(path.join(resolvedClientDir, "index.html"));
+    });
+  }
 
   const url = `http://127.0.0.1:${port}`;
 

@@ -79,7 +79,7 @@ export function registerImportCommand(program: Command, deps: { runner: Subproce
             return;
           }
 
-          const repoRoot = (program.opts().repo as string) || process.cwd();
+          const repoRoot = (program.opts().dir as string) || process.cwd();
 
           const parser = new ManifestParser();
           let manifest;

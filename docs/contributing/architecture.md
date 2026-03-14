@@ -102,10 +102,6 @@ Checks that required external binaries (SOPS, git) are installed and meet minimu
 
 Generates age key pairs using the `age-encryption` npm package. Used during `clef init` to create a local key.
 
-### GitRemote (`packages/core/src/git/remote.ts`)
-
-Handles cloning and fetching remote git repositories for the `--repo <url>` feature. Manages the local cache at `~/.cache/clef/`.
-
 ## Data flow: `clef set`
 
 ```
@@ -195,25 +191,11 @@ This pattern is critical for two reasons:
 
 The core library has no dependencies on CLI or UI. The CLI depends on both core and UI (for the `clef ui` command). The UI depends on core for its API server.
 
-## Supported repository patterns
+## Repository layout
 
-Clef supports two deployment patterns:
+Clef follows a **co-located secrets** approach — secrets live in the same repository as application code. `clef.yaml` is at the repo root alongside `src/`, `package.json`, etc., and encrypted files are stored in a `secrets/` directory. This is the default — `process.cwd()` is the repo root, and no extra flags are needed.
 
-### Pattern A — Co-located
-
-Secrets live in the same repository as application code. `clef.yaml` is at the repo root alongside `src/`, `package.json`, etc. This is the default — `process.cwd()` is the repo root, and no extra flags are needed.
-
-### Pattern B — Standalone secrets repository
-
-Secrets live in a dedicated repository. Application repos use `--repo <path>` on every Clef command to point at the secrets checkout:
-
-```bash
-clef --repo ../acme-secrets exec payments/production -- ./deploy.sh
-```
-
-The `--repo` flag is implemented as a global option on the root Commander program. Each command reads `program.opts().repo || process.cwd()` to determine the repo root. This means the flag works uniformly with every command without per-command opt-in.
-
-In CI, Pattern B requires checking out both repositories. See the [CI/CD Integration guide](/guide/ci-cd#pattern-b-standalone-secrets-repository) for examples.
+The `--dir` flag is implemented as a global option on the root Commander program. Each command reads `program.opts().dir || process.cwd()` to determine the repo root. This means the flag works uniformly with every command without per-command opt-in.
 
 ## Design decisions
 

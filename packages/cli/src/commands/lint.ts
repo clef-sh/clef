@@ -28,7 +28,7 @@ export function registerLintCommand(program: Command, deps: { runner: Subprocess
     .option("--json", "Output raw LintResult JSON")
     .action(async (options: { fix?: boolean; json?: boolean }) => {
       try {
-        const repoRoot = (program.opts().repo as string) || process.cwd();
+        const repoRoot = (program.opts().dir as string) || process.cwd();
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 

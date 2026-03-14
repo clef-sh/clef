@@ -131,7 +131,7 @@ When an environment has its own recipient list, only those recipients can decryp
 | ------------------------- | ------ | ------- | ----------------------------------------- |
 | `-e, --environment <env>` | string | —       | Scope operation to a specific environment |
 | `--label <name>`          | string | —       | Human-readable label (add only)           |
-| `--repo <path>`           | string | cwd     | Override repository root                  |
+| `--dir <path>`            | string | cwd     | Override repository root                  |
 
 ## Exit codes
 

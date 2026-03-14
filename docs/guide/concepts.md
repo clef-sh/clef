@@ -22,28 +22,31 @@ This produces a matrix. Each cell in the matrix is a single encrypted YAML file 
   └─────────────┴──────────┴───────────┴────────────┘
 ```
 
-On disk, the matrix maps to a directory structure:
+On disk, the matrix maps to a directory structure inside a `secrets/` directory:
 
 ```
 your-repo/
-├── database/
-│   ├── dev.enc.yaml
-│   ├── staging.enc.yaml
-│   └── production.enc.yaml
-├── payments/
-│   ├── dev.enc.yaml
-│   ├── staging.enc.yaml
-│   └── production.enc.yaml
-└── auth/
-    ├── dev.enc.yaml
-    ├── staging.enc.yaml
-    └── production.enc.yaml
+├── src/
+├── clef.yaml
+└── secrets/
+    ├── database/
+    │   ├── dev.enc.yaml
+    │   ├── staging.enc.yaml
+    │   └── production.enc.yaml
+    ├── payments/
+    │   ├── dev.enc.yaml
+    │   ├── staging.enc.yaml
+    │   └── production.enc.yaml
+    └── auth/
+        ├── dev.enc.yaml
+        ├── staging.enc.yaml
+        └── production.enc.yaml
 ```
 
 The two-axis model makes two problems visible that are otherwise invisible with raw SOPS:
 
 1. **Missing cells** — a namespace/environment combination that should exist but does not. This means someone added a new environment but forgot to create files for it.
-2. **Key drift** — a cell with fewer keys than its siblings. This means a key was added to `dev` but never promoted to `staging` or `production`.
+2. **Key drift** — a key that exists in some environments but not others within the same namespace. For example, a key was added to `dev` but never promoted to `staging` or `production`. Clef compares the full set of keys across all environments in a namespace, not just the count.
 
 Both problems are caught by `clef lint` and visualised in the UI matrix view.
 
@@ -75,7 +78,7 @@ namespaces:
 sops:
   default_backend: age
 
-file_pattern: "{namespace}/{environment}.enc.yaml"
+file_pattern: "secrets/{namespace}/{environment}.enc.yaml"
 ```
 
 The manifest declares:
@@ -86,7 +89,7 @@ The manifest declares:
 - The **file pattern** — how namespace and environment map to file paths on disk
 
 ::: tip age key location
-When using the age backend, each developer's private key path is stored in `.clef/config.yaml` (gitignored) — not in the manifest. The key itself lives outside the repository at `~/.config/clef/keys.txt` by default.
+When using the age backend, each developer's key label and storage method are stored in `.clef/config.yaml` (gitignored) — not in the manifest. The private key itself lives in the OS keychain or at `~/.config/clef/keys/{label}/keys.txt`, always outside the repository.
 :::
 
 Clef reads this file at the start of every operation. The manifest is committed to git alongside your encrypted files, so every team member shares the same structure.
@@ -181,103 +184,61 @@ This is an intentional architectural constraint, not a missing feature. The reas
 
 If you have configuration values that are not secret, keep them in a non-Clef config file (e.g. `config/defaults.yaml`). Only values that must be encrypted belong in the Clef matrix.
 
-## Choosing a repository structure
+## Recommended approach: co-located secrets
 
-Clef supports two patterns for organising secrets alongside code. Both are first-class — choose the one that fits your team.
-
-### Pattern A — Co-located secrets
-
-Encrypted files live in the same repository as the application code:
+SOPS already gives you Secrets as Code — encrypted values committed to git. Clef takes this further by recommending **co-location**: secrets live in the same repository as the code that uses them, inside a `secrets/` directory. This is not just a convenience — it is the recommended approach for security, operability, and drift prevention.
 
 ```
 my-app/
 ├── src/
 ├── package.json
 ├── clef.yaml
-├── database/
-│   ├── dev.enc.yaml
-│   ├── staging.enc.yaml
-│   └── production.enc.yaml
-└── auth/
-    ├── dev.enc.yaml
-    ├── staging.enc.yaml
-    └── production.enc.yaml
+└── secrets/
+    ├── database/
+    │   ├── dev.enc.yaml
+    │   ├── staging.enc.yaml
+    │   └── production.enc.yaml
+    └── auth/
+        ├── dev.enc.yaml
+        ├── staging.enc.yaml
+        └── production.enc.yaml
 ```
 
-**Pros:**
+### Why co-location matters
 
-- Secrets and code change together in the same PR — reviewers see the full picture
-- No separate checkout step in CI
-- Simple `clef init` in the project root — works immediately
-- Developers never need to think about which repo to look in
+- **Blast radius containment.** Each repo has its own age key (with a unique per-repo label). Compromising one repo's key does not expose any other repo's secrets.
+- **Drift detection.** `clef lint` catches missing keys, schema violations, and environment gaps at the same PR cadence as code changes. Secrets in a separate repo drift silently.
+- **One commit hash = complete system state.** When secrets live alongside code, a single git SHA represents everything your system needs to run — code, config, and credentials. CI checks out one ref and has the full picture. Rollbacks are one operation, not a coordination problem across repos. This is what makes truly stateless CI possible: `git checkout <sha> && clef exec ... -- deploy.sh` is a complete, reproducible deployment from a single ref.
+- **Atomic reviews.** Secrets and code change together in the same PR — reviewers see the full picture. A separate secrets repo means separate PRs that are harder to review atomically.
+- **No sync step.** Developers get secret changes by pulling the repository. There is no separate checkout, clone, or sync operation.
+- **Ownership clarity.** The team that owns the code owns the secrets, with the same review process and access controls.
 
-**Cons:**
+### Why not a standalone secrets repo
 
-- Without per-environment scoping, the recipient list is flat — every recipient can decrypt every environment
-- Multi-service teams end up with secrets for unrelated services in the same repo
+A shared, centralised secrets repository is explicitly discouraged:
 
-::: tip Access control options
-By default, a recipient added with `clef recipients add` can decrypt all environments. Clef provides two ways to restrict access:
+- **Single point of compromise.** One key grants access to secrets for every service. A leaked key or compromised CI runner exposes everything.
+- **Invisible drift.** Secret changes are decoupled from the code that consumes them. A renamed environment variable breaks production with no warning.
+- **Unclear ownership.** When multiple teams share a secrets repo, it is unclear who reviews changes and who is responsible for rotation.
+- **Operational friction.** Every secret change requires coordinating across two repos, two PRs, and two review cycles.
 
-- **Per-environment recipients** — scope recipients to specific environments with `clef recipients add <key> -e production`. Only keys explicitly granted access to an environment can decrypt its files.
-- **Per-environment backends** — configure production to use a KMS backend (AWS KMS, GCP KMS) while dev/staging use age. Decryption of production files then requires cloud IAM credentials, and KMS provides server-side audit logging. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override).
+::: tip Access control
+By default, a recipient added with `clef recipients add` can decrypt all environments. Clef provides two ways to restrict access within a repo:
+
+- **Per-environment recipients** — scope recipients to specific environments with `clef recipients add <key> -e production`.
+- **Per-environment backends** — configure production to use a KMS backend (AWS KMS, GCP KMS) while dev/staging use age. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override).
 
 For a comparison of these approaches, see [age vs KMS](/guide/quick-start#age-vs-kms-choosing-an-encryption-backend).
 :::
 
-**Best for:** single-service repositories, small teams, and projects where all contributors are trusted with all environments.
+### Using `--dir` for other local repos
 
-### Pattern B — Standalone secrets repository
-
-A dedicated repository contains only the manifest and encrypted files. Application repositories reference it at deploy time:
-
-```
-acme-secrets/                    my-app/
-├── clef.yaml            ├── src/
-├── database/                    ├── package.json
-│   ├── dev.enc.yaml             └── deploy.sh
-│   ├── staging.enc.yaml
-│   └── production.enc.yaml
-└── auth/
-    ├── dev.enc.yaml
-    └── production.enc.yaml
-```
-
-**Pros:**
-
-- Secrets are audited, reviewed, and access-controlled independently of application code
-- A single secrets repo can serve multiple applications — no duplication
-- Developers who do not need secret access never see the ciphertext
-- Compliance teams can restrict the secrets repo without restricting the main codebase
-
-**Cons:**
-
-- Write operations (`set`, `delete`, `rotate`, `recipients`) require a local checkout of the secrets repo
-- Secret and code changes are in separate PRs — harder to review atomically
-
-**Best for:** multi-service organisations, regulated environments, and teams with strict separation between infrastructure/secrets and application code.
-
-### Using `--repo` with Pattern B
-
-When secrets live in a separate repository, pass its path or git URL directly to `--repo`:
+The `--dir` flag points Clef at a different local directory instead of the current working directory:
 
 ```bash
-# Local checkout
-clef --repo ../acme-secrets get database/production DB_URL
-clef --repo ../acme-secrets exec payments/production -- node server.js
-
-# Git URL — Clef clones/updates automatically, no checkout step needed
-clef --repo git@github.com:acme/secrets.git exec payments/production -- ./deploy.sh
-clef --repo https://github.com/acme/secrets.git lint
+clef --dir ../other-project get database/production DB_URL
+clef --dir /opt/my-app lint
 ```
-
-When a URL is passed, Clef caches the clone in `~/.cache/clef/` and fetches fresh on every invocation. Use `--branch` to target a specific branch:
-
-```bash
-clef --repo git@github.com:acme/secrets.git --branch feature/xyz get payments/staging STRIPE_KEY
-```
-
-Write operations are blocked when `--repo` is a URL — clone the repo locally to make changes.
 
 ## Pending values
 

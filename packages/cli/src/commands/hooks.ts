@@ -13,7 +13,7 @@ export function registerHooksCommand(program: Command, deps: { runner: Subproces
     .description("Install the Clef pre-commit hook that blocks unencrypted secret commits")
     .action(async () => {
       try {
-        const repoRoot = (program.opts().repo as string) || process.cwd();
+        const repoRoot = (program.opts().dir as string) || process.cwd();
         const hookPath = path.join(repoRoot, ".git", "hooks", "pre-commit");
 
         // Check if hook already exists

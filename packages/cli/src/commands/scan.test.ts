@@ -47,7 +47,7 @@ const mockFormatter = formatter as jest.Mocked<typeof formatter>;
 
 function makeProgram() {
   const program = new Command();
-  program.option("--repo <path>", "repo root").allowUnknownOption();
+  program.option("--dir <path>", "Path to a local Clef repository root").allowUnknownOption();
   const runner = { run: jest.fn() };
   registerScanCommand(program, { runner });
   return { program, runner };

@@ -1,12 +1,6 @@
 # Quick Start
 
-::: info This guide uses Pattern A with a shared age backend
-This walkthrough uses **Pattern A** — secrets live alongside your application code in the same repository — with a single age backend shared across all environments. This is the simplest setup and a good starting point for most teams.
-
-Clef also supports **Pattern B**, where secrets live in a standalone repository with independent access control. See [Choosing a repository structure](/guide/concepts#choosing-a-repository-structure).
-:::
-
-This walkthrough takes you from an empty git repository to a fully managed secrets setup with encrypted files, schema validation, and a running web UI. Every command is copy-pasteable.
+This walkthrough takes you from an existing git repository to a fully managed secrets setup with encrypted files, schema validation, and a running web UI. Every command is copy-pasteable.
 
 ## Install Clef
 
@@ -34,16 +28,10 @@ clef doctor
 
 ## 1. Initialise a Clef repository
 
-Start in an existing git repository (or create a new one):
+Run `clef init` inside your existing project repository. Clef recommends **co-locating secrets with code** — secrets live alongside the code that uses them, not in a separate repo.
 
 ```bash
-mkdir my-project && cd my-project
-git init
-```
-
-Run `clef init` to generate the manifest and scaffold the encrypted file matrix:
-
-```bash
+cd my-project
 clef init --namespaces database,payments,auth --non-interactive
 # Creates three default environments: dev, staging, production
 ```
@@ -52,12 +40,12 @@ This creates:
 
 - `clef.yaml` — the manifest declaring your namespaces, environments, and SOPS configuration
 - `.sops.yaml` — SOPS creation rules that tell the `sops` binary how to encrypt new files
-- `.clef/config.yaml` — local config holding the path to your age private key (gitignored via `.clef/.gitignore`)
-- One encrypted file per namespace/environment cell (e.g., `database/dev.enc.yaml`, `payments/staging.enc.yaml`)
+- `.clef/config.yaml` — local config holding your age key label and storage method (gitignored via `.clef/.gitignore`)
+- `secrets/` — a directory containing one encrypted file per namespace/environment cell (e.g., `secrets/database/dev.enc.yaml`)
 - A pre-commit hook that blocks unencrypted secret commits
 
 ::: tip
-When using the age backend, `clef init` automatically generates an age key pair and stores the private key at `~/.config/clef/keys.txt` (outside the repository). No manual key generation is required and no age binary is needed.
+When using the age backend, `clef init` automatically generates an age key pair with a unique per-repo label and stores the private key in your OS keychain (or at `~/.config/clef/keys/{label}/keys.txt` as a fallback). No manual key generation is required and no age binary is needed.
 :::
 
 > **Migrating from an existing project?** If you already have secrets in `.env` files or a secrets manager, use `clef import` to bulk-migrate them. See the [migration guide](migrating.md).
@@ -147,11 +135,8 @@ Press `Ctrl+C` in the terminal to stop the server.
 ## Full example session
 
 ```bash
-# Set up the repository
-mkdir acme-secrets && cd acme-secrets
-git init
-
-# Initialise Clef with three namespaces
+# Initialise Clef in your existing project
+cd my-project
 clef init --namespaces database,payments,auth --non-interactive
 
 # Add secrets to dev

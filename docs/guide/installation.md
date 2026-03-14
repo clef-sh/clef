@@ -84,7 +84,7 @@ Clef environment check
 ✓ sops          v3.9.4    (required >= 3.8.0)
 ✓ git           v2.43.0   (required >= 2.28.0)
 ✓ manifest      clef.yaml found
-✓ age key       loaded (from ~/.config/sops/age/keys.txt)
+✓ age key       loaded (from OS keychain, label: coral-tiger)
 ✓ .sops.yaml    found
 ✓ scanner       .clefignore found (3 rules)
 
@@ -110,14 +110,9 @@ If you see an error like `sops: command not found` when running Clef commands:
 
 If you see `No decryption key found` errors:
 
-1. Verify your key file exists: `ls ~/.config/clef/keys.txt`
-2. Check that `.clef/config.yaml` in the repo points to the correct key path.
-3. If needed, re-run `clef init` in the repository to configure the local key path.
-4. If the key is in a custom location, set the environment variable:
-   ```bash
-   export SOPS_AGE_KEY_FILE=/path/to/your/keys.txt
-   ```
-5. Add the export to your shell profile so it persists across sessions
+1. Check `.clef/config.yaml` in the repo for the key label and storage method.
+2. If using filesystem storage, verify the key file exists: `ls ~/.config/clef/keys/<label>/keys.txt`
+3. If needed, re-run `clef init` in the repository to generate a new key and configure the local config.
 
 ### Node.js version too old
 
@@ -136,30 +131,14 @@ nvm use 18
 
 ## Setting up your first repo
 
-With Clef installed, decide which repository structure fits your team:
-
-**Pattern A — Co-located secrets** (simplest): Run `clef init` inside your existing application repository. Secrets live alongside your code.
+Run `clef init` inside your existing application repository. Clef recommends **co-locating secrets with code** — secrets live alongside the code that uses them.
 
 ```bash
 cd my-app
 clef init --namespaces database,payments --non-interactive
 ```
 
-**Pattern B — Standalone secrets repo**: Create a dedicated repository for secrets. Application repos reference it at deploy time using `--repo`.
-
-```bash
-mkdir acme-secrets && cd acme-secrets
-git init
-clef init --namespaces database,payments,auth --non-interactive
-```
-
-Then from your application repo:
-
-```bash
-clef --repo ../acme-secrets get database/dev DB_URL
-```
-
-For a detailed comparison of both patterns, see [Choosing a repository structure](/guide/concepts#choosing-a-repository-structure).
+This creates a `secrets/` directory containing encrypted files, plus `clef.yaml` and `.sops.yaml` at the project root. See [Recommended approach](/guide/concepts#recommended-approach-co-located-secrets) for why co-locating secrets with code is preferred over a standalone secrets repo.
 
 After `clef init`, run `clef scan` to check whether your repository contains any existing plaintext secrets that should be moved into Clef before you begin.
 

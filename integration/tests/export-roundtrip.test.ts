@@ -37,7 +37,7 @@ afterAll(() => {
   }
 });
 
-const clefBin = path.resolve(__dirname, "../../packages/cli/dist/index.js");
+const clefBin = path.resolve(__dirname, "../../packages/cli/dist/index.cjs");
 
 describe("clef export roundtrip", () => {
   it("should output export statements with correct values", () => {

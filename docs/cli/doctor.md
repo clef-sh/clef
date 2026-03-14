@@ -31,7 +31,7 @@ clef doctor [options]
 | **clef**         | Prints the current Clef version                                                                                                                                         |
 | **sops**         | SOPS binary is installed and meets the minimum version requirement (>= 3.8.0)                                                                                           |
 | **git**          | git binary is installed and meets the minimum version requirement (>= 2.28.0)                                                                                           |
-| **manifest**     | `clef.yaml` exists in the current directory (or `--repo` directory)                                                                                                     |
+| **manifest**     | `clef.yaml` exists in the current directory (or `--dir` directory)                                                                                                      |
 | **age key**      | Only checked when the manifest uses the age backend. An age key is available via `SOPS_AGE_KEY` env var, `SOPS_AGE_KEY_FILE`, or the path stored in `.clef/config.yaml` |
 | **.sops.yaml**   | `.sops.yaml` exists (required for SOPS creation rules)                                                                                                                  |
 | **scanner**      | `.clefignore` exists in the repository root (used by `clef scan` to exclude paths from secret scanning)                                                                 |
@@ -48,7 +48,7 @@ Clef environment check
 ✓ sops          v3.9.4    (required >= 3.8.0)
 ✓ git           v2.43.0   (required >= 2.28.0)
 ✓ manifest      clef.yaml found
-✓ age key       loaded (from ~/.config/sops/age/keys.txt)
+✓ age key       loaded (from OS keychain, label: coral-tiger)
 ✓ .sops.yaml    found
 ✓ scanner       .clefignore found (3 rules)
 ✓ merge driver  SOPS merge driver configured
@@ -94,7 +94,7 @@ Returns a JSON object with all check results:
 ### Check a different repository
 
 ```bash
-clef --repo ../acme-secrets doctor
+clef --dir ../other-project doctor
 ```
 
 ## Related Commands

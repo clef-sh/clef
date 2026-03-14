@@ -40,7 +40,8 @@ A new developer runs `clef init` in a clone of the repository to generate their 
 ```bash
 # The new developer runs:
 clef init
-grep "public key" ~/.config/clef/keys.txt
+# Label: azure-hawk (shown during init, stored in .clef/config.yaml)
+grep "public key" ~/.config/clef/keys/azure-hawk/keys.txt
 # Output: # public key: age1abc123...
 
 # A team member with existing access runs:

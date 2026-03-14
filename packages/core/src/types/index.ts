@@ -117,6 +117,16 @@ export interface SopsConfig {
 export interface ClefLocalConfig {
   /** Path to the age private key file for this developer. */
   age_key_file?: string;
+  /**
+   * Where the age private key was stored during init.
+   * - "keychain" — OS keychain (macOS Keychain / Linux libsecret / Windows Credential Manager)
+   * - "file"     — filesystem at age_key_file path
+   *
+   * Used to provide targeted guidance when the key cannot be resolved.
+   */
+  age_key_storage?: "keychain" | "file";
+  /** Label identifying this repo's age key in the OS keychain or filesystem. */
+  age_keychain_label?: string;
 }
 
 // ── Matrix ──────────────────────────────────────────────────────────────────

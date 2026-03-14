@@ -141,27 +141,5 @@ export async function assertSops(runner: SubprocessRunner): Promise<void> {
   }
 }
 
-/**
- * Assert that the age binary is available.
- * Throws an Error if age is not installed or not in PATH.
- */
-export async function assertAge(runner: SubprocessRunner): Promise<void> {
-  try {
-    const result = await runner.run("age", ["--version"]);
-    if (result.exitCode !== 0) {
-      throw new Error(
-        "age is not installed or returned an error. Install it: brew install age (macOS) or see https://github.com/FiloSottile/age",
-      );
-    }
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("age is not installed")) {
-      throw err;
-    }
-    throw new Error(
-      "age is not installed. Install it: brew install age (macOS) or see https://github.com/FiloSottile/age",
-    );
-  }
-}
-
 // Exported for testing
 export { parseSopsVersion, parseGitVersion, semverSatisfied };
