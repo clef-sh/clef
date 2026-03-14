@@ -1,0 +1,21 @@
+{
+  "name": "@clef-sh/sops-linux-arm64",
+  "version": "3.9.4",
+  "description": "Bundled sops binary for Linux ARM64",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "main": "bin/sops",
+  "files": [
+    "bin/sops",
+    "LICENSE.sops"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "license": "MPL-2.0"
+}

@@ -12,27 +12,72 @@ This guide walks you from cloning the repository to a fully working `clef` comma
 | npm     | `npm -v`        | included with Node.js |
 | git     | `git --version` | >= 2.28.0             |
 
-### Required for integration tests and local usage
+> **Node.js, npm, and git** are required for all development — building, unit testing, and linting. Unit tests mock all subprocess calls and do not need sops installed.
 
-| Tool | Version check    | Purpose                 |
-| ---- | ---------------- | ----------------------- |
-| sops | `sops --version` | Encrypt/decrypt secrets |
+### sops binary — bundled by default
 
-> **Node.js, npm, and git** are required for all development — building, unit testing, and linting. **sops** is only required for integration tests and for actually running `clef` commands against real encrypted files. Unit tests mock all subprocess calls and do not need sops installed.
+The `@clef-sh/cli` package declares platform-specific `optionalDependencies` that bundle the sops binary:
 
-### Platform-specific install commands
+```
+@clef-sh/sops-darwin-arm64   (macOS Apple Silicon)
+@clef-sh/sops-darwin-x64     (macOS Intel)
+@clef-sh/sops-linux-x64      (Linux x64)
+@clef-sh/sops-linux-arm64    (Linux ARM64)
+@clef-sh/sops-win32-x64      (Windows x64)
+```
+
+When you run `npm install` (or `npm ci`), npm automatically installs only the package matching your current OS and architecture. The Clef resolver finds this bundled binary at runtime — no manual sops install needed.
+
+**Resolution order** (checked at runtime by `resolveSopsPath()`):
+
+1. `CLEF_SOPS_PATH` environment variable — explicit override, used as-is
+2. Bundled `@clef-sh/sops-{platform}-{arch}` optional dependency
+3. System PATH fallback — bare `sops` command
+
+Run `clef doctor` to see which source was resolved (`[bundled]`, `[system]`, or `[CLEF_SOPS_PATH]`).
+
+### When bundled sops is not available
+
+If you are on an unsupported platform, or the optional dependency failed to install, Clef falls back to any `sops` binary on your system PATH. Install it manually:
 
 ```bash
 # macOS
-brew install node sops
+brew install sops
 
 # Ubuntu / Debian
-sudo apt install nodejs npm
-# sops: download from https://github.com/getsops/sops/releases
+# Download from https://github.com/getsops/sops/releases
 
 # Windows — use WSL (Windows Subsystem for Linux)
 # Native Windows is not supported. Follow Ubuntu instructions above.
 # See troubleshooting section for WSL-specific notes.
+```
+
+### Using sops in CI
+
+In CI environments, `npm ci` installs the bundled sops binary automatically (the runner's OS/arch determines which optional dependency is installed). No extra install step is needed.
+
+If you prefer to pin a specific sops binary (e.g. for reproducibility or to use a system-installed version), set `CLEF_SOPS_PATH`:
+
+```bash
+# Example: CI installs sops manually and points Clef at it
+curl -Lo /usr/local/bin/sops https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
+chmod +x /usr/local/bin/sops
+export CLEF_SOPS_PATH=/usr/local/bin/sops
+
+npm ci
+npm run build
+npm run test:integration
+```
+
+If `CLEF_SOPS_PATH` is not set and the bundled package installed successfully, the bundled binary is used. This is the recommended default for CI.
+
+### Skipping optional dependencies
+
+During local development, if you only need to run unit tests (which mock all subprocess calls), you can skip optional dependencies entirely:
+
+```bash
+npm install --ignore-optional
+npm test   # works — no sops needed for unit tests
 ```
 
 ## Clone and install
@@ -189,9 +234,9 @@ npm run test:integration
 
 Integration tests create a temporary git repository, generate a temporary age key pair using the `age-encryption` npm package (no binary required), create a real `clef.yaml` manifest, and run actual SOPS encrypt/decrypt operations against real files. They verify end-to-end behaviour that unit tests cannot cover.
 
-Prerequisite: sops must be installed and on PATH. No environment variables need to be set — the integration test setup script generates its own temporary key pair.
+The sops binary is resolved using the standard three-tier resolution chain: `CLEF_SOPS_PATH` env, bundled platform package, then system PATH. If you ran `npm install` (not `--ignore-optional`), the bundled sops is available and no extra setup is needed. No environment variables need to be set — the integration test setup script generates its own temporary key pair.
 
-If sops is not installed, the suite exits with:
+If sops cannot be found via any resolution path, the suite exits with:
 
 ```
 sops not found. Install sops to run integration tests:
@@ -278,11 +323,20 @@ UI tests use React Testing Library and jsdom. No real server is started — all 
 ```
 clef/
 ├── packages/
-│   ├── core/          # Core library — manifest parser, SOPS client, matrix
-│   │                  #   manager, schema validator, diff engine, bulk ops,
-│   │                  #   git integration, lint runner
+│   ├── core/          # Core library — manifest parser, SOPS client, sops
+│   │                  #   resolver, matrix manager, schema validator, diff
+│   │                  #   engine, bulk ops, git integration, lint runner
 │   ├── cli/           # CLI — commander.js commands, output formatter
 │   └── ui/            # Web UI — React frontend, Express API server
+├── platforms/
+│   ├── sops-darwin-arm64/   # Bundled sops binary packages (one per platform)
+│   ├── sops-darwin-x64/
+│   ├── sops-linux-x64/
+│   ├── sops-linux-arm64/
+│   └── sops-win32-x64/
+├── scripts/
+│   └── download-sops.mjs   # Download + verify sops binaries for packaging
+├── sops-version.json        # Pinned sops version + SHA256 checksums
 ├── docs/              # VitePress documentation site
 ├── www/               # Static marketing site (Astro)
 ├── package.json       # Root workspace config
@@ -297,6 +351,7 @@ The core library that both the CLI and UI depend on. Contains all business logic
 | --------------- | ------------------------- | -------------------------------------------------- |
 | ManifestParser  | `src/manifest/parser.ts`  | Load and validate `clef.yaml`                      |
 | SopsClient      | `src/sops/client.ts`      | Subprocess wrapper for the `sops` binary           |
+| SopsResolver    | `src/sops/resolver.ts`    | Locate sops binary (env, bundled, or system PATH)  |
 | MatrixManager   | `src/matrix/manager.ts`   | Resolve file paths, detect missing cells, scaffold |
 | SchemaValidator | `src/schema/validator.ts` | Validate decrypted values against schemas          |
 | DiffEngine      | `src/diff/engine.ts`      | Cross-environment key comparison                   |
@@ -348,9 +403,9 @@ If you are developing on Windows, install WSL 2 and run all Clef commands inside
 | Build errors after `git pull`                    | Dependencies changed               | `npm install` at repo root                                                                   |
 | CLI reflects old behaviour after editing core    | Stale core build                   | `npm run build -w packages/core`                                                             |
 | `Cannot find module '../dist/index.js'`          | Build step was skipped             | `npm run build`                                                                              |
-| `error: could not decrypt`                       | Key not configured or mismatch     | Run `clef doctor`; verify `SOPS_AGE_KEY_FILE` is set and recipient in `clef.yaml` matches    |
+| `error: could not decrypt`                       | Key not configured or mismatch     | Run `clef doctor`; verify `CLEF_AGE_KEY_FILE` is set and recipient in `clef.yaml` matches    |
 | Port 7777 already in use                         | Another `clef ui` instance running | `lsof -ti:7777 \| xargs kill` or use `--port` flag                                           |
-| Integration tests fail — sops not found          | sops not installed                 | `brew install sops`                                                                          |
+| Integration tests fail — sops not found          | sops not bundled or installed      | Re-run `npm install` (without `--ignore-optional`), or `brew install sops`                   |
 | `npm test` passes but `npm run lint` fails       | Code style issue                   | `npm run format` to auto-fix                                                                 |
 | WSL: `clef ui` opens but browser does not launch | No display in WSL                  | Use `--no-open` flag; open `http://127.0.0.1:7777?token=<token>` manually in Windows browser |
 

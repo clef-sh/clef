@@ -27,17 +27,18 @@ const decrypted = await client.decrypt("secrets/production.enc.yaml");
 ### Constructor
 
 ```ts
-new SopsClient(runner, ageKeyFile?): SopsClient;
+new SopsClient(runner, ageKeyFile?, ageKey?): SopsClient;
 ```
 
 Defined in: [packages/core/src/sops/client.ts:47](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/sops/client.ts#L47)
 
 #### Parameters
 
-| Parameter     | Type                                                    | Description                                                                                                                                     |
-| ------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `runner`      | [`SubprocessRunner`](../interfaces/SubprocessRunner.md) | Subprocess runner used to invoke the `sops` binary.                                                                                             |
-| `ageKeyFile?` | `string`                                                | Optional path to an age private key file. Sets `SOPS_AGE_KEY_FILE` in subprocess calls when no age key environment variable is already present. |
+| Parameter     | Type                                                    | Description                                                                                            |
+| ------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `runner`      | [`SubprocessRunner`](../interfaces/SubprocessRunner.md) | Subprocess runner used to invoke the `sops` binary.                                                    |
+| `ageKeyFile?` | `string`                                                | Optional path to an age private key file. Passed as `SOPS_AGE_KEY_FILE` to the subprocess environment. |
+| `ageKey?`     | `string`                                                | Optional inline age private key. Passed as `SOPS_AGE_KEY` to the subprocess environment.               |
 
 #### Returns
 

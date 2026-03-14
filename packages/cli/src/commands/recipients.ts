@@ -4,7 +4,6 @@ import { Command } from "commander";
 import {
   ManifestParser,
   MatrixManager,
-  SopsClient,
   SopsMissingError,
   SopsVersionError,
   SubprocessRunner,
@@ -14,6 +13,7 @@ import {
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
+import { createSopsClient } from "../age-credential";
 
 export function waitForEnter(message: string): Promise<void> {
   return new Promise((resolve) => {
@@ -59,7 +59,7 @@ export function registerRecipientsCommand(
         }
 
         const matrixManager = new MatrixManager();
-        const sopsClient = new SopsClient(deps.runner);
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
         const recipientManager = new RecipientManager(sopsClient, matrixManager);
 
         const recipients = await recipientManager.list(manifest, repoRoot, opts.environment);
@@ -123,7 +123,7 @@ export function registerRecipientsCommand(
         }
 
         const matrixManager = new MatrixManager();
-        const sopsClient = new SopsClient(deps.runner);
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
         const recipientManager = new RecipientManager(sopsClient, matrixManager);
 
         // Check for duplicate before prompting
@@ -251,7 +251,7 @@ export function registerRecipientsCommand(
         }
 
         const matrixManager = new MatrixManager();
-        const sopsClient = new SopsClient(deps.runner);
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
         const recipientManager = new RecipientManager(sopsClient, matrixManager);
 
         // Verify recipient exists

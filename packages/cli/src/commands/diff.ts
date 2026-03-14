@@ -6,13 +6,13 @@ import {
   DiffResult,
   ManifestParser,
   MatrixManager,
-  SopsClient,
   SopsMissingError,
   SopsVersionError,
   SubprocessRunner,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
+import { createSopsClient } from "../age-credential";
 
 export function registerDiffCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -38,7 +38,7 @@ export function registerDiffCommand(program: Command, deps: { runner: Subprocess
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-          const sopsClient = new SopsClient(deps.runner);
+          const sopsClient = await createSopsClient(repoRoot, deps.runner);
           const diffEngine = new DiffEngine();
 
           const result = await diffEngine.diffFiles(

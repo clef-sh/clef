@@ -10,7 +10,7 @@ import {
   SopsVersionError,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
-import { resolveAgeCredential, prepareSopsEnv } from "../age-credential";
+import { resolveAgeCredential, prepareSopsClientArgs } from "../age-credential";
 
 export function registerUpdateCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -40,7 +40,8 @@ export function registerUpdateCommand(program: Command, deps: { runner: Subproce
           manifest.sops.default_backend === "age"
             ? await resolveAgeCredential(repoRoot, deps.runner)
             : null;
-        const sopsClient = new SopsClient(deps.runner, prepareSopsEnv(credential));
+        const { ageKeyFile, ageKey } = prepareSopsClientArgs(credential);
+        const sopsClient = new SopsClient(deps.runner, ageKeyFile, ageKey);
         const matrixManager = new MatrixManager();
         const cells = matrixManager.resolveMatrix(manifest, repoRoot);
         const missing = cells.filter((c) => !c.exists);

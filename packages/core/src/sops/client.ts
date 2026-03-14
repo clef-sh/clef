@@ -10,6 +10,7 @@
  * Coverage threshold: 95% lines/functions, 90% branches.
  * See docs/contributing/testing.md for the rationale.
  */
+import * as fs from "fs";
 import * as YAML from "yaml";
 import {
   ClefManifest,
@@ -23,6 +24,7 @@ import {
   resolveBackendConfig,
 } from "../types";
 import { assertSops } from "../dependencies/checker";
+import { resolveSopsPath } from "./resolver";
 
 function formatFromPath(filePath: string): "yaml" | "json" {
   return filePath.endsWith(".json") ? "json" : "yaml";
@@ -39,24 +41,35 @@ function formatFromPath(filePath: string): "yaml" | "json" {
  * ```
  */
 export class SopsClient implements EncryptionBackend {
+  private readonly sopsCommand: string;
+
   /**
    * @param runner - Subprocess runner used to invoke the `sops` binary.
-   * @param ageKeyFile - Optional path to an age private key file. Sets `SOPS_AGE_KEY_FILE`
-   *   in subprocess calls when no age key environment variable is already present.
+   * @param ageKeyFile - Optional path to an age private key file. Passed as
+   *   `SOPS_AGE_KEY_FILE` to the subprocess environment.
+   * @param ageKey - Optional inline age private key. Passed as `SOPS_AGE_KEY`
+   *   to the subprocess environment.
+   * @param sopsPath - Optional explicit path to the sops binary. When omitted,
+   *   resolved automatically via {@link resolveSopsPath}.
    */
   constructor(
     private readonly runner: SubprocessRunner,
     private readonly ageKeyFile?: string,
-  ) {}
+    private readonly ageKey?: string,
+    sopsPath?: string,
+  ) {
+    this.sopsCommand = sopsPath ?? resolveSopsPath().path;
+  }
 
   private buildSopsEnv(): Record<string, string> | undefined {
-    if (process.env.SOPS_AGE_KEY || process.env.SOPS_AGE_KEY_FILE) {
-      return undefined;
+    const env: Record<string, string> = {};
+    if (this.ageKey) {
+      env.SOPS_AGE_KEY = this.ageKey;
     }
     if (this.ageKeyFile) {
-      return { SOPS_AGE_KEY_FILE: this.ageKeyFile };
+      env.SOPS_AGE_KEY_FILE = this.ageKeyFile;
     }
-    return undefined;
+    return Object.keys(env).length > 0 ? env : undefined;
   }
 
   /**
@@ -68,12 +81,16 @@ export class SopsClient implements EncryptionBackend {
    * @throws {@link SopsDecryptionError} On any other decryption failure.
    */
   async decrypt(filePath: string): Promise<DecryptedFile> {
-    await assertSops(this.runner);
+    await assertSops(this.runner, this.sopsCommand);
     const fmt = formatFromPath(filePath);
     const env = this.buildSopsEnv();
-    const result = await this.runner.run("sops", ["decrypt", "--output-type", fmt, filePath], {
-      ...(env ? { env } : {}),
-    });
+    const result = await this.runner.run(
+      this.sopsCommand,
+      ["decrypt", "--output-type", fmt, filePath],
+      {
+        ...(env ? { env } : {}),
+      },
+    );
 
     if (result.exitCode !== 0) {
       const stderr = result.stderr.toLowerCase();
@@ -124,14 +141,14 @@ export class SopsClient implements EncryptionBackend {
     manifest: ClefManifest,
     environment?: string,
   ): Promise<void> {
-    await assertSops(this.runner);
+    await assertSops(this.runner, this.sopsCommand);
     const fmt = formatFromPath(filePath);
     const content = fmt === "json" ? JSON.stringify(values, null, 2) : YAML.stringify(values);
     const args = this.buildEncryptArgs(filePath, manifest, environment);
     const env = this.buildSopsEnv();
 
     const result = await this.runner.run(
-      "sops",
+      this.sopsCommand,
       [
         "encrypt",
         ...args,
@@ -155,12 +172,10 @@ export class SopsClient implements EncryptionBackend {
       );
     }
 
-    // Write the encrypted output to the file
-    const writeResult = await this.runner.run("tee", [filePath], {
-      stdin: result.stdout,
-    });
-
-    if (writeResult.exitCode !== 0) {
+    // Write the encrypted output to the file (using fs directly — tee is not available on Windows)
+    try {
+      fs.writeFileSync(filePath, result.stdout);
+    } catch {
       throw new SopsEncryptionError(`Failed to write encrypted data to '${filePath}'.`, filePath);
     }
   }
@@ -173,11 +188,15 @@ export class SopsClient implements EncryptionBackend {
    * @throws {@link SopsEncryptionError} On failure.
    */
   async reEncrypt(filePath: string, newKey: string): Promise<void> {
-    await assertSops(this.runner);
+    await assertSops(this.runner, this.sopsCommand);
     const env = this.buildSopsEnv();
-    const result = await this.runner.run("sops", ["rotate", "-i", "--add-age", newKey, filePath], {
-      ...(env ? { env } : {}),
-    });
+    const result = await this.runner.run(
+      this.sopsCommand,
+      ["rotate", "-i", "--add-age", newKey, filePath],
+      {
+        ...(env ? { env } : {}),
+      },
+    );
 
     if (result.exitCode !== 0) {
       throw new SopsEncryptionError(
@@ -195,11 +214,15 @@ export class SopsClient implements EncryptionBackend {
    * @throws {@link SopsEncryptionError} On failure.
    */
   async addRecipient(filePath: string, key: string): Promise<void> {
-    await assertSops(this.runner);
+    await assertSops(this.runner, this.sopsCommand);
     const env = this.buildSopsEnv();
-    const result = await this.runner.run("sops", ["rotate", "-i", "--add-age", key, filePath], {
-      ...(env ? { env } : {}),
-    });
+    const result = await this.runner.run(
+      this.sopsCommand,
+      ["rotate", "-i", "--add-age", key, filePath],
+      {
+        ...(env ? { env } : {}),
+      },
+    );
 
     if (result.exitCode !== 0) {
       throw new SopsEncryptionError(
@@ -217,11 +240,15 @@ export class SopsClient implements EncryptionBackend {
    * @throws {@link SopsEncryptionError} On failure.
    */
   async removeRecipient(filePath: string, key: string): Promise<void> {
-    await assertSops(this.runner);
+    await assertSops(this.runner, this.sopsCommand);
     const env = this.buildSopsEnv();
-    const result = await this.runner.run("sops", ["rotate", "-i", "--rm-age", key, filePath], {
-      ...(env ? { env } : {}),
-    });
+    const result = await this.runner.run(
+      this.sopsCommand,
+      ["rotate", "-i", "--rm-age", key, filePath],
+      {
+        ...(env ? { env } : {}),
+      },
+    );
 
     if (result.exitCode !== 0) {
       throw new SopsEncryptionError(
@@ -238,7 +265,7 @@ export class SopsClient implements EncryptionBackend {
    * @returns `true` if valid SOPS metadata is present; `false` otherwise. Never throws.
    */
   async validateEncryption(filePath: string): Promise<boolean> {
-    await assertSops(this.runner);
+    await assertSops(this.runner, this.sopsCommand);
     try {
       await this.getMetadata(filePath);
       return true;
@@ -256,9 +283,9 @@ export class SopsClient implements EncryptionBackend {
    * @throws {@link SopsDecryptionError} If the file cannot be read or parsed.
    */
   async getMetadata(filePath: string): Promise<SopsMetadata> {
-    await assertSops(this.runner);
+    await assertSops(this.runner, this.sopsCommand);
     const env = this.buildSopsEnv();
-    const result = await this.runner.run("sops", ["filestatus", filePath], {
+    const result = await this.runner.run(this.sopsCommand, ["filestatus", filePath], {
       ...(env ? { env } : {}),
     });
 
@@ -271,10 +298,11 @@ export class SopsClient implements EncryptionBackend {
     return this.parseMetadataFromFile(filePath);
   }
 
-  private async parseMetadataFromFile(filePath: string): Promise<SopsMetadata> {
-    const catResult = await this.runner.run("cat", [filePath]);
-
-    if (catResult.exitCode !== 0) {
+  private parseMetadataFromFile(filePath: string): SopsMetadata {
+    let content: string;
+    try {
+      content = fs.readFileSync(filePath, "utf-8");
+    } catch {
       throw new SopsDecryptionError(
         `Could not read file '${filePath}' to extract SOPS metadata.`,
         filePath,
@@ -283,7 +311,7 @@ export class SopsClient implements EncryptionBackend {
 
     let parsed: Record<string, unknown>;
     try {
-      parsed = YAML.parse(catResult.stdout);
+      parsed = YAML.parse(content);
     } catch {
       throw new SopsDecryptionError(
         `File '${filePath}' is not valid YAML. Cannot extract SOPS metadata.`,

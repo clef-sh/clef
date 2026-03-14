@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as YAML from "yaml";
-import { ClefLocalConfig, SubprocessRunner } from "@clef-sh/core";
+import { ClefLocalConfig, SopsClient, SubprocessRunner } from "@clef-sh/core";
 import { getKeychainKey } from "./keychain";
 
 const CLEF_DIR = ".clef";
@@ -11,8 +11,8 @@ const CLEF_CONFIG_FILENAME = "config.yaml";
  * The resolved source of an age private key credential.
  *
  * - keychain     — retrieved from the OS keychain (macOS/Linux); privateKey is the inline value
- * - env-key      — SOPS_AGE_KEY is already set in the environment
- * - env-file     — SOPS_AGE_KEY_FILE is already set in the environment
+ * - env-key      — CLEF_AGE_KEY is set in the environment
+ * - env-file     — CLEF_AGE_KEY_FILE is set in the environment
  * - config-file  — path read from .clef/config.yaml age_key_file
  */
 export type AgeCredential =
@@ -25,8 +25,8 @@ export type AgeCredential =
  * Resolve the age private key credential from available sources in priority order:
  *   1. OS keychain (macOS Keychain / Linux libsecret / Windows Credential Manager)
  *      — requires a label from .clef/config.yaml; skipped if no label is configured
- *   2. SOPS_AGE_KEY env var (inline key)
- *   3. SOPS_AGE_KEY_FILE env var (file path)
+ *   2. CLEF_AGE_KEY env var (inline key)
+ *   3. CLEF_AGE_KEY_FILE env var (file path)
  *   4. .clef/config.yaml age_key_file
  *
  * Returns null if no credential is found from any source.
@@ -45,11 +45,11 @@ export async function resolveAgeCredential(
     if (keychainKey) return { source: "keychain", privateKey: keychainKey };
   }
 
-  // 2. SOPS_AGE_KEY env var (inline key already available to sops)
-  if (process.env.SOPS_AGE_KEY) return { source: "env-key" };
+  // 2. CLEF_AGE_KEY env var (inline key)
+  if (process.env.CLEF_AGE_KEY) return { source: "env-key" };
 
-  // 3. SOPS_AGE_KEY_FILE env var
-  if (process.env.SOPS_AGE_KEY_FILE) return { source: "env-file" };
+  // 3. CLEF_AGE_KEY_FILE env var
+  if (process.env.CLEF_AGE_KEY_FILE) return { source: "env-file" };
 
   // 4. .clef/config.yaml age_key_file
   if (config?.age_key_file) {
@@ -82,26 +82,41 @@ export function getExpectedKeyLabel(repoRoot: string): string | undefined {
 }
 
 /**
- * Apply a resolved credential so that SopsClient can use it.
+ * Prepare the SopsClient constructor arguments from a resolved credential.
  *
- * For keychain credentials, sets SOPS_AGE_KEY in the process environment — the key lives
- * only in process memory and is passed to the sops subprocess via its environment.
- *
- * Returns the ageKeyFile path to pass to the SopsClient constructor, or undefined when
- * the credential is already in the environment (env-key / env-file / keychain).
+ * Returns `{ ageKeyFile, ageKey }` — one or both may be undefined. These values
+ * are passed directly to the SopsClient constructor, which injects them into the
+ * subprocess environment. This avoids mutating `process.env` and prevents leakage
+ * of SOPS_AGE_KEY / SOPS_AGE_KEY_FILE from Clef into the parent process.
  */
-export function prepareSopsEnv(credential: AgeCredential | null): string | undefined {
-  if (!credential) return undefined;
+export function prepareSopsClientArgs(credential: AgeCredential | null): {
+  ageKeyFile?: string;
+  ageKey?: string;
+} {
+  if (!credential) return {};
   switch (credential.source) {
     case "keychain":
-      process.env.SOPS_AGE_KEY = credential.privateKey;
-      return undefined;
-    case "config-file":
-      return credential.path;
+      return { ageKey: credential.privateKey };
     case "env-key":
+      return { ageKey: process.env.CLEF_AGE_KEY };
     case "env-file":
-      return undefined; // SopsClient reads directly from process.env
+      return { ageKeyFile: process.env.CLEF_AGE_KEY_FILE };
+    case "config-file":
+      return { ageKeyFile: credential.path };
   }
+}
+
+/**
+ * Resolve credentials and create a SopsClient in one step.
+ * Convenience wrapper used by most CLI commands.
+ */
+export async function createSopsClient(
+  repoRoot: string,
+  runner: SubprocessRunner,
+): Promise<SopsClient> {
+  const credential = await resolveAgeCredential(repoRoot, runner);
+  const { ageKeyFile, ageKey } = prepareSopsClientArgs(credential);
+  return new SopsClient(runner, ageKeyFile, ageKey);
 }
 
 /** Read and parse .clef/config.yaml, returning null on any failure. */

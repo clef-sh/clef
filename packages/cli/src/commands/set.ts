@@ -3,7 +3,6 @@ import { Command } from "commander";
 import {
   ManifestParser,
   MatrixManager,
-  SopsClient,
   SopsMissingError,
   SopsVersionError,
   SubprocessRunner,
@@ -13,6 +12,7 @@ import {
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
+import { createSopsClient } from "../age-credential";
 
 export function registerSetCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -93,7 +93,7 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
               .replace("{environment}", environment),
           );
 
-          const sopsClient = new SopsClient(deps.runner);
+          const sopsClient = await createSopsClient(repoRoot, deps.runner);
           const decrypted = await sopsClient.decrypt(filePath);
           decrypted.values[key] = secretValue;
           await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);

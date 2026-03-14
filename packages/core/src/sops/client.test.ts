@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import { SopsClient } from "./client";
 import {
   ClefError,
@@ -15,9 +16,17 @@ import {
   SubprocessRunner,
 } from "../types";
 
+jest.mock("fs", () => ({
+  readFileSync: jest.fn(),
+  writeFileSync: jest.fn(),
+}));
+
 jest.mock("../dependencies/checker", () => ({
   assertSops: jest.fn().mockResolvedValue(undefined),
 }));
+
+const mockReadFileSync = fs.readFileSync as jest.Mock;
+const mockWriteFileSync = fs.writeFileSync as jest.Mock;
 
 function mockRunner(responses: Record<string, SubprocessResult>): SubprocessRunner {
   return {
@@ -59,6 +68,11 @@ function testManifest(): ClefManifest {
 }
 
 describe("SopsClient", () => {
+  beforeEach(() => {
+    mockReadFileSync.mockReturnValue(sopsMetadataYaml);
+    mockWriteFileSync.mockReturnValue(undefined);
+  });
+
   describe("decrypt", () => {
     it("should decrypt a file and return values and metadata", async () => {
       const runner = mockRunner({
@@ -69,11 +83,6 @@ describe("SopsClient", () => {
         },
         "sops filestatus": {
           stdout: '{"encrypted": true}',
-          stderr: "",
-          exitCode: 0,
-        },
-        cat: {
-          stdout: sopsMetadataYaml,
           stderr: "",
           exitCode: 0,
         },
@@ -129,11 +138,6 @@ describe("SopsClient", () => {
           stderr: "",
           exitCode: 0,
         },
-        cat: {
-          stdout: sopsMetadataYaml,
-          stderr: "",
-          exitCode: 0,
-        },
       });
 
       const client = new SopsClient(runner);
@@ -163,9 +167,6 @@ describe("SopsClient", () => {
         if (command === "sops" && args[0] === "encrypt") {
           return { stdout: "encrypted-content", stderr: "", exitCode: 0 };
         }
-        if (command === "tee") {
-          return { stdout: "", stderr: "", exitCode: 0 };
-        }
         return { stdout: "", stderr: "", exitCode: 1 };
       });
 
@@ -182,12 +183,8 @@ describe("SopsClient", () => {
       const YAML = await import("yaml");
       const parsed = YAML.parse(stdinContent);
       expect(parsed).toEqual({ KEY: "value" });
-      // Verify tee was called to write the file
-      expect(runFn).toHaveBeenCalledWith(
-        "tee",
-        ["database/dev.enc.yaml"],
-        expect.objectContaining({ stdin: "encrypted-content" }),
-      );
+      // Verify fs.writeFileSync was called with the encrypted content
+      expect(mockWriteFileSync).toHaveBeenCalledWith("database/dev.enc.yaml", "encrypted-content");
     });
 
     it("should throw SopsEncryptionError on failure", async () => {
@@ -210,10 +207,11 @@ describe("SopsClient", () => {
         if (command === "sops" && args[0] === "encrypt") {
           return { stdout: "encrypted-content", stderr: "", exitCode: 0 };
         }
-        if (command === "tee") {
-          return { stdout: "", stderr: "Permission denied", exitCode: 1 };
-        }
         return { stdout: "", stderr: "", exitCode: 1 };
+      });
+
+      mockWriteFileSync.mockImplementation(() => {
+        throw new Error("Permission denied");
       });
 
       const client = new SopsClient({ run: runFn });
@@ -329,7 +327,6 @@ describe("SopsClient", () => {
     it("should return true for valid encrypted file", async () => {
       const runner = mockRunner({
         "sops filestatus": { stdout: '{"encrypted": true}', stderr: "", exitCode: 0 },
-        cat: { stdout: sopsMetadataYaml, stderr: "", exitCode: 0 },
       });
 
       const client = new SopsClient(runner);
@@ -338,9 +335,9 @@ describe("SopsClient", () => {
     });
 
     it("should return false when metadata is missing", async () => {
+      mockReadFileSync.mockReturnValue("plain: data\nno_sops: here");
       const runner = mockRunner({
         "sops filestatus": { stdout: "", stderr: "", exitCode: 1 },
-        cat: { stdout: "plain: data\nno_sops: here", stderr: "", exitCode: 0 },
       });
 
       const client = new SopsClient(runner);
@@ -353,7 +350,6 @@ describe("SopsClient", () => {
     it("should parse age backend metadata", async () => {
       const runner = mockRunner({
         "sops filestatus": { stdout: "", stderr: "", exitCode: 1 },
-        cat: { stdout: sopsMetadataYaml, stderr: "", exitCode: 0 },
       });
 
       const client = new SopsClient(runner);
@@ -373,9 +369,9 @@ sops:
   lastmodified: "2024-01-15T10:30:00Z"
   version: 3.8.1`;
 
+      mockReadFileSync.mockReturnValue(kmsYaml);
       const runner = mockRunner({
         "sops filestatus": { stdout: "", stderr: "", exitCode: 1 },
-        cat: { stdout: kmsYaml, stderr: "", exitCode: 0 },
       });
 
       const client = new SopsClient(runner);
@@ -392,9 +388,9 @@ sops:
   lastmodified: "2024-01-15T10:30:00Z"
   version: 3.8.1`;
 
+      mockReadFileSync.mockReturnValue(gcpYaml);
       const runner = mockRunner({
         "sops filestatus": { stdout: "", stderr: "", exitCode: 1 },
-        cat: { stdout: gcpYaml, stderr: "", exitCode: 0 },
       });
 
       const client = new SopsClient(runner);
@@ -410,9 +406,9 @@ sops:
   lastmodified: "2024-01-15T10:30:00Z"
   version: 3.8.1`;
 
+      mockReadFileSync.mockReturnValue(pgpYaml);
       const runner = mockRunner({
         "sops filestatus": { stdout: "", stderr: "", exitCode: 1 },
-        cat: { stdout: pgpYaml, stderr: "", exitCode: 0 },
       });
 
       const client = new SopsClient(runner);
@@ -429,9 +425,9 @@ sops:
   lastmodified: "2024-01-15T10:30:00Z"
   version: 3.8.1`;
 
+      mockReadFileSync.mockReturnValue(kmsYaml);
       const runner = mockRunner({
         "sops filestatus": { stdout: "", stderr: "", exitCode: 1 },
-        cat: { stdout: kmsYaml, stderr: "", exitCode: 0 },
       });
 
       const client = new SopsClient(runner);
@@ -448,9 +444,9 @@ sops:
   lastmodified: "2024-01-15T10:30:00Z"
   version: 3.8.1`;
 
+      mockReadFileSync.mockReturnValue(gcpYaml);
       const runner = mockRunner({
         "sops filestatus": { stdout: "", stderr: "", exitCode: 1 },
-        cat: { stdout: gcpYaml, stderr: "", exitCode: 0 },
       });
 
       const client = new SopsClient(runner);
@@ -467,9 +463,9 @@ sops:
   lastmodified: "2024-01-15T10:30:00Z"
   version: 3.8.1`;
 
+      mockReadFileSync.mockReturnValue(pgpYaml);
       const runner = mockRunner({
         "sops filestatus": { stdout: "", stderr: "", exitCode: 1 },
-        cat: { stdout: pgpYaml, stderr: "", exitCode: 0 },
       });
 
       const client = new SopsClient(runner);
@@ -479,9 +475,11 @@ sops:
     });
 
     it("should throw when file cannot be read", async () => {
+      mockReadFileSync.mockImplementation(() => {
+        throw new Error("ENOENT: no such file or directory");
+      });
       const runner = mockRunner({
         "sops filestatus": { stdout: "", stderr: "", exitCode: 1 },
-        cat: { stdout: "", stderr: "No such file", exitCode: 1 },
       });
 
       const client = new SopsClient(runner);
@@ -489,9 +487,9 @@ sops:
     });
 
     it("should throw when file has no sops metadata", async () => {
+      mockReadFileSync.mockReturnValue("plain: data");
       const runner = mockRunner({
         "sops filestatus": { stdout: "", stderr: "", exitCode: 1 },
-        cat: { stdout: "plain: data", stderr: "", exitCode: 0 },
       });
 
       const client = new SopsClient(runner);
@@ -501,9 +499,9 @@ sops:
     });
 
     it("should throw on invalid YAML in file", async () => {
+      mockReadFileSync.mockReturnValue("{{invalid");
       const runner = mockRunner({
         "sops filestatus": { stdout: "", stderr: "", exitCode: 1 },
-        cat: { stdout: "{{invalid", stderr: "", exitCode: 0 },
       });
 
       const client = new SopsClient(runner);
@@ -523,9 +521,9 @@ sops:
         -----END AGE ENCRYPTED FILE-----
   version: 3.8.1`;
 
+      mockReadFileSync.mockReturnValue(noLastModYaml);
       const runner = mockRunner({
         "sops filestatus": { stdout: "", stderr: "", exitCode: 1 },
-        cat: { stdout: noLastModYaml, stderr: "", exitCode: 0 },
       });
 
       const client = new SopsClient(runner);
@@ -544,9 +542,9 @@ sops:
   lastmodified: "2024-01-15T10:30:00Z"
   version: 3.8.1`;
 
+      mockReadFileSync.mockReturnValue(ambiguousYaml);
       const runner = mockRunner({
         "sops filestatus": { stdout: "", stderr: "", exitCode: 1 },
-        cat: { stdout: ambiguousYaml, stderr: "", exitCode: 0 },
       });
 
       const client = new SopsClient(runner);
@@ -757,9 +755,6 @@ describe("JSON file format support", () => {
       if (command === "sops" && args[0] === "filestatus") {
         return { stdout: "", stderr: "", exitCode: 1 };
       }
-      if (command === "cat") {
-        return { stdout: sopsMetadataYaml, stderr: "", exitCode: 0 };
-      }
       return { stdout: "", stderr: "", exitCode: 0 };
     });
 
@@ -779,9 +774,6 @@ describe("JSON file format support", () => {
       }
       if (command === "sops" && args[0] === "filestatus") {
         return { stdout: "", stderr: "", exitCode: 1 };
-      }
-      if (command === "cat") {
-        return { stdout: sopsMetadataYaml, stderr: "", exitCode: 0 };
       }
       return { stdout: "", stderr: "", exitCode: 0 };
     });
@@ -860,29 +852,13 @@ describe("dependency checks", () => {
   });
 });
 
-describe("buildSopsEnv (ageKeyFile injection)", () => {
-  const origAgeKey = process.env.SOPS_AGE_KEY;
-  const origAgeKeyFile = process.env.SOPS_AGE_KEY_FILE;
-
-  beforeEach(() => {
-    delete process.env.SOPS_AGE_KEY;
-    delete process.env.SOPS_AGE_KEY_FILE;
-  });
-
-  afterEach(() => {
-    if (origAgeKey !== undefined) process.env.SOPS_AGE_KEY = origAgeKey;
-    else delete process.env.SOPS_AGE_KEY;
-    if (origAgeKeyFile !== undefined) process.env.SOPS_AGE_KEY_FILE = origAgeKeyFile;
-    else delete process.env.SOPS_AGE_KEY_FILE;
-  });
-
-  it("should inject SOPS_AGE_KEY_FILE env when ageKeyFile param is set and no env vars present", async () => {
+describe("buildSopsEnv (credential injection)", () => {
+  it("should inject SOPS_AGE_KEY_FILE env when ageKeyFile param is set", async () => {
     const runFn = jest.fn(async (command: string, args: string[], _options?: SubprocessOptions) => {
       if (command === "sops" && args[0] === "decrypt")
         return { stdout: "KEY: value\n", stderr: "", exitCode: 0 };
       if (command === "sops" && args[0] === "filestatus")
         return { stdout: "", stderr: "", exitCode: 1 };
-      if (command === "cat") return { stdout: sopsMetadataYaml, stderr: "", exitCode: 0 };
       return { stdout: "", stderr: "", exitCode: 0 };
     });
 
@@ -893,51 +869,46 @@ describe("buildSopsEnv (ageKeyFile injection)", () => {
     expect(decryptCall![2]).toEqual({ env: { SOPS_AGE_KEY_FILE: "/custom/keys.txt" } });
   });
 
-  it("should not inject env when SOPS_AGE_KEY_FILE is already set", async () => {
-    process.env.SOPS_AGE_KEY_FILE = "/env/keys.txt";
-
+  it("should inject SOPS_AGE_KEY env when ageKey param is set", async () => {
     const runFn = jest.fn(async (command: string, args: string[], _options?: SubprocessOptions) => {
       if (command === "sops" && args[0] === "decrypt")
         return { stdout: "KEY: value\n", stderr: "", exitCode: 0 };
       if (command === "sops" && args[0] === "filestatus")
         return { stdout: "", stderr: "", exitCode: 1 };
-      if (command === "cat") return { stdout: sopsMetadataYaml, stderr: "", exitCode: 0 };
       return { stdout: "", stderr: "", exitCode: 0 };
     });
 
-    const client = new SopsClient({ run: runFn }, "/custom/keys.txt");
+    const client = new SopsClient({ run: runFn }, undefined, "AGE-SECRET-KEY-1TEST");
     await client.decrypt("database/dev.enc.yaml");
 
     const decryptCall = runFn.mock.calls.find((c) => c[0] === "sops" && c[1][0] === "decrypt");
-    expect(decryptCall![2]).toEqual({});
+    expect(decryptCall![2]).toEqual({ env: { SOPS_AGE_KEY: "AGE-SECRET-KEY-1TEST" } });
   });
 
-  it("should not inject env when SOPS_AGE_KEY is already set", async () => {
-    process.env.SOPS_AGE_KEY = "AGE-SECRET-KEY-1TEST";
-
+  it("should inject both SOPS_AGE_KEY and SOPS_AGE_KEY_FILE when both params are set", async () => {
     const runFn = jest.fn(async (command: string, args: string[], _options?: SubprocessOptions) => {
       if (command === "sops" && args[0] === "decrypt")
         return { stdout: "KEY: value\n", stderr: "", exitCode: 0 };
       if (command === "sops" && args[0] === "filestatus")
         return { stdout: "", stderr: "", exitCode: 1 };
-      if (command === "cat") return { stdout: sopsMetadataYaml, stderr: "", exitCode: 0 };
       return { stdout: "", stderr: "", exitCode: 0 };
     });
 
-    const client = new SopsClient({ run: runFn }, "/custom/keys.txt");
+    const client = new SopsClient({ run: runFn }, "/custom/keys.txt", "AGE-SECRET-KEY-1TEST");
     await client.decrypt("database/dev.enc.yaml");
 
     const decryptCall = runFn.mock.calls.find((c) => c[0] === "sops" && c[1][0] === "decrypt");
-    expect(decryptCall![2]).toEqual({});
+    expect(decryptCall![2]).toEqual({
+      env: { SOPS_AGE_KEY: "AGE-SECRET-KEY-1TEST", SOPS_AGE_KEY_FILE: "/custom/keys.txt" },
+    });
   });
 
-  it("should not inject env when no ageKeyFile param and no env vars", async () => {
+  it("should not inject env when no params are set", async () => {
     const runFn = jest.fn(async (command: string, args: string[], _options?: SubprocessOptions) => {
       if (command === "sops" && args[0] === "decrypt")
         return { stdout: "KEY: value\n", stderr: "", exitCode: 0 };
       if (command === "sops" && args[0] === "filestatus")
         return { stdout: "", stderr: "", exitCode: 1 };
-      if (command === "cat") return { stdout: sopsMetadataYaml, stderr: "", exitCode: 0 };
       return { stdout: "", stderr: "", exitCode: 0 };
     });
 

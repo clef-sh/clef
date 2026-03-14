@@ -3,13 +3,13 @@ import { spawn, ChildProcess } from "child_process";
 import { Command } from "commander";
 import {
   ManifestParser,
-  SopsClient,
   SopsMissingError,
   SopsVersionError,
   ConsumptionClient,
   SubprocessRunner,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
+import { createSopsClient } from "../age-credential";
 
 function collect(value: string, previous: string[]): string[] {
   return previous.concat([value]);
@@ -43,7 +43,8 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
         options: { only?: string; prefix?: string; override: boolean; also: string[] },
       ) => {
         try {
-          // Parse everything after -- as the child command
+          // Parse everything after -- as the child command.
+          // This relies on Commander.js preserving -- in process.argv unmodified.
           const dashIndex = process.argv.indexOf("--");
 
           if (dashIndex === -1) {
@@ -79,7 +80,7 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
             formatter.warn(`Executing in protected environment '${environment}'.`);
           }
 
-          const sopsClient = new SopsClient(deps.runner);
+          const sopsClient = await createSopsClient(repoRoot, deps.runner);
 
           // Decrypt primary target
           const primaryFilePath = path.join(
@@ -103,6 +104,14 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
                   .replace("{environment}", alsoEnv),
               );
               const alsoDecrypted = await sopsClient.decrypt(alsoFilePath);
+              // Warn when --also overrides keys from a previous source
+              for (const key of Object.keys(alsoDecrypted.values)) {
+                if (key in mergedValues) {
+                  formatter.warn(
+                    `--also '${alsoTarget}' overrides key '${key}' from a previous source.`,
+                  );
+                }
+              }
               mergedValues = { ...mergedValues, ...alsoDecrypted.values };
             } catch (err) {
               throw new Error(

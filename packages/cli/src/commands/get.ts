@@ -2,12 +2,12 @@ import * as path from "path";
 import { Command } from "commander";
 import {
   ManifestParser,
-  SopsClient,
   SopsMissingError,
   SopsVersionError,
   SubprocessRunner,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
+import { createSopsClient } from "../age-credential";
 
 export function registerGetCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -35,7 +35,7 @@ export function registerGetCommand(program: Command, deps: { runner: SubprocessR
             .replace("{environment}", environment),
         );
 
-        const sopsClient = new SopsClient(deps.runner);
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
         const decrypted = await sopsClient.decrypt(filePath);
 
         if (!(key in decrypted.values)) {

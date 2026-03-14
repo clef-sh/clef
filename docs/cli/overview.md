@@ -6,12 +6,12 @@ The CLI is built on [commander.js](https://github.com/tj/commander.js) and follo
 
 ### Setup & diagnostics
 
-| Command                            | Description                                           | Flags                                                                                                                             |
-| ---------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| [`clef init`](/cli/init)           | Initialise a new Clef repo or onboard a new developer | `--namespaces <ns>`, `--environments <envs>`, `--backend <backend>`, `--non-interactive`, `--random-values`, `--include-optional` |
-| [`clef doctor`](/cli/doctor)       | Check dependencies, keys, and configuration           | `--json`, `--fix`                                                                                                                 |
-| [`clef update`](/cli/update)       | Scaffold missing matrix cells after manifest changes  | —                                                                                                                                 |
-| [`clef hooks install`](/cli/hooks) | Install or reinstall the pre-commit hook              | —                                                                                                                                 |
+| Command                            | Description                                           | Flags                                                                                                                                                    |
+| ---------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`clef init`](/cli/init)           | Initialise a new Clef repo or onboard a new developer | `--namespaces <ns>`, `--environments <envs>`, `--backend <backend>`, `--secrets-dir <dir>`, `--non-interactive`, `--random-values`, `--include-optional` |
+| [`clef doctor`](/cli/doctor)       | Check dependencies, keys, and configuration           | `--json`, `--fix`                                                                                                                                        |
+| [`clef update`](/cli/update)       | Scaffold missing matrix cells after manifest changes  | —                                                                                                                                                        |
+| [`clef hooks install`](/cli/hooks) | Install or reinstall the pre-commit hook              | —                                                                                                                                                        |
 
 ### Reading & writing secrets
 
@@ -119,4 +119,14 @@ clef diff payments dev staging --json | jq '.rows[] | select(.status != "identic
 
 ## Configuration
 
-Clef reads its configuration from `clef.yaml` in the current working directory (or the directory specified by `--dir`). There are no global configuration files specific to Clef. Per-repo local settings live in `.clef/config.yaml` (gitignored). SOPS-related environment variables (`SOPS_AGE_KEY_FILE`, `SOPS_AGE_RECIPIENTS`, etc.) are passed through to the SOPS binary.
+Clef reads its configuration from `clef.yaml` in the current working directory (or the directory specified by `--dir`). There are no global configuration files specific to Clef. Per-repo local settings live in `.clef/config.yaml` (gitignored). Clef uses its own environment variables (`CLEF_AGE_KEY`, `CLEF_AGE_KEY_FILE`) which are translated to SOPS equivalents and passed to the SOPS subprocess — `SOPS_*` variables in the parent environment are not inherited by Clef to prevent cross-tool credential leakage.
+
+### sops binary resolution
+
+Clef locates the `sops` binary using a three-tier resolution chain:
+
+1. **`CLEF_SOPS_PATH`** — if set, used as the absolute path to the sops binary
+2. **Bundled package** — `@clef-sh/sops-{platform}-{arch}` installed as an optional dependency
+3. **System PATH** — falls back to bare `sops` command
+
+Run `clef doctor` to see which source was resolved. The `--json` flag includes `source` and `path` fields in the `sops` object.

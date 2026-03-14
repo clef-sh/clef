@@ -25,7 +25,7 @@ interface AgeKeyCheckResult extends DoctorCheckResult {
 
 interface DoctorJsonOutput {
   clef: { version: string; ok: boolean };
-  sops: { version: string | null; required: string; ok: boolean };
+  sops: { version: string | null; required: string; ok: boolean; source?: string; path?: string };
   git: { version: string | null; required: string; ok: boolean };
   manifest: { found: boolean; ok: boolean };
   ageKey: { source: string | null; recipients: number; ok: boolean };
@@ -64,12 +64,18 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
 
       // 2. sops
       if (depStatus.sops) {
+        const sourceLabel =
+          depStatus.sops.source === "bundled"
+            ? " [bundled]"
+            : depStatus.sops.source === "env"
+              ? " [CLEF_SOPS_PATH]"
+              : " [system]";
         checks.push({
           name: "sops",
           ok: depStatus.sops.satisfied,
           detail: depStatus.sops.satisfied
-            ? `v${depStatus.sops.installed}    (required >= ${depStatus.sops.required})`
-            : `v${depStatus.sops.installed}    (required >= ${depStatus.sops.required})`,
+            ? `v${depStatus.sops.installed}${sourceLabel}    (required >= ${depStatus.sops.required})`
+            : `v${depStatus.sops.installed}${sourceLabel}    (required >= ${depStatus.sops.required})`,
           hint: depStatus.sops.satisfied ? undefined : depStatus.sops.installHint,
         });
       } else {
@@ -202,6 +208,8 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
             version: depStatus.sops?.installed ?? null,
             required: REQUIREMENTS.sops,
             ok: depStatus.sops?.satisfied ?? false,
+            source: depStatus.sops?.source,
+            path: depStatus.sops?.resolvedPath,
           },
           git: {
             version: depStatus.git?.installed ?? null,
@@ -303,14 +311,14 @@ async function checkAgeKey(repoRoot: string, runner: SubprocessRunner): Promise<
       return {
         name: "age key",
         ok: true,
-        detail: "loaded (via SOPS_AGE_KEY env var)",
+        detail: "loaded (via CLEF_AGE_KEY env var)",
         source: "env",
       };
     case "env-file":
       return {
         name: "age key",
         ok: true,
-        detail: `loaded (via SOPS_AGE_KEY_FILE: ${process.env.SOPS_AGE_KEY_FILE})`,
+        detail: `loaded (via CLEF_AGE_KEY_FILE: ${process.env.CLEF_AGE_KEY_FILE})`,
         source: "env",
       };
     case "config-file":

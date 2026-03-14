@@ -211,6 +211,98 @@ Check:
 - SOPS MAC is valid on the re-encrypted output — confirm
   SOPS verifies integrity on re-encryption
 
+### 1.9 Bundled sops binary — supply chain and resolution
+
+Read in full:
+
+- `packages/core/src/sops/resolver.ts`
+- `packages/core/src/sops/resolver.test.ts`
+- `packages/core/src/sops/client.ts` — constructor and
+  `sopsCommand` usage
+- `packages/core/src/dependencies/checker.ts` — sops
+  resolution path in `checkDependency`
+- `sops-version.json`
+- `scripts/download-sops.mjs`
+- `.github/workflows/publish-sops.yml`
+- All `platforms/sops-*/package.json` files
+
+Check — Supply chain integrity:
+
+- `sops-version.json` contains SHA256 checksums for every
+  platform binary. Verify the checksum format is a full
+  64-character hex digest — not truncated, not base64
+- `download-sops.mjs` computes SHA256 of the downloaded
+  binary and compares against the checksum in
+  `sops-version.json`. If they do not match, the script
+  must `process.exit(1)` — not warn and continue
+- The download URL is constructed from the version in
+  `sops-version.json` — not from user input or environment
+  variables. The URL must point to
+  `github.com/getsops/sops/releases` exclusively
+- The `publish-sops.yml` workflow verifies
+  `sops-version.json` matches the workflow input before
+  downloading — a mismatch must fail the workflow
+- The `publish-sops.yml` workflow runs the downloaded
+  binary (`sops --version`) to verify it is a real
+  executable — not just a random file that passed checksum
+- Platform packages are published with `--provenance` to
+  enable npm audit trail
+
+Check — Resolution order security:
+
+- `resolveSopsPath()` checks `CLEF_SOPS_PATH` first —
+  this is the explicit override and must take precedence
+- The bundled package is resolved via `require.resolve()` —
+  confirm the resolved path is within a `node_modules`
+  directory. A path traversal or symlink attack that
+  resolves outside `node_modules` would be a Critical issue
+- The system PATH fallback returns bare `"sops"` — confirm
+  this string is never interpolated into a shell command.
+  It must be passed as the first argument to
+  `SubprocessRunner.run()` which uses `execFile` (not
+  `exec`)
+- The resolution result is cached module-wide. Confirm
+  `resetSopsResolution()` exists and is only called in test
+  files — not in production code. A production call would
+  allow resolution cache poisoning
+
+Check — SopsClient integration:
+
+- `SopsClient` constructor accepts optional `sopsPath` as
+  the 4th parameter. When omitted, it calls
+  `resolveSopsPath().path` — confirm this default is
+  applied in the constructor, not lazily
+- Every `this.runner.run(...)` call in SopsClient uses
+  `this.sopsCommand` — search for any remaining hardcoded
+  `"sops"` string passed to `runner.run()`. Any occurrence
+  is a High issue (bundled binary would be bypassed)
+- `assertSops(this.runner)` still works with the resolved
+  path — confirm `checkDependency("sops", runner)` uses
+  the resolved path, not a hardcoded `"sops"`
+
+Check — Platform package correctness:
+
+- Each platform `package.json` has correct `os` and `cpu`
+  fields matching npm's platform filtering
+- The `files` array includes only the binary and license —
+  no extra files that could be a vector
+- All packages use `"license": "MPL-2.0"` (sops is
+  MPL-2.0, not MIT)
+- Version in each platform `package.json` matches the
+  version in `sops-version.json`
+- The `@clef-sh/cli` `optionalDependencies` versions match
+  the platform package versions exactly
+
+Check — `CLEF_SOPS_PATH` validation:
+
+- If `CLEF_SOPS_PATH` is set to a nonexistent path, the
+  resolver returns it without checking — confirm
+  `assertSops()` catches this at version-check time with a
+  `SopsMissingError`, not a silent failure
+- If `CLEF_SOPS_PATH` contains shell metacharacters or
+  spaces, confirm the path is passed to `execFile` (which
+  does not interpret shell syntax) — not to `exec`
+
 ---
 
 ## 2. Correctness Audit
@@ -326,6 +418,7 @@ Check:
 Read:
 
 - `packages/core/src/dependencies/checker.ts`
+- `packages/core/src/sops/resolver.ts`
 
 Check:
 
@@ -336,6 +429,10 @@ Check:
   operation
 - `assertAge()` is called when the manifest backend is age
 - Missing binary returns null, does not throw
+- `checkDependency("sops", ...)` uses `resolveSopsPath()`
+  to determine the command — not a hardcoded `"sops"` string
+- The resolved path is passed through to `DependencyVersion`
+  via `source` and `resolvedPath` fields
 
 ### 2.7 Multi-namespace exec (`--also` flag)
 
@@ -520,6 +617,41 @@ Check:
   solution, setup, and security invariants
 - `docs/cli/hooks.md` documents merge driver installation
 
+### 3.7 Bundled sops completeness
+
+Check:
+
+- `sops-version.json` exists at the repo root with
+  `version` and `checksums` fields
+- All five platform packages exist under `platforms/`:
+  `sops-darwin-arm64`, `sops-darwin-x64`, `sops-linux-x64`,
+  `sops-linux-arm64`, `sops-win32-x64`
+- `packages/cli/package.json` lists all five as
+  `optionalDependencies` with matching versions
+- `resolveSopsPath()` and `resetSopsResolution()` are
+  exported from `packages/core/src/index.ts`
+- `SopsResolution` and `SopsSource` types are exported
+  from `packages/core/src/index.ts`
+- `clef doctor` displays `[bundled]`, `[system]`, or
+  `[CLEF_SOPS_PATH]` next to the sops version
+- `clef doctor --json` includes `source` and `path` in
+  the `sops` object
+- `docs/contributing/development-setup.md` documents:
+  - The three-tier resolution order
+  - How `npm ci` installs the bundled binary in CI
+  - How to use `CLEF_SOPS_PATH` for explicit override
+  - How to skip optional deps for unit-test-only workflows
+- `docs/cli/overview.md` documents the sops resolution
+  chain under Configuration
+- `README.md` states sops is bundled and lists the
+  `CLEF_SOPS_PATH` override
+- `CLAUDE.md` lists the `platforms/` directory and the
+  `SopsResolver` module
+- `publish-sops.yml` workflow exists and is
+  `workflow_dispatch` (manual trigger only)
+- `scripts/download-sops.mjs` exists and handles all five
+  platforms
+
 ---
 
 ## 4. Test Quality Audit
@@ -580,7 +712,32 @@ Check:
 - The partial failure case (pending fails AND rollback
   fails) is tested and returns a clear error
 
-### 4.4 Merge driver test coverage
+### 4.4 Sops resolver and bundling test coverage
+
+Read:
+
+- `packages/core/src/sops/resolver.test.ts`
+- `packages/core/src/dependencies/checker.test.ts`
+
+Check:
+
+- A test asserts `CLEF_SOPS_PATH` takes precedence over
+  all other resolution methods
+- A test asserts the fallback to system PATH `"sops"` when
+  no env var and no bundled package
+- A test asserts the result is cached across calls (same
+  object reference returned)
+- A test asserts `resetSopsResolution()` clears the cache
+  and subsequent calls re-resolve
+- `checker.test.ts` includes tests verifying the `source`
+  and `resolvedPath` fields are populated for sops checks
+- `checker.test.ts` includes a test verifying `source` is
+  `undefined` for git checks (git does not use the resolver)
+- `checker.test.ts` includes a test for `CLEF_SOPS_PATH`
+  integration — setting the env var changes the command
+  passed to `runner.run()`
+
+### 4.5 Merge driver test coverage
 
 Read:
 
@@ -626,8 +783,8 @@ Check:
 
 - The GitHub Actions examples use correct action syntax
 - The two-checkout Pattern B example is accurate
-- The `SOPS_AGE_KEY` environment variable name is correct
-  per the SOPS documentation
+- The `CLEF_AGE_KEY` environment variable name is correct
+  per the Clef documentation (Clef translates to `SOPS_AGE_KEY` for the subprocess)
 - The IAM policy example grants minimum necessary permissions
 - Every `clef` command in the examples exists and has the
   flags shown

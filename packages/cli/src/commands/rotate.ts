@@ -3,13 +3,13 @@ import { Command } from "commander";
 import {
   ManifestParser,
   MatrixManager,
-  SopsClient,
   SopsMissingError,
   SopsVersionError,
   SubprocessRunner,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
+import { createSopsClient } from "../age-credential";
 
 export function registerRotateCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -51,7 +51,7 @@ export function registerRotateCommand(program: Command, deps: { runner: Subproce
             .replace("{environment}", environment),
         );
 
-        const sopsClient = new SopsClient(deps.runner);
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
 
         const relativeFile = manifest.file_pattern
           .replace("{namespace}", namespace)

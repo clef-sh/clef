@@ -9,7 +9,7 @@ import {
   SubprocessRunner,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
-import { resolveAgeCredential, prepareSopsEnv } from "../age-credential";
+import { resolveAgeCredential, prepareSopsClientArgs } from "../age-credential";
 
 /**
  * Locate the repo root by walking up from a file path looking for clef.yaml.
@@ -43,7 +43,8 @@ export function registerMergeDriverCommand(
       try {
         const repoRoot = (program.opts().dir as string) || findRepoRoot(oursPath);
         const credential = await resolveAgeCredential(repoRoot, deps.runner);
-        const sopsClient = new SopsClient(deps.runner, prepareSopsEnv(credential));
+        const { ageKeyFile, ageKey } = prepareSopsClientArgs(credential);
+        const sopsClient = new SopsClient(deps.runner, ageKeyFile, ageKey);
         const driver = new SopsMergeDriver(sopsClient);
 
         const result = await driver.mergeFiles(basePath, oursPath, theirsPath);
@@ -65,10 +66,7 @@ export function registerMergeDriverCommand(
                   .replace("{namespace}", ns.name)
                   .replace("{environment}", env.name);
                 const resolvedOurs = path.relative(repoRoot, path.resolve(oursPath));
-                if (
-                  resolvedOurs === expected ||
-                  path.basename(oursPath) === path.basename(expected)
-                ) {
+                if (resolvedOurs === expected) {
                   environment = env.name;
                   break;
                 }
@@ -97,9 +95,15 @@ export function registerMergeDriverCommand(
 
           for (const c of result.conflicts) {
             formatter.failure(`  ${c.key}:`);
-            formatter.failure(`    base:   ${c.baseValue ?? "(absent)"}`);
-            formatter.failure(`    ours:   ${c.oursValue ?? "(deleted)"}`);
-            formatter.failure(`    theirs: ${c.theirsValue ?? "(deleted)"}`);
+            formatter.failure(
+              `    base:   ${c.baseValue !== undefined ? "(has value)" : "(absent)"}`,
+            );
+            formatter.failure(
+              `    ours:   ${c.oursValue !== undefined ? "(has value)" : "(deleted)"}`,
+            );
+            formatter.failure(
+              `    theirs: ${c.theirsValue !== undefined ? "(has value)" : "(deleted)"}`,
+            );
           }
 
           formatter.hint(
@@ -109,8 +113,8 @@ export function registerMergeDriverCommand(
           // Exit 1 signals git that the merge has unresolved conflicts
           process.exit(1);
         }
-      } catch (err) {
-        formatter.error(`Merge driver failed: ${(err as Error).message}`);
+      } catch {
+        formatter.error("Merge driver failed. Run 'clef doctor' to verify setup.");
         process.exit(1);
       }
     });

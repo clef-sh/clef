@@ -130,11 +130,11 @@ describe("clef doctor", () => {
   });
 
   it("should exit 1 when age key is not configured", async () => {
-    // No SOPS_AGE_KEY env var
-    const origKey = process.env.SOPS_AGE_KEY;
-    const origKeyFile = process.env.SOPS_AGE_KEY_FILE;
-    delete process.env.SOPS_AGE_KEY;
-    delete process.env.SOPS_AGE_KEY_FILE;
+    // No CLEF_AGE_KEY env var
+    const origKey = process.env.CLEF_AGE_KEY;
+    const origKeyFile = process.env.CLEF_AGE_KEY_FILE;
+    delete process.env.CLEF_AGE_KEY;
+    delete process.env.CLEF_AGE_KEY_FILE;
 
     // No key files exist, no label in config
     mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
@@ -155,8 +155,8 @@ describe("clef doctor", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
 
     // Restore
-    if (origKey !== undefined) process.env.SOPS_AGE_KEY = origKey;
-    if (origKeyFile !== undefined) process.env.SOPS_AGE_KEY_FILE = origKeyFile;
+    if (origKey !== undefined) process.env.CLEF_AGE_KEY = origKey;
+    if (origKeyFile !== undefined) process.env.CLEF_AGE_KEY_FILE = origKeyFile;
   });
 
   it("should output valid JSON with --json flag and count age recipients", async () => {
@@ -308,9 +308,9 @@ describe("clef doctor", () => {
     scaffoldSpy.mockRestore();
   });
 
-  it("should detect age key from SOPS_AGE_KEY env var", async () => {
-    const origKey = process.env.SOPS_AGE_KEY;
-    process.env.SOPS_AGE_KEY = "AGE-SECRET-KEY-1234";
+  it("should detect age key from CLEF_AGE_KEY env var", async () => {
+    const origKey = process.env.CLEF_AGE_KEY;
+    process.env.CLEF_AGE_KEY = "AGE-SECRET-KEY-1234";
 
     const runner = allGoodRunner();
     const program = makeProgram(runner);
@@ -318,22 +318,22 @@ describe("clef doctor", () => {
     await program.parseAsync(["node", "clef", "doctor"]);
 
     const printCalls = mockFormatter.print.mock.calls.map((c) => String(c[0]));
-    const keyLine = printCalls.find((l) => l.includes("age key") && l.includes("SOPS_AGE_KEY"));
+    const keyLine = printCalls.find((l) => l.includes("age key") && l.includes("CLEF_AGE_KEY"));
     expect(keyLine).toBeTruthy();
     expect(mockExit).toHaveBeenCalledWith(0);
 
     if (origKey === undefined) {
-      delete process.env.SOPS_AGE_KEY;
+      delete process.env.CLEF_AGE_KEY;
     } else {
-      process.env.SOPS_AGE_KEY = origKey;
+      process.env.CLEF_AGE_KEY = origKey;
     }
   });
 
   it("should detect age key from .clef/config.yaml", async () => {
-    const origKey = process.env.SOPS_AGE_KEY;
-    const origKeyFile = process.env.SOPS_AGE_KEY_FILE;
-    delete process.env.SOPS_AGE_KEY;
-    delete process.env.SOPS_AGE_KEY_FILE;
+    const origKey = process.env.CLEF_AGE_KEY;
+    const origKeyFile = process.env.CLEF_AGE_KEY_FILE;
+    delete process.env.CLEF_AGE_KEY;
+    delete process.env.CLEF_AGE_KEY_FILE;
 
     mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
       const s = String(p);
@@ -360,15 +360,15 @@ describe("clef doctor", () => {
     expect(keyLine).toBeTruthy();
     expect(mockExit).toHaveBeenCalledWith(0);
 
-    if (origKey !== undefined) process.env.SOPS_AGE_KEY = origKey;
-    if (origKeyFile !== undefined) process.env.SOPS_AGE_KEY_FILE = origKeyFile;
+    if (origKey !== undefined) process.env.CLEF_AGE_KEY = origKey;
+    if (origKeyFile !== undefined) process.env.CLEF_AGE_KEY_FILE = origKeyFile;
   });
 
   it("should include label in diagnostic output for file source", async () => {
-    const origKey = process.env.SOPS_AGE_KEY;
-    const origKeyFile = process.env.SOPS_AGE_KEY_FILE;
-    delete process.env.SOPS_AGE_KEY;
-    delete process.env.SOPS_AGE_KEY_FILE;
+    const origKey = process.env.CLEF_AGE_KEY;
+    const origKeyFile = process.env.CLEF_AGE_KEY_FILE;
+    delete process.env.CLEF_AGE_KEY;
+    delete process.env.CLEF_AGE_KEY_FILE;
 
     mockFs.existsSync.mockReturnValue(true);
     mockFs.readFileSync.mockImplementation((p: unknown) => {
@@ -389,8 +389,8 @@ describe("clef doctor", () => {
     );
     expect(keyLine).toBeTruthy();
 
-    if (origKey !== undefined) process.env.SOPS_AGE_KEY = origKey;
-    if (origKeyFile !== undefined) process.env.SOPS_AGE_KEY_FILE = origKeyFile;
+    if (origKey !== undefined) process.env.CLEF_AGE_KEY = origKey;
+    if (origKeyFile !== undefined) process.env.CLEF_AGE_KEY_FILE = origKeyFile;
   });
 
   it("should count zero recipients when .sops.yaml has no creation_rules", async () => {
@@ -461,9 +461,9 @@ describe("clef doctor", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
-  it("should report age key source as 'env' in JSON when SOPS_AGE_KEY is set", async () => {
-    const origKey = process.env.SOPS_AGE_KEY;
-    process.env.SOPS_AGE_KEY = "AGE-SECRET-KEY-1234";
+  it("should report age key source as 'env' in JSON when CLEF_AGE_KEY is set", async () => {
+    const origKey = process.env.CLEF_AGE_KEY;
+    process.env.CLEF_AGE_KEY = "AGE-SECRET-KEY-1234";
 
     const runner = allGoodRunner();
     const program = makeProgram(runner);
@@ -476,9 +476,9 @@ describe("clef doctor", () => {
     expect(parsed.ageKey.ok).toBe(true);
 
     if (origKey === undefined) {
-      delete process.env.SOPS_AGE_KEY;
+      delete process.env.CLEF_AGE_KEY;
     } else {
-      process.env.SOPS_AGE_KEY = origKey;
+      process.env.CLEF_AGE_KEY = origKey;
     }
   });
 
@@ -505,8 +505,8 @@ describe("clef doctor", () => {
   });
 
   it("should report age key source as 'file' in JSON when loaded from file", async () => {
-    const origKey = process.env.SOPS_AGE_KEY;
-    delete process.env.SOPS_AGE_KEY;
+    const origKey = process.env.CLEF_AGE_KEY;
+    delete process.env.CLEF_AGE_KEY;
 
     mockFs.readFileSync.mockImplementation((p: unknown) => {
       const pathStr = String(p);
@@ -525,6 +525,6 @@ describe("clef doctor", () => {
     expect(parsed.ageKey.source).toBe("file");
     expect(parsed.ageKey.ok).toBe(true);
 
-    if (origKey !== undefined) process.env.SOPS_AGE_KEY = origKey;
+    if (origKey !== undefined) process.env.CLEF_AGE_KEY = origKey;
   });
 });

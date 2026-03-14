@@ -18,6 +18,8 @@ export { DiffEngine } from "./diff/engine";
 export { BulkOps } from "./bulk/ops";
 export { GitIntegration } from "./git/integration";
 export { SopsClient } from "./sops/client";
+export { resolveSopsPath, resetSopsResolution } from "./sops/resolver";
+export type { SopsResolution, SopsSource } from "./sops/resolver";
 export { LintRunner } from "./lint/runner";
 export { ConsumptionClient } from "./consumption/client";
 export { checkDependency, checkAll, assertSops, REQUIREMENTS } from "./dependencies/checker";

@@ -4,13 +4,13 @@ import {
   BulkOps,
   ManifestParser,
   MatrixManager,
-  SopsClient,
   SopsMissingError,
   SopsVersionError,
   markResolved,
   SubprocessRunner,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
+import { createSopsClient } from "../age-credential";
 
 export function registerDeleteCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -32,7 +32,7 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const sopsClient = new SopsClient(deps.runner);
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
 
         const matrixManager = new MatrixManager();
 

@@ -1,0 +1,80 @@
+name: Publish sops platform packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      sops_version:
+        description: "sops version to package (e.g. 3.9.4)"
+        required: true
+        type: string
+      dry_run:
+        description: "Dry run (skip npm publish)"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  download-and-publish:
+    strategy:
+      matrix:
+        include:
+          - platform: darwin-arm64
+            os: macos-latest
+          - platform: darwin-x64
+            os: macos-latest
+          - platform: linux-x64
+            os: ubuntu-latest
+          - platform: linux-arm64
+            os: ubuntu-latest
+          - platform: win32-x64
+            os: ubuntu-latest
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Verify sops-version.json matches input
+        run: |
+          PINNED=$(node -e "console.log(JSON.parse(require('fs').readFileSync('sops-version.json','utf-8')).version)")
+          if [ "$PINNED" != "${{ inputs.sops_version }}" ]; then
+            echo "::error::Input version ${{ inputs.sops_version }} does not match sops-version.json ($PINNED)"
+            exit 1
+          fi
+
+      - name: Download sops binary
+        run: node scripts/download-sops.mjs --platform ${{ matrix.platform }}
+
+      - name: Verify binary runs (non-Windows)
+        if: matrix.platform != 'win32-x64'
+        run: |
+          SOPS_BIN="platforms/sops-${{ matrix.platform }}/bin/sops"
+          chmod +x "$SOPS_BIN"
+          "$SOPS_BIN" --version
+
+      - name: Copy LICENSE
+        run: |
+          # Download sops LICENSE from the release
+          curl -fsSL "https://raw.githubusercontent.com/getsops/sops/v${{ inputs.sops_version }}/LICENSE" \
+            -o "platforms/sops-${{ matrix.platform }}/LICENSE.sops"
+
+      - name: Publish to npm
+        if: ${{ !inputs.dry_run }}
+        working-directory: platforms/sops-${{ matrix.platform }}
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Dry run — show package contents
+        if: ${{ inputs.dry_run }}
+        working-directory: platforms/sops-${{ matrix.platform }}
+        run: npm pack --dry-run

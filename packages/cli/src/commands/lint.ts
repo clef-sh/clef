@@ -7,13 +7,13 @@ import {
   ManifestParser,
   MatrixManager,
   SchemaValidator,
-  SopsClient,
   SopsMissingError,
   SopsVersionError,
   SubprocessRunner,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
+import { createSopsClient } from "../age-credential";
 
 export function registerLintCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -32,7 +32,7 @@ export function registerLintCommand(program: Command, deps: { runner: Subprocess
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const sopsClient = new SopsClient(deps.runner);
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
         const matrixManager = new MatrixManager();
         const schemaValidator = new SchemaValidator();
         const lintRunner = new LintRunner(matrixManager, schemaValidator, sopsClient);

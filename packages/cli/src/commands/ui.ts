@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
+import { resolveAgeCredential, prepareSopsClientArgs } from "../age-credential";
 
 interface ServerHandle {
   url: string;
@@ -32,6 +33,10 @@ export function registerUiCommand(program: Command, deps: { runner: SubprocessRu
 
       const repoRoot = (program.opts().dir as string) || process.cwd();
 
+      // Resolve age credentials so the UI server can decrypt secrets
+      const credential = await resolveAgeCredential(repoRoot, deps.runner);
+      const { ageKeyFile, ageKey } = prepareSopsClientArgs(credential);
+
       // Lazy-load @clef-sh/ui so the CLI doesn't fail at startup when the UI
       // module hasn't been resolved yet for commands other than `clef ui`.
       const uiModule = await import("@clef-sh/ui/dist/server");
@@ -41,12 +46,14 @@ export function registerUiCommand(program: Command, deps: { runner: SubprocessRu
           repoRoot: string,
           runner?: SubprocessRunner,
           clientDir?: string,
+          ageKeyFile?: string,
+          ageKey?: string,
         ) => Promise<ServerHandle>;
       };
 
       let handle: ServerHandle;
       try {
-        handle = await startServer(port, repoRoot, deps.runner, UI_CLIENT_DIR);
+        handle = await startServer(port, repoRoot, deps.runner, UI_CLIENT_DIR, ageKeyFile, ageKey);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
         formatter.error(`Failed to start UI server: ${message}`);

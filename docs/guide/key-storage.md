@@ -36,7 +36,7 @@ If the OS keychain is unavailable, Clef warns you and asks for explicit acknowle
 - Linux without `secret-tool` installed (no GNOME Keyring / KWallet)
 - Headless Linux servers without a desktop environment
 - Windows without PowerShell
-- CI/CD environments (use `SOPS_AGE_KEY` environment variable instead -- see [CI/CD Integration](/guide/ci-cd))
+- CI/CD environments (use `CLEF_AGE_KEY` environment variable instead -- see [CI/CD Integration](/guide/ci-cd))
 
 ## Filesystem storage
 
@@ -72,22 +72,26 @@ Full-disk encryption (FileVault, BitLocker, LUKS) mitigates the at-rest risk but
 
 ## Environment variables
 
-For CI/CD and automation, Clef supports environment variables that bypass both keychain and filesystem:
+For CI/CD and automation, Clef supports its own environment variables that bypass both keychain and filesystem:
 
-| Variable            | Description                                          |
-| ------------------- | ---------------------------------------------------- |
-| `SOPS_AGE_KEY`      | The full private key string, passed directly to SOPS |
-| `SOPS_AGE_KEY_FILE` | Path to a key file, passed to SOPS                   |
+| Variable            | Description                                                    |
+| ------------------- | -------------------------------------------------------------- |
+| `CLEF_AGE_KEY`      | The full private key string, injected into the SOPS subprocess |
+| `CLEF_AGE_KEY_FILE` | Path to a key file, injected into the SOPS subprocess          |
 
 These take precedence over `.clef/config.yaml` but not over the OS keychain. See [CI/CD Integration](/guide/ci-cd) for details.
+
+::: info Why CLEF*AGE_KEY instead of SOPS_AGE_KEY?
+Clef uses its own `CLEF*\*`namespace to prevent silent, unexpected credential leakage. If Clef read`SOPS_AGE_KEY`directly, existing SOPS users could have their key silently reused by Clef — or vice versa — with no signal that cross-tool sharing is happening. By using`CLEF_AGE_KEY`, the intent is explicit: you opt in to providing Clef with a key, and Clef passes it to the SOPS subprocess directly without mutating the parent process environment.
+:::
 
 ## Credential resolution order
 
 When Clef needs the private key (for decrypt, set, rotate, etc.), it checks sources in this order:
 
 1. OS keychain (using the label from `.clef/config.yaml`)
-2. `SOPS_AGE_KEY` environment variable
-3. `SOPS_AGE_KEY_FILE` environment variable
+2. `CLEF_AGE_KEY` environment variable
+3. `CLEF_AGE_KEY_FILE` environment variable
 4. `.clef/config.yaml` `age_key_file` path
 
 The first source that returns a valid `AGE-SECRET-KEY-` value wins.

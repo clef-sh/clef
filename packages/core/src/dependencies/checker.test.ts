@@ -8,6 +8,7 @@ import {
   REQUIREMENTS,
 } from "./checker";
 import { SopsMissingError, SopsVersionError, SubprocessRunner } from "../types";
+import { resetSopsResolution } from "../sops/resolver";
 
 function makeRunner(
   responses: Record<string, { stdout: string; stderr: string; exitCode: number }>,
@@ -85,6 +86,11 @@ describe("semverSatisfied", () => {
   });
 });
 
+beforeEach(() => {
+  resetSopsResolution();
+  delete process.env.CLEF_SOPS_PATH;
+});
+
 describe("checkDependency", () => {
   it("should return satisfied DependencyVersion when version meets requirement", async () => {
     const runner = makeRunner({
@@ -135,6 +141,49 @@ describe("checkDependency", () => {
 
     const result = await checkDependency("sops", runner);
     expect(result).toBeNull();
+  });
+
+  it("should include source and resolvedPath for sops", async () => {
+    const runner = makeRunner({
+      sops: { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 },
+    });
+
+    const result = await checkDependency("sops", runner);
+
+    expect(result).not.toBeNull();
+    expect(result!.source).toBe("system");
+    expect(result!.resolvedPath).toBe("sops");
+  });
+
+  it("should include source from CLEF_SOPS_PATH when set", async () => {
+    process.env.CLEF_SOPS_PATH = "/custom/sops";
+    resetSopsResolution();
+
+    const runner: SubprocessRunner = {
+      run: jest.fn(async (command: string) => {
+        if (command === "/custom/sops") {
+          return { stdout: "sops 3.9.4", stderr: "", exitCode: 0 };
+        }
+        return { stdout: "", stderr: "not found", exitCode: 127 };
+      }),
+    };
+
+    const result = await checkDependency("sops", runner);
+
+    expect(result).not.toBeNull();
+    expect(result!.source).toBe("env");
+    expect(result!.resolvedPath).toBe("/custom/sops");
+  });
+
+  it("should not include source for git", async () => {
+    const runner = makeRunner({
+      git: { stdout: "git version 2.43.0", stderr: "", exitCode: 0 },
+    });
+
+    const result = await checkDependency("git", runner);
+    expect(result).not.toBeNull();
+    expect(result!.source).toBeUndefined();
+    expect(result!.resolvedPath).toBeUndefined();
   });
 
   it("should check git version correctly", async () => {

@@ -4,7 +4,11 @@ import { registerMergeDriverCommand } from "./merge-driver";
 import { SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 
-jest.mock("fs");
+jest.mock("fs", () => ({
+  existsSync: jest.fn(),
+  readFileSync: jest.fn(),
+  writeFileSync: jest.fn(),
+}));
 jest.mock("../output/formatter", () => ({
   formatter: {
     success: jest.fn(),
@@ -27,6 +31,9 @@ const mockExit = jest.spyOn(process, "exit").mockImplementation(() => undefined 
 
 const SOPS_METADATA_YAML =
   "A: ENC[test]\nsops:\n  age:\n    - recipient: age1test\n  lastmodified: '2026-01-01'\n  mac: ENC[test]\n  version: 3.9.0\n";
+
+const MANIFEST_YAML =
+  'version: 1\nenvironments:\n  - name: production\n    description: Prod\nnamespaces:\n  - name: db\n    description: DB\nsops:\n  default_backend: age\nfile_pattern: "{namespace}/{environment}.enc.yaml"\n';
 
 function makeProgram(runner: SubprocessRunner): Command {
   const program = new Command();
@@ -62,17 +69,11 @@ function makeMockRunner(
         if (cmd === "sops" && args[0] === "filestatus") {
           return { stdout: "", stderr: "not supported", exitCode: 1 };
         }
-        if (cmd === "cat") {
-          return { stdout: SOPS_METADATA_YAML, stderr: "", exitCode: 0 };
-        }
         if (cmd === "sops" && args[0] === "encrypt") {
           if (options?.onEncrypt && opts?.stdin) {
             options.onEncrypt(opts.stdin);
           }
           return { stdout: "encrypted-output", stderr: "", exitCode: 0 };
-        }
-        if (cmd === "tee") {
-          return { stdout: "", stderr: "", exitCode: 0 };
         }
         return { stdout: "", stderr: "", exitCode: 0 };
       }),
@@ -82,6 +83,13 @@ function makeMockRunner(
 describe("clef merge-driver", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Default fs mocks — SopsClient uses fs.readFileSync for metadata and fs.writeFileSync for encrypt
+    mockFs.readFileSync.mockImplementation(((p: fs.PathOrFileDescriptor) => {
+      const s = p.toString();
+      if (s.includes("clef.yaml")) return MANIFEST_YAML;
+      return SOPS_METADATA_YAML;
+    }) as typeof fs.readFileSync);
+    mockFs.writeFileSync.mockReturnValue(undefined);
   });
 
   it("should merge cleanly when changes do not overlap", async () => {
@@ -90,9 +98,11 @@ describe("clef merge-driver", () => {
       if (s.includes("clef.yaml")) return true;
       return false;
     });
-    mockFs.readFileSync.mockReturnValue(
-      'version: 1\nenvironments:\n  - name: production\n    description: Prod\nnamespaces:\n  - name: db\n    description: DB\nsops:\n  default_backend: age\nfile_pattern: "{namespace}/{environment}.enc.yaml"\n',
-    );
+    mockFs.readFileSync.mockImplementation((p) => {
+      const s = p.toString();
+      if (s.includes("clef.yaml")) return MANIFEST_YAML;
+      return SOPS_METADATA_YAML;
+    });
 
     const decryptCalls: string[] = [];
     let encryptStdin: string | undefined;
@@ -146,9 +156,11 @@ describe("clef merge-driver", () => {
       if (s.includes("clef.yaml")) return true;
       return false;
     });
-    mockFs.readFileSync.mockReturnValue(
-      'version: 1\nenvironments:\n  - name: production\n    description: Prod\nnamespaces:\n  - name: db\n    description: DB\nsops:\n  default_backend: age\nfile_pattern: "{namespace}/{environment}.enc.yaml"\n',
-    );
+    mockFs.readFileSync.mockImplementation((p) => {
+      const s = p.toString();
+      if (s.includes("clef.yaml")) return MANIFEST_YAML;
+      return SOPS_METADATA_YAML;
+    });
 
     const runner = makeMockRunner((filePath) => {
       if (filePath === "/tmp/base") return { A: "original" };
@@ -185,7 +197,9 @@ describe("clef merge-driver", () => {
       "/tmp/theirs",
     ]);
 
-    expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("clef.yaml"));
+    expect(mockFormatter.error).toHaveBeenCalledWith(
+      expect.stringContaining("Merge driver failed. Run 'clef doctor' to verify setup."),
+    );
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
@@ -195,9 +209,11 @@ describe("clef merge-driver", () => {
       if (s.includes("clef.yaml")) return true;
       return false;
     });
-    mockFs.readFileSync.mockReturnValue(
-      'version: 1\nenvironments:\n  - name: production\n    description: Prod\nnamespaces:\n  - name: db\n    description: DB\nsops:\n  default_backend: age\nfile_pattern: "{namespace}/{environment}.enc.yaml"\n',
-    );
+    mockFs.readFileSync.mockImplementation((p) => {
+      const s = p.toString();
+      if (s.includes("clef.yaml")) return MANIFEST_YAML;
+      return SOPS_METADATA_YAML;
+    });
 
     const runner: SubprocessRunner = {
       run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
@@ -209,9 +225,6 @@ describe("clef merge-driver", () => {
         }
         if (cmd === "sops" && args[0] === "filestatus") {
           return { stdout: "", stderr: "", exitCode: 1 };
-        }
-        if (cmd === "cat") {
-          return { stdout: SOPS_METADATA_YAML, stderr: "", exitCode: 0 };
         }
         return { stdout: "", stderr: "", exitCode: 0 };
       }),
@@ -228,7 +241,7 @@ describe("clef merge-driver", () => {
     ]);
 
     expect(mockFormatter.error).toHaveBeenCalledWith(
-      expect.stringContaining("Merge driver failed"),
+      expect.stringContaining("Merge driver failed. Run 'clef doctor' to verify setup."),
     );
     expect(mockExit).toHaveBeenCalledWith(1);
   });
@@ -239,9 +252,11 @@ describe("clef merge-driver", () => {
       if (s.includes("clef.yaml")) return true;
       return false;
     });
-    mockFs.readFileSync.mockReturnValue(
-      'version: 1\nenvironments:\n  - name: production\n    description: Prod\nnamespaces:\n  - name: db\n    description: DB\nsops:\n  default_backend: age\nfile_pattern: "{namespace}/{environment}.enc.yaml"\n',
-    );
+    mockFs.readFileSync.mockImplementation((p) => {
+      const s = p.toString();
+      if (s.includes("clef.yaml")) return MANIFEST_YAML;
+      return SOPS_METADATA_YAML;
+    });
 
     let encryptStdin: string | undefined;
     const runner = makeMockRunner(
@@ -280,9 +295,11 @@ describe("clef merge-driver", () => {
       if (s.includes("clef.yaml")) return true;
       return false;
     });
-    mockFs.readFileSync.mockReturnValue(
-      'version: 1\nenvironments:\n  - name: production\n    description: Prod\nnamespaces:\n  - name: db\n    description: DB\nsops:\n  default_backend: age\nfile_pattern: "{namespace}/{environment}.enc.yaml"\n',
-    );
+    mockFs.readFileSync.mockImplementation((p) => {
+      const s = p.toString();
+      if (s.includes("clef.yaml")) return MANIFEST_YAML;
+      return SOPS_METADATA_YAML;
+    });
 
     let encryptStdin: string | undefined;
     const runner = makeMockRunner(
@@ -321,9 +338,11 @@ describe("clef merge-driver", () => {
       if (s.includes("clef.yaml")) return true;
       return false;
     });
-    mockFs.readFileSync.mockReturnValue(
-      'version: 1\nenvironments:\n  - name: production\n    description: Prod\nnamespaces:\n  - name: db\n    description: DB\nsops:\n  default_backend: age\nfile_pattern: "{namespace}/{environment}.enc.yaml"\n',
-    );
+    mockFs.readFileSync.mockImplementation((p) => {
+      const s = p.toString();
+      if (s.includes("clef.yaml")) return MANIFEST_YAML;
+      return SOPS_METADATA_YAML;
+    });
 
     const runner = makeMockRunner((filePath) => {
       if (filePath === "/tmp/base") return { X: "1", Y: "2" };
@@ -347,6 +366,13 @@ describe("clef merge-driver", () => {
     expect(mockFormatter.failure).toHaveBeenCalledWith(expect.stringContaining("base:"));
     expect(mockFormatter.failure).toHaveBeenCalledWith(expect.stringContaining("ours:"));
     expect(mockFormatter.failure).toHaveBeenCalledWith(expect.stringContaining("theirs:"));
+    // Values must NOT appear in the output — only "(has value)" / "(deleted)" / "(absent)"
+    const allFailureCalls = mockFormatter.failure.mock.calls.map((c) => c[0]);
+    for (const msg of allFailureCalls) {
+      expect(msg).not.toContain("alice-X");
+      expect(msg).not.toContain("bob-X");
+      expect(msg).not.toContain("original");
+    }
     expect(mockFormatter.hint).toHaveBeenCalledWith(expect.stringContaining("Resolve conflicts"));
   });
 });

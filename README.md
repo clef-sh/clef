@@ -39,11 +39,12 @@ npm install -g @clef-sh/cli
 
 ### Prerequisites
 
-- [SOPS](https://github.com/getsops/sops) v3.8+
 - Git
 - Node.js 18+
 
-Run `clef doctor` after installing to verify your environment.
+**sops** is bundled automatically via platform-specific optional dependencies — no manual install required. If the bundled binary is not available for your platform, Clef falls back to any `sops` on your system PATH. You can also override the binary path with the `CLEF_SOPS_PATH` environment variable.
+
+Run `clef doctor` after installing to verify your environment. It shows where sops was resolved from (`[bundled]`, `[system]`, or `[CLEF_SOPS_PATH]`).
 
 When using the age backend (the default), `clef init` generates your age key pair automatically — no separate age binary needed.
 
@@ -110,18 +111,19 @@ Run `clef ui` to open a local web interface at `http://127.0.0.1:7777` (binds to
 
 ## How It Works
 
-Clef uses a **manifest file** (`clef.yaml`) to declare your namespaces, environments, and encryption settings. From this, it manages a matrix of encrypted SOPS files — one per namespace/environment pair.
+Clef uses a **manifest file** (`clef.yaml`) to declare your namespaces, environments, and encryption settings. From this, it manages a matrix of encrypted SOPS files — one per namespace/environment pair. The base directory defaults to `secrets/` and can be customised during `clef init` with `--secrets-dir` or interactively.
 
 ```
 clef.yaml          # Manifest — declares structure and config
-database/
-  dev.enc.yaml             # Encrypted secrets for database/dev
-  staging.enc.yaml         # Encrypted secrets for database/staging
-  production.enc.yaml      # Encrypted secrets for database/production
-payments/
-  dev.enc.yaml
-  staging.enc.yaml
-  production.enc.yaml
+secrets/
+  database/
+    dev.enc.yaml             # Encrypted secrets for database/dev
+    staging.enc.yaml         # Encrypted secrets for database/staging
+    production.enc.yaml      # Encrypted secrets for database/production
+  payments/
+    dev.enc.yaml
+    staging.enc.yaml
+    production.enc.yaml
 schemas/
   database.yaml            # Optional schema for the database namespace
 ```
@@ -137,6 +139,42 @@ Clef is a TypeScript monorepo with three packages:
 | `@clef-sh/core` | Manifest parsing, matrix management, schema validation, SOPS client, diff engine, lint runner |
 | `@clef-sh/cli`  | Commander.js CLI wrapping the core library                                                    |
 | `@clef-sh/ui`   | React + Vite local web interface served by Express                                            |
+
+## Security
+
+Clef is designed around the principle that secrets management tools must not become attack vectors themselves. The following invariants are enforced across the codebase:
+
+### Plaintext never touches disk
+
+All encryption and decryption is performed by SOPS via subprocess using stdin/stdout pipes. Decrypted values exist only in memory. No temporary files, no swap-eligible buffers, no debug dumps. This is verified by the review protocol and integration tests.
+
+### No custom cryptography
+
+Clef delegates all cryptographic operations to SOPS. There is no custom encryption, hashing, or key derivation anywhere in the codebase. `crypto.randomBytes` is used only for generating random placeholder values and authentication tokens.
+
+### Credential isolation
+
+Clef uses its own environment variables (`CLEF_AGE_KEY`, `CLEF_AGE_KEY_FILE`) which are translated to SOPS equivalents (`SOPS_AGE_KEY`, `SOPS_AGE_KEY_FILE`) and passed directly to the SOPS subprocess environment. `SOPS_*` variables in the parent process environment are never inherited — this prevents cross-tool credential leakage for users who also use SOPS directly.
+
+### Bundled sops binary integrity
+
+The sops binary is distributed via platform-specific npm packages (`@clef-sh/sops-{platform}-{arch}`). Supply chain integrity is enforced through:
+
+- **Pinned version** — `sops-version.json` at the repo root locks the exact sops version
+- **SHA256 checksums** — every platform binary is verified against a known digest before packaging
+- **npm provenance** — platform packages are published with `--provenance` for audit trail
+- **Binary verification** — the CI workflow runs `sops --version` on the downloaded binary before publishing
+- **Resolution transparency** — `clef doctor` shows the binary source (`[bundled]`, `[system]`, or `[CLEF_SOPS_PATH]`) so users can verify what is running
+
+The resolution chain (`CLEF_SOPS_PATH` env → bundled package → system PATH) ensures the bundled binary is used by default, while allowing explicit overrides for environments with specific requirements.
+
+### UI binds localhost only
+
+The web UI server binds to `127.0.0.1` exclusively — never `0.0.0.0` or `localhost` (which can resolve to `::` on dual-stack systems). All API routes require bearer token authentication. Host header validation rejects non-loopback requests.
+
+### Pre-commit scanning
+
+`clef scan` and the pre-commit hook detect plaintext secrets that have escaped the Clef matrix using pattern matching and Shannon entropy analysis. The hook blocks commits containing high-confidence matches.
 
 ## Contributing
 

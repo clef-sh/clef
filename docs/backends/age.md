@@ -29,15 +29,19 @@ grep "public key" ~/.config/clef/keys/<label>/keys.txt
 
 ## Configuring SOPS to find your key
 
-Clef reads the age key path from `.clef/config.yaml` (gitignored) and sets `SOPS_AGE_KEY_FILE` automatically before every SOPS subprocess call. In most cases you do not need to configure anything manually — `clef init` handles this during setup.
+Clef reads the age key path from `.clef/config.yaml` (gitignored) and passes it to the SOPS subprocess automatically via `SOPS_AGE_KEY_FILE`. In most cases you do not need to configure anything manually — `clef init` handles this during setup.
 
-If you need to override the key location (for example, in CI), set the environment variable directly:
+If you need to override the key location (for example, in CI), set the Clef environment variable:
 
 ```bash
-export SOPS_AGE_KEY_FILE=/path/to/your/keys.txt
+export CLEF_AGE_KEY_FILE=/path/to/your/keys.txt
 ```
 
-SOPS checks `SOPS_AGE_KEY_FILE` first, so this override takes precedence over the path stored in `.clef/config.yaml`.
+Clef checks `CLEF_AGE_KEY_FILE` before the path stored in `.clef/config.yaml`, so this override takes precedence.
+
+::: info
+Clef uses `CLEF_AGE_KEY` and `CLEF_AGE_KEY_FILE` (not `SOPS_AGE_KEY` / `SOPS_AGE_KEY_FILE`) to avoid silent cross-tool credential leakage. Clef passes the resolved key to the SOPS subprocess directly — it never mutates the parent process environment.
+:::
 
 ## Manifest configuration
 

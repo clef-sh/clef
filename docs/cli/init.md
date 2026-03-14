@@ -32,6 +32,7 @@ clef init [options]
 | `--environments <envs>`     | `string`  | `"dev,staging,production"` | Comma-separated list of environment names                       |
 | `--namespaces <namespaces>` | `string`  | —                          | Comma-separated list of namespace names (required)              |
 | `--backend <backend>`       | `string`  | `"age"`                    | SOPS encryption backend: `age`, `awskms`, `gcpkms`, or `pgp`    |
+| `--secrets-dir <dir>`       | `string`  | `"secrets"`                | Base directory for encrypted secret files                       |
 | `--non-interactive`         | `boolean` | `false`                    | Skip interactive prompts and use flag values directly           |
 | `--random-values`           | `boolean` | `false`                    | Scaffold required schema keys with random pending values        |
 | `--include-optional`        | `boolean` | `false`                    | Also scaffold optional schema keys (use with `--random-values`) |
@@ -69,7 +70,16 @@ clef init
 ```
 Environments (comma-separated) [dev,staging,production]: dev,staging,production
 Namespaces (comma-separated): database,payments
+Secrets directory [secrets]: secrets
 ```
+
+### Custom secrets directory
+
+```bash
+clef init --namespaces database,auth --secrets-dir config/encrypted --non-interactive
+```
+
+This creates the file pattern `config/encrypted/{namespace}/{environment}.enc.yaml` instead of the default `secrets/...`.
 
 ### Initialise with AWS KMS
 

@@ -32,7 +32,7 @@ clef doctor [options]
 | **sops**         | SOPS binary is installed and meets the minimum version requirement (>= 3.8.0)                                                                                           |
 | **git**          | git binary is installed and meets the minimum version requirement (>= 2.28.0)                                                                                           |
 | **manifest**     | `clef.yaml` exists in the current directory (or `--dir` directory)                                                                                                      |
-| **age key**      | Only checked when the manifest uses the age backend. An age key is available via `SOPS_AGE_KEY` env var, `SOPS_AGE_KEY_FILE`, or the path stored in `.clef/config.yaml` |
+| **age key**      | Only checked when the manifest uses the age backend. An age key is available via `CLEF_AGE_KEY` env var, `CLEF_AGE_KEY_FILE`, or the path stored in `.clef/config.yaml` |
 | **.sops.yaml**   | `.sops.yaml` exists (required for SOPS creation rules)                                                                                                                  |
 | **scanner**      | `.clefignore` exists in the repository root (used by `clef scan` to exclude paths from secret scanning)                                                                 |
 | **merge driver** | SOPS merge driver is configured in `.git/config` and `.gitattributes` (see [Merge Conflicts](/guide/merge-conflicts))                                                   |

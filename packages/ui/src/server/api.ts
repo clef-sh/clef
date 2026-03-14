@@ -25,13 +25,15 @@ import type { ImportFormat } from "@clef-sh/core";
 export interface ApiDeps {
   runner: SubprocessRunner;
   repoRoot: string;
+  ageKeyFile?: string;
+  ageKey?: string;
 }
 
 export function createApiRouter(deps: ApiDeps): Router {
   const router = Router();
   const parser = new ManifestParser();
   const matrix = new MatrixManager();
-  const sops = new SopsClient(deps.runner);
+  const sops = new SopsClient(deps.runner, deps.ageKeyFile, deps.ageKey);
   const diffEngine = new DiffEngine();
   const schemaValidator = new SchemaValidator();
   const lintRunner = new LintRunner(matrix, schemaValidator, sops);
@@ -80,6 +82,9 @@ export function createApiRouter(deps: ApiDeps): Router {
   });
 
   // GET /api/namespace/:ns/:env
+  // FR-31 note: Decrypted values are held in V8 heap memory during the request lifecycle.
+  // JavaScript/V8 uses immutable strings — we cannot reliably zero them after use.
+  // This is a known limitation of garbage-collected runtimes.
   router.get("/namespace/:ns/:env", async (req: Request, res: Response) => {
     setNoCacheHeaders(res);
     try {

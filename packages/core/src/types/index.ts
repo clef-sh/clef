@@ -401,7 +401,7 @@ export class SopsEncryptionError extends ClefError {
 /** Thrown when no decryption key is found in the environment. */
 export class SopsKeyNotFoundError extends ClefError {
   constructor(message: string) {
-    super(message, "Ensure your age key file exists and SOPS_AGE_KEY_FILE is set correctly");
+    super(message, "Ensure your age key file exists and CLEF_AGE_KEY_FILE is set correctly");
     this.name = "SopsKeyNotFoundError";
   }
 }
@@ -468,6 +468,10 @@ export interface DependencyVersion {
   satisfied: boolean;
   /** Platform-appropriate install/upgrade command hint. */
   installHint: string;
+  /** How the binary was resolved: env override, bundled package, or system PATH. */
+  source?: "env" | "bundled" | "system";
+  /** Resolved path to the binary. */
+  resolvedPath?: string;
 }
 
 /** Combined dependency check result for all required external tools. */

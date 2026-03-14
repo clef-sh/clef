@@ -25,6 +25,13 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {},
+  "optionalDependencies": {
+    "@clef-sh/sops-darwin-arm64": "3.9.4",
+    "@clef-sh/sops-darwin-x64": "3.9.4",
+    "@clef-sh/sops-linux-x64": "3.9.4",
+    "@clef-sh/sops-linux-arm64": "3.9.4",
+    "@clef-sh/sops-win32-x64": "3.9.4"
+  },
   "devDependencies": {
     "@clef-sh/core": "^0.1.0",
     "@clef-sh/ui": "*",

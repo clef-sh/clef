@@ -124,7 +124,7 @@ The CI public key can be found from the key file:
 grep "public key" /path/to/ci-keys.txt
 ```
 
-Store the private key content as a CI secret (e.g., in your CI provider's secrets store) and set `SOPS_AGE_KEY_FILE` to point at the file during the CI run. Add the public key as a recipient:
+Store the private key content as a CI secret (e.g., in your CI provider's secrets store) and set `CLEF_AGE_KEY_FILE` to point at the file during the CI run. Add the public key as a recipient:
 
 ```bash
 clef recipients add age1ghi... --label "CI deploy key"

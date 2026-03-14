@@ -43,23 +43,45 @@ const clefBin = path.resolve(__dirname, "../../packages/cli/dist/index.cjs");
  */
 describe("clef exec signal exit codes", () => {
   it("should exit with code 143 when child receives SIGTERM", (done) => {
-    const child = spawn("node", [clefBin, "exec", "payments/dev", "--", "sleep", "60"], {
-      cwd: repo.dir,
-      env: {
-        ...process.env,
-        SOPS_AGE_KEY_FILE: keys.keyFilePath,
+    // Use a script that signals readiness via stdout, rather than relying on a fixed timeout
+    const child = spawn(
+      "node",
+      [
+        clefBin,
+        "exec",
+        "payments/dev",
+        "--",
+        "node",
+        "-e",
+        "console.log('READY');setTimeout(()=>{},60000)",
+      ],
+      {
+        cwd: repo.dir,
+        env: {
+          ...process.env,
+          SOPS_AGE_KEY_FILE: keys.keyFilePath,
+        },
+        stdio: "pipe",
       },
-      stdio: "pipe",
+    );
+
+    // Wait for the child to signal readiness before sending SIGTERM
+    let ready = false;
+    child.stdout?.on("data", (data: Buffer) => {
+      if (!ready && data.toString().includes("READY")) {
+        ready = true;
+        if (child.pid) {
+          process.kill(child.pid, "SIGTERM");
+        }
+      }
     });
 
-    // Wait for the child process tree to be fully up before sending the signal.
-    // The `sleep 60` grandchild needs time to spawn after sops decryption completes.
+    // Fallback timeout in case readiness signal is never received
     const timer = setTimeout(() => {
-      if (child.pid) {
-        // Send SIGTERM to the clef process; the exec command forwards it to the child.
+      if (!ready && child.pid) {
         process.kill(child.pid, "SIGTERM");
       }
-    }, 3000);
+    }, 10000);
 
     child.on("exit", (code, signal) => {
       clearTimeout(timer);
@@ -84,22 +106,45 @@ describe("clef exec signal exit codes", () => {
   });
 
   it("should exit with code 130 when child receives SIGINT", (done) => {
-    const child = spawn("node", [clefBin, "exec", "payments/dev", "--", "sleep", "60"], {
-      cwd: repo.dir,
-      env: {
-        ...process.env,
-        SOPS_AGE_KEY_FILE: keys.keyFilePath,
+    // Use a script that signals readiness via stdout, rather than relying on a fixed timeout
+    const child = spawn(
+      "node",
+      [
+        clefBin,
+        "exec",
+        "payments/dev",
+        "--",
+        "node",
+        "-e",
+        "console.log('READY');setTimeout(()=>{},60000)",
+      ],
+      {
+        cwd: repo.dir,
+        env: {
+          ...process.env,
+          SOPS_AGE_KEY_FILE: keys.keyFilePath,
+        },
+        stdio: "pipe",
       },
-      stdio: "pipe",
+    );
+
+    // Wait for the child to signal readiness before sending SIGINT
+    let ready = false;
+    child.stdout?.on("data", (data: Buffer) => {
+      if (!ready && data.toString().includes("READY")) {
+        ready = true;
+        if (child.pid) {
+          process.kill(child.pid, "SIGINT");
+        }
+      }
     });
 
-    // Wait for the child process tree to be fully up before sending the signal.
+    // Fallback timeout in case readiness signal is never received
     const timer = setTimeout(() => {
-      if (child.pid) {
-        // Send SIGINT to the clef process; the exec command forwards it to the child.
+      if (!ready && child.pid) {
         process.kill(child.pid, "SIGINT");
       }
-    }, 3000);
+    }, 10000);
 
     child.on("exit", (code, signal) => {
       clearTimeout(timer);

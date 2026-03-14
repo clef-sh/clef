@@ -22,10 +22,10 @@ age is the simplest option — store a private key in your CI provider's secret 
 
 ## age — Simple Setup
 
-The simplest CI setup uses an age private key stored as a CI secret. SOPS reads the key from the `SOPS_AGE_KEY` environment variable automatically — no key file needs to touch disk.
+The simplest CI setup uses an age private key stored as a CI secret. Clef reads the key from the `CLEF_AGE_KEY` environment variable and passes it to SOPS automatically — no key file needs to touch disk.
 
 ::: warning Security tradeoff
-The age private key and the ciphertext are both present in the CI runner simultaneously. A compromised runner exposes a long-lived key that grants access to everything it can decrypt until the key is rotated. Storing `SOPS_AGE_KEY` in your CI provider's secrets store (GitHub Actions secrets, GitLab CI variables, etc.) keeps it encrypted at rest and scoped to the pipeline. For a comparison of the tradeoffs, see [age vs KMS](/guide/quick-start#age-vs-kms-choosing-an-encryption-backend).
+The age private key and the ciphertext are both present in the CI runner simultaneously. A compromised runner exposes a long-lived key that grants access to everything it can decrypt until the key is rotated. Storing `CLEF_AGE_KEY` in your CI provider's secrets store (GitHub Actions secrets, GitLab CI variables, etc.) keeps it encrypted at rest and scoped to the pipeline. For a comparison of the tradeoffs, see [age vs KMS](/guide/quick-start#age-vs-kms-choosing-an-encryption-backend).
 :::
 
 ### GitHub Actions
@@ -51,15 +51,15 @@ jobs:
 
       - name: Run deployment
         env:
-          SOPS_AGE_KEY: ${{ secrets.AGE_PRIVATE_KEY }}
+          CLEF_AGE_KEY: ${{ secrets.AGE_PRIVATE_KEY }}
         run: clef exec payments/staging -- ./deploy.sh
 ```
 
 **How it works:**
 
 1. The age private key is stored in GitHub's encrypted secret store (`AGE_PRIVATE_KEY`)
-2. GitHub Actions injects it into the runner's environment as `SOPS_AGE_KEY`
-3. SOPS reads `SOPS_AGE_KEY` automatically when decrypting — no key file needed
+2. GitHub Actions injects it into the runner's environment as `CLEF_AGE_KEY`
+3. Clef reads `CLEF_AGE_KEY` and passes it to SOPS when decrypting — no key file needed
 4. `clef exec` decrypts the secrets in memory and passes them to `./deploy.sh`
 5. When `deploy.sh` finishes, the runner is destroyed along with all secrets
 
@@ -73,7 +73,7 @@ deploy:
   script:
     - clef exec payments/production -- ./deploy.sh
   variables:
-    SOPS_AGE_KEY: $AGE_PRIVATE_KEY
+    CLEF_AGE_KEY: $AGE_PRIVATE_KEY
   only:
     - main
 ```
@@ -88,7 +88,7 @@ jobs:
     docker:
       - image: cimg/base:current
     environment:
-      SOPS_AGE_KEY: $AGE_PRIVATE_KEY
+      CLEF_AGE_KEY: $AGE_PRIVATE_KEY
     steps:
       - checkout
       - run:

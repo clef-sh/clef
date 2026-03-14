@@ -710,7 +710,7 @@ describe("clef exec", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
-  it("should map unknown signal to exit code 128", async () => {
+  it("should map SIGHUP to exit code 129", async () => {
     const child = makeSignalChildEmitter("SIGHUP");
     mockSpawn.mockReturnValue(child);
 

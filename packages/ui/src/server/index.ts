@@ -86,6 +86,8 @@ export async function startServer(
   repoRoot: string,
   runner?: SubprocessRunner,
   clientDir?: string,
+  ageKeyFile?: string,
+  ageKey?: string,
 ): Promise<ServerHandle> {
   const app = express();
   const sessionToken = randomBytes(32).toString("hex");
@@ -96,7 +98,7 @@ export async function startServer(
   app.use("/api", (req: Request, res: Response, next: NextFunction) => {
     const host = req.headers.host ?? "";
     const actualPort = (req.socket.address() as { port?: number })?.port ?? port;
-    const allowedHosts = [`127.0.0.1:${actualPort}`, `127.0.0.1:${port}`, "127.0.0.1"];
+    const allowedHosts = [`127.0.0.1:${actualPort}`, `127.0.0.1:${port}`];
     if (!allowedHosts.includes(host)) {
       res.status(403).json({ error: "Forbidden: invalid Host header" });
       return;
@@ -121,7 +123,7 @@ export async function startServer(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dispose is dynamically attached
   let apiRouter: any;
   if (runner) {
-    apiRouter = createApiRouter({ runner, repoRoot });
+    apiRouter = createApiRouter({ runner, repoRoot, ageKeyFile, ageKey });
     app.use("/api", apiRouter);
   }
 
