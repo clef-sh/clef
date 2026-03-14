@@ -12,13 +12,21 @@
     [
       "@semantic-release/npm",
       {
-        "pkgRoot": "packages/core"
+        "pkgRoot": "packages/core",
+        "npmPublish": false
       }
     ],
     [
       "@semantic-release/npm",
       {
-        "pkgRoot": "packages/cli"
+        "pkgRoot": "packages/cli",
+        "npmPublish": false
+      }
+    ],
+    [
+      "@semantic-release/exec",
+      {
+        "publishCmd": "npm publish --provenance --access public -w packages/core && npm publish --provenance --access public -w packages/cli"
       }
     ],
     [
