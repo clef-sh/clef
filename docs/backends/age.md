@@ -1,6 +1,6 @@
 # age (Recommended)
 
-[age](https://age-encryption.org/) is the recommended default encryption backend for Clef. It is a modern, simple file encryption tool designed by Filippo Valsorda. It requires no infrastructure, no cloud accounts, and no key servers — just a key file on disk.
+[age](https://age-encryption.org/) is the recommended default encryption backend for Clef. It is a modern, simple file encryption tool. It requires no infrastructure, no cloud accounts, and no key servers — just a key file on disk.
 
 ## When to use age
 
