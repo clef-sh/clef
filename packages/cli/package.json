@@ -26,7 +26,7 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "@clef-sh/core": "*",
+    "@clef-sh/core": "^0.1.0",
     "@clef-sh/ui": "*",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.11.0",

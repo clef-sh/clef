@@ -1,10 +1,12 @@
 # Release workflow — publishes @clef-sh/core and @clef-sh/cli to npm
-# and creates a GitHub Release with changelog notes.
+# independently, each versioned by its own commits.
 #
-# Authentication: uses GitHub Actions OIDC for npm publish (no NPM_TOKEN).
-# Prerequisite: on npmjs.com, each published package (@clef-sh/core,
-# @clef-sh/cli) must have publishing linked to this GitHub repository
-# under Settings → "Configure trusted publishing".
+# Core releases first. If core publishes a new version, cli's @clef-sh/core
+# devDependency is bumped automatically, creating a commit that triggers
+# cli's own semantic-release.
+#
+# Authentication: uses GitHub Actions OIDC for npm provenance.
+# Each package has its own .releaserc.json extending semantic-release-monorepo.
 
 name: Release
 
@@ -43,8 +45,39 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Release
+      - name: Release @clef-sh/core
+        id: core
+        run: |
+          BEFORE=$(node -p "require('./package.json').version")
+          npx semantic-release
+          AFTER=$(node -p "require('./package.json').version")
+          if [ "$BEFORE" != "$AFTER" ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            echo "version=$AFTER" >> "$GITHUB_OUTPUT"
+          fi
+        working-directory: packages/core
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+
+      - name: Bump @clef-sh/core in cli
+        if: steps.core.outputs.released == 'true'
+        run: |
+          NEW_VERSION="${{ steps.core.outputs.version }}"
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('packages/cli/package.json', 'utf8'));
+            pkg.devDependencies['@clef-sh/core'] = '^${NEW_VERSION}';
+            fs.writeFileSync('packages/cli/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/cli/package.json
+          git commit -m "chore(cli): bump @clef-sh/core to ${NEW_VERSION} [skip ci]"
+
+      - name: Release @clef-sh/cli
         run: npx semantic-release
+        working-directory: packages/cli
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"

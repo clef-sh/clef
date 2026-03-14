@@ -1,4 +1,5 @@
 {
+  "extends": "semantic-release-monorepo",
   "branches": ["main"],
   "plugins": [
     [
@@ -22,28 +23,20 @@
     [
       "@semantic-release/npm",
       {
-        "pkgRoot": "packages/core",
-        "npmPublish": false
-      }
-    ],
-    [
-      "@semantic-release/npm",
-      {
-        "pkgRoot": "packages/cli",
         "npmPublish": false
       }
     ],
     [
       "@semantic-release/exec",
       {
-        "publishCmd": "npm publish --provenance --access public -w packages/core && npm publish --provenance --access public -w packages/cli"
+        "publishCmd": "npm publish --provenance --access public -w packages/cli"
       }
     ],
     [
       "@semantic-release/git",
       {
-        "assets": ["CHANGELOG.md", "packages/core/package.json", "packages/cli/package.json"],
-        "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+        "assets": ["packages/cli/package.json", "packages/cli/CHANGELOG.md"],
+        "message": "chore(release): @clef-sh/cli@${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
       }
     ],
     "@semantic-release/github"
