@@ -79,7 +79,7 @@ jobs:
         if: github.ref_name == 'dev'
         working-directory: packages/core
         run: |
-          npm version "${{ steps.ver.outputs.core_version }}" --no-git-tag-version
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ steps.ver.outputs.core_version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
           npm publish --tag alpha --access restricted
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -89,7 +89,7 @@ jobs:
         if: github.ref_name == 'dev'
         working-directory: packages/cli
         run: |
-          npm version "${{ steps.ver.outputs.cli_version }}" --no-git-tag-version
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ steps.ver.outputs.cli_version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
           npm publish --tag alpha --access restricted
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -100,7 +100,7 @@ jobs:
         if: github.ref_name == 'staging'
         working-directory: packages/core
         run: |
-          npm version "${{ steps.ver.outputs.core_version }}" --no-git-tag-version
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ steps.ver.outputs.core_version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
           npm publish --tag beta --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -110,7 +110,7 @@ jobs:
         if: github.ref_name == 'staging'
         working-directory: packages/cli
         run: |
-          npm version "${{ steps.ver.outputs.cli_version }}" --no-git-tag-version
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ steps.ver.outputs.cli_version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
           npm publish --tag beta --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

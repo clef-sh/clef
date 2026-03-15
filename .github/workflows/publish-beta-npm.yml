@@ -64,7 +64,7 @@ jobs:
       - name: Publish @clef-sh/core
         working-directory: packages/core
         run: |
-          npm version "${{ inputs.version }}" --no-git-tag-version
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
           npm publish --tag beta --access public
         env:
           NPM_CONFIG_PROVENANCE: "true"
@@ -72,7 +72,7 @@ jobs:
       - name: Publish @clef-sh/cli
         working-directory: packages/cli
         run: |
-          npm version "${{ inputs.version }}" --no-git-tag-version
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
           npm publish --tag beta --access public
         env:
           NPM_CONFIG_PROVENANCE: "true"
