@@ -43,4 +43,4 @@ npm-debug.log*
 # Do NOT add *.clef-meta.yaml here.
 .development
 
-sops
+sops*

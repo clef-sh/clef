@@ -4,7 +4,9 @@ module.exports = {
   testEnvironment: "node",
   testMatch: ["<rootDir>/src/**/*.test.ts"],
   moduleNameMapper: {
+    "^@clef-sh/core$": "<rootDir>/../core/src/index.ts",
     "^@clef-sh/ui/dist/server$": "<rootDir>/src/__mocks__/ui-server.ts",
+    "^age-encryption$": "<rootDir>/../core/src/__mocks__/age-encryption.ts",
   },
   collectCoverageFrom: [
     "<rootDir>/src/**/*.ts",

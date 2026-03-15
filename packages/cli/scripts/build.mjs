@@ -153,9 +153,13 @@ async function buildSea() {
 
   const assets = /** @type {Record<string, string>} */ ({});
 
+  /**
+   * @param {import("node:fs").PathLike} dir
+   * @param {string} keyPrefix
+   */
   function collectAssets(dir, keyPrefix) {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const fullPath = join(dir, entry.name);
+      const fullPath = join(dir.toString(), entry.name);
       const key = `${keyPrefix}/${entry.name}`;
       if (entry.isDirectory()) {
         collectAssets(fullPath, key);
