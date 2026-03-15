@@ -32,6 +32,19 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
 
         const namespaces = opts.namespaces.split(",").map((s) => s.trim());
 
+        const protectedEnvs = manifest.environments.filter((e) => e.protected).map((e) => e.name);
+
+        if (protectedEnvs.length > 0) {
+          const confirmed = await formatter.confirm(
+            `This will register recipients in protected environment(s): ${protectedEnvs.join(", ")}. Continue?`,
+          );
+          if (!confirmed) {
+            formatter.error("Aborted.");
+            process.exit(1);
+            return;
+          }
+        }
+
         const matrixManager = new MatrixManager();
         const sopsClient = await createSopsClient(repoRoot, deps.runner);
         const manager = new ServiceIdentityManager(sopsClient, matrixManager);
@@ -61,6 +74,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           formatter.print(`  ${envName}:`);
           formatter.print(`    ${privateKey}\n`);
         }
+        result.privateKeys = {};
 
         formatter.hint(`git add clef.yaml && git commit -m "feat: add service identity '${name}'"`);
       } catch (err) {
@@ -131,7 +145,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         const identity = manager.get(manifest, name);
         if (!identity) {
           formatter.error(`Service identity '${name}' not found.`);
-          process.exit(2);
+          process.exit(1);
           return;
         }
 
@@ -144,6 +158,61 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           formatter.print(`  ${envName}: ${keyPreview(cfg.recipient)}`);
         }
         formatter.print("");
+      } catch (err) {
+        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
+          formatter.formatDependencyError(err);
+          process.exit(1);
+          return;
+        }
+        formatter.error((err as Error).message);
+        process.exit(1);
+      }
+    });
+
+  // --- validate ---
+  serviceCmd
+    .command("validate")
+    .description("Validate service identity configurations and report drift issues.")
+    .action(async () => {
+      try {
+        const repoRoot = (program.opts().dir as string) || process.cwd();
+        const parser = new ManifestParser();
+        const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
+
+        const matrixManager = new MatrixManager();
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
+        const manager = new ServiceIdentityManager(sopsClient, matrixManager);
+
+        const issues = await manager.validate(manifest, repoRoot);
+
+        if (issues.length === 0) {
+          formatter.success("All service identities are valid.");
+          return;
+        }
+
+        for (const issue of issues) {
+          const prefix =
+            issue.type === "namespace_not_found" || issue.type === "missing_environment"
+              ? sym("failure")
+              : sym("warning");
+          formatter.print(`  ${prefix} [${issue.type}] ${issue.message}`);
+          if (issue.fixCommand) {
+            formatter.print(`    fix: ${issue.fixCommand}`);
+          }
+        }
+
+        const errorCount = issues.filter(
+          (i) => i.type === "namespace_not_found" || i.type === "missing_environment",
+        ).length;
+        const warnCount = issues.length - errorCount;
+
+        formatter.print("");
+        if (errorCount > 0) {
+          formatter.error(`${errorCount} error(s), ${warnCount} warning(s)`);
+          process.exit(1);
+        } else {
+          formatter.warn(`${warnCount} warning(s)`);
+        }
       } catch (err) {
         if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
           formatter.formatDependencyError(err);
@@ -170,6 +239,32 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         const sopsClient = await createSopsClient(repoRoot, deps.runner);
         const manager = new ServiceIdentityManager(sopsClient, matrixManager);
 
+        // Check for protected environments
+        const identity = manager.get(manifest, name);
+        if (!identity) {
+          formatter.error(`Service identity '${name}' not found.`);
+          process.exit(1);
+          return;
+        }
+
+        const envsToRotate = opts.environment
+          ? [opts.environment]
+          : Object.keys(identity.environments);
+        const protectedEnvs = manifest.environments
+          .filter((e) => e.protected && envsToRotate.includes(e.name))
+          .map((e) => e.name);
+
+        if (protectedEnvs.length > 0) {
+          const confirmed = await formatter.confirm(
+            `This will rotate keys in protected environment(s): ${protectedEnvs.join(", ")}. Continue?`,
+          );
+          if (!confirmed) {
+            formatter.error("Aborted.");
+            process.exit(1);
+            return;
+          }
+        }
+
         formatter.print(`${sym("working")}  Rotating key for '${name}'...`);
 
         const newKeys = await manager.rotateKey(name, manifest, repoRoot, opts.environment);
@@ -182,6 +277,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           formatter.print(`  ${envName}:`);
           formatter.print(`    ${privateKey}\n`);
         }
+        for (const k of Object.keys(newKeys)) newKeys[k] = "";
 
         formatter.hint(
           `git add clef.yaml && git commit -m "chore: rotate service identity '${name}'"`,

@@ -1,4 +1,8 @@
+import * as fs from "fs";
 import { resolveSopsPath, resetSopsResolution } from "./resolver";
+
+jest.mock("fs");
+const mockFs = fs as jest.Mocked<typeof fs>;
 
 describe("resolveSopsPath", () => {
   const originalEnv = process.env.CLEF_SOPS_PATH;
@@ -6,6 +10,7 @@ describe("resolveSopsPath", () => {
   beforeEach(() => {
     resetSopsResolution();
     delete process.env.CLEF_SOPS_PATH;
+    mockFs.existsSync.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -66,11 +71,31 @@ describe("resolveSopsPath", () => {
     expect(result.source).toBe("env");
     expect(result.path).toBe("/explicit/override");
   });
+
+  it("should reject relative CLEF_SOPS_PATH", () => {
+    process.env.CLEF_SOPS_PATH = "relative/path/to/sops";
+
+    expect(() => resolveSopsPath()).toThrow("must be an absolute path");
+  });
+
+  it("should reject CLEF_SOPS_PATH with .. traversal", () => {
+    process.env.CLEF_SOPS_PATH = "/usr/local/../etc/sops";
+
+    expect(() => resolveSopsPath()).toThrow("..");
+  });
+
+  it("should reject CLEF_SOPS_PATH when file does not exist", () => {
+    process.env.CLEF_SOPS_PATH = "/nonexistent/sops";
+    mockFs.existsSync.mockReturnValue(false);
+
+    expect(() => resolveSopsPath()).toThrow("does not exist");
+  });
 });
 
 describe("resetSopsResolution", () => {
   it("should clear the cache so next call re-resolves", () => {
     process.env.CLEF_SOPS_PATH = "/a";
+    mockFs.existsSync.mockReturnValue(true);
     resolveSopsPath();
 
     resetSopsResolution();
@@ -79,5 +104,15 @@ describe("resetSopsResolution", () => {
 
     expect(result.source).toBe("system");
     expect(result.path).toBe("sops");
+  });
+
+  it("should cache system PATH fallback and return same reference", () => {
+    // No CLEF_SOPS_PATH set — falls back to system
+    const first = resolveSopsPath();
+    const second = resolveSopsPath();
+
+    expect(first).toBe(second);
+    expect(first.source).toBe("system");
+    expect(first.path).toBe("sops");
   });
 });

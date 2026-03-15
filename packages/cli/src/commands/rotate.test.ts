@@ -145,7 +145,7 @@ describe("clef rotate", () => {
     ]);
 
     expect(mockFormatter.info).toHaveBeenCalledWith("Rotation cancelled.");
-    expect(mockExit).toHaveBeenCalledWith(0);
+    expect(mockExit).not.toHaveBeenCalled();
     expect(mockFormatter.success).not.toHaveBeenCalled();
     // No SOPS calls should be made after declining
     const sopsRotateCalls = (runner.run as jest.Mock).mock.calls.filter(

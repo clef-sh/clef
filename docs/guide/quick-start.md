@@ -20,6 +20,10 @@ Before starting, ensure you have installed:
 
 - **sops** — `brew install sops` (macOS) or see [installation guide](./installation.md)
 
+::: tip sops is bundled with the CLI
+When installed via npm, `@clef-sh/cli` includes a bundled sops binary for your platform. Run `clef doctor` to verify which sops binary is in use. You only need to install sops manually if the bundled version is not available for your platform.
+:::
+
 Verify sops is ready:
 
 ```bash

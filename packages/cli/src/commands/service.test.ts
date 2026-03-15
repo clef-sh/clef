@@ -138,6 +138,14 @@ describe("clef service", () => {
       await program.parseAsync(["node", "clef", "service", "show", "existing-svc"]);
 
       expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("existing-svc"));
+
+      // Should not leak private keys or full public keys
+      const allPrintCalls = (mockFormatter.print as jest.Mock).mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .join("\n");
+      expect(allPrintCalls).not.toContain("AGE-SECRET-KEY-");
+      expect(allPrintCalls).not.toContain(VALID_KEY_DEV);
+      expect(allPrintCalls).not.toContain(VALID_KEY_STG);
     });
 
     it("should error on unknown identity", async () => {
@@ -147,7 +155,7 @@ describe("clef service", () => {
       await program.parseAsync(["node", "clef", "service", "show", "unknown"]);
 
       expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("not found"));
-      expect(mockExit).toHaveBeenCalledWith(2);
+      expect(mockExit).toHaveBeenCalledWith(1);
     });
   });
 
@@ -183,6 +191,7 @@ describe("clef service", () => {
 
       expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("new-svc"));
       expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("ONCE"));
+      expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("AGE-SECRET-KEY-"));
     });
 
     it("should error when namespace not found", async () => {

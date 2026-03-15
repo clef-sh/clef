@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import {
   checkDependency,
   checkAll,
@@ -9,6 +10,9 @@ import {
 } from "./checker";
 import { SopsMissingError, SopsVersionError, SubprocessRunner } from "../types";
 import { resetSopsResolution } from "../sops/resolver";
+
+jest.mock("fs");
+const mockFs = fs as jest.Mocked<typeof fs>;
 
 function makeRunner(
   responses: Record<string, { stdout: string; stderr: string; exitCode: number }>,
@@ -89,6 +93,7 @@ describe("semverSatisfied", () => {
 beforeEach(() => {
   resetSopsResolution();
   delete process.env.CLEF_SOPS_PATH;
+  mockFs.existsSync.mockReturnValue(true);
 });
 
 describe("checkDependency", () => {

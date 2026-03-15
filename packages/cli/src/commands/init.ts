@@ -462,6 +462,11 @@ async function handleFullSetup(
       formatter.success(
         `Scaffolded ${pendingTotal} random placeholder value(s) — replace with real secrets using clef set`,
       );
+    } else {
+      formatter.warn(
+        "No schemas found — --random-values requires schemas. " +
+          "See clef set --random for manual scaffolding.",
+      );
     }
   }
 

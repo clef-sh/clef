@@ -338,7 +338,8 @@ describe("API routes", () => {
             },
           });
         }
-        return "";
+        // Return valid SOPS metadata for encrypted files so parseMetadataFromFile succeeds
+        return sopsFileContent;
       });
       const { existsSync } = jest.requireMock("fs");
       existsSync.mockReturnValue(true);

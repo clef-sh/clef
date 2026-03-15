@@ -8,6 +8,7 @@ import {
   LintRunner,
   SchemaValidator,
   GitIntegration,
+  BulkOps,
   ScanRunner,
   SubprocessRunner,
   ClefManifest,
@@ -40,6 +41,7 @@ export function createApiRouter(deps: ApiDeps): Router {
   const git = new GitIntegration(deps.runner);
   const scanRunner = new ScanRunner(deps.runner);
   const recipientManager = new RecipientManager(sops, matrix);
+  const bulkOps = new BulkOps();
 
   // In-session scan cache
   let lastScanResult: ScanResult | null = null;
@@ -114,15 +116,17 @@ export function createApiRouter(deps: ApiDeps): Router {
       }
 
       res.json({ ...decrypted, pending });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to decrypt namespace";
-      res.status(500).json({ error: message, code: "DECRYPT_ERROR" });
+    } catch {
+      res.status(500).json({ error: "Failed to decrypt namespace", code: "DECRYPT_ERROR" });
     }
   });
 
   // PUT /api/namespace/:ns/:env/:key
   // body: { value: string } — set a specific value
   // body: { random: true }  — generate random value server-side and mark pending
+  // Note: Unlike the CLI set command, the API rolls back on metadata failure
+  // to ensure callers always get a consistent state. See set.ts for the CLI
+  // approach which warns and continues. This asymmetry is intentional.
   router.put("/namespace/:ns/:env/:key", async (req: Request, res: Response) => {
     setNoCacheHeaders(res);
     try {
@@ -240,9 +244,8 @@ export function createApiRouter(deps: ApiDeps): Router {
 
         res.json({ success: true, key });
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to set value";
-      res.status(500).json({ error: message, code: "SET_ERROR" });
+    } catch {
+      res.status(500).json({ error: "Failed to set value", code: "SET_ERROR" });
     }
   });
 
@@ -296,9 +299,59 @@ export function createApiRouter(deps: ApiDeps): Router {
       }
 
       res.json({ success: true, key });
+    } catch {
+      res.status(500).json({ error: "Failed to delete key", code: "DELETE_ERROR" });
+    }
+  });
+
+  // POST /api/copy
+  // body: { key, fromNs, fromEnv, toNs, toEnv, confirmed? }
+  router.post("/copy", async (req: Request, res: Response) => {
+    try {
+      const manifest = loadManifest();
+      const { key, fromNs, fromEnv, toNs, toEnv, confirmed } = req.body as {
+        key: string;
+        fromNs: string;
+        fromEnv: string;
+        toNs: string;
+        toEnv: string;
+        confirmed?: boolean;
+      };
+
+      if (!key || !fromNs || !fromEnv || !toNs || !toEnv) {
+        res.status(400).json({
+          error: "Request body must include 'key', 'fromNs', 'fromEnv', 'toNs', 'toEnv'.",
+          code: "BAD_REQUEST",
+        });
+        return;
+      }
+
+      if (matrix.isProtectedEnvironment(manifest, toEnv) && !confirmed) {
+        res.status(409).json({
+          error: "Protected environment requires confirmation",
+          code: "PROTECTED_ENV",
+          protected: true,
+        });
+        return;
+      }
+
+      const cells = matrix.resolveMatrix(manifest, deps.repoRoot);
+      const fromCell = cells.find((c) => c.namespace === fromNs && c.environment === fromEnv);
+      const toCell = cells.find((c) => c.namespace === toNs && c.environment === toEnv);
+
+      if (!fromCell || !toCell) {
+        res.status(404).json({
+          error: "Source or destination cell not found in matrix.",
+          code: "NOT_FOUND",
+        });
+        return;
+      }
+
+      await bulkOps.copyValue(key, fromCell, toCell, sops, manifest);
+      res.json({ success: true, key, from: `${fromNs}/${fromEnv}`, to: `${toNs}/${toEnv}` });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to delete key";
-      res.status(500).json({ error: message, code: "DELETE_ERROR" });
+      const message = err instanceof Error ? err.message : "Failed to copy value";
+      res.status(500).json({ error: message, code: "COPY_ERROR" });
     }
   });
 
@@ -323,9 +376,8 @@ export function createApiRouter(deps: ApiDeps): Router {
 
       const result = await diffEngine.diffFiles(ns, envA, envB, manifest, sops, deps.repoRoot);
       res.json(result);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to compute diff";
-      res.status(500).json({ error: message, code: "DIFF_ERROR" });
+    } catch {
+      res.status(500).json({ error: "Failed to compute diff", code: "DIFF_ERROR" });
     }
   });
 

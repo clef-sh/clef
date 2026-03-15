@@ -90,6 +90,7 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
           if (!(key in decrypted.values)) {
             formatter.error(`Key '${key}' not found in ${namespace}/${environment}.`);
             process.exit(1);
+            return;
           }
 
           delete decrypted.values[key];

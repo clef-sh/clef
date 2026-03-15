@@ -48,6 +48,7 @@ export function registerUpdateCommand(program: Command, deps: { runner: Subproce
 
         if (missing.length === 0) {
           formatter.success("Matrix is up to date.");
+          process.exit(0);
           return;
         }
 
@@ -67,6 +68,11 @@ export function registerUpdateCommand(program: Command, deps: { runner: Subproce
 
         if (scaffoldedCount > 0) {
           formatter.success(`Scaffolded ${scaffoldedCount} encrypted file(s)`);
+        }
+
+        if (failedCount === 0) {
+          process.exit(0);
+          return;
         }
 
         if (failedCount > 0) {

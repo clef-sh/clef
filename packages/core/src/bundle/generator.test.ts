@@ -226,4 +226,28 @@ describe("BundleGenerator", () => {
     const writtenSource = (mockFs.writeFileSync as jest.Mock).mock.calls[0][1] as string;
     expect(writtenSource).toContain("module.exports");
   });
+
+  it("should embed ciphertext and key names but not plaintext values", async () => {
+    const decrypted: DecryptedFile = {
+      values: { DATABASE_URL: "postgres://secret-host:5432/db", API_KEY: "secret123" },
+      metadata: { backend: "age", recipients: ["age1devkey"], lastModified: new Date() },
+    };
+    encryption.decrypt.mockResolvedValue(decrypted);
+
+    const config: BundleConfig = {
+      identity: "api-gateway",
+      environment: "dev",
+      outputPath: "/output/secrets.mjs",
+      format: "esm",
+    };
+
+    await generator.generate(config, baseManifest(), "/repo");
+
+    const writtenSource = (mockFs.writeFileSync as jest.Mock).mock.calls[0][1] as string;
+    expect(writtenSource).toContain("BEGIN AGE ENCRYPTED");
+    expect(writtenSource).not.toContain("postgres://");
+    expect(writtenSource).not.toContain("secret123");
+    expect(writtenSource).toContain('"DATABASE_URL"');
+    expect(writtenSource).toContain('"API_KEY"');
+  });
 });

@@ -49,6 +49,12 @@ export function registerScanCommand(program: Command, deps: { runner: Subprocess
           return;
         }
 
+        if (options.severity && options.severity !== "all" && options.severity !== "high") {
+          formatter.error(`Invalid severity '${options.severity}'. Must be 'all' or 'high'.`);
+          process.exit(2);
+          return;
+        }
+
         const severity = options.severity === "high" ? "high" : "all";
         const scanRunner = new ScanRunner(deps.runner);
 

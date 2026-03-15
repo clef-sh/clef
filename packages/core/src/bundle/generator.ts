@@ -59,28 +59,50 @@ export class BundleGenerator {
       );
 
     const isMultiNamespace = identity.namespaces.length > 1;
+    const collisions: string[] = [];
 
     for (const cell of cells) {
       const decrypted = await this.encryption.decrypt(cell.filePath);
       for (const [key, value] of Object.entries(decrypted.values)) {
         const qualifiedKey = isMultiNamespace ? `${cell.namespace}/${key}` : key;
+        if (qualifiedKey in allValues && allValues[qualifiedKey] !== value) {
+          collisions.push(qualifiedKey);
+        }
         allValues[qualifiedKey] = value;
       }
     }
 
+    if (collisions.length > 0) {
+      throw new Error(
+        `Key collision detected in bundle: ${collisions.join(", ")}. ` +
+          "Keys with the same name but different values exist across namespaces.",
+      );
+    }
+
     const keyCount = Object.keys(allValues).length;
 
-    // age-encrypt the JSON blob to the service identity's recipient
-    const plaintext = JSON.stringify(allValues);
+    // age-encrypt the JSON blob to the service identity's recipient.
+    // Note: age-encryption is a runtime dependency that must be installed by the consumer.
+    // The generated bundle also dynamically imports age-encryption at runtime for decryption.
+    let plaintext = JSON.stringify(allValues);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic ESM import of CJS-incompatible package
-    const { Encrypter } = await import("age-encryption" as any);
-    const e = new Encrypter();
-    e.addRecipient(envConfig.recipient);
-    const ciphertext = await e.encrypt(plaintext);
+    let ciphertext: string;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic ESM import of CJS-incompatible package
+      const { Encrypter } = await import("age-encryption" as any);
+      const e = new Encrypter();
+      e.addRecipient(envConfig.recipient);
+      ciphertext = await e.encrypt(plaintext);
+    } catch {
+      for (const k of Object.keys(allValues)) allValues[k] = "";
+      plaintext = "";
+      throw new Error("Failed to age-encrypt bundle. Check recipient key.");
+    }
 
-    // Generate the runtime module source
+    // Best-effort cleanup — immutable strings cannot be reliably scrubbed in a GC runtime
     const keys = Object.keys(allValues);
+    for (const k of keys) allValues[k] = "";
+    plaintext = "";
     const source = generateRuntimeModule(ciphertext, keys, config.format);
 
     // Write to disk

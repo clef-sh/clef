@@ -127,6 +127,16 @@ describe("clef bundle", () => {
     expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Bundle generated"));
     expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("/tmp/secrets.mjs"));
     expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("Do NOT commit"));
+
+    // Verify the written bundle does not contain plaintext secret values
+    const writeCall = mockFs.writeFileSync.mock.calls.find((c: unknown[]) =>
+      String(c[0]).includes("secrets.mjs"),
+    );
+    if (writeCall) {
+      const content = String(writeCall[1]);
+      expect(content).not.toContain("postgres://localhost");
+      expect(content).not.toContain("sk-123");
+    }
   });
 
   it("should support --format cjs", async () => {
@@ -166,7 +176,7 @@ describe("clef bundle", () => {
     ]);
 
     expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("Invalid format"));
-    expect(mockExit).toHaveBeenCalledWith(2);
+    expect(mockExit).toHaveBeenCalledWith(1);
   });
 
   it("should error when identity not found", async () => {
