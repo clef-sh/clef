@@ -118,6 +118,7 @@ jobs:
       - name: Install slsa-verifier (Windows)
         if: runner.os == 'Windows'
         run: |
+          mkdir -p "$USERPROFILE/.local/bin"
           curl -fsSL \
             "https://github.com/slsa-framework/slsa-verifier/releases/download/v2.7.1/slsa-verifier-windows-amd64.exe" \
             -o "$USERPROFILE/.local/bin/slsa-verifier.exe"
