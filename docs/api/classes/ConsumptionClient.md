@@ -6,7 +6,7 @@
 
 # Class: ConsumptionClient
 
-Defined in: [packages/core/src/consumption/client.ts:12](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/consumption/client.ts#L12)
+Defined in: [packages/core/src/consumption/client.ts:12](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/consumption/client.ts#L12)
 
 Prepares decrypted secrets for consumption via environment injection or shell export.
 
@@ -40,7 +40,7 @@ formatExport(
    noExport): string;
 ```
 
-Defined in: [packages/core/src/consumption/client.ts:58](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/consumption/client.ts#L58)
+Defined in: [packages/core/src/consumption/client.ts:58](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/consumption/client.ts#L58)
 
 Formats decrypted values for stdout output.
 Values are single-quoted; embedded single quotes are escaped as '\''.
@@ -68,7 +68,7 @@ prepareEnvironment(
 options?): Record<string, string>;
 ```
 
-Defined in: [packages/core/src/consumption/client.ts:17](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/consumption/client.ts#L17)
+Defined in: [packages/core/src/consumption/client.ts:17](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/consumption/client.ts#L17)
 
 Merges decrypted values into a base environment, respecting --only, --prefix, and --no-override.
 Returns a new environment record suitable for child_process.spawn.

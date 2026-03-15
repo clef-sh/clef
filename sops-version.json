@@ -1,7 +1,7 @@
 {
   "version": "3.9.4",
   "checksums": {
-    "darwin-arm64": "c6df0d54a0318f85e43e76d8a5673f5749e0d085ee555e3f31b9e67b24d1372e",
+    "darwin-arm64": "51ee2c3ec2c4331cfe1c0c25168e1c4c8036900842700b9bb074dda92a6017f2",
     "darwin-x64": "e6a4e4dc143a2e97e8e0cfdc43bdbd7c5c8bbd17f0f98d09b05ec2c8fe1c2054",
     "linux-x64": "c0e28e91b35b4a4c6f1b8e5e2eaf5e1a4c6b3d1e7f8a9b0c1d2e3f4a5b6c7d8e",
     "linux-arm64": "d1f39e02c46c5b5d7f2c9f6f3b0e2b5d7a8c4e2f1a3b5c7d9e0f1a2b3c4d5e6f",

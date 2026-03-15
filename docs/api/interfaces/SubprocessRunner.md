@@ -6,7 +6,7 @@
 
 # Interface: SubprocessRunner
 
-Defined in: [packages/core/src/types/index.ts:18](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L18)
+Defined in: [packages/core/src/types/index.ts:18](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L18)
 
 Abstraction over subprocess execution used throughout the core library.
 Inject a real implementation (`NodeSubprocessRunner`) in production and a
@@ -23,7 +23,7 @@ run(
 options?): Promise<SubprocessResult>;
 ```
 
-Defined in: [packages/core/src/types/index.ts:19](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L19)
+Defined in: [packages/core/src/types/index.ts:19](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L19)
 
 #### Parameters
 

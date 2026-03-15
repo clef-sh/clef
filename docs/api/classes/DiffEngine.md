@@ -6,7 +6,7 @@
 
 # Class: DiffEngine
 
-Defined in: [packages/core/src/diff/engine.ts:26](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/diff/engine.ts#L26)
+Defined in: [packages/core/src/diff/engine.ts:26](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/diff/engine.ts#L26)
 
 Compares decrypted values between two environments or two arbitrary key/value maps.
 
@@ -49,7 +49,7 @@ diff(
    namespace?): DiffResult;
 ```
 
-Defined in: [packages/core/src/diff/engine.ts:38](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/diff/engine.ts#L38)
+Defined in: [packages/core/src/diff/engine.ts:38](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/diff/engine.ts#L38)
 
 Compare two in-memory value maps and produce a sorted diff result.
 
@@ -83,7 +83,7 @@ diffFiles(
 repoRoot): Promise<DiffResult>;
 ```
 
-Defined in: [packages/core/src/diff/engine.ts:94](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/diff/engine.ts#L94)
+Defined in: [packages/core/src/diff/engine.ts:94](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/diff/engine.ts#L94)
 
 Decrypt two matrix cells and diff their values.
 

@@ -97,6 +97,10 @@ Read:
 - `packages/cli/src/commands/set.ts`
 - `packages/cli/src/commands/exec.ts`
 - `packages/cli/src/commands/merge-driver.ts`
+- `packages/cli/src/commands/service.ts`
+- `packages/cli/src/commands/bundle.ts`
+- `packages/core/src/service-identity/manager.ts`
+- `packages/core/src/bundle/generator.ts`
 - `packages/ui/src/server/api.ts`
 
 Check:
@@ -114,6 +118,12 @@ Check:
   plaintext values to stderr — confirm this is intentional
   (user needs values to resolve conflicts) and that error
   paths (e.g. decryption failure) do not leak values
+- `clef service create` and `clef service rotate` print
+  private keys to stdout intentionally — confirm error paths
+  during key generation do not leak partial key material
+- `clef bundle` error paths do not include decrypted values
+  from the secrets being bundled — only key names and
+  encrypted content references are safe to log
 
 ### 1.4 `clef exec` security
 
@@ -211,7 +221,109 @@ Check:
 - SOPS MAC is valid on the re-encrypted output — confirm
   SOPS verifies integrity on re-encryption
 
-### 1.9 Bundled sops binary — supply chain and resolution
+### 1.9 Service identity — private key handling
+
+Read in full:
+
+- `packages/core/src/service-identity/manager.ts`
+- `packages/cli/src/commands/service.ts`
+- `packages/core/src/age/keygen.ts`
+
+Check — Key generation:
+
+- `generateAgeIdentity()` uses the `age-encryption` package
+  (FiloSottile's spec-compliant implementation) — not
+  `crypto.randomBytes` directly, not any custom key derivation
+- One keypair is generated **per environment** — confirm no key
+  sharing across environments
+- The secret key string is never assigned to any object that
+  persists beyond the `create` or `rotate` function scope
+
+Check — Private key output:
+
+- `clef service create` prints private keys to stdout exactly
+  once — confirm they are not written to any file, not stored
+  in `clef.yaml`, not stored in `.clef-meta.yaml`, not stored
+  in `.clef/config.yaml`
+- The output includes a clear warning that keys are shown once
+  and must be stored in a secret manager immediately
+- After `create` returns, no in-memory reference to the private
+  keys remains — they are not cached or logged
+- `clef service show` displays only public keys (age1...) —
+  never secret keys. Confirm no code path in `show` accesses
+  private key material
+- `clef service list` displays truncated public key previews
+  only — confirm truncation uses `keyPreview()` or equivalent
+
+Check — Key rotation:
+
+- `clef service rotate` generates new keypairs and prints new
+  private keys — same one-time output rules as `create`
+- Old private keys are not referenced or displayed during
+  rotation
+- Old public keys are removed from SOPS recipient lists before
+  new ones are added — confirm the remove-then-add ordering
+  prevents a window where both old and new keys can decrypt
+- Rotation of a single environment (`--environment`) does not
+  affect other environments' keys
+
+Check — Recipient registration security:
+
+- `registerRecipients()` only adds the identity's public key
+  to SOPS files within the identity's declared namespace scope
+- A service identity scoped to `[api]` must NOT have its
+  recipient registered on `database/*.enc.yaml` files — any
+  scope leakage is a Critical issue
+- Recipient removal during rotation only removes the identity's
+  own old key — not other recipients
+
+### 1.10 Bundle generation — plaintext handling
+
+Read in full:
+
+- `packages/core/src/bundle/generator.ts`
+- `packages/core/src/bundle/runtime.ts`
+- `packages/cli/src/commands/bundle.ts`
+
+Check — Plaintext never touches disk:
+
+- `BundleGenerator.generate()` decrypts scoped SOPS files into
+  an in-memory key/value map — confirm no temp files are
+  created during decryption
+- The merged plaintext JSON blob is age-encrypted in memory
+  before being written to the output file — the output `.mjs`
+  or `.cjs` file must contain only the armored age ciphertext,
+  never plaintext values
+- If age encryption fails, the error message does not include
+  any plaintext values from the decrypted secrets
+- The plaintext map is not logged, not written to any debug
+  output, and not included in any error object
+
+Check — Bundle output security:
+
+- The generated module embeds age-encrypted ciphertext and key
+  names only — no plaintext values
+- The `KEYS` array exported by the bundle contains key names
+  (which are not secret) — confirm no values are in this array
+- The `--output` path is validated — confirm it does not write
+  to locations inside the git worktree without warning (bundles
+  should never be committed). Check if a `.gitignore` warning
+  is emitted
+- Multi-namespace bundles prefix keys with `namespace/` — a
+  namespace collision (e.g. key `foo` in two namespaces)
+  must not silently overwrite
+
+Check — Runtime module security:
+
+- The `keyProvider` function is called at most once (cold start)
+  — confirm the private key is not stored after decryption,
+  only the decrypted values map is cached
+- Concurrent cold-start calls are deduplicated — not called
+  multiple times in parallel
+- The runtime does not import `fs`, `child_process`, or any
+  Node module that could write to disk — only `age-encryption`
+
+### 1.11 Bundled sops binary — supply chain and resolution
 
 Read in full:
 
@@ -459,7 +571,7 @@ registration.
 
 Check:
 
-- `--dir` flag exists on every command (all 17)
+- `--dir` flag exists on every command (all 19)
 - It correctly overrides the auto-detected repo root in
   every command
 - Tests cover `--dir` on at least three commands
@@ -494,7 +606,95 @@ Check:
   other commands
 - Re-encrypted output has valid SOPS MAC
 
-### 2.10 `clef update` correctness
+### 2.10 Service identity correctness
+
+Read:
+
+- `packages/core/src/service-identity/manager.ts`
+- `packages/cli/src/commands/service.ts`
+- `packages/core/src/manifest/parser.ts`
+
+Check — `clef service create`:
+
+- Creating an identity with a namespace not in the manifest
+  produces a clear error and does not modify `clef.yaml`
+- Creating an identity with a duplicate name produces an
+  error — not a silent overwrite
+- The manifest is updated atomically — if recipient
+  registration fails partway through, `clef.yaml` is not left
+  in a half-updated state with some environments registered
+  and others missing
+- All declared environments get a keypair — if three
+  environments exist (dev, staging, production), three
+  keypairs are generated. Missing any one is a High issue
+
+Check — `clef service rotate`:
+
+- `--environment` flag correctly targets a single environment
+  — other environments' keys remain unchanged in the manifest
+- Rotating all environments (no `--environment` flag) replaces
+  every key in the identity's `environments` map
+- After rotation, the identity's recipient in all scoped
+  SOPS files matches the new public key — confirm by checking
+  that old recipient removal and new recipient addition both
+  succeed or both fail (transactional)
+- Rotating a nonexistent identity produces a clear error
+
+Check — `clef service validate` / drift detection:
+
+- `missing_environment` is detected when a new environment is
+  added to the manifest but the identity has no key for it
+- `namespace_not_found` is detected when a scoped namespace
+  is removed from the manifest
+- `recipient_not_registered` is detected when the identity's
+  public key is missing from a SOPS file's recipient list
+  within its scope
+- `scope_mismatch` is detected when the identity's public key
+  appears in a SOPS file outside its declared namespace scope
+- Each issue includes a `fixCommand` suggestion where
+  applicable
+- `clef lint` automatically runs service identity validation
+  when `service_identities` is present in the manifest
+
+Check — Protected environment interaction:
+
+- `clef service create` on a manifest with `protected: true`
+  environments — does it prompt for confirmation before
+  modifying protected environment SOPS files?
+- `clef service rotate` on a protected environment — does it
+  require confirmation?
+
+### 2.11 Bundle generation correctness
+
+Read:
+
+- `packages/core/src/bundle/generator.ts`
+- `packages/core/src/bundle/runtime.ts`
+- `packages/cli/src/commands/bundle.ts`
+
+Check:
+
+- `clef bundle <identity> <environment>` with a nonexistent
+  identity produces a clear error
+- `clef bundle <identity> <environment>` with a nonexistent
+  environment produces a clear error
+- The bundle encrypts to the identity's public key for the
+  specified environment — not the developer's key, not a
+  hardcoded key
+- Single-namespace identities produce flat key names (e.g.
+  `DATABASE_URL`); multi-namespace identities produce prefixed
+  keys (e.g. `api/STRIPE_KEY`) — confirm the logic is based
+  on `identity.namespaces.length`
+- `--format esm` produces valid ES module syntax with
+  `export` statements
+- `--format cjs` produces valid CommonJS syntax with
+  `module.exports`
+- The `--output` flag is required — omitting it produces a
+  clear error, not output to stdout (which would expose
+  encrypted content in terminal history)
+- Exit codes: 0 on success, 1 on error
+
+### 2.12 `clef update` correctness
 
 Read:
 
@@ -539,9 +739,9 @@ find packages/cli/src/commands -name "*.ts" \
   -not -name "*.test.ts" | sort
 ```
 
-Expect 17 command files: init, get, set, delete, diff,
+Expect 19 command files: init, get, set, delete, diff,
 lint, rotate, hooks, exec, export, import, doctor, update,
-scan, recipients, ui, merge-driver.
+scan, recipients, ui, merge-driver, service, bundle.
 
 Check every command has:
 
@@ -617,7 +817,68 @@ Check:
   solution, setup, and security invariants
 - `docs/cli/hooks.md` documents merge driver installation
 
-### 3.7 Bundled sops completeness
+### 3.7 Service identity and bundle completeness
+
+Check — CLI registration:
+
+- `clef service` command is registered in
+  `packages/cli/src/index.ts` with subcommands: `create`,
+  `list`, `show`, `rotate`, `validate`
+- `clef bundle` command is registered in
+  `packages/cli/src/index.ts`
+- Both commands have co-located `.test.ts` files with
+  meaningful assertions
+- Both commands support `--dir` flag
+
+Check — Core exports:
+
+- `ServiceIdentityManager` is exported from
+  `packages/core/src/index.ts`
+- `BundleGenerator` and `generateRuntimeModule` are exported
+  from `packages/core/src/index.ts`
+- All related types are exported: `ServiceIdentityDefinition`,
+  `ServiceIdentityEnvironmentConfig`,
+  `ServiceIdentityDriftIssue`, `BundleConfig`, `BundleResult`
+
+Check — Manifest integration:
+
+- `ManifestParser` accepts optional `service_identities` array
+  in `clef.yaml`
+- Parser validates: unique identity names, namespace references
+  exist, all environments have entries
+- A manifest without `service_identities` continues to work
+  unchanged — no breaking change to existing repos
+
+Check — Lint integration:
+
+- `clef lint` reports service identity drift issues when
+  `service_identities` is present
+- Drift issues have appropriate severity: `missing_environment`
+  and `recipient_not_registered` are errors;
+  `scope_mismatch` is a warning
+- Each drift issue includes a `fixCommand` in the lint output
+  where applicable
+
+Check — Documentation:
+
+- `docs/guide/service-identities.md` exists with:
+  - Concept explanation (what, why, when to use)
+  - Complete workflow (create → store → bundle → deploy)
+  - Key provider examples for AWS, GCP, Vault
+  - Multi-namespace key prefixing explained
+  - Rotation and recovery procedures
+- `docs/cli/service.md` documents all subcommands and flags
+- `docs/cli/bundle.md` documents all flags and output formats
+- `docs/guide/ci-cd.md` includes bundle generation in CI
+  pipeline examples
+
+Check — `.gitignore`:
+
+- Generated bundle files (`*.secrets.mjs`, `*.secrets.cjs`,
+  or whatever the conventional output name) are mentioned
+  in documentation as files to add to `.gitignore`
+
+### 3.8 Bundled sops completeness
 
 Check:
 
@@ -737,7 +998,61 @@ Check:
   integration — setting the env var changes the command
   passed to `runner.run()`
 
-### 4.5 Merge driver test coverage
+### 4.5 Service identity and bundle test coverage
+
+Read:
+
+- `packages/core/src/service-identity/manager.test.ts`
+  (if it exists)
+- `packages/cli/src/commands/service.test.ts`
+- `packages/core/src/bundle/generator.test.ts`
+  (if it exists)
+- `packages/cli/src/commands/bundle.test.ts`
+
+Check — Service identity tests:
+
+- A test asserts private keys are printed to stdout during
+  `create` — and that no subsequent call can retrieve them
+- A test asserts `show` and `list` only display public keys
+- A test asserts creating a duplicate identity name fails
+- A test asserts creating with a nonexistent namespace fails
+- A test asserts rotation generates new keys different from
+  the old ones
+- A test asserts rotation removes old recipients and adds
+  new ones on scoped SOPS files
+- A test asserts single-environment rotation leaves other
+  environments unchanged
+- Drift detection tests cover all issue types:
+  `missing_environment`, `namespace_not_found`,
+  `recipient_not_registered`, `scope_mismatch`
+- A test asserts scope enforcement — recipient is NOT
+  registered on files outside the identity's namespace scope
+
+Check — Bundle tests:
+
+- A test asserts the generated module contains age-encrypted
+  ciphertext — not plaintext values
+- A test asserts the `KEYS` array contains only key names
+- A test asserts single-namespace bundles use flat key names
+- A test asserts multi-namespace bundles use prefixed key
+  names (`namespace/key`)
+- A test asserts `--format esm` produces valid ES module
+  syntax
+- A test asserts `--format cjs` produces valid CommonJS syntax
+- A test asserts bundle generation fails cleanly when the
+  identity does not exist
+- A test asserts bundle generation fails cleanly when the
+  environment does not exist
+
+Check — Security-critical:
+
+- A test asserts that if decryption fails during bundle
+  generation, no partial plaintext is written to the output
+  file
+- A test asserts the runtime module's `keyProvider` is called
+  at most once (memoization)
+
+### 4.6 Merge driver test coverage
 
 Read:
 
@@ -844,7 +1159,43 @@ Check:
 - Exit codes match `packages/cli/src/commands/scan.ts`
 - Pre-commit hook behaviour description is accurate
 
-### 5.7 Migration guide accuracy
+### 5.7 Service identities guide accuracy
+
+Read `docs/guide/service-identities.md`.
+
+Check:
+
+- The concept explanation distinguishes service identities
+  (machine keypairs) from human recipients clearly
+- The workflow (create → store → bundle → deploy) matches the
+  actual CLI commands and their flags
+- Key provider examples (AWS Secrets Manager, GCP Secret
+  Manager, Vault) use correct SDK syntax for those services
+- The manifest YAML example matches what `clef service create`
+  actually writes to `clef.yaml`
+- Multi-namespace key prefixing (`namespace/KEY`) is explained
+  and matches the implementation
+- Rotation instructions are accurate and include the step to
+  update the secret manager with the new private key
+- The security model explanation (private key never stored by
+  Clef, bundle contains only ciphertext) is accurate
+
+### 5.8 Service and bundle CLI reference accuracy
+
+Read `docs/cli/service.md` and `docs/cli/bundle.md`.
+
+For each:
+
+- Read the docs page
+- Read the corresponding command implementation
+- Verify every flag documented actually exists in the code
+- Verify every flag in the code is documented
+- Verify example commands match the actual CLI registration
+
+Flag any inaccuracy as Low (High if the example would cause
+key material exposure or data loss).
+
+### 5.9 Migration guide accuracy
 
 Read `docs/guide/migrating.md`.
 

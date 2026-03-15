@@ -10,7 +10,7 @@
 function parseJson(content): ParsedImport;
 ```
 
-Defined in: [packages/core/src/import/parsers.ts:130](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/import/parsers.ts#L130)
+Defined in: [packages/core/src/import/parsers.ts:130](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/import/parsers.ts#L130)
 
 Parse a JSON object into flat string key/value pairs.
 Non-string values (numbers, booleans, nulls, arrays, objects) are skipped with warnings.

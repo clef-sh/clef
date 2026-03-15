@@ -6,7 +6,7 @@
 
 # Interface: EncryptionBackend
 
-Defined in: [packages/core/src/types/index.ts:291](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L291)
+Defined in: [packages/core/src/types/index.ts:302](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L302)
 
 Backend-agnostic interface for all encryption/decryption operations.
 
@@ -22,7 +22,7 @@ replaced without touching call sites.
 addRecipient(filePath, key): Promise<void>;
 ```
 
-Defined in: [packages/core/src/types/index.ts:304](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L304)
+Defined in: [packages/core/src/types/index.ts:315](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L315)
 
 Add an age recipient to an encrypted file (rotate + add-age).
 
@@ -45,7 +45,7 @@ Add an age recipient to an encrypted file (rotate + add-age).
 decrypt(filePath): Promise<DecryptedFile>;
 ```
 
-Defined in: [packages/core/src/types/index.ts:293](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L293)
+Defined in: [packages/core/src/types/index.ts:304](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L304)
 
 Decrypt a file and return its values and metadata.
 
@@ -71,7 +71,7 @@ encrypt(
 environment?): Promise<void>;
 ```
 
-Defined in: [packages/core/src/types/index.ts:295](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L295)
+Defined in: [packages/core/src/types/index.ts:306](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L306)
 
 Encrypt a key/value map and write it to a file.
 
@@ -96,7 +96,7 @@ Encrypt a key/value map and write it to a file.
 getMetadata(filePath): Promise<SopsMetadata>;
 ```
 
-Defined in: [packages/core/src/types/index.ts:310](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L310)
+Defined in: [packages/core/src/types/index.ts:321](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L321)
 
 Extract encryption metadata without decrypting.
 
@@ -118,7 +118,7 @@ Extract encryption metadata without decrypting.
 reEncrypt(filePath, newKey): Promise<void>;
 ```
 
-Defined in: [packages/core/src/types/index.ts:302](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L302)
+Defined in: [packages/core/src/types/index.ts:313](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L313)
 
 Rotate encryption by adding a new recipient key.
 
@@ -141,7 +141,7 @@ Rotate encryption by adding a new recipient key.
 removeRecipient(filePath, key): Promise<void>;
 ```
 
-Defined in: [packages/core/src/types/index.ts:306](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L306)
+Defined in: [packages/core/src/types/index.ts:317](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L317)
 
 Remove an age recipient from an encrypted file (rotate + rm-age).
 
@@ -164,7 +164,7 @@ Remove an age recipient from an encrypted file (rotate + rm-age).
 validateEncryption(filePath): Promise<boolean>;
 ```
 
-Defined in: [packages/core/src/types/index.ts:308](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L308)
+Defined in: [packages/core/src/types/index.ts:319](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L319)
 
 Check whether a file has valid encryption metadata.
 

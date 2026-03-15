@@ -6,7 +6,7 @@
 
 # Class: MatrixManager
 
-Defined in: [packages/core/src/matrix/manager.ts:16](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/matrix/manager.ts#L16)
+Defined in: [packages/core/src/matrix/manager.ts:16](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/matrix/manager.ts#L16)
 
 Resolves and manages the namespace × environment matrix of encrypted files.
 
@@ -37,7 +37,7 @@ new MatrixManager(): MatrixManager;
 detectMissingCells(manifest, repoRoot): MatrixCell[];
 ```
 
-Defined in: [packages/core/src/matrix/manager.ts:52](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/matrix/manager.ts#L52)
+Defined in: [packages/core/src/matrix/manager.ts:52](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/matrix/manager.ts#L52)
 
 Return only the cells whose encrypted files do not yet exist on disk.
 
@@ -63,7 +63,7 @@ getMatrixStatus(
 sopsClient): Promise<MatrixStatus[]>;
 ```
 
-Defined in: [packages/core/src/matrix/manager.ts:83](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/matrix/manager.ts#L83)
+Defined in: [packages/core/src/matrix/manager.ts:83](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/matrix/manager.ts#L83)
 
 Decrypt each cell and return key counts, pending counts, and cross-environment issues.
 
@@ -87,7 +87,7 @@ Decrypt each cell and return key counts, pending counts, and cross-environment i
 isProtectedEnvironment(manifest, environment): boolean;
 ```
 
-Defined in: [packages/core/src/matrix/manager.ts:173](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/matrix/manager.ts#L173)
+Defined in: [packages/core/src/matrix/manager.ts:173](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/matrix/manager.ts#L173)
 
 Check whether an environment has the `protected` flag set in the manifest.
 
@@ -110,7 +110,7 @@ Check whether an environment has the `protected` flag set in the manifest.
 resolveMatrix(manifest, repoRoot): MatrixCell[];
 ```
 
-Defined in: [packages/core/src/matrix/manager.ts:24](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/matrix/manager.ts#L24)
+Defined in: [packages/core/src/matrix/manager.ts:24](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/matrix/manager.ts#L24)
 
 Build the full grid of [MatrixCell](../interfaces/MatrixCell.md) objects from the manifest.
 Each cell reflects whether its encrypted file exists on disk.
@@ -137,7 +137,7 @@ scaffoldCell(
 manifest): Promise<void>;
 ```
 
-Defined in: [packages/core/src/matrix/manager.ts:63](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/matrix/manager.ts#L63)
+Defined in: [packages/core/src/matrix/manager.ts:63](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/matrix/manager.ts#L63)
 
 Create an empty encrypted SOPS file for a missing matrix cell.
 

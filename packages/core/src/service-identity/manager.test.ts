@@ -1,0 +1,376 @@
+import * as fs from "fs";
+import * as YAML from "yaml";
+import { ServiceIdentityManager } from "./manager";
+import { ClefManifest, EncryptionBackend, ServiceIdentityDefinition, SopsMetadata } from "../types";
+import { MatrixManager } from "../matrix/manager";
+
+jest.mock("fs");
+jest.mock("../age/keygen");
+
+const mockFs = fs as jest.Mocked<typeof fs>;
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- jest mock
+const { generateAgeIdentity } = require("../age/keygen") as {
+  generateAgeIdentity: jest.Mock;
+};
+
+function baseManifest(overrides?: Partial<ClefManifest>): ClefManifest {
+  return {
+    version: 1,
+    environments: [
+      { name: "dev", description: "Development" },
+      { name: "staging", description: "Staging" },
+      { name: "production", description: "Production", protected: true },
+    ],
+    namespaces: [
+      { name: "api", description: "API secrets" },
+      { name: "database", description: "DB config" },
+    ],
+    sops: { default_backend: "age" },
+    file_pattern: "{namespace}/{environment}.enc.yaml",
+    ...overrides,
+  };
+}
+
+function mockEncryption(): jest.Mocked<EncryptionBackend> {
+  return {
+    decrypt: jest.fn(),
+    encrypt: jest.fn(),
+    reEncrypt: jest.fn(),
+    addRecipient: jest.fn().mockResolvedValue(undefined),
+    removeRecipient: jest.fn().mockResolvedValue(undefined),
+    validateEncryption: jest.fn(),
+    getMetadata: jest.fn(),
+  };
+}
+
+describe("ServiceIdentityManager", () => {
+  let encryption: jest.Mocked<EncryptionBackend>;
+  let matrixManager: MatrixManager;
+  let manager: ServiceIdentityManager;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    encryption = mockEncryption();
+    matrixManager = new MatrixManager();
+    manager = new ServiceIdentityManager(encryption, matrixManager);
+
+    let callCount = 0;
+    generateAgeIdentity.mockImplementation(async () => {
+      callCount++;
+      return {
+        privateKey: `AGE-SECRET-KEY-${callCount}`,
+        publicKey: `age1pubkey${callCount}`,
+      };
+    });
+  });
+
+  describe("create", () => {
+    it("should generate per-env keys and update manifest", async () => {
+      const manifest = baseManifest();
+      const manifestYaml = YAML.stringify({
+        version: 1,
+        environments: manifest.environments,
+        namespaces: manifest.namespaces,
+        sops: manifest.sops,
+        file_pattern: manifest.file_pattern,
+      });
+      mockFs.readFileSync.mockReturnValue(manifestYaml);
+      mockFs.writeFileSync.mockImplementation(() => {});
+      mockFs.existsSync.mockReturnValue(false);
+
+      const result = await manager.create(
+        "api-gateway",
+        ["api"],
+        "API gateway service",
+        manifest,
+        "/repo",
+      );
+
+      expect(result.identity.name).toBe("api-gateway");
+      expect(result.identity.namespaces).toEqual(["api"]);
+      expect(Object.keys(result.privateKeys)).toHaveLength(3);
+      expect(result.privateKeys.dev).toMatch(/^AGE-SECRET-KEY-/);
+      expect(result.identity.environments.dev.recipient).toMatch(/^age1pubkey/);
+      expect(mockFs.writeFileSync).toHaveBeenCalled();
+    });
+
+    it("should throw if identity name already exists", async () => {
+      const manifest = baseManifest({
+        service_identities: [
+          {
+            name: "existing",
+            description: "Existing",
+            namespaces: ["api"],
+            environments: { dev: { recipient: "age1test" } },
+          },
+        ],
+      });
+
+      await expect(manager.create("existing", ["api"], "dup", manifest, "/repo")).rejects.toThrow(
+        "already exists",
+      );
+    });
+
+    it("should throw if namespace not found", async () => {
+      const manifest = baseManifest();
+
+      await expect(
+        manager.create("svc", ["nonexistent"], "test", manifest, "/repo"),
+      ).rejects.toThrow("not found");
+    });
+
+    it("should register recipients on scoped files", async () => {
+      const manifest = baseManifest();
+      const manifestYaml = YAML.stringify({
+        version: 1,
+        environments: manifest.environments,
+        namespaces: manifest.namespaces,
+        sops: manifest.sops,
+        file_pattern: manifest.file_pattern,
+      });
+      mockFs.readFileSync.mockReturnValue(manifestYaml);
+      mockFs.writeFileSync.mockImplementation(() => {});
+      // Only api files exist
+      mockFs.existsSync.mockImplementation((p) => {
+        return String(p).includes("api/");
+      });
+
+      await manager.create("svc", ["api"], "test", manifest, "/repo");
+
+      // Should have called addRecipient for each api env file
+      expect(encryption.addRecipient).toHaveBeenCalled();
+    });
+  });
+
+  describe("list", () => {
+    it("should return empty array when no identities", () => {
+      expect(manager.list(baseManifest())).toEqual([]);
+    });
+
+    it("should return identities from manifest", () => {
+      const si: ServiceIdentityDefinition = {
+        name: "test",
+        description: "Test",
+        namespaces: ["api"],
+        environments: { dev: { recipient: "age1abc" } },
+      };
+      const manifest = baseManifest({ service_identities: [si] });
+      expect(manager.list(manifest)).toEqual([si]);
+    });
+  });
+
+  describe("get", () => {
+    it("should return undefined for missing identity", () => {
+      expect(manager.get(baseManifest(), "missing")).toBeUndefined();
+    });
+
+    it("should return the matching identity", () => {
+      const si: ServiceIdentityDefinition = {
+        name: "test",
+        description: "Test",
+        namespaces: ["api"],
+        environments: { dev: { recipient: "age1abc" } },
+      };
+      const manifest = baseManifest({ service_identities: [si] });
+      expect(manager.get(manifest, "test")).toEqual(si);
+    });
+  });
+
+  describe("rotateKey", () => {
+    it("should rotate all environments by default", async () => {
+      const si: ServiceIdentityDefinition = {
+        name: "svc",
+        description: "Service",
+        namespaces: ["api"],
+        environments: {
+          dev: { recipient: "age1olddev" },
+          staging: { recipient: "age1oldstg" },
+          production: { recipient: "age1oldprd" },
+        },
+      };
+      const manifest = baseManifest({ service_identities: [si] });
+      const doc = {
+        version: 1,
+        environments: manifest.environments,
+        namespaces: manifest.namespaces,
+        sops: manifest.sops,
+        file_pattern: manifest.file_pattern,
+        service_identities: [{ ...si }],
+      };
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(doc));
+      mockFs.writeFileSync.mockImplementation(() => {});
+      mockFs.existsSync.mockImplementation((p) => String(p).includes("api/"));
+
+      const result = await manager.rotateKey("svc", manifest, "/repo");
+
+      expect(Object.keys(result)).toHaveLength(3);
+      expect(result.dev).toMatch(/^AGE-SECRET-KEY-/);
+      expect(mockFs.writeFileSync).toHaveBeenCalled();
+    });
+
+    it("should rotate a single environment", async () => {
+      const si: ServiceIdentityDefinition = {
+        name: "svc",
+        description: "Service",
+        namespaces: ["api"],
+        environments: {
+          dev: { recipient: "age1olddev" },
+          staging: { recipient: "age1oldstg" },
+          production: { recipient: "age1oldprd" },
+        },
+      };
+      const manifest = baseManifest({ service_identities: [si] });
+      const doc = {
+        version: 1,
+        environments: manifest.environments,
+        namespaces: manifest.namespaces,
+        sops: manifest.sops,
+        file_pattern: manifest.file_pattern,
+        service_identities: [{ ...si }],
+      };
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(doc));
+      mockFs.writeFileSync.mockImplementation(() => {});
+      mockFs.existsSync.mockReturnValue(false);
+
+      const result = await manager.rotateKey("svc", manifest, "/repo", "dev");
+
+      expect(Object.keys(result)).toHaveLength(1);
+      expect(result.dev).toBeDefined();
+    });
+
+    it("should throw if identity not found", async () => {
+      await expect(manager.rotateKey("nope", baseManifest(), "/repo")).rejects.toThrow("not found");
+    });
+
+    it("should throw if environment not found on identity", async () => {
+      const si: ServiceIdentityDefinition = {
+        name: "svc",
+        description: "Service",
+        namespaces: ["api"],
+        environments: {
+          dev: { recipient: "age1olddev" },
+        },
+      };
+      const manifest = baseManifest({
+        environments: [{ name: "dev", description: "Dev" }],
+        service_identities: [si],
+      });
+      const doc = {
+        version: 1,
+        environments: manifest.environments,
+        namespaces: manifest.namespaces,
+        sops: manifest.sops,
+        file_pattern: manifest.file_pattern,
+        service_identities: [{ ...si }],
+      };
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(doc));
+      mockFs.existsSync.mockReturnValue(false);
+
+      await expect(manager.rotateKey("svc", manifest, "/repo", "nonexistent")).rejects.toThrow(
+        "not found",
+      );
+    });
+  });
+
+  describe("validate", () => {
+    it("should return empty array when no identities", async () => {
+      const result = await manager.validate(baseManifest(), "/repo");
+      expect(result).toEqual([]);
+    });
+
+    it("should detect missing environment", async () => {
+      const si: ServiceIdentityDefinition = {
+        name: "svc",
+        description: "Service",
+        namespaces: ["api"],
+        environments: {
+          dev: { recipient: "age1dev" },
+          // missing staging and production
+        },
+      };
+      const manifest = baseManifest({ service_identities: [si] });
+      mockFs.existsSync.mockReturnValue(false);
+
+      const issues = await manager.validate(manifest, "/repo");
+
+      const missingEnvIssues = issues.filter((i) => i.type === "missing_environment");
+      expect(missingEnvIssues.length).toBe(2);
+      expect(missingEnvIssues.map((i) => i.environment)).toContain("staging");
+      expect(missingEnvIssues.map((i) => i.environment)).toContain("production");
+    });
+
+    it("should detect unknown namespace reference", async () => {
+      const si: ServiceIdentityDefinition = {
+        name: "svc",
+        description: "Service",
+        namespaces: ["nonexistent"],
+        environments: {
+          dev: { recipient: "age1dev" },
+          staging: { recipient: "age1stg" },
+          production: { recipient: "age1prd" },
+        },
+      };
+      const manifest = baseManifest({ service_identities: [si] });
+      mockFs.existsSync.mockReturnValue(false);
+
+      const issues = await manager.validate(manifest, "/repo");
+      const nsIssues = issues.filter((i) => i.type === "namespace_not_found");
+      expect(nsIssues).toHaveLength(1);
+      expect(nsIssues[0].namespace).toBe("nonexistent");
+    });
+
+    it("should detect unregistered recipient", async () => {
+      const si: ServiceIdentityDefinition = {
+        name: "svc",
+        description: "Service",
+        namespaces: ["api"],
+        environments: {
+          dev: { recipient: "age1svcdev" },
+          staging: { recipient: "age1svcstg" },
+          production: { recipient: "age1svcprd" },
+        },
+      };
+      const manifest = baseManifest({ service_identities: [si] });
+      mockFs.existsSync.mockImplementation((p) => String(p).includes("api/dev"));
+
+      const metadata: SopsMetadata = {
+        backend: "age",
+        recipients: ["age1other"],
+        lastModified: new Date(),
+      };
+      encryption.getMetadata.mockResolvedValue(metadata);
+
+      const issues = await manager.validate(manifest, "/repo");
+      const unreg = issues.filter((i) => i.type === "recipient_not_registered");
+      expect(unreg.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("should detect scope mismatch", async () => {
+      const si: ServiceIdentityDefinition = {
+        name: "svc",
+        description: "Service",
+        namespaces: ["api"],
+        environments: {
+          dev: { recipient: "age1svcdev" },
+          staging: { recipient: "age1svcstg" },
+          production: { recipient: "age1svcprd" },
+        },
+      };
+      const manifest = baseManifest({ service_identities: [si] });
+      // database/dev exists (not in scope for this identity)
+      mockFs.existsSync.mockImplementation((p) => String(p).includes("database/dev"));
+
+      const metadata: SopsMetadata = {
+        backend: "age",
+        recipients: ["age1svcdev"], // identity's key found outside scope
+        lastModified: new Date(),
+      };
+      encryption.getMetadata.mockResolvedValue(metadata);
+
+      const issues = await manager.validate(manifest, "/repo");
+      const mismatch = issues.filter((i) => i.type === "scope_mismatch");
+      expect(mismatch.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+});

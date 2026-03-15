@@ -38,6 +38,7 @@ export interface ClefManifest {
   namespaces: ClefNamespace[];
   sops: SopsConfig;
   file_pattern: string;
+  service_identities?: ServiceIdentityDefinition[];
 }
 
 /** Per-environment SOPS backend override. */
@@ -231,7 +232,7 @@ export interface DiffResult {
 export type LintSeverity = "error" | "warning" | "info";
 
 /** Category of a lint issue. */
-export type LintCategory = "matrix" | "schema" | "sops";
+export type LintCategory = "matrix" | "schema" | "sops" | "service-identity";
 
 /** A single issue reported by `LintRunner`. */
 export interface LintIssue {
@@ -454,6 +455,52 @@ export class SopsVersionError extends ClefError {
     );
     this.name = "SopsVersionError";
   }
+}
+
+// ── Service Identity ─────────────────────────────────────────────────────
+
+/** Per-environment config for a service identity (just the age public key). */
+export interface ServiceIdentityEnvironmentConfig {
+  recipient: string;
+}
+
+/** A machine-oriented identity with scoped namespace access and per-environment age keys. */
+export interface ServiceIdentityDefinition {
+  name: string;
+  description: string;
+  namespaces: string[];
+  environments: Record<string, ServiceIdentityEnvironmentConfig>;
+}
+
+/** Configuration for generating a runtime JS bundle for a service identity. */
+export interface BundleConfig {
+  identity: string;
+  environment: string;
+  outputPath: string;
+  format: "esm" | "cjs";
+}
+
+/** Result of a bundle generation operation. */
+export interface BundleResult {
+  outputPath: string;
+  namespaceCount: number;
+  keyCount: number;
+  bundleSize: number;
+}
+
+/** A drift issue detected in a service identity configuration. */
+export interface ServiceIdentityDriftIssue {
+  identity: string;
+  environment?: string;
+  namespace?: string;
+  type:
+    | "missing_environment"
+    | "scope_mismatch"
+    | "recipient_not_registered"
+    | "orphaned_recipient"
+    | "namespace_not_found";
+  message: string;
+  fixCommand?: string;
 }
 
 // ── Dependency check types ───────────────────────────────────────────────────

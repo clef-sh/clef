@@ -46,6 +46,16 @@ The CLI is built on [commander.js](https://github.com/tj/commander.js) and follo
 | [`clef exec`](/cli/exec)     | Run a command with secrets injected as env vars | `<target> -- <cmd>`, `--only <keys>`, `--prefix <str>`, `--also <target>`, `--no-override` |
 | [`clef export`](/cli/export) | Print secrets as shell export statements        | `<target>`, `--format <fmt>`, `--no-export`                                                |
 
+### Service identities & bundles
+
+| Command                               | Description                                          | Arguments & flags                              |
+| ------------------------------------- | ---------------------------------------------------- | ---------------------------------------------- |
+| [`clef service create`](/cli/service) | Create a service identity with per-env age key pairs | `<name>`, `--namespaces <ns>`, `--description` |
+| [`clef service list`](/cli/service)   | List all service identities                          | —                                              |
+| [`clef service show`](/cli/service)   | Show details of a service identity                   | `<name>`                                       |
+| [`clef service rotate`](/cli/service) | Rotate keys for a service identity                   | `<name>`, `-e <env>`                           |
+| [`clef bundle`](/cli/bundle)          | Generate a runtime JS bundle for a service identity  | `<identity> <env>`, `-o <path>`, `--format`    |
+
 ### Interface & integration
 
 | Command                                  | Description                                            | Flags                        |

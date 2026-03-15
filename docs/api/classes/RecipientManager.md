@@ -6,7 +6,7 @@
 
 # Class: RecipientManager
 
-Defined in: [packages/core/src/recipients/index.ts:129](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/recipients/index.ts#L129)
+Defined in: [packages/core/src/recipients/index.ts:129](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/recipients/index.ts#L129)
 
 Manages age recipient keys in the manifest and re-encrypts matrix files on add/remove.
 All add/remove operations are transactional — a failure triggers a full rollback.
@@ -26,7 +26,7 @@ const result = await manager.add("age1...", "Alice", manifest, repoRoot);
 new RecipientManager(encryption, matrixManager): RecipientManager;
 ```
 
-Defined in: [packages/core/src/recipients/index.ts:130](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/recipients/index.ts#L130)
+Defined in: [packages/core/src/recipients/index.ts:130](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/recipients/index.ts#L130)
 
 #### Parameters
 
@@ -52,7 +52,7 @@ add(
 environment?): Promise<RecipientsResult>;
 ```
 
-Defined in: [packages/core/src/recipients/index.ts:167](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/recipients/index.ts#L167)
+Defined in: [packages/core/src/recipients/index.ts:167](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/recipients/index.ts#L167)
 
 Add a new age recipient and re-encrypt all existing matrix files.
 Rolls back the manifest and any already-re-encrypted files on failure.
@@ -86,7 +86,7 @@ list(
 environment?): Promise<Recipient[]>;
 ```
 
-Defined in: [packages/core/src/recipients/index.ts:142](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/recipients/index.ts#L142)
+Defined in: [packages/core/src/recipients/index.ts:142](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/recipients/index.ts#L142)
 
 List all age recipients declared in the manifest.
 
@@ -114,7 +114,7 @@ remove(
 environment?): Promise<RecipientsResult>;
 ```
 
-Defined in: [packages/core/src/recipients/index.ts:286](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/recipients/index.ts#L286)
+Defined in: [packages/core/src/recipients/index.ts:286](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/recipients/index.ts#L286)
 
 Remove an age recipient and re-encrypt all existing matrix files.
 Rolls back on failure. Note: re-encryption removes _future_ access only;

@@ -10,7 +10,7 @@
 function parseYaml(content): ParsedImport;
 ```
 
-Defined in: [packages/core/src/import/parsers.ts:181](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/import/parsers.ts#L181)
+Defined in: [packages/core/src/import/parsers.ts:181](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/import/parsers.ts#L181)
 
 Parse a YAML mapping into flat string key/value pairs.
 Non-string values are skipped with warnings.

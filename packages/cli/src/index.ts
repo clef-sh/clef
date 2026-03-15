@@ -17,6 +17,8 @@ import { registerScanCommand } from "./commands/scan";
 import { registerImportCommand } from "./commands/import";
 import { registerRecipientsCommand } from "./commands/recipients";
 import { registerMergeDriverCommand } from "./commands/merge-driver";
+import { registerServiceCommand } from "./commands/service";
+import { registerBundleCommand } from "./commands/bundle";
 import { formatter } from "./output/formatter";
 import { setPlainMode, isPlainMode, symbols } from "./output/symbols";
 import pkg from "../package.json";
@@ -85,6 +87,8 @@ registerUpdateCommand(program, deps);
 registerScanCommand(program, deps);
 registerRecipientsCommand(program, deps);
 registerMergeDriverCommand(program, deps);
+registerServiceCommand(program, deps);
+registerBundleCommand(program, deps);
 
 program.parseAsync(process.argv).catch((err) => {
   formatter.error(err.message);

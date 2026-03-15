@@ -12,7 +12,12 @@
  */
 import * as fs from "fs";
 import * as YAML from "yaml";
-import { ClefManifest, ClefEnvironment, ManifestValidationError } from "../types";
+import {
+  ClefManifest,
+  ClefEnvironment,
+  ManifestValidationError,
+  ServiceIdentityDefinition,
+} from "../types";
 import { validateAgePublicKey } from "../recipients/validator";
 
 /**
@@ -22,7 +27,14 @@ import { validateAgePublicKey } from "../recipients/validator";
 export const CLEF_MANIFEST_FILENAME = "clef.yaml";
 
 const VALID_BACKENDS = ["age", "awskms", "gcpkms", "pgp"] as const;
-const VALID_TOP_LEVEL_KEYS = ["version", "environments", "namespaces", "sops", "file_pattern"];
+const VALID_TOP_LEVEL_KEYS = [
+  "version",
+  "environments",
+  "namespaces",
+  "sops",
+  "file_pattern",
+  "service_identities",
+];
 const ENV_NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
 const FILE_PATTERN_REQUIRED_TOKENS = ["{namespace}", "{environment}"];
 
@@ -394,12 +406,143 @@ export class ManifestParser {
       }
     }
 
+    // service_identities (optional)
+    let serviceIdentities: ServiceIdentityDefinition[] | undefined;
+    if (obj.service_identities !== undefined) {
+      if (!Array.isArray(obj.service_identities)) {
+        throw new ManifestValidationError(
+          "Field 'service_identities' must be an array.",
+          "service_identities",
+        );
+      }
+      serviceIdentities = obj.service_identities.map((si: unknown, i: number) => {
+        if (typeof si !== "object" || si === null) {
+          throw new ManifestValidationError(
+            `Service identity at index ${i} must be an object.`,
+            "service_identities",
+          );
+        }
+        const siObj = si as Record<string, unknown>;
+
+        if (!siObj.name || typeof siObj.name !== "string") {
+          throw new ManifestValidationError(
+            `Service identity at index ${i} is missing a 'name' string.`,
+            "service_identities",
+          );
+        }
+        const siName = siObj.name;
+
+        if (!siObj.description || typeof siObj.description !== "string") {
+          throw new ManifestValidationError(
+            `Service identity '${siName}' is missing a 'description' string.`,
+            "service_identities",
+          );
+        }
+
+        // namespaces
+        if (!Array.isArray(siObj.namespaces) || siObj.namespaces.length === 0) {
+          throw new ManifestValidationError(
+            `Service identity '${siName}' must have a non-empty 'namespaces' array.`,
+            "service_identities",
+          );
+        }
+        for (const ns of siObj.namespaces) {
+          if (typeof ns !== "string") {
+            throw new ManifestValidationError(
+              `Service identity '${siName}' has a non-string entry in 'namespaces'.`,
+              "service_identities",
+            );
+          }
+          if (!nsNames.has(ns)) {
+            throw new ManifestValidationError(
+              `Service identity '${siName}' references unknown namespace '${ns}'.`,
+              "service_identities",
+            );
+          }
+        }
+
+        // environments
+        if (
+          !siObj.environments ||
+          typeof siObj.environments !== "object" ||
+          Array.isArray(siObj.environments)
+        ) {
+          throw new ManifestValidationError(
+            `Service identity '${siName}' must have an 'environments' object.`,
+            "service_identities",
+          );
+        }
+        const siEnvs = siObj.environments as Record<string, unknown>;
+        const parsedEnvs: Record<string, { recipient: string }> = {};
+
+        // Validate that all declared environments are covered
+        for (const env of environments) {
+          if (!(env.name in siEnvs)) {
+            throw new ManifestValidationError(
+              `Service identity '${siName}' is missing environment '${env.name}'. Service identities must cover all declared environments.`,
+              "service_identities",
+            );
+          }
+        }
+
+        for (const [envName, envVal] of Object.entries(siEnvs)) {
+          if (!envNames.has(envName)) {
+            throw new ManifestValidationError(
+              `Service identity '${siName}' references unknown environment '${envName}'.`,
+              "service_identities",
+            );
+          }
+          if (typeof envVal !== "object" || envVal === null) {
+            throw new ManifestValidationError(
+              `Service identity '${siName}' environment '${envName}' must be an object with 'recipient'.`,
+              "service_identities",
+            );
+          }
+          const envObj = envVal as Record<string, unknown>;
+          if (!envObj.recipient || typeof envObj.recipient !== "string") {
+            throw new ManifestValidationError(
+              `Service identity '${siName}' environment '${envName}' is missing a 'recipient' string.`,
+              "service_identities",
+            );
+          }
+          const recipientValidation = validateAgePublicKey(envObj.recipient);
+          if (!recipientValidation.valid) {
+            throw new ManifestValidationError(
+              `Service identity '${siName}' environment '${envName}': ${recipientValidation.error}`,
+              "service_identities",
+            );
+          }
+          parsedEnvs[envName] = { recipient: recipientValidation.key! };
+        }
+
+        return {
+          name: siName,
+          description: siObj.description as string,
+          namespaces: siObj.namespaces as string[],
+          environments: parsedEnvs,
+        };
+      });
+
+      // Check for duplicate identity names
+      const siNames = new Set<string>();
+      for (const si of serviceIdentities) {
+        if (siNames.has(si.name)) {
+          throw new ManifestValidationError(
+            `Duplicate service identity name '${si.name}'.`,
+            "service_identities",
+          );
+        }
+        siNames.add(si.name);
+      }
+    }
+
     return {
       version: 1,
       environments,
       namespaces,
       sops: sopsConfig,
       file_pattern: obj.file_pattern,
+      ...(serviceIdentities ? { service_identities: serviceIdentities } : {}),
     };
   }
 

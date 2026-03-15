@@ -10,9 +10,9 @@
  */
 
 import { createHash } from "node:crypto";
-import { createWriteStream, mkdirSync, chmodSync, existsSync } from "node:fs";
+import { createWriteStream, mkdirSync, chmodSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { pipeline } from "node:stream/promises";
+// import { pipeline } from "node:stream/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 

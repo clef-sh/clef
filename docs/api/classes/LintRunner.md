@@ -6,7 +6,7 @@
 
 # Class: LintRunner
 
-Defined in: [packages/core/src/lint/runner.ts:17](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/lint/runner.ts#L17)
+Defined in: [packages/core/src/lint/runner.ts:23](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/lint/runner.ts#L23)
 
 Runs matrix completeness, schema validation, SOPS integrity, and key-drift checks.
 
@@ -28,7 +28,7 @@ new LintRunner(
    sopsClient): LintRunner;
 ```
 
-Defined in: [packages/core/src/lint/runner.ts:18](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/lint/runner.ts#L18)
+Defined in: [packages/core/src/lint/runner.ts:24](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/lint/runner.ts#L24)
 
 #### Parameters
 
@@ -50,7 +50,7 @@ Defined in: [packages/core/src/lint/runner.ts:18](https://github.com/clef-sh/cle
 fix(manifest, repoRoot): Promise<LintResult>;
 ```
 
-Defined in: [packages/core/src/lint/runner.ts:247](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/lint/runner.ts#L247)
+Defined in: [packages/core/src/lint/runner.ts:344](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/lint/runner.ts#L344)
 
 Auto-fix safe issues (scaffold missing matrix files), then re-run lint.
 
@@ -73,7 +73,7 @@ Auto-fix safe issues (scaffold missing matrix files), then re-run lint.
 run(manifest, repoRoot): Promise<LintResult>;
 ```
 
-Defined in: [packages/core/src/lint/runner.ts:31](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/lint/runner.ts#L31)
+Defined in: [packages/core/src/lint/runner.ts:37](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/lint/runner.ts#L37)
 
 Lint the entire matrix: check missing files, schema errors, SOPS integrity,
 single-recipient warnings, and cross-environment key drift.

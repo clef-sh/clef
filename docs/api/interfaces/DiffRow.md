@@ -6,7 +6,7 @@
 
 # Interface: DiffRow
 
-Defined in: [packages/core/src/types/index.ts:201](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L201)
+Defined in: [packages/core/src/types/index.ts:212](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L212)
 
 One row in a diff result representing a single key comparison.
 
@@ -14,7 +14,7 @@ One row in a diff result representing a single key comparison.
 
 | Property                              | Type                                          | Description                                               | Defined in                                                                                                                                                  |
 | ------------------------------------- | --------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <a id="property-key"></a> `key`       | `string`                                      | -                                                         | [packages/core/src/types/index.ts:202](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L202) |
-| <a id="property-status"></a> `status` | [`DiffStatus`](../type-aliases/DiffStatus.md) | -                                                         | [packages/core/src/types/index.ts:207](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L207) |
-| <a id="property-valuea"></a> `valueA` | `string` \| `null`                            | Value from environment A, or `null` if the key is absent. | [packages/core/src/types/index.ts:204](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L204) |
-| <a id="property-valueb"></a> `valueB` | `string` \| `null`                            | Value from environment B, or `null` if the key is absent. | [packages/core/src/types/index.ts:206](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L206) |
+| <a id="property-key"></a> `key`       | `string`                                      | -                                                         | [packages/core/src/types/index.ts:213](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L213) |
+| <a id="property-status"></a> `status` | [`DiffStatus`](../type-aliases/DiffStatus.md) | -                                                         | [packages/core/src/types/index.ts:218](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L218) |
+| <a id="property-valuea"></a> `valueA` | `string` \| `null`                            | Value from environment A, or `null` if the key is absent. | [packages/core/src/types/index.ts:215](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L215) |
+| <a id="property-valueb"></a> `valueB` | `string` \| `null`                            | Value from environment B, or `null` if the key is absent. | [packages/core/src/types/index.ts:217](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L217) |

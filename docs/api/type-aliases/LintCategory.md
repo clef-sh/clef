@@ -7,9 +7,9 @@
 # Type Alias: LintCategory
 
 ```ts
-type LintCategory = "matrix" | "schema" | "sops";
+type LintCategory = "matrix" | "schema" | "sops" | "service-identity";
 ```
 
-Defined in: [packages/core/src/types/index.ts:224](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L224)
+Defined in: [packages/core/src/types/index.ts:235](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L235)
 
 Category of a lint issue.

@@ -1,5 +1,11 @@
 import * as path from "path";
-import { ClefManifest, LintIssue, LintResult, resolveRecipientsForEnvironment } from "../types";
+import {
+  ClefManifest,
+  LintIssue,
+  LintResult,
+  resolveRecipientsForEnvironment,
+  ServiceIdentityDefinition,
+} from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { SchemaValidator } from "../schema/validator";
 import { EncryptionBackend } from "../types";
@@ -235,7 +241,98 @@ export class LintRunner {
       }
     }
 
+    // Service identity drift checks
+    if (manifest.service_identities && manifest.service_identities.length > 0) {
+      const siIssues = await this.lintServiceIdentities(
+        manifest.service_identities,
+        manifest,
+        repoRoot,
+        existingCells,
+      );
+      issues.push(...siIssues);
+    }
+
     return { issues, fileCount: fileCount + missingCells.length, pendingCount };
+  }
+
+  /**
+   * Lint service identity configurations for drift issues.
+   */
+  private async lintServiceIdentities(
+    identities: ServiceIdentityDefinition[],
+    manifest: ClefManifest,
+    _repoRoot: string,
+    existingCells: { namespace: string; environment: string; filePath: string }[],
+  ): Promise<LintIssue[]> {
+    const issues: LintIssue[] = [];
+    const declaredEnvNames = new Set(manifest.environments.map((e) => e.name));
+    const declaredNsNames = new Set(manifest.namespaces.map((ns) => ns.name));
+
+    for (const si of identities) {
+      // Namespace references
+      for (const ns of si.namespaces) {
+        if (!declaredNsNames.has(ns)) {
+          issues.push({
+            severity: "error",
+            category: "service-identity",
+            file: "clef.yaml",
+            message: `Service identity '${si.name}' references non-existent namespace '${ns}'.`,
+          });
+        }
+      }
+
+      // Environment coverage
+      for (const envName of declaredEnvNames) {
+        if (!(envName in si.environments)) {
+          issues.push({
+            severity: "error",
+            category: "service-identity",
+            file: "clef.yaml",
+            message: `Service identity '${si.name}' is missing environment '${envName}'.`,
+            fixCommand: `clef service rotate ${si.name} --environment ${envName}`,
+          });
+        }
+      }
+
+      // Recipient registration on scoped files
+      for (const cell of existingCells) {
+        const envConfig = si.environments[cell.environment];
+        if (!envConfig) continue;
+
+        if (si.namespaces.includes(cell.namespace)) {
+          try {
+            const metadata = await this.sopsClient.getMetadata(cell.filePath);
+            if (!metadata.recipients.includes(envConfig.recipient)) {
+              issues.push({
+                severity: "warning",
+                category: "service-identity",
+                file: cell.filePath,
+                message: `Service identity '${si.name}' recipient is not registered in ${cell.namespace}/${cell.environment}.`,
+                fixCommand: `clef service create ${si.name} --namespaces ${si.namespaces.join(",")}`,
+              });
+            }
+          } catch {
+            // Cannot read metadata — skip
+          }
+        } else {
+          try {
+            const metadata = await this.sopsClient.getMetadata(cell.filePath);
+            if (metadata.recipients.includes(envConfig.recipient)) {
+              issues.push({
+                severity: "warning",
+                category: "service-identity",
+                file: cell.filePath,
+                message: `Service identity '${si.name}' recipient found in ${cell.namespace}/${cell.environment} but namespace is not in scope.`,
+              });
+            }
+          } catch {
+            // Cannot read metadata — skip
+          }
+        }
+      }
+    }
+
+    return issues;
   }
 
   /**

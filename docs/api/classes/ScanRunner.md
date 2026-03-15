@@ -6,7 +6,7 @@
 
 # Class: ScanRunner
 
-Defined in: [packages/core/src/scanner/index.ts:40](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/scanner/index.ts#L40)
+Defined in: [packages/core/src/scanner/index.ts:40](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/scanner/index.ts#L40)
 
 Scans repository files for plaintext secrets using pattern matching and entropy detection.
 
@@ -25,7 +25,7 @@ const result = await scanner.scan(repoRoot, manifest, { stagedOnly: true });
 new ScanRunner(runner): ScanRunner;
 ```
 
-Defined in: [packages/core/src/scanner/index.ts:41](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/scanner/index.ts#L41)
+Defined in: [packages/core/src/scanner/index.ts:41](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/scanner/index.ts#L41)
 
 #### Parameters
 
@@ -48,7 +48,7 @@ scan(
 options?): Promise<ScanResult>;
 ```
 
-Defined in: [packages/core/src/scanner/index.ts:52](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/scanner/index.ts#L52)
+Defined in: [packages/core/src/scanner/index.ts:52](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/scanner/index.ts#L52)
 
 Scan tracked (or staged) files for secret-like values and unencrypted matrix files.
 

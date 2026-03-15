@@ -6,7 +6,7 @@
 
 # Class: SopsClient
 
-Defined in: [packages/core/src/sops/client.ts:41](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/sops/client.ts#L41)
+Defined in: [packages/core/src/sops/client.ts:43](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/sops/client.ts#L43)
 
 Wraps the `sops` binary for encryption, decryption, re-encryption, and metadata extraction.
 All decrypt/encrypt operations are piped via stdin/stdout — plaintext never touches disk.
@@ -27,18 +27,23 @@ const decrypted = await client.decrypt("secrets/production.enc.yaml");
 ### Constructor
 
 ```ts
-new SopsClient(runner, ageKeyFile?, ageKey?): SopsClient;
+new SopsClient(
+   runner,
+   ageKeyFile?,
+   ageKey?,
+   sopsPath?): SopsClient;
 ```
 
-Defined in: [packages/core/src/sops/client.ts:47](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/sops/client.ts#L47)
+Defined in: [packages/core/src/sops/client.ts:55](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/sops/client.ts#L55)
 
 #### Parameters
 
-| Parameter     | Type                                                    | Description                                                                                            |
-| ------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `runner`      | [`SubprocessRunner`](../interfaces/SubprocessRunner.md) | Subprocess runner used to invoke the `sops` binary.                                                    |
-| `ageKeyFile?` | `string`                                                | Optional path to an age private key file. Passed as `SOPS_AGE_KEY_FILE` to the subprocess environment. |
-| `ageKey?`     | `string`                                                | Optional inline age private key. Passed as `SOPS_AGE_KEY` to the subprocess environment.               |
+| Parameter     | Type                                                    | Description                                                                                                                             |
+| ------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `runner`      | [`SubprocessRunner`](../interfaces/SubprocessRunner.md) | Subprocess runner used to invoke the `sops` binary.                                                                                     |
+| `ageKeyFile?` | `string`                                                | Optional path to an age private key file. Passed as `SOPS_AGE_KEY_FILE` to the subprocess environment.                                  |
+| `ageKey?`     | `string`                                                | Optional inline age private key. Passed as `SOPS_AGE_KEY` to the subprocess environment.                                                |
+| `sopsPath?`   | `string`                                                | Optional explicit path to the sops binary. When omitted, resolved automatically via [resolveSopsPath](../functions/resolveSopsPath.md). |
 
 #### Returns
 
@@ -52,7 +57,7 @@ Defined in: [packages/core/src/sops/client.ts:47](https://github.com/clef-sh/cle
 addRecipient(filePath, key): Promise<void>;
 ```
 
-Defined in: [packages/core/src/sops/client.ts:197](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/sops/client.ts#L197)
+Defined in: [packages/core/src/sops/client.ts:216](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/sops/client.ts#L216)
 
 Add an age recipient to an existing SOPS file.
 
@@ -83,7 +88,7 @@ Add an age recipient to an existing SOPS file.
 decrypt(filePath): Promise<DecryptedFile>;
 ```
 
-Defined in: [packages/core/src/sops/client.ts:70](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/sops/client.ts#L70)
+Defined in: [packages/core/src/sops/client.ts:83](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/sops/client.ts#L83)
 
 Decrypt a SOPS-encrypted file and return its values and metadata.
 
@@ -123,7 +128,7 @@ encrypt(
 environment?): Promise<void>;
 ```
 
-Defined in: [packages/core/src/sops/client.ts:121](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/sops/client.ts#L121)
+Defined in: [packages/core/src/sops/client.ts:138](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/sops/client.ts#L138)
 
 Encrypt a key/value map and write it to an encrypted SOPS file.
 
@@ -156,7 +161,7 @@ Encrypt a key/value map and write it to an encrypted SOPS file.
 getMetadata(filePath): Promise<SopsMetadata>;
 ```
 
-Defined in: [packages/core/src/sops/client.ts:258](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/sops/client.ts#L258)
+Defined in: [packages/core/src/sops/client.ts:285](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/sops/client.ts#L285)
 
 Extract SOPS metadata (backend, recipients, last-modified timestamp) from an encrypted file
 without decrypting its values.
@@ -189,7 +194,7 @@ without decrypting its values.
 reEncrypt(filePath, newKey): Promise<void>;
 ```
 
-Defined in: [packages/core/src/sops/client.ts:175](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/sops/client.ts#L175)
+Defined in: [packages/core/src/sops/client.ts:190](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/sops/client.ts#L190)
 
 Rotate encryption by adding a new age recipient key to an existing SOPS file.
 
@@ -220,7 +225,7 @@ Rotate encryption by adding a new age recipient key to an existing SOPS file.
 removeRecipient(filePath, key): Promise<void>;
 ```
 
-Defined in: [packages/core/src/sops/client.ts:219](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/sops/client.ts#L219)
+Defined in: [packages/core/src/sops/client.ts:242](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/sops/client.ts#L242)
 
 Remove an age recipient from an existing SOPS file.
 
@@ -251,7 +256,7 @@ Remove an age recipient from an existing SOPS file.
 validateEncryption(filePath): Promise<boolean>;
 ```
 
-Defined in: [packages/core/src/sops/client.ts:240](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/sops/client.ts#L240)
+Defined in: [packages/core/src/sops/client.ts:267](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/sops/client.ts#L267)
 
 Check whether a file contains valid SOPS encryption metadata.
 

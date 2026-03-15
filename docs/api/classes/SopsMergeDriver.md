@@ -6,7 +6,7 @@
 
 # Class: SopsMergeDriver
 
-Defined in: [packages/core/src/merge/driver.ts:48](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/merge/driver.ts#L48)
+Defined in: [packages/core/src/merge/driver.ts:48](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/merge/driver.ts#L48)
 
 Three-way merge driver for SOPS-encrypted files.
 
@@ -32,7 +32,7 @@ if (result.clean) {
 new SopsMergeDriver(sopsClient): SopsMergeDriver;
 ```
 
-Defined in: [packages/core/src/merge/driver.ts:49](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/merge/driver.ts#L49)
+Defined in: [packages/core/src/merge/driver.ts:49](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/merge/driver.ts#L49)
 
 #### Parameters
 
@@ -55,7 +55,7 @@ merge(
    theirs): MergeResult;
 ```
 
-Defined in: [packages/core/src/merge/driver.ts:61](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/merge/driver.ts#L61)
+Defined in: [packages/core/src/merge/driver.ts:61](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/merge/driver.ts#L61)
 
 Perform a three-way merge on three in-memory key/value maps.
 
@@ -90,7 +90,7 @@ mergeFiles(
 theirsPath): Promise<MergeResult>;
 ```
 
-Defined in: [packages/core/src/merge/driver.ts:141](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/merge/driver.ts#L141)
+Defined in: [packages/core/src/merge/driver.ts:141](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/merge/driver.ts#L141)
 
 Decrypt three file versions and perform a three-way merge.
 

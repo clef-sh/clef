@@ -6,7 +6,7 @@
 
 # Class: BulkOps
 
-Defined in: [packages/core/src/bulk/ops.ts:14](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/bulk/ops.ts#L14)
+Defined in: [packages/core/src/bulk/ops.ts:14](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/bulk/ops.ts#L14)
 
 Performs bulk set, delete, and copy operations across multiple environments.
 
@@ -49,7 +49,7 @@ copyValue(
 manifest): Promise<void>;
 ```
 
-Defined in: [packages/core/src/bulk/ops.ts:118](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/bulk/ops.ts#L118)
+Defined in: [packages/core/src/bulk/ops.ts:118](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/bulk/ops.ts#L118)
 
 Copy a single key's value from one matrix cell to another.
 
@@ -84,7 +84,7 @@ deleteAcrossEnvironments(
 repoRoot): Promise<void>;
 ```
 
-Defined in: [packages/core/src/bulk/ops.ts:74](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/bulk/ops.ts#L74)
+Defined in: [packages/core/src/bulk/ops.ts:74](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/bulk/ops.ts#L74)
 
 Delete a key from every environment in a namespace.
 
@@ -120,7 +120,7 @@ setAcrossEnvironments(
 repoRoot): Promise<void>;
 ```
 
-Defined in: [packages/core/src/bulk/ops.ts:26](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/bulk/ops.ts#L26)
+Defined in: [packages/core/src/bulk/ops.ts:26](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/bulk/ops.ts#L26)
 
 Set a key to different values in multiple environments at once.
 

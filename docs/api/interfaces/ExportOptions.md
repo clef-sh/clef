@@ -6,7 +6,7 @@
 
 # Interface: ExportOptions
 
-Defined in: [packages/core/src/types/index.ts:326](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L326)
+Defined in: [packages/core/src/types/index.ts:337](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L337)
 
 Options for `ConsumptionClient.formatExport`.
 
@@ -14,5 +14,5 @@ Options for `ConsumptionClient.formatExport`.
 
 | Property                                   | Type      | Description                                            | Defined in                                                                                                                                                  |
 | ------------------------------------------ | --------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <a id="property-format"></a> `format`      | `"env"`   | -                                                      | [packages/core/src/types/index.ts:327](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L327) |
-| <a id="property-noexport"></a> `noExport?` | `boolean` | When `true`, omit the `export` keyword from each line. | [packages/core/src/types/index.ts:329](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L329) |
+| <a id="property-format"></a> `format`      | `"env"`   | -                                                      | [packages/core/src/types/index.ts:338](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L338) |
+| <a id="property-noexport"></a> `noExport?` | `boolean` | When `true`, omit the `export` keyword from each line. | [packages/core/src/types/index.ts:340](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L340) |

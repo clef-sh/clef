@@ -6,7 +6,7 @@
 
 # Interface: DiffResult
 
-Defined in: [packages/core/src/types/index.ts:211](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L211)
+Defined in: [packages/core/src/types/index.ts:222](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L222)
 
 The full diff result for a namespace across two environments.
 
@@ -14,7 +14,7 @@ The full diff result for a namespace across two environments.
 
 | Property                                    | Type                      | Defined in                                                                                                                                                  |
 | ------------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| <a id="property-enva"></a> `envA`           | `string`                  | [packages/core/src/types/index.ts:213](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L213) |
-| <a id="property-envb"></a> `envB`           | `string`                  | [packages/core/src/types/index.ts:214](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L214) |
-| <a id="property-namespace"></a> `namespace` | `string`                  | [packages/core/src/types/index.ts:212](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L212) |
-| <a id="property-rows"></a> `rows`           | [`DiffRow`](DiffRow.md)[] | [packages/core/src/types/index.ts:215](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/types/index.ts#L215) |
+| <a id="property-enva"></a> `envA`           | `string`                  | [packages/core/src/types/index.ts:224](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L224) |
+| <a id="property-envb"></a> `envB`           | `string`                  | [packages/core/src/types/index.ts:225](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L225) |
+| <a id="property-namespace"></a> `namespace` | `string`                  | [packages/core/src/types/index.ts:223](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L223) |
+| <a id="property-rows"></a> `rows`           | [`DiffRow`](DiffRow.md)[] | [packages/core/src/types/index.ts:226](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/types/index.ts#L226) |

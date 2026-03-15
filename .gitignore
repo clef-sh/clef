@@ -42,3 +42,5 @@ npm-debug.log*
 # committed — they track pending secret state.
 # Do NOT add *.clef-meta.yaml here.
 .development
+
+sops

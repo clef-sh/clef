@@ -10,7 +10,7 @@
 function loadIgnoreRules(repoRoot): ClefIgnoreRules;
 ```
 
-Defined in: [packages/core/src/scanner/ignore.ts:15](https://github.com/clef-sh/clef/blob/9d2f6385a699079e36207595d20c8223e8f8f5c8/packages/core/src/scanner/ignore.ts#L15)
+Defined in: [packages/core/src/scanner/ignore.ts:15](https://github.com/clef-sh/clef/blob/71f300181effde6f6153e0e2220b808935f465e1/packages/core/src/scanner/ignore.ts#L15)
 
 Load .clefignore rules from the repo root.
 Returns empty rules if the file does not exist.

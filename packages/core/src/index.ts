@@ -46,3 +46,6 @@ export { validateAgePublicKey, keyPreview } from "./recipients/validator";
 export type { AgeKeyValidation } from "./recipients/validator";
 export { SopsMergeDriver } from "./merge/driver";
 export type { MergeResult, MergeKey, MergeKeyStatus } from "./merge/driver";
+export { ServiceIdentityManager } from "./service-identity/manager";
+export { BundleGenerator } from "./bundle/generator";
+export { generateRuntimeModule } from "./bundle/runtime";

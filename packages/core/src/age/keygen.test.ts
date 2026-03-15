@@ -1,7 +1,7 @@
 import { generateAgeIdentity, formatAgeKeyFile } from "./keygen";
 
 const MOCK_PRIVATE_KEY = "AGE-SECRET-KEY-1MOCKPRIVATEKEY1234";
-const MOCK_PUBLIC_KEY = "age1mockpublickey00000000000000000000000000000000000000000000";
+const MOCK_PUBLIC_KEY = "age1qpzry9x8gf2tvdw0s3jn54khce6mua7lqpzry9x8gf2tvdw0s3jn5";
 
 describe("generateAgeIdentity", () => {
   it("should return a private key and public key", async () => {
