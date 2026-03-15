@@ -192,14 +192,22 @@ function spawnChild(command: string, args: string[], env: Record<string, string>
       }
     });
 
-    // Forward signals to child with SIGKILL fallback
+    // Forward signals to child with SIGKILL fallback.
+    // On Windows, the child already receives CTRL_C_EVENT directly from the
+    // shared console group, so forwarding is a no-op — calling child.kill()
+    // would invoke TerminateProcess() and force-kill the child before it can
+    // run its own cleanup handlers.
     const sigtermHandler = () => {
+      if (process.platform === "win32") return;
       child.kill("SIGTERM");
       // Give child 5s to clean up, then force kill
       /* istanbul ignore next -- timer callback only fires if child hangs; not testable without real timers */
       setTimeout(() => child.kill("SIGKILL"), 5000).unref();
     };
-    const sigintHandler = () => child.kill("SIGINT");
+    const sigintHandler = () => {
+      if (process.platform === "win32") return;
+      child.kill("SIGINT");
+    };
 
     process.on("SIGTERM", sigtermHandler);
     process.on("SIGINT", sigintHandler);

@@ -12,10 +12,6 @@ directly.
 a Windows x64 machine, npm automatically installs this package and Clef resolves the bundled
 binary at runtime — no separate sops installation required.
 
-> **Note:** Clef on Windows is supported only via WSL (Windows Subsystem for Linux). Native
-> Windows has a known limitation where Node.js cannot reliably forward Unix signals to child
-> processes, which affects `clef exec`. Use the `linux-x64` or `linux-arm64` package inside WSL.
-
 **Resolution order** used by Clef:
 
 1. `CLEF_SOPS_PATH` environment variable — explicit override

@@ -39,11 +39,14 @@ jobs:
             sops_asset: linux.arm64
             bin_name: sops
           - platform: win32-x64
-            os: ubuntu-latest
+            os: windows-latest
             sops_asset: exe
             bin_name: sops.exe
 
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - uses: actions/checkout@v6
@@ -90,26 +93,43 @@ jobs:
           fi
           echo "${EXPECTED}  platforms/sops-${{ matrix.platform }}/bin/${{ matrix.bin_name }}" | sha256sum -c
 
-      - name: Download SLSA provenance
+      - name: Install slsa-verifier (Linux)
+        if: runner.os == 'Linux'
+        uses: slsa-framework/slsa-verifier/actions/installer@v2.7.1
+
+      - name: Install slsa-verifier (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          ARCH=$([ "${{ runner.arch }}" = "ARM64" ] && echo "arm64" || echo "amd64")
+          curl -fsSL \
+            "https://github.com/slsa-framework/slsa-verifier/releases/download/v2.7.1/slsa-verifier-darwin-${ARCH}" \
+            -o /usr/local/bin/slsa-verifier
+          chmod +x /usr/local/bin/slsa-verifier
+
+      - name: Install slsa-verifier (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          curl -fsSL \
+            "https://github.com/slsa-framework/slsa-verifier/releases/download/v2.7.1/slsa-verifier-windows-amd64.exe" \
+            -o "$USERPROFILE/.local/bin/slsa-verifier.exe"
+          echo "$USERPROFILE/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Verify SLSA provenance
         run: |
           curl -fsSL \
             "https://github.com/getsops/sops/releases/download/v${{ inputs.sops_version }}/sops-v${{ inputs.sops_version }}.intoto.jsonl" \
             -o provenance.jsonl
+          slsa-verifier verify-artifact \
+            "platforms/sops-${{ matrix.platform }}/bin/${{ matrix.bin_name }}" \
+            --provenance-path provenance.jsonl \
+            --source-uri github.com/getsops/sops \
+            --source-tag v${{ inputs.sops_version }}
 
-      - name: Verify SLSA provenance
-        uses: slsa-framework/slsa-verifier/actions/verify-artifact@v2
-        with:
-          artifact-path: platforms/sops-${{ matrix.platform }}/bin/${{ matrix.bin_name }}
-          provenance-path: provenance.jsonl
-          source-uri: github.com/getsops/sops
-          source-tag: v${{ inputs.sops_version }}
-
-      - name: Verify binary runs (non-Windows)
-        if: matrix.platform != 'win32-x64'
+      - name: Verify binary runs
         run: |
-          SOPS_BIN="platforms/sops-${{ matrix.platform }}/bin/sops"
-          chmod +x "$SOPS_BIN"
-          "$SOPS_BIN" --version
+          BIN="platforms/sops-${{ matrix.platform }}/bin/${{ matrix.bin_name }}"
+          chmod +x "$BIN"
+          "$BIN" --version
 
       - name: Copy LICENSE
         run: |
