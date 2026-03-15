@@ -24,14 +24,24 @@ jobs:
         include:
           - platform: darwin-arm64
             os: macos-latest
+            sops_asset: darwin.arm64
+            bin_name: sops
           - platform: darwin-x64
             os: macos-latest
+            sops_asset: darwin.amd64
+            bin_name: sops
           - platform: linux-x64
             os: ubuntu-latest
+            sops_asset: linux.amd64
+            bin_name: sops
           - platform: linux-arm64
             os: ubuntu-24.04-arm
+            sops_asset: linux.arm64
+            bin_name: sops
           - platform: win32-x64
             os: ubuntu-latest
+            sops_asset: exe
+            bin_name: sops.exe
 
     runs-on: ${{ matrix.os }}
 
@@ -53,6 +63,46 @@ jobs:
 
       - name: Download sops binary
         run: node scripts/download-sops.mjs --platform ${{ matrix.platform }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Verify checksums file signature
+        run: |
+          SOPS_VER="${{ inputs.sops_version }}"
+          BASE="https://github.com/getsops/sops/releases/download/v${SOPS_VER}/sops-v${SOPS_VER}"
+          curl -fsSL "${BASE}.checksums.txt" -o checksums.txt
+          curl -fsSL "${BASE}.checksums.pem" -o checksums.pem
+          curl -fsSL "${BASE}.checksums.sig" -o checksums.sig
+          cosign verify-blob checksums.txt \
+            --certificate checksums.pem \
+            --signature checksums.sig \
+            --certificate-identity-regexp=https://github.com/getsops \
+            --certificate-oidc-issuer=https://token.actions.githubusercontent.com
+
+      - name: Verify binary against official checksums
+        run: |
+          ASSET="sops-v${{ inputs.sops_version }}.${{ matrix.sops_asset }}"
+          EXPECTED=$(grep "^[a-f0-9]\+  ${ASSET}$" checksums.txt | awk '{print $1}')
+          if [ -z "$EXPECTED" ]; then
+            echo "::error::No checksum entry found for ${ASSET} in checksums.txt"
+            exit 1
+          fi
+          echo "${EXPECTED}  platforms/sops-${{ matrix.platform }}/bin/${{ matrix.bin_name }}" | sha256sum -c
+
+      - name: Download SLSA provenance
+        run: |
+          curl -fsSL \
+            "https://github.com/getsops/sops/releases/download/v${{ inputs.sops_version }}/sops-v${{ inputs.sops_version }}.intoto.jsonl" \
+            -o provenance.jsonl
+
+      - name: Verify SLSA provenance
+        uses: slsa-framework/slsa-verifier/actions/verify-artifact@v2
+        with:
+          artifact-path: platforms/sops-${{ matrix.platform }}/bin/${{ matrix.bin_name }}
+          provenance-path: provenance.jsonl
+          source-uri: github.com/getsops/sops
+          source-tag: v${{ inputs.sops_version }}
 
       - name: Verify binary runs (non-Windows)
         if: matrix.platform != 'win32-x64'
