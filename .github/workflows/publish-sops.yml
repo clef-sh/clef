@@ -105,16 +105,13 @@ jobs:
             console.log('Checksum OK: ' + actual);
           "
 
-      - name: Install slsa-verifier (Linux)
-        if: runner.os == 'Linux'
-        uses: slsa-framework/slsa-verifier/actions/installer@v2.7.1
-
-      - name: Install slsa-verifier (macOS)
-        if: runner.os == 'macOS'
+      - name: Install slsa-verifier (Linux/macOS)
+        if: runner.os != 'Windows'
         run: |
+          OS=$([ "${{ runner.os }}" = "macOS" ] && echo "darwin" || echo "linux")
           ARCH=$([ "${{ runner.arch }}" = "ARM64" ] && echo "arm64" || echo "amd64")
           curl -fsSL \
-            "https://github.com/slsa-framework/slsa-verifier/releases/download/v2.7.1/slsa-verifier-darwin-${ARCH}" \
+            "https://github.com/slsa-framework/slsa-verifier/releases/download/v2.7.1/slsa-verifier-${OS}-${ARCH}" \
             -o /usr/local/bin/slsa-verifier
           chmod +x /usr/local/bin/slsa-verifier
 
