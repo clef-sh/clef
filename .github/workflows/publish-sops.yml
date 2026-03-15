@@ -86,12 +86,24 @@ jobs:
       - name: Verify binary against official checksums
         run: |
           ASSET="sops-v${{ inputs.sops_version }}.${{ matrix.sops_asset }}"
-          EXPECTED=$(grep "^[a-f0-9]\+  ${ASSET}$" checksums.txt | awk '{print $1}')
-          if [ -z "$EXPECTED" ]; then
-            echo "::error::No checksum entry found for ${ASSET} in checksums.txt"
-            exit 1
-          fi
-          echo "${EXPECTED}  platforms/sops-${{ matrix.platform }}/bin/${{ matrix.bin_name }}" | sha256sum -c
+          BIN="platforms/sops-${{ matrix.platform }}/bin/${{ matrix.bin_name }}"
+          node -e "
+            const {createHash} = require('crypto');
+            const {readFileSync} = require('fs');
+            const checksums = readFileSync('checksums.txt', 'utf-8');
+            const asset = '$ASSET';
+            const line = checksums.split('\n').find(l => l.endsWith('  ' + asset));
+            if (!line) { console.error('::error::No checksum entry for ' + asset); process.exit(1); }
+            const expected = line.split('  ')[0];
+            const actual = createHash('sha256').update(readFileSync('$BIN')).digest('hex');
+            if (actual !== expected) {
+              console.error('::error::Checksum mismatch for ' + asset);
+              console.error('  expected: ' + expected);
+              console.error('  got:      ' + actual);
+              process.exit(1);
+            }
+            console.log('Checksum OK: ' + actual);
+          "
 
       - name: Install slsa-verifier (Linux)
         if: runner.os == 'Linux'
