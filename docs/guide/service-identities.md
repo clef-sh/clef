@@ -457,7 +457,7 @@ The generated JS module contains:
 
 ### No custom crypto
 
-The runtime decryption uses [age-encryption](https://www.npmjs.com/package/age-encryption), which is FiloSottile's own JavaScript implementation of the [age specification](https://age-encryption.org). It is the same author as the `age` CLI and the age backend in SOPS. Clef does not implement any cryptographic primitives — all encryption and decryption is delegated to established libraries.
+The runtime decryption uses [age-encryption](https://www.npmjs.com/package/age-encryption), a JavaScript implementation of the [age specification](https://age-encryption.org). Clef does not implement any cryptographic primitives — all encryption and decryption is delegated to established libraries.
 
 ## See also
 

@@ -2,14 +2,14 @@
   <div class="doc-hero">
     <div class="hero-inner">
       <div class="hero-text">
-        <p class="hero-eyebrow">SECRETS MANAGEMENT FOR DEV TEAMS</p>
+        <p class="hero-eyebrow">CLEF DOCUMENTATION</p>
         <h1 class="hero-headline">
-          Every environment<br />
-          in <span class="gold">harmony.</span>
+          Encrypted secrets,<br />
+          <span class="gold">version-controlled.</span>
         </h1>
         <p class="hero-sub">
-          Clef brings a structured UI and git workflow to Mozilla SOPS — without a server, without a
-          database, without vendor lock-in.
+          A CLI and local UI for managing SOPS-encrypted secrets in a namespace &times; environment
+          matrix. Age keys, git-native workflows, zero infrastructure.
         </p>
         <div class="hero-actions">
           <a href="/guide/quick-start" class="btn-primary"> Get Started → </a>

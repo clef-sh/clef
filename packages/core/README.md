@@ -13,7 +13,7 @@ npm install @clef-sh/core
 ## Prerequisites
 
 - [SOPS](https://github.com/getsops/sops) v3.8+ on `PATH`
-- [age](https://github.com/FiloSottile/age) (or another SOPS-supported backend)
+- [age](https://age-encryption.org) (or another SOPS-supported backend)
 
 ## Usage
 

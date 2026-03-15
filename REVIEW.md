@@ -232,7 +232,7 @@ Read in full:
 Check — Key generation:
 
 - `generateAgeIdentity()` uses the `age-encryption` package
-  (FiloSottile's spec-compliant implementation) — not
+  (the `age-encryption` npm package) — not
   `crypto.randomBytes` directly, not any custom key derivation
 - One keypair is generated **per environment** — confirm no key
   sharing across environments
@@ -414,6 +414,36 @@ Check — `CLEF_SOPS_PATH` validation:
 - If `CLEF_SOPS_PATH` contains shell metacharacters or
   spaces, confirm the path is passed to `execFile` (which
   does not interpret shell syntax) — not to `exec`
+
+### 1.12 Licence compliance — age-encryption author attribution
+
+The `age-encryption` npm package is BSD 3-Clause licensed.
+The licence does not require author attribution in
+documentation or marketing materials, and the project must
+not name the author of `age-encryption` or the `age` CLI
+anywhere in the codebase. Referring to the author by name
+or GitHub handle in docs, comments, README files, or UI
+copy is not permitted.
+
+Run:
+
+```bash
+grep -ri "filippo\|valsorda\|filosottile" \
+  --include="*.ts" --include="*.md" --include="*.json" \
+  --include="*.yaml" --include="*.yml" --include="*.vue" \
+  --include="*.astro" --include="*.html" --include="*.css" \
+  --include="*.mjs" .
+```
+
+Check:
+
+- Zero matches. Any match is a Medium issue
+- Links to the `age` tool should point to
+  `https://age-encryption.org` (the project site) — not to
+  the author's personal GitHub repository
+- Comments in code (e.g. `keygen.ts`, `resolver.ts`) must
+  not reference the author — describe the library by its
+  package name only
 
 ---
 
