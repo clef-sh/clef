@@ -1,0 +1,144 @@
+# Prerelease publish workflow
+#
+# dev     → alpha packages → GitHub Packages (restricted, internal only)
+# staging → beta packages  → GitHub Packages (public) + GitHub pre-release
+#
+# Version scheme: base version is always read from main, so alpha/beta stamps
+# are anchored to the next stable release regardless of branch divergence.
+# e.g. main@0.1.0 → alpha: 0.1.0-alpha.42 / beta: 0.1.0-beta.7
+#
+# To promote a beta version to npm for public testing, trigger the
+# publish-beta-npm workflow manually.
+
+name: Publish Prerelease
+
+on:
+  push:
+    branches: [dev, staging]
+
+permissions:
+  contents: write # create GitHub releases on staging
+  packages: write # publish to GitHub Packages
+  id-token: write # provenance attestations
+
+jobs:
+  publish:
+    name: Publish ${{ github.ref_name == 'dev' && 'Alpha' || 'Beta' }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'dev' && 'alpha' || 'beta' }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: "@clef-sh"
+
+      - run: npm ci
+
+      - name: Build all packages
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+      - name: Compute prerelease versions
+        id: ver
+        run: |
+          if [ "$GITHUB_REF_NAME" = "dev" ]; then
+            PRE="alpha"
+            DIST_TAG="alpha"
+          else
+            PRE="beta"
+            DIST_TAG="beta"
+          fi
+
+          # Base version always comes from main so prerelease stamps align with
+          # the next stable release, regardless of how far branches have diverged.
+          git show origin/main:packages/core/package.json > /tmp/core-main.json
+          git show origin/main:packages/cli/package.json  > /tmp/cli-main.json
+
+          CORE_BASE=$(node -p "require('/tmp/core-main.json').version.replace(/-.*/, '')")
+          CLI_BASE=$(node -p "require('/tmp/cli-main.json').version.replace(/-.*/, '')")
+
+          CORE_VER="${CORE_BASE}-${PRE}.${{ github.run_number }}"
+          CLI_VER="${CLI_BASE}-${PRE}.${{ github.run_number }}"
+
+          echo "dist_tag=${DIST_TAG}"      >> "$GITHUB_OUTPUT"
+          echo "prerelease=${PRE}"         >> "$GITHUB_OUTPUT"
+          echo "core_version=${CORE_VER}"  >> "$GITHUB_OUTPUT"
+          echo "cli_version=${CLI_VER}"    >> "$GITHUB_OUTPUT"
+
+      # ── Alpha (dev → GitHub Packages, restricted/internal) ───────────────
+      - name: Publish @clef-sh/core (alpha)
+        if: github.ref_name == 'dev'
+        working-directory: packages/core
+        run: |
+          npm version "${{ steps.ver.outputs.core_version }}" --no-git-tag-version
+          npm publish --tag alpha --access restricted
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+
+      - name: Publish @clef-sh/cli (alpha)
+        if: github.ref_name == 'dev'
+        working-directory: packages/cli
+        run: |
+          npm version "${{ steps.ver.outputs.cli_version }}" --no-git-tag-version
+          npm publish --tag alpha --access restricted
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+
+      # ── Beta (staging → GitHub Packages, public) ─────────────────────────
+      - name: Publish @clef-sh/core (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/core
+        run: |
+          npm version "${{ steps.ver.outputs.core_version }}" --no-git-tag-version
+          npm publish --tag beta --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+
+      - name: Publish @clef-sh/cli (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/cli
+        run: |
+          npm version "${{ steps.ver.outputs.cli_version }}" --no-git-tag-version
+          npm publish --tag beta --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+
+      # Beta: create a GitHub pre-release so the version surfaces in Releases
+      - name: Create GitHub pre-release (beta)
+        if: github.ref_name == 'staging'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CLI_VER="${{ steps.ver.outputs.cli_version }}"
+          gh release create "v${CLI_VER}" \
+            --draft \
+            --prerelease \
+            --title "v${CLI_VER} (beta)" \
+            --notes "Beta release. Available on GitHub Packages.
+
+          To promote to npm for public testing, trigger the **Publish Beta to npm** workflow."
+
+      - name: Publish summary
+        if: always()
+        run: |
+          echo "## Prerelease publish" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Package | Version |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/core\` | \`${{ steps.ver.outputs.core_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/cli\` | \`${{ steps.ver.outputs.cli_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Registry:** GitHub Packages (\`npm.pkg.github.com\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Dist-tag:** \`${{ steps.ver.outputs.dist_tag }}\`" >> "$GITHUB_STEP_SUMMARY"

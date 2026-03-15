@@ -108,11 +108,11 @@ The merge driver resolves most merge scenarios automatically. A real conflict oc
 ```
 Merge conflict in encrypted file: 1 key(s) conflict
   DATABASE_POOL_SIZE:
-    base:   10
-    ours:   25
-    theirs: 50
+    base:   (has value)
+    ours:   (has value)
+    theirs: (has value)
 
-Resolve conflicts manually with: clef set database/production DATABASE_POOL_SIZE <value>
+Resolve conflicts manually with: clef set <namespace>/<env> <KEY> <value>
 ```
 
 In this case, decide which value is correct and set it:

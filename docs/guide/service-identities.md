@@ -30,7 +30,7 @@ clef.yaml                                secrets.mjs (generated bundle)
           recipient: age1prod...           │   → age-decrypt → cache     │
                                            └─────────────────────────────┘
 
-      clef bundle api-gateway prod               age-encryption (pure JS)
+      clef bundle api-gateway production          age-encryption (pure JS)
       ──────────────────────────>                 private key from Secrets
           decrypt SOPS files                      Manager / Vault / KMS
           age-encrypt to recipient
@@ -226,6 +226,10 @@ export async function getSecret(key: string, keyProvider: () => Promise<string>)
 export async function getAllSecrets(
   keyProvider: () => Promise<string>,
 ): Promise<Record<string, string>>;
+
+// Clear the decrypted secrets cache. Call after key rotation to force
+// a fresh decrypt on the next getSecret()/getAllSecrets() call.
+export function clearCache(): void;
 ```
 
 ### Key provider

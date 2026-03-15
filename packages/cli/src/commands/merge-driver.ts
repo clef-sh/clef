@@ -3,9 +3,12 @@ import * as path from "path";
 import { Command } from "commander";
 import {
   ClefManifest,
+  ClefError,
   ManifestParser,
   SopsMergeDriver,
   SopsClient,
+  SopsDecryptionError,
+  SopsMissingError,
   SubprocessRunner,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
@@ -13,16 +16,34 @@ import { resolveAgeCredential, prepareSopsClientArgs } from "../age-credential";
 
 /**
  * Locate the repo root by walking up from a file path looking for clef.yaml.
- * Falls back to cwd if not found.
+ * Falls back to `git rev-parse --show-toplevel` when the upward walk fails
+ * (e.g. git writes temp files to /tmp or .git/).
  */
-function findRepoRoot(filePath: string): string {
-  let dir = path.dirname(path.resolve(filePath));
-  for (let i = 0; i < 50; i++) {
-    if (fs.existsSync(path.join(dir, "clef.yaml"))) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+async function findRepoRoot(filePath: string, runner?: SubprocessRunner): Promise<string> {
+  try {
+    let dir = path.dirname(path.resolve(filePath));
+    for (let i = 0; i < 50; i++) {
+      if (fs.existsSync(path.join(dir, "clef.yaml"))) return dir;
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    // Fall through to git fallback
   }
+
+  // Fallback: ask git for the worktree root
+  if (runner) {
+    try {
+      const result = await runner.run("git", ["rev-parse", "--show-toplevel"]);
+      if (result.exitCode === 0 && result.stdout.trim()) {
+        return result.stdout.trim();
+      }
+    } catch {
+      // Fall through to error
+    }
+  }
+
   throw new Error("Could not find clef.yaml in any parent directory of: " + filePath);
 }
 
@@ -41,7 +62,8 @@ export function registerMergeDriverCommand(
     .argument("<theirs>", "Path to incoming branch file (%B)")
     .action(async (basePath: string, oursPath: string, theirsPath: string) => {
       try {
-        const repoRoot = (program.opts().dir as string) || findRepoRoot(oursPath);
+        const repoRoot =
+          (program.opts().dir as string) || (await findRepoRoot(oursPath, deps.runner));
         const credential = await resolveAgeCredential(repoRoot, deps.runner);
         const { ageKeyFile, ageKey } = prepareSopsClientArgs(credential);
         const sopsClient = new SopsClient(deps.runner, ageKeyFile, ageKey);
@@ -72,6 +94,12 @@ export function registerMergeDriverCommand(
                 }
               }
               if (environment) break;
+            }
+
+            if (!environment) {
+              formatter.warn(
+                "Could not determine environment from file path — using default SOPS backend for re-encryption.",
+              );
             }
           }
 
@@ -113,7 +141,27 @@ export function registerMergeDriverCommand(
           // Exit 1 signals git that the merge has unresolved conflicts
           process.exit(1);
         }
-      } catch {
+      } catch (err) {
+        if (err instanceof SopsMissingError) {
+          formatter.formatDependencyError(err);
+          process.exit(1);
+          return;
+        }
+        if (err instanceof SopsDecryptionError) {
+          formatter.error(
+            "Merge driver could not decrypt files. Check that your age key is available.",
+          );
+          process.exit(1);
+          return;
+        }
+        if (err instanceof ClefError) {
+          formatter.error(err.message);
+          if (err.fix) {
+            formatter.hint(err.fix);
+          }
+          process.exit(1);
+          return;
+        }
         formatter.error("Merge driver failed. Run 'clef doctor' to verify setup.");
         process.exit(1);
       }

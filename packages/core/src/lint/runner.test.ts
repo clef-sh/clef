@@ -454,6 +454,241 @@ describe("LintRunner", () => {
       expect(recipientDrift.length).toBe(0);
     });
 
+    describe("service identity drift", () => {
+      it("should detect missing environment on service identity", async () => {
+        const manifest = testManifest();
+        manifest.service_identities = [
+          {
+            name: "api-gw",
+            description: "API gateway",
+            namespaces: ["database"],
+            environments: {
+              dev: { recipient: "age1testrecipientkey" },
+              // production missing
+            },
+          },
+        ];
+
+        const cells = allExistCells();
+        jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
+        sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
+        sopsClient.decrypt = jest.fn().mockResolvedValue({
+          values: { KEY: "val" },
+          metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
+        });
+        jest.spyOn(schemaValidator, "loadSchema").mockReturnValue({ keys: {} });
+        jest.spyOn(schemaValidator, "validate").mockReturnValue({
+          valid: true,
+          errors: [],
+          warnings: [],
+        });
+        sopsClient.getMetadata = jest.fn().mockResolvedValue({
+          backend: "age",
+          recipients: ["age1testrecipientkey"],
+          lastModified: new Date(),
+        });
+
+        const result = await runner.run(manifest, "/repo");
+
+        const driftIssues = result.issues.filter(
+          (i) => i.category === "service-identity" && i.message.includes("missing environment"),
+        );
+        expect(driftIssues.length).toBe(1);
+        expect(driftIssues[0].message).toContain("production");
+      });
+
+      it("should detect unknown namespace reference", async () => {
+        const manifest = testManifest();
+        manifest.service_identities = [
+          {
+            name: "api-gw",
+            description: "API gateway",
+            namespaces: ["nonexistent"],
+            environments: {
+              dev: { recipient: "age1testrecipientkey" },
+              production: { recipient: "age1testrecipientkey2" },
+            },
+          },
+        ];
+
+        const cells = allExistCells();
+        jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
+        sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
+        sopsClient.decrypt = jest.fn().mockResolvedValue({
+          values: { KEY: "val" },
+          metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
+        });
+        jest.spyOn(schemaValidator, "loadSchema").mockReturnValue({ keys: {} });
+        jest.spyOn(schemaValidator, "validate").mockReturnValue({
+          valid: true,
+          errors: [],
+          warnings: [],
+        });
+        sopsClient.getMetadata = jest.fn().mockResolvedValue({
+          backend: "age",
+          recipients: [],
+          lastModified: new Date(),
+        });
+
+        const result = await runner.run(manifest, "/repo");
+
+        const nsIssues = result.issues.filter(
+          (i) => i.category === "service-identity" && i.message.includes("non-existent namespace"),
+        );
+        expect(nsIssues.length).toBe(1);
+        expect(nsIssues[0].message).toContain("nonexistent");
+      });
+
+      it("should detect unregistered recipient", async () => {
+        const manifest = testManifest();
+        manifest.service_identities = [
+          {
+            name: "api-gw",
+            description: "API gateway",
+            namespaces: ["database"],
+            environments: {
+              dev: { recipient: "age1testrecipientkey" },
+              production: { recipient: "age1testrecipientkey2" },
+            },
+          },
+        ];
+
+        const cells = allExistCells();
+        jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
+        sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
+        sopsClient.decrypt = jest.fn().mockResolvedValue({
+          values: { KEY: "val" },
+          metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
+        });
+        jest.spyOn(schemaValidator, "loadSchema").mockReturnValue({ keys: {} });
+        jest.spyOn(schemaValidator, "validate").mockReturnValue({
+          valid: true,
+          errors: [],
+          warnings: [],
+        });
+        sopsClient.getMetadata = jest.fn().mockResolvedValue({
+          backend: "age",
+          recipients: ["some-other-key"],
+          lastModified: new Date(),
+        });
+
+        const result = await runner.run(manifest, "/repo");
+
+        const recipientIssues = result.issues.filter(
+          (i) =>
+            i.category === "service-identity" && i.message.includes("recipient is not registered"),
+        );
+        expect(recipientIssues.length).toBeGreaterThan(0);
+      });
+
+      it("should detect scope mismatch", async () => {
+        const manifest = testManifest();
+        manifest.service_identities = [
+          {
+            name: "api-gw",
+            description: "API gateway",
+            namespaces: ["database"],
+            environments: {
+              dev: { recipient: "age1testrecipientkey" },
+              production: { recipient: "age1testrecipientkey2" },
+            },
+          },
+        ];
+
+        const cells = allExistCells();
+        jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
+        sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
+        sopsClient.decrypt = jest.fn().mockResolvedValue({
+          values: { KEY: "val" },
+          metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
+        });
+        jest.spyOn(schemaValidator, "loadSchema").mockReturnValue({ keys: {} });
+        jest.spyOn(schemaValidator, "validate").mockReturnValue({
+          valid: true,
+          errors: [],
+          warnings: [],
+        });
+        sopsClient.getMetadata = jest.fn().mockImplementation(async (filePath: string) => {
+          if (filePath.includes("auth")) {
+            // auth is NOT in scope but has the recipient
+            return {
+              backend: "age",
+              recipients: ["age1testrecipientkey"],
+              lastModified: new Date(),
+            };
+          }
+          return {
+            backend: "age",
+            recipients: ["age1testrecipientkey"],
+            lastModified: new Date(),
+          };
+        });
+
+        const result = await runner.run(manifest, "/repo");
+
+        const scopeIssues = result.issues.filter(
+          (i) => i.category === "service-identity" && i.message.includes("not in scope"),
+        );
+        expect(scopeIssues.length).toBeGreaterThan(0);
+      });
+
+      it("should report no issues when identities are valid", async () => {
+        const manifest = testManifest();
+        manifest.service_identities = [
+          {
+            name: "api-gw",
+            description: "API gateway",
+            namespaces: ["database"],
+            environments: {
+              dev: { recipient: "age1testrecipientkey" },
+              production: { recipient: "age1testrecipientkey2" },
+            },
+          },
+        ];
+
+        const cells = allExistCells();
+        jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
+        sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
+        sopsClient.decrypt = jest.fn().mockResolvedValue({
+          values: { KEY: "val" },
+          metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
+        });
+        jest.spyOn(schemaValidator, "loadSchema").mockReturnValue({ keys: {} });
+        jest.spyOn(schemaValidator, "validate").mockReturnValue({
+          valid: true,
+          errors: [],
+          warnings: [],
+        });
+        sopsClient.getMetadata = jest.fn().mockImplementation(async (filePath: string) => {
+          if (filePath.includes("database/dev")) {
+            return {
+              backend: "age",
+              recipients: ["age1testrecipientkey"],
+              lastModified: new Date(),
+            };
+          }
+          if (filePath.includes("database/production")) {
+            return {
+              backend: "age",
+              recipients: ["age1testrecipientkey2"],
+              lastModified: new Date(),
+            };
+          }
+          // auth namespace — not in scope, no identity recipients
+          return {
+            backend: "age",
+            recipients: ["some-other-key"],
+            lastModified: new Date(),
+          };
+        });
+
+        const result = await runner.run(manifest, "/repo");
+
+        const siIssues = result.issues.filter((i) => i.category === "service-identity");
+        expect(siIssues.length).toBe(0);
+      });
+    });
+
     it("should handle schema load failures gracefully", async () => {
       const cells = [allExistCells()[0]];
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);

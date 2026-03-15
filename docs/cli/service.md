@@ -9,6 +9,7 @@ clef service create <name> --namespaces <ns> [--description <desc>]
 clef service list
 clef service show <name>
 clef service rotate <name> [-e <environment>]
+clef service validate
 ```
 
 ## Description
@@ -102,6 +103,25 @@ After rotation:
 2. Re-generate bundles with `clef bundle`
 3. Redeploy the affected services
 4. Commit the updated `clef.yaml`
+
+### validate
+
+Validate all service identity configurations against the manifest and encrypted files. Reports drift issues where the declared state in `clef.yaml` has diverged from the actual SOPS recipient state.
+
+```bash
+clef service validate
+```
+
+Drift issue types:
+
+| Type                       | Severity | Description                                                      |
+| -------------------------- | -------- | ---------------------------------------------------------------- |
+| `namespace_not_found`      | error    | Identity references a namespace that does not exist in manifest  |
+| `missing_environment`      | error    | Identity does not cover all declared environments                |
+| `recipient_not_registered` | warning  | Identity's public key is missing from a scoped file's recipients |
+| `scope_mismatch`           | warning  | Identity's key found as recipient outside its namespace scope    |
+
+Errors cause exit code 1. Warnings alone exit 0.
 
 ## Flags
 

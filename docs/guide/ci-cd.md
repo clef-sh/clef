@@ -87,16 +87,16 @@ jobs:
   deploy:
     docker:
       - image: cimg/base:current
-    environment:
-      CLEF_AGE_KEY: $AGE_PRIVATE_KEY
     steps:
       - checkout
       - run:
           name: Deploy
+          environment:
+            CLEF_AGE_KEY: $AGE_PRIVATE_KEY
           command: clef exec payments/production -- ./deploy.sh
 ```
 
-Store `AGE_PRIVATE_KEY` as a CircleCI project environment variable or context variable in your CircleCI project settings. Job-level `environment` entries are interpolated from project/context variables at runtime, whereas `environment` under a `run` step treats values as literal strings without variable expansion.
+Store `AGE_PRIVATE_KEY` as a CircleCI project environment variable or context variable in your CircleCI project settings. The `environment` key under a `run` step interpolates project/context variables at runtime. Job-level `environment` entries treat values as literal strings without variable expansion, so `CLEF_AGE_KEY` must be set at the step level.
 
 ## AWS KMS — Zero-Secret Pattern
 
@@ -196,7 +196,7 @@ To keep earlier values when keys conflict, use `--no-override`:
 clef exec database/production --also auth/production --no-override -- node server.js
 ```
 
-Now `database/production` values take precedence for any keys that appear in both namespaces.
+With `--no-override`, keys that already exist in the process environment (from earlier `--also` targets or from the host) are not overwritten. In this example, `database/production` values take precedence for any keys that appear in both namespaces because they are injected first.
 
 ### Prefix to avoid collisions
 
@@ -236,6 +236,12 @@ docker build \
 ```
 
 Be cautious: build args are visible in the image's build history. Use multi-stage builds to avoid leaking secrets into the final image layer.
+
+## Service Identity Bundles
+
+For serverless workloads (Lambda, Cloud Functions, Cloud Run) that cannot run `sops` at deploy time, consider using [Service Identity bundles](/guide/service-identities) instead of `clef exec`. Bundles embed age-encrypted secrets in a self-contained JS module that decrypts at runtime using the [age-encryption](https://www.npmjs.com/package/age-encryption) npm package — no git, no sops binary, and no private keys in the deployment artifact.
+
+See the [Service Identities guide](/guide/service-identities) for a full walkthrough including an AWS Lambda example.
 
 ## Best Practices
 

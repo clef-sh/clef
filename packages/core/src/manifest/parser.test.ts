@@ -615,6 +615,202 @@ describe("ManifestParser", () => {
       expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
       expect(() => parser.validate(manifest)).toThrow(/invalid 'sops' field/);
     });
+
+    describe("service_identities validation", () => {
+      const testRecipient = "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p";
+
+      it("should accept a valid service identity", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              description: "API gateway",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        const result = parser.validate(manifest);
+        expect(result.service_identities).toHaveLength(1);
+        expect(result.service_identities![0].name).toBe("api-gw");
+      });
+
+      it("should reject service identity missing name", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              description: "No name",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/name/);
+      });
+
+      it("should reject service identity missing description", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/description/);
+      });
+
+      it("should reject service identity with empty namespaces array", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              description: "API gateway",
+              namespaces: [],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/namespaces/);
+      });
+
+      it("should reject service identity referencing unknown namespace", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              description: "API gateway",
+              namespaces: ["nonexistent"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/nonexistent/);
+      });
+
+      it("should reject service identity missing environments object", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              description: "API gateway",
+              namespaces: ["database"],
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/environments/);
+      });
+
+      it("should reject service identity missing an environment entry", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              description: "API gateway",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                // staging and production missing
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/staging/);
+      });
+
+      it("should reject service identity with invalid recipient key", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              description: "API gateway",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: "not-a-valid-key" },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/age public key/);
+      });
+
+      it("should reject duplicate service identity names", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              description: "First",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+            {
+              name: "api-gw",
+              description: "Duplicate",
+              namespaces: ["auth"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/Duplicate.*api-gw/);
+      });
+
+      it("should reject non-array service_identities", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: "not-an-array",
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/must be an array/);
+      });
+    });
   });
 
   describe("watch", () => {

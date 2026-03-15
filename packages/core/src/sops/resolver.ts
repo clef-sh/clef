@@ -8,7 +8,21 @@
  * The result is cached after the first call — subsequent calls return the
  * same resolution without re-probing the filesystem.
  */
+import * as fs from "fs";
 import * as path from "path";
+
+function validateSopsPath(candidate: string): void {
+  if (!path.isAbsolute(candidate)) {
+    throw new Error(`CLEF_SOPS_PATH must be an absolute path, got '${candidate}'.`);
+  }
+  const segments = candidate.split(/[/\\]/);
+  if (segments.includes("..")) {
+    throw new Error(
+      `CLEF_SOPS_PATH contains '..' path segments ('${candidate}'). ` +
+        "Use an absolute path without directory traversal.",
+    );
+  }
+}
 
 export type SopsSource = "env" | "bundled" | "system";
 
@@ -74,6 +88,10 @@ export function resolveSopsPath(): SopsResolution {
   // 1. Explicit environment override
   const envPath = process.env.CLEF_SOPS_PATH?.trim();
   if (envPath) {
+    validateSopsPath(envPath);
+    if (!fs.existsSync(envPath)) {
+      throw new Error(`CLEF_SOPS_PATH points to '${envPath}' but the file does not exist.`);
+    }
     cached = { path: envPath, source: "env" };
     return cached;
   }

@@ -134,7 +134,7 @@ jobs:
       # Pin versions above REQUIREMENTS in packages/core/src/dependencies/checker.ts
       - name: Install SOPS
         run: |
-          SOPS_VERSION=3.9.4
+          SOPS_VERSION=$(node -p "require('./sops-version.json').version")
           curl -Lo /usr/local/bin/sops https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64
           chmod +x /usr/local/bin/sops
           sops --version

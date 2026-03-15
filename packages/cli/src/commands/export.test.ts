@@ -224,6 +224,9 @@ describe("clef export", () => {
     expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("/proc/<pid>/environ"));
     // Assert warning does NOT leak to stdout
     expect(mockFormatter.print).not.toHaveBeenCalledWith(expect.stringContaining("/proc"));
+    // Assert warning does NOT leak to the raw output channel
+    const rawCalls = mockFormatter.raw.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(rawCalls.join("")).not.toContain("/proc");
     // Output should still be correct
     expect(mockFormatter.raw).toHaveBeenCalled();
   });

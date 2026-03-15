@@ -13,7 +13,7 @@ export function registerGetCommand(program: Command, deps: { runner: SubprocessR
   program
     .command("get <target> <key>")
     .description(
-      "Get a single decrypted value. Output is raw (no labels, no colour) for piping.\n\n" +
+      "Get a single decrypted value.\n\n" +
         "  target: namespace/environment (e.g. payments/production)\n" +
         "  key:    the key name to retrieve\n\n" +
         "Exit codes:\n" +

@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import * as YAML from "yaml";
 import {
@@ -10,6 +11,20 @@ import {
 import { generateAgeIdentity } from "../age/keygen";
 import { MatrixManager } from "../matrix/manager";
 import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
+
+/**
+ * Thrown when key rotation partially completes before a failure.
+ * Contains the private keys for environments that were successfully rotated.
+ */
+export class PartialRotationError extends Error {
+  constructor(
+    message: string,
+    public readonly rotatedKeys: Record<string, string>,
+  ) {
+    super(message);
+    this.name = "PartialRotationError";
+  }
+}
 
 /**
  * Manages service identities: creation, listing, key rotation, and drift validation.
@@ -72,6 +87,10 @@ export class ServiceIdentityManager {
       environments,
     };
 
+    // Register public keys as SOPS recipients on scoped files BEFORE writing
+    // the manifest, so a registration failure doesn't leave orphaned state.
+    await this.registerRecipients(definition, manifest, repoRoot);
+
     // Update manifest on disk
     const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
     const raw = fs.readFileSync(manifestPath, "utf-8");
@@ -86,10 +105,9 @@ export class ServiceIdentityManager {
       namespaces,
       environments,
     });
-    fs.writeFileSync(manifestPath, YAML.stringify(doc), "utf-8");
-
-    // Register public keys as SOPS recipients on scoped files
-    await this.registerRecipients(definition, manifest, repoRoot);
+    const tmpCreate = path.join(os.tmpdir(), `clef-manifest-${process.pid}-${Date.now()}.tmp`);
+    fs.writeFileSync(tmpCreate, YAML.stringify(doc), "utf-8");
+    fs.renameSync(tmpCreate, manifestPath);
 
     return { identity: definition, privateKeys };
   }
@@ -162,33 +180,60 @@ export class ServiceIdentityManager {
 
     const cells = this.matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
 
-    for (const envName of envsToRotate) {
-      const oldRecipient = identity.environments[envName]?.recipient;
-      if (!oldRecipient) {
-        throw new Error(`Environment '${envName}' not found on identity '${name}'.`);
-      }
-
-      const newIdentity = await generateAgeIdentity();
-      newPrivateKeys[envName] = newIdentity.privateKey;
-
-      // Update manifest
-      envs[envName] = { recipient: newIdentity.publicKey };
-
-      // Swap recipients on scoped files
-      const scopedCells = cells.filter(
-        (c) => identity.namespaces.includes(c.namespace) && c.environment === envName,
-      );
-      for (const cell of scopedCells) {
-        try {
-          await this.encryption.removeRecipient(cell.filePath, oldRecipient);
-        } catch {
-          // May not be a current recipient
+    try {
+      for (const envName of envsToRotate) {
+        const oldRecipient = identity.environments[envName]?.recipient;
+        if (!oldRecipient) {
+          throw new Error(`Environment '${envName}' not found on identity '${name}'.`);
         }
-        await this.encryption.addRecipient(cell.filePath, newIdentity.publicKey);
+
+        const newIdentity = await generateAgeIdentity();
+        newPrivateKeys[envName] = newIdentity.privateKey;
+
+        // Update manifest
+        envs[envName] = { recipient: newIdentity.publicKey };
+
+        // Swap recipients on scoped files
+        const scopedCells = cells.filter(
+          (c) => identity.namespaces.includes(c.namespace) && c.environment === envName,
+        );
+        for (const cell of scopedCells) {
+          try {
+            await this.encryption.removeRecipient(cell.filePath, oldRecipient);
+          } catch {
+            // May not be a current recipient
+          }
+          try {
+            await this.encryption.addRecipient(cell.filePath, newIdentity.publicKey);
+          } catch (addErr) {
+            // Attempt rollback: re-add old recipient
+            try {
+              await this.encryption.addRecipient(cell.filePath, oldRecipient);
+            } catch {
+              throw new Error(
+                `Failed to add new recipient to ${cell.namespace}/${cell.environment} and rollback also failed. ` +
+                  `File may be in an inconsistent state. ` +
+                  `Old key: ${oldRecipient.slice(0, 12)}..., New key: ${newIdentity.publicKey.slice(0, 12)}...`,
+              );
+            }
+            throw addErr;
+          }
+        }
       }
+    } catch (err) {
+      if (Object.keys(newPrivateKeys).length > 0) {
+        const partialErr = new PartialRotationError(
+          `Rotation failed after rotating ${Object.keys(newPrivateKeys).join(", ")}: ${(err as Error).message}`,
+          newPrivateKeys,
+        );
+        throw partialErr;
+      }
+      throw err;
     }
 
-    fs.writeFileSync(manifestPath, YAML.stringify(doc), "utf-8");
+    const tmpRotate = path.join(os.tmpdir(), `clef-manifest-${process.pid}-${Date.now()}.tmp`);
+    fs.writeFileSync(tmpRotate, YAML.stringify(doc), "utf-8");
+    fs.renameSync(tmpRotate, manifestPath);
     return newPrivateKeys;
   }
 
@@ -225,8 +270,7 @@ export class ServiceIdentityManager {
             identity: si.name,
             environment: envName,
             type: "missing_environment",
-            message: `Service identity '${si.name}' is missing environment '${envName}'.`,
-            fixCommand: `clef service rotate ${si.name} --environment ${envName}`,
+            message: `Service identity '${si.name}' is missing environment '${envName}'. Manually add an age key pair for this environment in clef.yaml.`,
           });
         }
       }
@@ -264,6 +308,7 @@ export class ServiceIdentityManager {
                 namespace: cell.namespace,
                 type: "scope_mismatch",
                 message: `Service identity '${si.name}' recipient found in ${cell.namespace}/${cell.environment} but namespace '${cell.namespace}' is not in scope.`,
+                fixCommand: `clef recipients remove ${envConfig.recipient} -e ${cell.environment}`,
               });
             }
           } catch {

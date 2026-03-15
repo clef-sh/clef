@@ -30,7 +30,7 @@ export function registerBundleCommand(program: Command, deps: { runner: Subproce
         try {
           if (opts.format !== "esm" && opts.format !== "cjs") {
             formatter.error(`Invalid format '${opts.format}'. Must be 'esm' or 'cjs'.`);
-            process.exit(2);
+            process.exit(1);
             return;
           }
 

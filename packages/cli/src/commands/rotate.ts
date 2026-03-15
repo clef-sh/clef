@@ -39,7 +39,6 @@ export function registerRotateCommand(program: Command, deps: { runner: Subproce
           );
           if (!confirmed) {
             formatter.info("Rotation cancelled.");
-            process.exit(0);
             return;
           }
         }

@@ -27,6 +27,22 @@ check that thresholds pass. See the
 [testing guide](docs/contributing/testing.md#test-coverage-philosophy)
 for the full rationale and per-tier expectations.
 
+## Branch strategy
+
+Clef uses a three-tier branch model:
+
+| Branch    | Purpose                                      |
+| --------- | -------------------------------------------- |
+| `dev`     | Active development — target PRs here         |
+| `staging` | Pre-release validation — promoted from `dev` |
+| `main`    | Stable releases — promoted from `staging`    |
+
+**Open all PRs against `dev`** unless you are specifically fixing a regression on `staging` or
+`main`. Pushes to `dev` publish alpha packages to GitHub Packages automatically; pushes to
+`staging` publish beta packages; pushes to `main` trigger a full Semantic Release.
+
+See [Releasing](docs/contributing/releasing.md) for the full versioning and publish pipeline.
+
 ## Pull Request Guidelines
 
 Keep PRs small and focused. Link every PR to an open issue. Write a useful description explaining

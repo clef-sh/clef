@@ -288,8 +288,7 @@ export class LintRunner {
             severity: "error",
             category: "service-identity",
             file: "clef.yaml",
-            message: `Service identity '${si.name}' is missing environment '${envName}'.`,
-            fixCommand: `clef service rotate ${si.name} --environment ${envName}`,
+            message: `Service identity '${si.name}' is missing environment '${envName}'. Manually add an age key pair for this environment in clef.yaml.`,
           });
         }
       }
@@ -323,6 +322,7 @@ export class LintRunner {
                 category: "service-identity",
                 file: cell.filePath,
                 message: `Service identity '${si.name}' recipient found in ${cell.namespace}/${cell.environment} but namespace is not in scope.`,
+                fixCommand: `clef recipients remove ${envConfig.recipient} -e ${cell.environment}`,
               });
             }
           } catch {

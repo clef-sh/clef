@@ -11,7 +11,7 @@ A **pending value** is a cryptographically random placeholder that occupies a ke
 ### The lifecycle
 
 1. **Scaffold with a random value** using `clef set <namespace/environment> <KEY> --random` or `clef init --random-values`
-2. The key is encrypted normally and tracked as pending in `.clef-meta.yaml`
+2. The key is encrypted normally and tracked as pending in a co-located `.clef-meta.yaml` file
 3. The UI shows a `PENDING` badge, the matrix shows the pending count, `clef lint` reports pending warnings
 4. When the real value is available, set it normally: `clef set <namespace/environment> KEY <value>` — the pending state clears automatically
 
@@ -71,14 +71,14 @@ clef set payments/staging STRIPE_SECRET_KEY sk_live_abc123...
 Output:
 
 ```
-✓ Set payments/staging STRIPE_SECRET_KEY
+✓ STRIPE_SECRET_KEY set in payments/staging
 ```
 
 No special flag is needed — just set the key normally and the pending state clears automatically.
 
 From the UI, click the `Set value` button on a pending row, enter the real value, and save.
 
-## The `.clef-meta.yaml` file
+## The `.clef-meta.yaml` files
 
 Pending state is tracked in a sidecar metadata file committed alongside each encrypted file:
 

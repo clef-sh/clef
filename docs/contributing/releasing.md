@@ -1,10 +1,58 @@
 # Releasing
 
-Clef uses automated releases powered by Conventional Commits and release-please. The changelog is generated automatically from commit messages — there is no manual changelog editing.
+Clef uses [Semantic Release](https://semantic-release.gitbook.io/) with
+[semantic-release-monorepo](https://github.com/pmowrer/semantic-release-monorepo) to automate
+versioning and publishing. The changelog and version bumps are generated entirely from commit
+messages — there is no manual changelog editing.
+
+## Branch strategy
+
+Clef uses a three-tier branch model that maps directly to release channels:
+
+| Branch    | Channel | Registry              | Dist-tag | Access     |
+| --------- | ------- | --------------------- | -------- | ---------- |
+| `dev`     | Alpha   | GitHub Packages       | `alpha`  | Restricted |
+| `staging` | Beta    | GitHub Packages → npm | `beta`   | Public     |
+| `main`    | Stable  | npm                   | `latest` | Public     |
+
+### dev → alpha
+
+Every push to `dev` triggers an automatic publish to GitHub Packages under the `alpha` dist-tag.
+Alpha packages are **restricted** (organization-only) — not publicly installable from npm.
+
+Version scheme: the base version is always sourced from `main`, not the current branch.
+This keeps alpha stamps anchored to the next stable release regardless of branch divergence:
+
+```
+main@0.1.0  →  alpha: 0.1.0-alpha.<run_number>
+```
+
+Alpha packages are for internal development iteration only. They are not promoted to npm.
+
+### staging → beta
+
+Every push to `staging` triggers an automatic publish to GitHub Packages (public) under the `beta`
+dist-tag and creates a draft GitHub pre-release.
+
+Version scheme: same base-from-main approach as alpha:
+
+```
+main@0.1.0  →  beta: 0.1.0-beta.<run_number>
+```
+
+Beta packages are **not** published to npm automatically. Promoting a beta to npm requires a
+manual workflow dispatch (see [Promoting beta to npm](#promoting-beta-to-npm) below).
+
+### main → stable
+
+Every push to `main` runs Semantic Release. If there are releasable commits since the last release,
+both `@clef-sh/core` and `@clef-sh/cli` are published to npm under the `latest` dist-tag.
 
 ## Commit message format
 
-All commits must follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
+All commits must follow the [Conventional Commits](https://www.conventionalcommits.org/)
+specification. Semantic Release reads commit messages to decide whether to release and what version
+to produce.
 
 ```
 type(scope): short description
@@ -14,32 +62,29 @@ Optional body explaining why, not what.
 Closes #123
 ```
 
-### Types
+### Types and version rules
 
-| Type       | Purpose                              | Triggers release?        |
-| ---------- | ------------------------------------ | ------------------------ |
-| `feat`     | New feature                          | Yes (minor version bump) |
-| `fix`      | Bug fix                              | Yes (patch version bump) |
-| `docs`     | Documentation only                   | No                       |
-| `chore`    | Tooling, CI, dependencies            | No                       |
-| `refactor` | Code change with no behaviour change | No                       |
-| `test`     | Adding or updating tests             | No                       |
-| `ci`       | CI configuration changes             | No                       |
+| Type       | Purpose                              | Triggers release? | Version bump |
+| ---------- | ------------------------------------ | ----------------- | ------------ |
+| `feat`     | New feature                          | Yes               | Patch        |
+| `fix`      | Bug fix                              | Yes               | Patch        |
+| `perf`     | Performance improvement              | Yes               | Patch        |
+| `feat!`    | Breaking feature                     | Yes               | Minor        |
+| `fix!`     | Breaking fix                         | Yes               | Minor        |
+| `docs`     | Documentation only                   | No                | —            |
+| `chore`    | Tooling, CI, dependencies            | No                | —            |
+| `refactor` | Code change with no behaviour change | No                | —            |
+| `test`     | Adding or updating tests             | No                | —            |
+| `ci`       | CI configuration changes             | No                | —            |
 
-### Scopes
+::: tip Breaking changes bump minor, not major
+While Clef is pre-1.0, breaking changes are mapped to a **minor** version bump. Once Clef reaches
+1.0, the release rules will be updated so breaking changes trigger a major bump.
+:::
 
-Common scopes: `core`, `cli`, `ui`, `docs`, `ci`.
+### Marking a breaking change
 
-```
-feat(cli): add --json flag to clef diff
-fix(core): handle empty manifest gracefully
-docs(guide): update installation instructions for Linux
-chore(deps): bump vitepress to 1.2.0
-```
-
-### Breaking changes
-
-A commit with `BREAKING CHANGE:` in the footer (or `!` after the type) triggers a major version bump:
+Use `!` after the type, or add a `BREAKING CHANGE:` footer:
 
 ```
 feat(cli)!: rename --all-envs to --all-environments
@@ -48,85 +93,120 @@ BREAKING CHANGE: The --all-envs flag has been renamed to
 --all-environments for consistency.
 ```
 
-## Release process
+### Common scopes
+
+`core`, `cli`, `ui`, `docs`, `ci`
+
+## How releases work on main
+
+Releasing is fully automated when changes land on `main`. No manual steps are needed.
 
 ### 1. Merge PRs to main
 
-All changes land on `main` via squash-and-merge pull requests. Each squash commit must follow Conventional Commits.
+All changes land on `main` via pull requests. Each PR title (which becomes the squash commit
+message) must follow Conventional Commits so Semantic Release can parse it.
 
-### 2. Release-please creates a release PR
+### 2. Semantic Release runs automatically
 
-[release-please](https://github.com/googleapis/release-please) monitors `main` and automatically creates a release PR when releasable commits (feat, fix) are detected. The release PR:
+On every push to `main`, the release workflow (`.github/workflows/release.yml`):
 
-- Bumps version numbers in `package.json` files
-- Generates a changelog entry from commit messages
-- Stays open and auto-updates as more commits land
+1. Checks out `main` with full git history
+2. Runs `npm ci` and `npm run build`
+3. Runs `npm test`
+4. Runs Semantic Release for `@clef-sh/core`
+5. If core published a new version, bumps the `@clef-sh/core` devDependency in `packages/cli/package.json` and commits with `[skip ci]`
+6. Runs Semantic Release for `@clef-sh/cli`
 
-### 3. Merge the release PR
+### 3. What Semantic Release does per package
 
-When you are ready to release, merge the release-please PR. This:
+For each package that has releasable commits:
 
-- Creates a git tag (e.g., `v0.2.0`)
-- Creates a GitHub Release with the generated changelog
-- Triggers the release workflow
+1. Analyzes commits since the last release tag
+2. Determines the next version (patch or minor)
+3. Updates `package.json` and `CHANGELOG.md`
+4. Publishes to npm with `--provenance` (OIDC attestation — no long-lived npm token)
+5. Creates a git tag (e.g. `@clef-sh/core@0.2.0`)
+6. Creates a GitHub Release with generated notes
+7. Commits the version bump back to `main`
 
-### 4. Publish to npm
+### Independent versioning
 
-The release workflow (`.github/workflows/release.yml`) publishes:
+`@clef-sh/core` and `@clef-sh/cli` release **independently** — each is versioned by its own
+commits. Core at `0.2.0` and CLI at `0.3.1` is a valid state. `@clef-sh/ui` is private and is
+never published separately; it is bundled into the CLI package.
 
-- `@clef-sh/core` — the core library (public package)
-- `@clef-sh/cli` — the CLI (public package, bundles `@clef-sh/ui` via `bundleDependencies`)
+## Promoting beta to npm
 
-`@clef-sh/ui` is not published separately — it is bundled into the CLI package.
+Beta versions land on GitHub Packages automatically. Promoting to npm requires a manual
+workflow dispatch — this is a deliberate gate for public pre-release testing.
 
-The workflow requires the `NPM_TOKEN` secret — an npm access token with publish permissions for the `@clef-sh` scope.
+### Steps
 
-## Versioning
+1. Go to **Actions → Publish Beta to npm** in the GitHub repository
+2. Click **Run workflow**
+3. Enter the beta version to promote (e.g. `0.1.0-beta.7`)
+4. Optionally set the ref (defaults to `staging`)
+5. Click **Run workflow**
 
-Clef uses [semantic versioning](https://semver.org/):
+The workflow validates the version format (`X.Y.Z-beta.N`), rebuilds both packages from the
+specified ref, publishes both to npm under the `beta` dist-tag with OIDC provenance, tags the
+commit as `npm-beta/vX.Y.Z-beta.N`, and updates the GitHub pre-release notes.
 
-- **Major** (1.0.0 -> 2.0.0): Breaking changes to CLI arguments, manifest format, or public API
-- **Minor** (1.0.0 -> 1.1.0): New features, new commands, new flags
-- **Patch** (1.0.0 -> 1.0.1): Bug fixes, performance improvements
+### Installing a beta
 
-All three packages (`core`, `cli`, `ui`) are versioned in lock-step. A release bumps all three to the same version number.
+```bash
+npm install @clef-sh/cli@beta
+```
 
-## Documentation versioning
+## Authentication
 
-Documentation is versioned in lock-step with the code. When a release introduces breaking changes or new features, the corresponding documentation updates must be included in the same PR as the code change. This is enforced by code review — there is no automated check.
+All npm publishes use **GitHub Actions OIDC** — there are no long-lived npm tokens stored as
+repository secrets. The `id-token: write` permission is granted to release workflows, and npm
+verifies the GitHub OIDC token directly. This also generates cryptographic provenance attestations
+for every published package.
 
-## Manual release (emergency)
+## Sops binary packages
 
-In rare cases where the automated process fails:
+The `@clef-sh/sops-{platform}-{arch}` packages are **versioned by sops version** (e.g. `3.9.4`),
+not by the Clef version. They are published separately via the `publish-sops.yml` workflow
+(manual dispatch) and are not part of the Semantic Release cycle. See
+[`sops-version.json`](https://github.com/clef-sh/clef/blob/main/sops-version.json) for the
+currently pinned sops version and platform checksums.
+
+## Pre-release checklist
+
+Before merging a PR that should trigger a release on `main`, verify:
+
+- [ ] All CI checks pass
+- [ ] `npm test` passes locally across all workspaces
+- [ ] `npm run lint` passes with no errors
+- [ ] `npm run build` succeeds for all packages
+- [ ] Commit message follows Conventional Commits and accurately describes the change
+- [ ] Documentation is updated for any new features or behaviour changes
+- [ ] If this introduces a breaking change (`!`), a migration path is documented
+
+## Manual release (emergency only)
+
+If the automated pipeline fails and a release must go out immediately:
 
 ```bash
 # Update versions manually
-npm version 0.2.1 --workspaces --no-git-tag-version
+npm version 0.2.1 -w packages/core --no-git-tag-version
+npm version 0.2.1 -w packages/cli  --no-git-tag-version
 
 # Commit and tag
-git add -A
-git commit -m "chore: release v0.2.1"
-git tag v0.2.1
+git add packages/core/package.json packages/cli/package.json
+git commit -m "chore(release): v0.2.1"
+git tag @clef-sh/core@0.2.1
+git tag @clef-sh/cli@0.2.1
 
 # Push
 git push origin main --tags
 
-# Publish (core first, then cli — skip ui which is private)
-npm publish -w packages/core
-npm publish -w packages/cli
+# Publish with provenance (core first, then cli)
+npm publish --provenance --access public -w packages/core
+npm publish --provenance --access public -w packages/cli
 ```
 
-This should only be used as a last resort. The automated process is strongly preferred.
-
-## Pre-release checklist
-
-Before merging a release-please PR, verify:
-
-- [ ] All CI checks pass on `main`
-- [ ] `npm test` passes locally across all workspaces
-- [ ] `npm run lint` passes with no errors
-- [ ] `npm run build` succeeds for all packages
-- [ ] Documentation is up to date for any new features or breaking changes
-- [ ] The changelog in the release PR accurately reflects the changes since the last release
-- [ ] If this is a major version bump, the migration guide is written and linked from the changelog
-- [ ] The `NPM_TOKEN` secret is set in the repository settings (check once, not every release)
+This bypasses Semantic Release and must only be used as a last resort. The automated process
+is strongly preferred.

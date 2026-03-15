@@ -134,7 +134,7 @@ After importing:
 
 ```bash
 git rm .env .env.staging .env.production
-echo "*.env" >> .gitignore
+echo ".env*" >> .gitignore
 git commit -m "chore: remove plaintext .env files — secrets now managed by Clef"
 ```
 

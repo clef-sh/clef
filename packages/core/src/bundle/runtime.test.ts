@@ -78,5 +78,51 @@ describe("generateRuntimeModule", () => {
       const source = generateRuntimeModule(sampleCiphertext, sampleKeys, "esm");
       expect(source).toContain("not found");
     });
+
+    it("should escape dollar signs in ciphertext", () => {
+      const withDollar = "cipher${text}";
+      const source = generateRuntimeModule(withDollar, ["KEY"], "esm");
+      expect(source).toContain("cipher\\${text}");
+    });
+  });
+
+  describe("memoization guards", () => {
+    it("should include _cache guard in ESM template", () => {
+      const source = generateRuntimeModule(sampleCiphertext, sampleKeys, "esm");
+      expect(source).toContain("if (_cache)");
+      expect(source).toContain("if (_pending)");
+    });
+
+    it("should include _cache guard in CJS template", () => {
+      const source = generateRuntimeModule(sampleCiphertext, sampleKeys, "cjs");
+      expect(source).toContain("if (_cache)");
+      expect(source).toContain("if (_pending)");
+    });
+  });
+
+  describe("error handling structure", () => {
+    it("should clear _pending on error via .catch in ESM", () => {
+      const source = generateRuntimeModule(sampleCiphertext, sampleKeys, "esm");
+      expect(source).toContain(".catch((err)");
+      expect(source).toContain("_pending = null");
+    });
+
+    it("should set _cache only in .then in ESM", () => {
+      const source = generateRuntimeModule(sampleCiphertext, sampleKeys, "esm");
+      expect(source).toContain(".then((values)");
+      expect(source).toContain("_cache = values");
+    });
+
+    it("should clear _pending on error via .catch in CJS", () => {
+      const source = generateRuntimeModule(sampleCiphertext, sampleKeys, "cjs");
+      expect(source).toContain(".catch((err)");
+      expect(source).toContain("_pending = null");
+    });
+
+    it("should set _cache only in .then in CJS", () => {
+      const source = generateRuntimeModule(sampleCiphertext, sampleKeys, "cjs");
+      expect(source).toContain(".then((values)");
+      expect(source).toContain("_cache = values");
+    });
   });
 });

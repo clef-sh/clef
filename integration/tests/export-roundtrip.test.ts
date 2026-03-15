@@ -27,12 +27,15 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
-  repo?.cleanup();
-  if (keys?.tmpDir) {
-    try {
-      fs.rmSync(keys.tmpDir, { recursive: true, force: true });
-    } catch {
-      // Ignore
+  try {
+    repo?.cleanup();
+  } finally {
+    if (keys?.tmpDir) {
+      try {
+        fs.rmSync(keys.tmpDir, { recursive: true, force: true });
+      } catch {
+        // Ignore
+      }
     }
   }
 });

@@ -10,7 +10,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { createWriteStream, mkdirSync, chmodSync } from "node:fs";
+import { createWriteStream, mkdirSync, chmodSync, unlinkSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 // import { pipeline } from "node:stream/promises";
 import { join, dirname } from "node:path";
@@ -90,6 +90,7 @@ async function main() {
 
     if (!expected) {
       console.error(`  No checksum found for platform '${platform}' in sops-version.json`);
+      unlinkSync(destPath);
       process.exit(1);
     }
 
@@ -97,6 +98,7 @@ async function main() {
       console.error(`  CHECKSUM MISMATCH for ${platform}!`);
       console.error(`    Expected: ${expected}`);
       console.error(`    Got:      ${digest}`);
+      unlinkSync(destPath);
       process.exit(1);
     }
 

@@ -38,13 +38,17 @@ describe("Server binding", () => {
       await server?.stop();
     } catch {
       // Best effort cleanup
-    }
-    repo?.cleanup();
-    if (keys?.tmpDir) {
+    } finally {
       try {
-        fs.rmSync(keys.tmpDir, { recursive: true, force: true });
-      } catch {
-        // Ignore
+        repo?.cleanup();
+      } finally {
+        if (keys?.tmpDir) {
+          try {
+            fs.rmSync(keys.tmpDir, { recursive: true, force: true });
+          } catch {
+            // Ignore
+          }
+        }
       }
     }
   });

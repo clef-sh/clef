@@ -93,6 +93,10 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
               .replace("{environment}", environment),
           );
 
+          // Note: the CLI set command supports --random for pending placeholders.
+          // The UI API (PUT /api/namespace/:ns/:env/:key) also supports { random: true }
+          // but adds rollback on metadata failure. This asymmetry is intentional:
+          // the CLI warns and continues, while the API must return a consistent state.
           const sopsClient = await createSopsClient(repoRoot, deps.runner);
           const decrypted = await sopsClient.decrypt(filePath);
           decrypted.values[key] = secretValue;
@@ -105,8 +109,9 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
             } catch {
               formatter.warn(
                 `${key} was encrypted but pending state could not be recorded.\n` +
-                  "  The value is set but will not appear as pending in the UI or lint.\n" +
-                  "  To manually mark it pending, edit .clef-meta.yaml.",
+                  "  WARNING: The encrypted file contains a random placeholder value.\n" +
+                  "  This key MUST be set to a real value before deploying.\n" +
+                  `  Run: clef set ${namespace}/${environment} ${key}`,
               );
             }
             formatter.success(`${key} set in ${namespace}/${environment} ${sym("locked")}`);
@@ -116,7 +121,14 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
             formatter.hint(`clef set ${namespace}/${environment} ${key}`);
           } else {
             // Normal set resolves any pending state for this key
-            await markResolved(filePath, [key]);
+            try {
+              await markResolved(filePath, [key]);
+            } catch {
+              formatter.warn(
+                `${key} was set but pending state could not be cleared.\n` +
+                  "  The value is saved. Run clef lint to check for stale pending markers.",
+              );
+            }
             formatter.success(`${key} set in ${namespace}/${environment}`);
             formatter.hint(
               `Commit: git add ${manifest.file_pattern.replace("{namespace}", namespace).replace("{environment}", environment)}`,

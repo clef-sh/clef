@@ -203,7 +203,7 @@ describe("clef merge-driver", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
-  it("should exit 1 on decryption failure", async () => {
+  it("should exit 1 on decryption failure with typed error message", async () => {
     mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
       const s = p.toString();
       if (s.includes("clef.yaml")) return true;
@@ -241,7 +241,7 @@ describe("clef merge-driver", () => {
     ]);
 
     expect(mockFormatter.error).toHaveBeenCalledWith(
-      expect.stringContaining("Merge driver failed. Run 'clef doctor' to verify setup."),
+      expect.stringContaining("No decryption key found"),
     );
     expect(mockExit).toHaveBeenCalledWith(1);
   });

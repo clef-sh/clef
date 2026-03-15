@@ -46,6 +46,10 @@ export async function getSecret(key: string, keyProvider: () => Promise<string>)
 export async function getAllSecrets(
   keyProvider: () => Promise<string>,
 ): Promise<Record<string, string>>;
+
+// Clear the decrypted secrets cache. Call after key rotation to force
+// a fresh decrypt on the next getSecret()/getAllSecrets() call.
+export function clearCache(): void;
 ```
 
 ### Key provider

@@ -7,7 +7,7 @@ import { MatrixManager } from "../matrix/manager";
 jest.mock("fs");
 jest.mock("../age/keygen");
 
-const mockFs = fs as jest.Mocked<typeof fs>;
+const mockFs = fs as jest.Mocked<typeof fs> & { renameSync: jest.Mock };
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest mock
 const { generateAgeIdentity } = require("../age/keygen") as {
@@ -138,8 +138,12 @@ describe("ServiceIdentityManager", () => {
 
       await manager.create("svc", ["api"], "test", manifest, "/repo");
 
-      // Should have called addRecipient for each api env file
-      expect(encryption.addRecipient).toHaveBeenCalled();
+      // Should have called addRecipient for each api env file (dev, staging, production)
+      expect(encryption.addRecipient).toHaveBeenCalledTimes(3);
+      expect(encryption.addRecipient).toHaveBeenCalledWith(
+        expect.stringContaining("api/"),
+        expect.stringMatching(/^age1pubkey/),
+      );
     });
   });
 
@@ -207,6 +211,16 @@ describe("ServiceIdentityManager", () => {
       expect(Object.keys(result)).toHaveLength(3);
       expect(result.dev).toMatch(/^AGE-SECRET-KEY-/);
       expect(mockFs.writeFileSync).toHaveBeenCalled();
+
+      // Verify old recipients were removed and new ones added
+      expect(encryption.removeRecipient).toHaveBeenCalledWith(
+        expect.stringContaining("api/"),
+        expect.stringMatching(/^age1old/),
+      );
+      expect(encryption.addRecipient).toHaveBeenCalledWith(
+        expect.stringContaining("api/"),
+        expect.stringMatching(/^age1pubkey/),
+      );
     });
 
     it("should rotate a single environment", async () => {
@@ -343,7 +357,7 @@ describe("ServiceIdentityManager", () => {
 
       const issues = await manager.validate(manifest, "/repo");
       const unreg = issues.filter((i) => i.type === "recipient_not_registered");
-      expect(unreg.length).toBeGreaterThanOrEqual(1);
+      expect(unreg).toHaveLength(1);
     });
 
     it("should detect scope mismatch", async () => {
@@ -370,7 +384,7 @@ describe("ServiceIdentityManager", () => {
 
       const issues = await manager.validate(manifest, "/repo");
       const mismatch = issues.filter((i) => i.type === "scope_mismatch");
-      expect(mismatch.length).toBeGreaterThanOrEqual(1);
+      expect(mismatch).toHaveLength(1);
     });
   });
 });
