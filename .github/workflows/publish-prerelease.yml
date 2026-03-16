@@ -19,7 +19,6 @@ on:
 permissions:
   contents: write # create GitHub releases on staging
   packages: write # publish to GitHub Packages
-  id-token: write # provenance attestations
 
 jobs:
   publish:
@@ -80,7 +79,7 @@ jobs:
         working-directory: packages/core
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ steps.ver.outputs.core_version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag alpha --access restricted
+          npm publish --tag alpha --access restricted --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -89,7 +88,7 @@ jobs:
         working-directory: packages/cli
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ steps.ver.outputs.cli_version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag alpha --access restricted
+          npm publish --tag alpha --access restricted --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -99,7 +98,7 @@ jobs:
         working-directory: packages/core
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ steps.ver.outputs.core_version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public
+          npm publish --tag beta --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -108,7 +107,7 @@ jobs:
         working-directory: packages/cli
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ steps.ver.outputs.cli_version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public
+          npm publish --tag beta --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
