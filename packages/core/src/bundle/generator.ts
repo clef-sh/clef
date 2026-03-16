@@ -94,15 +94,10 @@ export class BundleGenerator {
       e.addRecipient(envConfig.recipient);
       ciphertext = await e.encrypt(plaintext);
     } catch {
-      for (const k of Object.keys(allValues)) allValues[k] = "";
-      plaintext = "";
       throw new Error("Failed to age-encrypt bundle. Check recipient key.");
     }
 
-    // Best-effort cleanup — immutable strings cannot be reliably scrubbed in a GC runtime
     const keys = Object.keys(allValues);
-    for (const k of keys) allValues[k] = "";
-    plaintext = "";
     const source = generateRuntimeModule(ciphertext, keys, config.format);
 
     // Write to disk
