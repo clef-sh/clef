@@ -24,6 +24,7 @@ import {
   resolveBackendConfig,
 } from "../types";
 import { assertSops } from "../dependencies/checker";
+import { deriveAgePublicKey } from "../age/keygen";
 import { resolveSopsPath } from "./resolver";
 
 function formatFromPath(filePath: string): "yaml" | "json" {
@@ -93,8 +94,8 @@ export class SopsClient implements EncryptionBackend {
     );
 
     if (result.exitCode !== 0) {
-      const stderr = result.stderr.toLowerCase();
-      if (stderr.includes("could not find") || stderr.includes("no key")) {
+      const errorType = await this.classifyDecryptError(filePath);
+      if (errorType === "key-not-found") {
         throw new SopsKeyNotFoundError(
           `No decryption key found for '${filePath}'. ${result.stderr.trim()}`,
         );
@@ -296,6 +297,52 @@ export class SopsClient implements EncryptionBackend {
     }
 
     return this.parseMetadataFromFile(filePath);
+  }
+
+  /**
+   * Determine whether a decrypt failure is caused by a missing/mismatched key (vs. some other
+   * SOPS error) without relying on stderr message text.
+   *
+   * For age backends: reads the file's recipient list and checks whether any of the configured
+   * private keys derive to a matching public key. For non-age backends (pgp, kms) we cannot
+   * perform an equivalent check, so those always return "other".
+   */
+  private async classifyDecryptError(filePath: string): Promise<"key-not-found" | "other"> {
+    let metadata: SopsMetadata;
+    try {
+      metadata = this.parseMetadataFromFile(filePath);
+    } catch {
+      return "other";
+    }
+
+    if (metadata.backend !== "age") return "other";
+
+    // No age key configured at all
+    if (!this.ageKey && !this.ageKeyFile) return "key-not-found";
+
+    // Obtain the private key material from the constructor params
+    let keyContent: string;
+    try {
+      keyContent = this.ageKey ?? fs.readFileSync(this.ageKeyFile!, "utf-8");
+    } catch {
+      return "key-not-found";
+    }
+
+    // Key files may contain multiple AGE-SECRET-KEY-1... lines (plus comments/blank lines)
+    const privateKeys = keyContent
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("AGE-SECRET-KEY-"));
+
+    if (privateKeys.length === 0) return "key-not-found";
+
+    try {
+      const publicKeys = await Promise.all(privateKeys.map((k) => deriveAgePublicKey(k)));
+      const recipients = new Set(metadata.recipients);
+      return publicKeys.some((pk) => recipients.has(pk)) ? "other" : "key-not-found";
+    } catch {
+      return "other";
+    }
   }
 
   private parseMetadataFromFile(filePath: string): SopsMetadata {
