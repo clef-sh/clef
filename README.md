@@ -4,9 +4,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![npm version](https://img.shields.io/npm/v/@clef-sh/cli.svg)](https://www.npmjs.com/package/@clef-sh/cli)
 
-**Git-native config and secrets management built on [Mozilla SOPS](https://github.com/getsops/sops).**
+**Git-native secrets management built on [Mozilla SOPS](https://github.com/getsops/sops) — structured, validated, and always encrypted in your own repo.**
 
-Clef adds structure, visibility, and guardrails on top of SOPS — without servers, databases, or vendor lock-in. Your secrets stay encrypted in git. Clef gives you a CLI, a local web UI, schema validation, and drift detection to manage them.
+Clef adds a namespace-by-environment matrix, schema validation, drift detection, and a local web UI on top of SOPS. Your secrets stay in git, encrypted by your KMS. The RBAC, audit logs, and short-lived credential access you need for enterprise compliance come from your KMS — not from a new intermediary.
 
 ## Why Clef?
 
@@ -19,6 +19,16 @@ SOPS is a great encryption engine, but at team scale it falls short:
 - No guardrails against committing plaintext secrets
 
 Clef solves all of these while keeping SOPS as the encryption engine and git as the source of truth.
+
+### Bring Your Own KMS — and inherit enterprise-grade security
+
+When you pair Clef with AWS KMS or GCP KMS, you get:
+
+- **RBAC via IAM** — access to a secret is an IAM policy; no separate permission system to learn
+- **Audit logs via CloudTrail / Cloud Audit Logs** — every decryption is a KMS API call, captured in your existing SIEM
+- **Zero-secret CI via OIDC** — GitHub Actions and GitLab CI authenticate directly to KMS; no long-lived credential stored anywhere
+
+You are not choosing between developer ergonomics and enterprise compliance. Clef provides the workflow layer. Your KMS provides the security posture.
 
 ## Features
 

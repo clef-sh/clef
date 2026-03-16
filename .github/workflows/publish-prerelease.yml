@@ -83,7 +83,6 @@ jobs:
           npm publish --tag alpha --access restricted
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
 
       - name: Publish @clef-sh/cli (alpha)
         if: github.ref_name == 'dev'
@@ -93,7 +92,6 @@ jobs:
           npm publish --tag alpha --access restricted
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
 
       # ── Beta (staging → GitHub Packages, public) ─────────────────────────
       - name: Publish @clef-sh/core (beta)
@@ -104,7 +102,6 @@ jobs:
           npm publish --tag beta --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
 
       - name: Publish @clef-sh/cli (beta)
         if: github.ref_name == 'staging'
@@ -114,7 +111,6 @@ jobs:
           npm publish --tag beta --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
 
       # Beta: create a GitHub pre-release so the version surfaces in Releases
       - name: Create GitHub pre-release (beta)

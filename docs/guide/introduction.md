@@ -4,7 +4,7 @@ Clef is a local-first, open source tool that brings structure, validation, and a
 
 ## Why this matters
 
-When secrets live alongside code, CI becomes stateless. One `git checkout` gives a pipeline everything it needs to deploy. Rollbacks are one operation. Drift between code and secrets is impossible because they change together in the same PR. No external secrets service to query, no version matrix to manage, no coordination across repos.
+When secrets live alongside code, CI checks out one ref and has the full picture — code and credentials together. Rollbacks are one operation, not a coordination problem across repos. Key drift between code and secrets is less likely because they can change in the same PR, and more visible when they do not. No external secrets service to query at runtime, no version matrix to manage across repos.
 
 SOPS already gives you Secrets as Code — encrypted values you can commit to git. But at team scale, raw SOPS falls apart:
 
@@ -26,16 +26,37 @@ Three principles guide every decision in Clef:
 
 ## Competitive landscape
 
-|                   | Clef | Vault    | Doppler | dotenv-vault | Raw SOPS |
-| ----------------- | ---- | -------- | ------- | ------------ | -------- |
-| Local-first       | Yes  | No       | No      | No           | Yes      |
-| Git-native        | Yes  | No       | No      | Yes          | Yes      |
-| UI                | Yes  | Yes      | Yes     | Yes          | No       |
-| Schema validation | Yes  | No       | No      | No           | No       |
-| No infrastructure | Yes  | No       | No      | No           | Yes      |
-| Key management    | SOPS | Built-in | SaaS    | SaaS         | Manual   |
+|                      | Clef                              | Vault       | Doppler  | dotenv-vault | Raw SOPS |
+| -------------------- | --------------------------------- | ----------- | -------- | ------------ | -------- |
+| Git-native           | Yes                               | No          | No       | Yes          | Yes      |
+| Local-first          | Yes                               | No          | No       | No           | Yes      |
+| UI                   | Yes                               | Yes         | Yes      | Yes          | No       |
+| Schema validation    | Yes                               | No          | No       | No           | No       |
+| No infrastructure    | Yes                               | No          | No       | No           | Yes      |
+| RBAC                 | Via KMS IAM                       | Built-in    | Built-in | Limited      | Manual   |
+| Audit logs           | Via CloudTrail / Cloud Audit Logs | Built-in    | Built-in | No           | No       |
+| Vendor holds secrets | No (OSS)                          | Self-hosted | Yes      | Yes          | No       |
+| Key management       | age / KMS                         | Built-in    | SaaS     | SaaS         | Manual   |
 
-Clef's unique position: **co-located secrets that actually scale to teams.** Unlike Vault or Doppler, there is no server to run — a single commit hash is your entire system state. Unlike raw SOPS, there is structure, validation, and a workflow layer that makes co-location manageable as your team grows.
+Clef's unique position: **co-located secrets that actually scale to teams — with no intermediary between you and your data.** Unlike Vault or Doppler, no server holds your secrets. Unlike raw SOPS, you get structure, validation, and a workflow layer that makes co-location manageable as your team grows.
+
+## Your KMS is your enterprise security layer
+
+When security teams evaluate secrets management tools, three questions come up every time:
+
+- **RBAC**: Who is allowed to access which secrets?
+- **Audit logs**: What was decrypted, when, and by whom?
+- **Short-lived credentials**: Does CI need a long-lived secret to decrypt?
+
+With Clef and a cloud KMS backend, the answer to all three is already handled — by the infrastructure you already run.
+
+**Access control via IAM.** When Clef uses AWS KMS or GCP KMS, access to a secret is an IAM policy. You grant and revoke access the same way you manage any other AWS or GCP permission. Your existing security team workflows, approval processes, and break-glass procedures apply directly. There is no RBAC system to learn, provision, or audit separately.
+
+**Audit logs via CloudTrail and Cloud Audit Logs.** Every decryption is a KMS API call. AWS CloudTrail and GCP Cloud Audit Logs capture each one — envelope key ID, caller identity, timestamp, source IP. Those logs land in the same SIEM your security team already queries. No new tool to build a pipeline for.
+
+**Zero-secret CI via OIDC.** GitHub Actions, GitLab CI, and CircleCI all support OIDC token exchange with AWS and GCP. Your pipeline assumes an IAM role with KMS decrypt permission — no long-lived credential needs to be stored anywhere. `clef exec` and `clef export` work with OIDC-authenticated AWS and GCP sessions.
+
+Clef provides the workflow layer: the manifest, the matrix, the lint rules, the UI, the drift detection. Your KMS provides the security posture. You are not choosing between developer ergonomics and enterprise compliance — the architecture gives you both, from systems you already operate.
 
 ## What Clef provides
 

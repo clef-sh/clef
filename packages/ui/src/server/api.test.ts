@@ -91,7 +91,10 @@ function createApp(runner?: SubprocessRunner) {
 
   const app = express();
   app.use(express.json());
-  app.use("/api", createApiRouter({ runner: runner ?? makeRunner(), repoRoot: "/repo" }));
+  app.use(
+    "/api",
+    createApiRouter({ runner: runner ?? makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+  );
   return app;
 }
 
@@ -117,7 +120,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).get("/api/manifest");
       expect(res.status).toBe(500);
@@ -145,7 +151,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).get("/api/matrix");
       expect(res.status).toBe(500);
@@ -346,7 +355,10 @@ describe("API routes", () => {
 
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app)
         .put("/api/namespace/database/dev/DB_HOST")
@@ -530,7 +542,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).get("/api/lint");
       expect(res.status).toBe(500);
@@ -553,7 +568,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).post("/api/lint/fix");
       expect(res.status).toBe(500);
@@ -681,7 +699,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).get("/api/lint/database");
       expect(res.status).toBe(500);
@@ -712,7 +733,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).post("/api/scan").send({});
       expect(res.status).toBe(500);
@@ -865,7 +889,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app)
         .post("/api/import/preview")
@@ -938,7 +965,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app)
         .post("/api/import/apply")
@@ -975,7 +1005,10 @@ describe("API routes", () => {
 
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).get("/api/recipients");
       expect(res.status).toBe(200);
@@ -991,7 +1024,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).get("/api/recipients");
       expect(res.status).toBe(500);
@@ -1052,7 +1088,10 @@ describe("API routes", () => {
 
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).post("/api/recipients/add").send({
         key: "age1wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",
@@ -1099,7 +1138,10 @@ describe("API routes", () => {
 
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).post("/api/recipients/remove").send({ key: testKey });
       expect(res.status).toBe(200);

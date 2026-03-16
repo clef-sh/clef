@@ -21,12 +21,26 @@ jest.mock("fs", () => ({
   writeFileSync: jest.fn(),
 }));
 
+jest.mock("./resolver", () => ({
+  resolveSopsPath: jest.fn().mockReturnValue({ path: "sops", source: "system" }),
+  resetSopsResolution: jest.fn(),
+}));
+
 jest.mock("../dependencies/checker", () => ({
   assertSops: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock("../age/keygen", () => ({
+  deriveAgePublicKey: jest.fn(),
+}));
+
 const mockReadFileSync = fs.readFileSync as jest.Mock;
 const mockWriteFileSync = fs.writeFileSync as jest.Mock;
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- require() needed to access jest mock after jest.mock()
+const { deriveAgePublicKey: mockDeriveAgePublicKey } = require("../age/keygen") as {
+  deriveAgePublicKey: jest.Mock;
+};
 
 function mockRunner(responses: Record<string, SubprocessResult>): SubprocessRunner {
   return {
@@ -71,6 +85,7 @@ describe("SopsClient", () => {
   beforeEach(() => {
     mockReadFileSync.mockReturnValue(sopsMetadataYaml);
     mockWriteFileSync.mockReturnValue(undefined);
+    mockDeriveAgePublicKey.mockReset();
   });
 
   describe("decrypt", () => {
@@ -100,30 +115,109 @@ describe("SopsClient", () => {
       expect(result.metadata.recipients).toEqual(["age1test123"]);
     });
 
-    it("should throw SopsKeyNotFoundError when key is missing", async () => {
+    it("should throw SopsKeyNotFoundError when no age key is configured", async () => {
       const runner = mockRunner({
-        "sops decrypt": {
-          stdout: "",
-          stderr: "could not find key to decrypt",
-          exitCode: 1,
-        },
+        "sops decrypt": { stdout: "", stderr: "failed to get the data key", exitCode: 1 },
       });
 
+      // No ageKey/ageKeyFile → classifyDecryptError short-circuits to key-not-found
       const client = new SopsClient(runner);
       await expect(client.decrypt("database/dev.enc.yaml")).rejects.toThrow(SopsKeyNotFoundError);
     });
 
-    it("should throw SopsDecryptionError on general failure", async () => {
+    it("should throw SopsKeyNotFoundError when configured age key does not match file recipients", async () => {
+      mockDeriveAgePublicKey.mockResolvedValue("age1differentkey456");
       const runner = mockRunner({
-        "sops decrypt": {
-          stdout: "",
-          stderr: "Error: some decryption failure",
-          exitCode: 1,
-        },
+        "sops decrypt": { stdout: "", stderr: "failed to decrypt", exitCode: 1 },
+      });
+
+      const client = new SopsClient(runner, undefined, "AGE-SECRET-KEY-1WRONGKEY");
+      await expect(client.decrypt("database/dev.enc.yaml")).rejects.toThrow(SopsKeyNotFoundError);
+    });
+
+    it("should throw SopsKeyNotFoundError when ageKeyFile cannot be read", async () => {
+      // First call returns metadata yaml; second call (key file) throws
+      mockReadFileSync.mockReturnValueOnce(sopsMetadataYaml).mockImplementationOnce(() => {
+        throw new Error("ENOENT: no such file or directory");
+      });
+      const runner = mockRunner({
+        "sops decrypt": { stdout: "", stderr: "failed", exitCode: 1 },
+      });
+
+      const client = new SopsClient(runner, "/nonexistent/key.txt");
+      await expect(client.decrypt("database/dev.enc.yaml")).rejects.toThrow(SopsKeyNotFoundError);
+    });
+
+    it("should throw SopsKeyNotFoundError when ageKeyFile contains no valid age private keys", async () => {
+      mockReadFileSync.mockImplementation((path: string) => {
+        if ((path as string).endsWith(".enc.yaml")) return sopsMetadataYaml;
+        return "# created: 2024-01-01\n# public key: age1abc\n# (no private key line)";
+      });
+      const runner = mockRunner({
+        "sops decrypt": { stdout: "", stderr: "failed", exitCode: 1 },
+      });
+
+      const client = new SopsClient(runner, "/path/to/key.txt");
+      await expect(client.decrypt("database/dev.enc.yaml")).rejects.toThrow(SopsKeyNotFoundError);
+    });
+
+    it("should throw SopsDecryptionError when age key matches a recipient but decrypt fails otherwise", async () => {
+      mockDeriveAgePublicKey.mockResolvedValue("age1test123"); // matches sopsMetadataYaml recipient
+      const runner = mockRunner({
+        "sops decrypt": { stdout: "", stderr: "Error: corrupt MAC", exitCode: 1 },
+      });
+
+      const client = new SopsClient(runner, undefined, "AGE-SECRET-KEY-1VALID");
+      const err = await client.decrypt("database/dev.enc.yaml").catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(SopsDecryptionError);
+      expect(err).not.toBeInstanceOf(SopsKeyNotFoundError);
+    });
+
+    it("should throw SopsDecryptionError on failure for non-age backend", async () => {
+      const kmsMetaYaml = `data: ENC[AES256_GCM,data:test=]
+sops:
+  kms:
+    - arn: arn:aws:kms:us-east-1:123:key/abc
+      enc: testenc
+  lastmodified: "2024-01-15T10:30:00Z"
+  version: 3.8.1`;
+      mockReadFileSync.mockReturnValue(kmsMetaYaml);
+      const runner = mockRunner({
+        "sops decrypt": { stdout: "", stderr: "Error: KMS access denied", exitCode: 1 },
       });
 
       const client = new SopsClient(runner);
       await expect(client.decrypt("database/dev.enc.yaml")).rejects.toThrow(SopsDecryptionError);
+    });
+
+    it("should throw SopsDecryptionError when file metadata cannot be parsed on failure", async () => {
+      mockReadFileSync.mockImplementation(() => {
+        throw new Error("ENOENT");
+      });
+      const runner = mockRunner({
+        "sops decrypt": { stdout: "", stderr: "Error", exitCode: 1 },
+      });
+
+      const client = new SopsClient(runner);
+      await expect(client.decrypt("database/dev.enc.yaml")).rejects.toThrow(SopsDecryptionError);
+    });
+
+    it("should throw SopsDecryptionError when key in multi-key file matches a recipient", async () => {
+      mockDeriveAgePublicKey
+        .mockResolvedValueOnce("age1wrong1") // first key does not match
+        .mockResolvedValueOnce("age1test123"); // second key matches
+      mockReadFileSync.mockImplementation((path: string) => {
+        if ((path as string).endsWith(".enc.yaml")) return sopsMetadataYaml;
+        return "AGE-SECRET-KEY-1FIRSTKEY\nAGE-SECRET-KEY-1SECONDKEY\n";
+      });
+      const runner = mockRunner({
+        "sops decrypt": { stdout: "", stderr: "Error: corrupt MAC", exitCode: 1 },
+      });
+
+      const client = new SopsClient(runner, "/path/to/key.txt");
+      const err = await client.decrypt("database/dev.enc.yaml").catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(SopsDecryptionError);
+      expect(err).not.toBeInstanceOf(SopsKeyNotFoundError);
     });
 
     it("should handle empty YAML output (null parse) via ?? {} fallback", async () => {

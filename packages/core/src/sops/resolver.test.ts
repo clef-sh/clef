@@ -2,6 +2,9 @@ import * as fs from "fs";
 import { resolveSopsPath, resetSopsResolution } from "./resolver";
 
 jest.mock("fs");
+jest.mock("./bundled", () => ({
+  tryBundled: jest.fn().mockReturnValue(null),
+}));
 const mockFs = fs as jest.Mocked<typeof fs>;
 
 describe("resolveSopsPath", () => {

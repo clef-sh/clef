@@ -14,20 +14,20 @@ import Footer from "../components/Footer.astro";
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Clef — Secrets management that lives in your repo</title>
+    <title>Clef — Git-native secrets management for engineering teams</title>
     <meta
       name="description"
-      content="Clef brings a structured UI and git workflow to Mozilla SOPS — without a server, without a database, without vendor lock-in."
+      content="Structure, schema enforcement, and drift detection for SOPS. Your secrets stay in your repo, encrypted by your KMS — inheriting your existing RBAC, audit logs, and access controls."
     />
 
     <!-- Open Graph -->
     <meta
       property="og:title"
-      content="Clef — Secrets management that lives in your repo"
+      content="Clef — Git-native secrets management for engineering teams"
     />
     <meta
       property="og:description"
-      content="Clef brings a structured UI and git workflow to Mozilla SOPS — without a server, without a database, without vendor lock-in."
+      content="Structure, schema enforcement, and drift detection for SOPS. Your secrets stay in your repo, encrypted by your KMS — inheriting your existing RBAC, audit logs, and access controls."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://clef.sh" />
@@ -37,11 +37,11 @@ import Footer from "../components/Footer.astro";
     <meta name="twitter:card" content="summary_large_image" />
     <meta
       name="twitter:title"
-      content="Clef — Secrets management that lives in your repo"
+      content="Clef — Git-native secrets management for engineering teams"
     />
     <meta
       name="twitter:description"
-      content="Clef brings a structured UI and git workflow to Mozilla SOPS — without a server, without a database, without vendor lock-in."
+      content="Structure, schema enforcement, and drift detection for SOPS. Your secrets stay in your repo, encrypted by your KMS — inheriting your existing RBAC, audit logs, and access controls."
     />
 
     <!-- Favicon -->
@@ -109,12 +109,17 @@ import Footer from "../components/Footer.astro";
           <span
             class="rounded border border-clef-border px-2.5 py-0.5 font-mono text-[11px] text-clef-textSecondary"
           >
-            Local-first
+            Bring Your Own KMS
           </span>
           <span
             class="hidden rounded border border-clef-border px-2.5 py-0.5 font-mono text-[11px] text-clef-textSecondary sm:inline"
           >
             No vendor lock-in
+          </span>
+          <span
+            class="hidden rounded border border-clef-border px-2.5 py-0.5 font-mono text-[11px] text-clef-accent sm:inline"
+          >
+            Clef Cloud coming soon
           </span>
         </div>
         <a
