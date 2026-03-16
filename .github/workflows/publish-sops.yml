@@ -151,8 +151,6 @@ jobs:
         if: ${{ !inputs.dry_run }}
         working-directory: platforms/sops-${{ matrix.platform }}
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Dry run — show package contents
         if: ${{ inputs.dry_run }}
