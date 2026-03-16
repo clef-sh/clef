@@ -12,6 +12,14 @@ import { SopsMissingError, SopsVersionError, SubprocessRunner } from "../types";
 import { resetSopsResolution } from "../sops/resolver";
 
 jest.mock("fs");
+jest.mock("../sops/resolver", () => ({
+  resolveSopsPath: jest.fn(() => {
+    const envPath = process.env.CLEF_SOPS_PATH?.trim();
+    if (envPath) return { path: envPath, source: "env" };
+    return { path: "sops", source: "system" };
+  }),
+  resetSopsResolution: jest.fn(),
+}));
 const mockFs = fs as jest.Mocked<typeof fs>;
 
 function makeRunner(
@@ -91,7 +99,6 @@ describe("semverSatisfied", () => {
 });
 
 beforeEach(() => {
-  resetSopsResolution();
   delete process.env.CLEF_SOPS_PATH;
   mockFs.existsSync.mockReturnValue(true);
 });

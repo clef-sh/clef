@@ -2,7 +2,7 @@
 
 `clef exec` is the recommended way to consume secrets in CI/CD pipelines. It decrypts values in memory, injects them as environment variables into your command, and exits with the same exit code as the child process — making it a drop-in wrapper for any deployment step.
 
-This page covers the most common CI/CD patterns with Clef. Every example is production-ready.
+This page covers the most common CI/CD patterns with Clef. Review and adapt each example for your specific infrastructure before using in production.
 
 ## Choosing a CI backend
 
@@ -100,7 +100,7 @@ Store `AGE_PRIVATE_KEY` as a CircleCI project environment variable or context va
 
 ## AWS KMS — Zero-Secret Pattern
 
-The cleanest production setup. The CI runner's IAM role has `kms:Decrypt` permission on your SOPS KMS key. No secret needs to be stored or passed — identity-based access handles everything.
+The most secure CI setup if you're already on AWS. The CI runner's IAM role has `kms:Decrypt` permission on your SOPS KMS key. No long-lived secret needs to be stored or passed — identity-based access replaces the credential entirely.
 
 ### GitHub Actions with OIDC
 

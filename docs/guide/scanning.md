@@ -27,7 +27,7 @@ Clef maintains a list of known secret formats and matches them against each line
 | Generic API key              | `API_KEY=...`, `SECRET_KEY=...`, `ACCESS_TOKEN=...`, `AUTH_TOKEN=...`                              |
 | Database URL                 | `postgres://user:pass@host/db`                                                                     |
 
-Pattern matches are high-signal. A Stripe live key starting with `sk_live_` is almost certainly a secret. Pattern detection has a very low false positive rate.
+Pattern detection targets well-known secret formats with fixed prefixes. A Stripe live key starting with `sk_live_` is almost certainly a secret — false positives on pattern matches are rare for the formats listed above.
 
 ## How entropy detection works
 
@@ -95,7 +95,7 @@ Add `clef scan` to your CI pipeline as a secrets detection gate:
   run: clef scan --severity high
 ```
 
-Use `--severity high` in CI. Entropy detection occasionally produces false positives on generated files (checksums, minified output, encoded assets). Pattern detection is high-signal. Use pattern-only as the CI gate and run full scan locally where you can interactively suppress false positives.
+Use `--severity high` in CI. Entropy detection occasionally produces false positives on generated files (checksums, minified output, encoded assets). Pattern detection has a lower false positive rate than entropy detection. Use pattern-only as the CI gate and run full scan locally where you can interactively suppress false positives.
 
 Pattern matches in CI fail with exit code 1, blocking the build until the secret is moved into Clef or the match is suppressed via `.clefignore`.
 

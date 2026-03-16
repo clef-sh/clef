@@ -21,6 +21,11 @@ jest.mock("fs", () => ({
   writeFileSync: jest.fn(),
 }));
 
+jest.mock("./resolver", () => ({
+  resolveSopsPath: jest.fn().mockReturnValue({ path: "sops", source: "system" }),
+  resetSopsResolution: jest.fn(),
+}));
+
 jest.mock("../dependencies/checker", () => ({
   assertSops: jest.fn().mockResolvedValue(undefined),
 }));

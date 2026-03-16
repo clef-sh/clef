@@ -3,6 +3,7 @@ module.exports = {
   preset: "ts-jest",
   testEnvironment: "node",
   testMatch: ["<rootDir>/src/**/*.test.ts"],
+  setupFiles: ["<rootDir>/jest.setup.ts"],
   moduleNameMapper: {
     "^@clef-sh/core$": "<rootDir>/../core/src/index.ts",
     "^@clef-sh/ui/dist/server$": "<rootDir>/src/__mocks__/ui-server.ts",

@@ -8,7 +8,7 @@ layout: home
 
 features:
   - title: One commit = full system state
-    details: Secrets live alongside code in the same repo. CI checks out one ref and has everything. Rollbacks are one operation. Drift is impossible.
+    details: Secrets live alongside code in the same repo. CI checks out one ref and has everything. Rollbacks are one operation. Drift is visible at PR time.
     link: /guide/introduction
     linkText: Read the guide
   - title: CLI + UI

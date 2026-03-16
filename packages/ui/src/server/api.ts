@@ -28,13 +28,14 @@ export interface ApiDeps {
   repoRoot: string;
   ageKeyFile?: string;
   ageKey?: string;
+  sopsPath?: string;
 }
 
 export function createApiRouter(deps: ApiDeps): Router {
   const router = Router();
   const parser = new ManifestParser();
   const matrix = new MatrixManager();
-  const sops = new SopsClient(deps.runner, deps.ageKeyFile, deps.ageKey);
+  const sops = new SopsClient(deps.runner, deps.ageKeyFile, deps.ageKey, deps.sopsPath);
   const diffEngine = new DiffEngine();
   const schemaValidator = new SchemaValidator();
   const lintRunner = new LintRunner(matrix, schemaValidator, sops);
