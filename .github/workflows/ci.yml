@@ -145,3 +145,33 @@ jobs:
       - run: npm run build --workspace=packages/agent
       - run: npm run build --workspace=packages/cli
       - run: npm run test:integration
+
+  e2e:
+    name: E2E (${{ matrix.os }})
+    needs: integration-test
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu
+            runner: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install SOPS
+        run: |
+          SOPS_VERSION=$(node -p "require('./sops-version.json').version")
+          curl -Lo /usr/local/bin/sops https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64
+          chmod +x /usr/local/bin/sops
+          sops --version
+      - run: npm ci
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report-${{ matrix.os }}
+          path: e2e/playwright-report/
