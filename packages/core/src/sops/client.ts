@@ -11,6 +11,8 @@
  * See docs/contributing/testing.md for the rationale.
  */
 import * as fs from "fs";
+import * as net from "net";
+import { randomBytes } from "crypto";
 import * as YAML from "yaml";
 import {
   ClefManifest,
@@ -29,6 +31,31 @@ import { resolveSopsPath } from "./resolver";
 
 function formatFromPath(filePath: string): "yaml" | "json" {
   return filePath.endsWith(".json") ? "json" : "yaml";
+}
+
+/**
+ * On Windows, /dev/stdin does not exist. Create a named pipe that sops can open
+ * as its input file, feed the content through it, and return the pipe path.
+ * The returned cleanup function closes the server once sops is done reading.
+ *
+ * Go's os.Open / CreateFile can open \\.\pipe\... paths directly, so sops
+ * reads from the pipe exactly as it would from a regular file.
+ */
+function openWindowsInputPipe(content: string): Promise<{ inputArg: string; cleanup: () => void }> {
+  const pipeName = `\\\\.\\pipe\\clef-sops-${randomBytes(8).toString("hex")}`;
+
+  return new Promise((resolve, reject) => {
+    const server = net.createServer((socket) => {
+      socket.end(content);
+    });
+    server.on("error", reject);
+    server.listen(pipeName, () => {
+      resolve({
+        inputArg: pipeName,
+        cleanup: () => server.close(),
+      });
+    });
+  });
 }
 
 /**
@@ -148,23 +175,46 @@ export class SopsClient implements EncryptionBackend {
     const args = this.buildEncryptArgs(filePath, manifest, environment);
     const env = this.buildSopsEnv();
 
-    const result = await this.runner.run(
-      this.sopsCommand,
-      [
-        "encrypt",
-        ...args,
-        "--input-type",
-        fmt,
-        "--output-type",
-        fmt,
-        "--filename-override",
-        filePath,
-      ],
-      {
-        stdin: content,
-        ...(env ? { env } : {}),
-      },
-    );
+    // sops requires an explicit input path — it does not read from stdin implicitly.
+    // On Unix we pass /dev/stdin (a special file backed by the process's stdin pipe).
+    // On Windows /dev/stdin does not exist, so we create a named pipe, feed content
+    // through it, and pass the pipe path as the input file instead.
+    let inputArg: string;
+    let pipeCleanup: (() => void) | undefined;
+
+    if (process.platform === "win32") {
+      const pipe = await openWindowsInputPipe(content);
+      inputArg = pipe.inputArg;
+      pipeCleanup = pipe.cleanup;
+    } else {
+      inputArg = "/dev/stdin";
+    }
+
+    let result;
+    try {
+      result = await this.runner.run(
+        this.sopsCommand,
+        [
+          "encrypt",
+          ...args,
+          "--input-type",
+          fmt,
+          "--output-type",
+          fmt,
+          "--filename-override",
+          filePath,
+          inputArg,
+        ],
+        {
+          // stdin is still piped on Unix (/dev/stdin reads from it);
+          // on Windows the named pipe server feeds content directly.
+          ...(process.platform !== "win32" ? { stdin: content } : {}),
+          ...(env ? { env } : {}),
+        },
+      );
+    } finally {
+      pipeCleanup?.();
+    }
 
     if (result.exitCode !== 0) {
       throw new SopsEncryptionError(
