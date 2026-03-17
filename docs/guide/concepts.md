@@ -2,6 +2,10 @@
 
 This page explains the mental model behind Clef.
 
+## Who Clef is for
+
+Clef is a secrets management tool **for developers** that supports ops and security workflows — not an ops or security tool that happens to have developer support. The distinction matters: every design decision starts from the developer's daily experience (editing secrets, reviewing PRs, debugging config) and works outward. Ops-oriented features like production isolation, drift detection, and CI integration exist because they make the developer workflow sustainable at scale, not as ends in themselves.
+
 ## The two-axis model
 
 Every secret in a Clef-managed repository lives at the intersection of two axes:
@@ -142,9 +146,13 @@ Clef never implements cryptography. All encryption and decryption is delegated t
 
 Clef has no `encrypted: false` option. Every file in the matrix is encrypted by SOPS, without exception. A single rule is easier to audit and enforce than mixed-mode. Non-sensitive config belongs in a regular config file outside the Clef matrix.
 
-## Recommended approach: co-located secrets
+## Repository structure
 
-Clef recommends **co-location**: secrets in the same repository as the code that uses them, inside a `secrets/` directory.
+Clef supports two approaches to organizing secrets. Choose based on your team size, compliance requirements, and security posture.
+
+### Co-located secrets (default)
+
+For most teams, **co-location** is the simplest and most productive pattern: secrets live in the same repository as the code that uses them, inside a `secrets/` directory.
 
 ```
 my-app/
@@ -162,21 +170,53 @@ my-app/
         └── production.enc.yaml
 ```
 
-### Why co-location matters
+**Why co-location works well:**
 
 - **Blast radius containment.** Each repo has its own age key. Compromising one repo's key does not expose any other repo's secrets.
-- **Drift detection.** `clef lint` catches missing keys, schema violations, and environment gaps at PR cadence. Secrets in a separate repo drift silently.
+- **Drift detection.** `clef lint` catches missing keys, schema violations, and environment gaps at PR cadence.
 - **One commit hash = complete system state.** A single git SHA represents everything needed to run — code, config, and credentials. `git checkout <sha> && clef exec ... -- deploy.sh` deploys from one ref with no separate secrets repo to coordinate.
-- **Atomic reviews.** Secrets and code change in the same PR. A separate secrets repo means separate PRs.
+- **Atomic reviews.** Secrets and code change in the same PR.
 - **No sync step.** Developers get secret changes by pulling the repository.
 - **Ownership clarity.** The team that owns the code owns the secrets, with the same review and access controls.
 
-### Why not a standalone secrets repo
+### Production isolation
+
+For regulated or security-conscious organizations, production ciphertext can live in a **separate repository** accessible only to ops/SRE teams and production CI/CD. The dev repo holds `dev` and `staging` environments; the production repo holds only `production`.
+
+```
+# Dev repo (accessible to all engineers)
+my-app/
+├── src/
+├── clef.yaml          # environments: dev, staging
+└── secrets/
+    └── database/
+        ├── dev.enc.yaml
+        └── staging.enc.yaml
+
+# Production repo (restricted to ops)
+my-app-production/
+├── clef.yaml          # environments: production
+└── secrets/
+    └── database/
+        └── production.enc.yaml
+```
+
+**Why production isolation matters:**
+
+- **Least privilege.** Developers who need `dev` and `staging` secrets never see production ciphertext.
+- **Compliance.** SOC 2, PCI-DSS, and HIPAA frameworks may require separate storage and audit trails for production credentials.
+- **Defense in depth.** Even though SOPS values are encrypted, key names are plaintext. Splitting repos limits visibility of production key names.
+
+Use `clef drift` to keep key sets in sync across repos — it compares without decryption and works without sops installed. See [Production Isolation](/guide/production-isolation) for the full setup guide.
+
+### Why not a shared monorepo for all services
+
+The arguments against a single shared secrets repository (all services, all teams) remain strong regardless of which pattern you choose above:
 
 - **Single point of compromise.** One key exposes secrets for every service.
 - **Invisible drift.** Secret changes are decoupled from the code that consumes them.
 - **Unclear ownership.** Multiple teams sharing one repo means unclear review responsibility.
-- **Operational friction.** Every change requires two repos, two PRs, two review cycles.
+- **Operational friction.** Every change requires coordinating across teams and repos.
 
 ::: tip Access control
 By default, a recipient added with `clef recipients add` can decrypt all environments. Clef provides two ways to restrict access within a repo:

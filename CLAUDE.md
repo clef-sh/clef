@@ -11,7 +11,7 @@ Clef is a git-native secrets management tool built on Mozilla SOPS. It provides 
 npm workspaces with three packages:
 
 - **`packages/core`** — Core library (manifest parsing, matrix management, SOPS client, sops binary resolver, lint runner, schema validation, diff engine, secret scanning, git integration, bulk ops, import/export, recipient management, pending metadata, age keygen, dependency checking). Production dependencies: `yaml`, `age-encryption`.
-- **`packages/cli`** — Commander.js CLI wrapping core. 17 commands: init, get, set, delete, diff, lint, rotate, hooks, exec, export, import, doctor, update, scan, recipients, ui, merge-driver. Has `optionalDependencies` on `@clef-sh/sops-{platform}-{arch}` packages for bundled sops binary.
+- **`packages/cli`** — Commander.js CLI wrapping core. Commands: init, get, set, delete, diff, lint, rotate, hooks, exec, export, import, doctor, update, scan, recipients, ui, merge-driver, service, pack, drift, agent. Has `optionalDependencies` on `@clef-sh/sops-{platform}-{arch}` packages for bundled sops binary.
 - **`packages/ui`** — React + Vite + Express local web UI served at `127.0.0.1:7777`.
 - **`platforms/sops-{platform}-{arch}/`** — Platform-specific npm packages that each contain a single sops binary. Versioned by sops version (e.g. 3.9.4), not Clef version. Published separately via `publish-sops.yml` workflow.
 

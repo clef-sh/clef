@@ -5,6 +5,9 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Generated API docs (typedoc output, rebuilt by docs:api)
+docs/api/
+
 # Coverage
 coverage/
 .nyc_output/
