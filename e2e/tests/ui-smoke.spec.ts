@@ -60,8 +60,11 @@ test("payments namespace row appears in the matrix", async ({ page }) => {
 test("environment columns are labelled dev and production", async ({ page }) => {
   await page.goto(server.url);
   // Both environment names must appear in the matrix header area.
-  await expect(page.getByTestId("matrix-table").getByText("dev")).toBeVisible();
-  await expect(page.getByTestId("matrix-table").getByText("production")).toBeVisible();
+  // Use exact:true to avoid matching the uppercase badge variants (DEV, PROD…).
+  await expect(page.getByTestId("matrix-table").getByText("dev", { exact: true })).toBeVisible();
+  await expect(
+    page.getByTestId("matrix-table").getByText("production", { exact: true }),
+  ).toBeVisible();
 });
 
 test("clicking the payments row opens the namespace editor showing STRIPE_KEY", async ({

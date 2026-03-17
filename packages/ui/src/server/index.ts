@@ -144,22 +144,29 @@ export async function startServer(
 
   // Serve static client files.
   // Priority: SEA blob > explicit clientDir > default path relative to this file.
+  //
+  // SEA assets are tried first when running as a single executable.  The disk
+  // fallback is always mounted afterwards so that:
+  //   • non-SEA runs (dev, test, npm-linked installs) work out of the box, and
+  //   • SEA runs where getAsset() is unavailable (e.g. Node.js versions that
+  //     don't support the assets API) gracefully fall back to dist/client/ on
+  //     disk rather than returning 404 for every static request.
   const sea = getSea();
   if (sea?.isSea()) {
     mountSeaStaticRoutes(app, sea, staticLimiter);
-  } else {
-    // When the CLI bundles this code with esbuild, all modules land in a single
-    // dist/index.js, so __dirname resolves to that file's directory.  The caller
-    // passes an explicit clientDir (dist/client/) to handle that case.
-    // In standalone/dev use, the default path relative to this file works.
-    const resolvedClientDir = clientDir ?? path.resolve(__dirname, "../client");
-    app.use(staticLimiter, express.static(resolvedClientDir));
-
-    // SPA fallback — serve index.html for non-API routes
-    app.get("*", staticLimiter, (_req, res) => {
-      res.sendFile(path.join(resolvedClientDir, "index.html"));
-    });
   }
+
+  // When the CLI bundles this code with esbuild, all modules land in a single
+  // dist/index.js, so __dirname resolves to that file's directory.  The caller
+  // passes an explicit clientDir (dist/client/) to handle that case.
+  // In standalone/dev use, the default path relative to this file works.
+  const resolvedClientDir = clientDir ?? path.resolve(__dirname, "../client");
+  app.use(staticLimiter, express.static(resolvedClientDir));
+
+  // SPA fallback — serve index.html for non-API routes
+  app.get("*", staticLimiter, (_req, res) => {
+    res.sendFile(path.join(resolvedClientDir, "index.html"));
+  });
 
   const url = `http://127.0.0.1:${port}`;
 
