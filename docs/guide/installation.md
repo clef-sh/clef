@@ -14,10 +14,8 @@ After installation, run `clef doctor` to verify everything is configured correct
 
 ## Prerequisites
 
-Before installing Clef, ensure you have:
-
-1. **Node.js 18 or later** — [download from nodejs.org](https://nodejs.org) or install via your system package manager
-2. **Mozilla SOPS** — the encryption engine that Clef wraps
+1. **Node.js 18 or later** — [nodejs.org](https://nodejs.org)
+2. **Mozilla SOPS**
 
 ### Install SOPS
 
@@ -59,23 +57,10 @@ npm install -g @clef-sh/cli
 
 ```bash
 clef --version
-```
-
-You should see output like:
-
-```
-0.1.0
-```
-
-### Run the environment check
-
-```bash
 clef doctor
 ```
 
-This checks that all required binaries (SOPS, git) are installed and meet the minimum version requirements. If any check fails, `clef doctor` prints the exact install or upgrade command to fix it.
-
-A healthy output looks like:
+`clef doctor` checks that all required binaries meet version requirements and prints the fix command for any failure. A healthy output looks like:
 
 ```
 Clef environment check
@@ -91,63 +76,37 @@ Clef environment check
 ✓ Everything looks good.
 ```
 
-If `manifest` or `.sops.yaml` show as missing, that is expected before running `clef init`.
+Missing `manifest` or `.sops.yaml` is expected before `clef init`.
 
 ## Troubleshooting
 
 ### SOPS not found
 
-If you see an error like `sops: command not found` when running Clef commands:
-
-1. Verify SOPS is installed: `which sops`
-2. If installed but not on your PATH, add its location to your shell profile:
-   ```bash
-   export PATH="/usr/local/bin:$PATH"
-   ```
-3. Restart your terminal or run `source ~/.zshrc` (or `~/.bashrc`)
+1. Verify: `which sops`
+2. If installed but not on PATH: `export PATH="/usr/local/bin:$PATH"`
+3. Restart your terminal or run `source ~/.zshrc`
 
 ### age key not configured
 
-If you see `No decryption key found` errors:
-
-1. Check `.clef/config.yaml` in the repo for the key label and storage method.
-2. If using filesystem storage, verify the key file exists: `ls ~/.config/clef/keys/<label>/keys.txt`
-3. If needed, re-run `clef init` in the repository to generate a new key and configure the local config.
+1. Check `.clef/config.yaml` for the key label and storage method.
+2. Verify the key file exists: `ls ~/.config/clef/keys/<label>/keys.txt`
+3. If needed, re-run `clef init` to generate a new key.
 
 ### Node.js version too old
 
-Clef requires Node.js 18 or later. Check your version:
-
 ```bash
 node --version
-```
-
-If your version is older than v18, upgrade via [nvm](https://github.com/nvm-sh/nvm):
-
-```bash
-nvm install 18
-nvm use 18
+nvm install 18 && nvm use 18
 ```
 
 ## Setting up your first repo
 
-Run `clef init` inside your existing application repository. Clef recommends **co-locating secrets with code** — secrets live alongside the code that uses them.
-
 ```bash
 cd my-app
 clef init --namespaces database,payments --non-interactive
-```
-
-This creates a `secrets/` directory containing encrypted files, plus `clef.yaml` and `.sops.yaml` at the project root. See [Recommended approach](/guide/concepts#recommended-approach-co-located-secrets) for why co-locating secrets with code is preferred over a standalone secrets repo.
-
-After `clef init`, run `clef scan` to check whether your repository contains any existing plaintext secrets that should be moved into Clef before you begin.
-
-```bash
-clef scan
+clef scan  # check for existing plaintext secrets
 ```
 
 ## Next steps
-
-Follow the Quick Start guide to set your first secrets and explore the full workflow.
 
 [Next: Quick Start](/guide/quick-start)

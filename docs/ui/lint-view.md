@@ -1,6 +1,6 @@
 # Lint View
 
-The lint view is the full-repo health report. It scans every file in the matrix for issues and presents them grouped by severity with actionable fix commands. The design is modelled on ESLint: scan everything, report clearly, tell you how to fix it.
+Full-repo health report: every matrix file scanned, issues grouped by severity with fix commands.
 
 ## Layout
 
@@ -51,17 +51,11 @@ Two sets of filters at the top of the view:
 - **Schema** — validation issues (missing required keys, type mismatches, undeclared keys)
 - **SOPS** — encryption issues (invalid metadata, decryption failures)
 
-Both filter sets can be combined: for example, selecting "Errors" and "Schema" shows only schema-related errors.
+Both sets can be combined (e.g., "Errors" + "Schema" shows only schema errors).
 
 ## Issue groups
 
-Issues are grouped by severity and sorted within each group. Error groups appear first, then warnings, then info.
-
-Each group has a coloured header with a count badge:
-
-- Errors: red header with count
-- Warnings: yellow header with count
-- Info: blue header with count
+Issues are grouped by severity (errors first, then warnings, then info), each with a coloured header and count badge.
 
 ## Issue cards
 
@@ -86,13 +80,7 @@ Each issue card contains:
 
 ## All-clear state
 
-When every issue has been resolved (or there were none to begin with), the lint view shows:
-
-- A large green checkmark
-- The text "All clear -- N files healthy"
-- The **Commit changes** button becomes active if there are uncommitted changes
-
-This state is designed to feel like passing a test suite. The visual reward reinforces the workflow of checking lint before committing.
+When every issue is resolved, the view shows a large green checkmark and "All clear — N files healthy". **Commit changes** becomes active if there are uncommitted changes.
 
 ## CLI equivalent
 
@@ -104,4 +92,4 @@ clef lint --fix
 clef lint --json
 ```
 
-The UI provides the same data with interactive filtering, clickable navigation to the editor, and copy-to-clipboard fix commands.
+The UI adds interactive filtering, clickable navigation to the editor, and copy-to-clipboard fix commands.

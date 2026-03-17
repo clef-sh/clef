@@ -1,10 +1,10 @@
 # Scanning for Secrets
 
-`clef scan` is a failsafe. It catches secrets that escaped the Clef matrix — values that were hardcoded directly in source files, config files, or `.env` files instead of being managed through `clef set`.
+`clef scan` catches secrets that escaped the Clef matrix — values hardcoded in source files, config files, or `.env` files.
 
 ## What clef scan detects
 
-Detection works in two categories:
+Two categories:
 
 **Unencrypted Clef-managed files** — files that match your `file_pattern` in `clef.yaml` but are missing valid SOPS metadata. This means someone decrypted a file and committed the plaintext output, or created a matrix file manually without using Clef. These are errors: the file contains plaintext secrets that should be encrypted.
 
@@ -27,22 +27,13 @@ Clef maintains a list of known secret formats and matches them against each line
 | Generic API key              | `API_KEY=...`, `SECRET_KEY=...`, `ACCESS_TOKEN=...`, `AUTH_TOKEN=...`                              |
 | Database URL                 | `postgres://user:pass@host/db`                                                                     |
 
-Pattern detection targets well-known secret formats with fixed prefixes. A Stripe live key starting with `sk_live_` is almost certainly a secret — false positives on pattern matches are rare for the formats listed above.
+Pattern detection targets well-known secret formats with fixed prefixes. False positives on pattern matches are rare.
 
 ## How entropy detection works
 
-Shannon entropy measures how unpredictable the characters in a string are. Each additional bit of entropy means the next character is twice as hard to predict.
+Shannon entropy measures how unpredictable characters are. `password` has low entropy; `4xK9mQ2pLv8nR3wZ` has high entropy.
 
-Think of it this way: the word `password` has low entropy because it follows predictable patterns — common English letters in a common sequence. The string `4xK9mQ2pLv8nR3wZ` has high entropy because each character is unpredictable — random letters, digits, and mixed case with no discernible pattern.
-
-This is why `hunter2` would not trigger entropy detection but `4xK9mQ2pLv8nR3wZ` would.
-
-Clef's entropy detector looks for values appearing after `=` or `:` (assignment positions) and flags them if:
-
-- The value is at least 20 characters long
-- Shannon entropy exceeds 4.5 bits per character
-
-These thresholds are conservative by design. Base64-encoded secrets, API keys, and random tokens typically exceed 4.5 bits/char. Lock file hashes, UUIDs, and natural language strings typically do not.
+Clef flags values after `=` or `:` if they are at least 20 characters long with Shannon entropy above 4.5 bits/char. Base64 secrets, API keys, and random tokens typically exceed this threshold. Lock file hashes, UUIDs, and natural language typically do not.
 
 ## Reducing false positives with .clefignore
 
@@ -88,44 +79,25 @@ When to use which approach:
 
 ## Using clef scan in CI
 
-Add `clef scan` to your CI pipeline as a secrets detection gate:
-
 ```yaml
 - name: Scan for unencrypted secrets
   run: clef scan --severity high
 ```
 
-Use `--severity high` in CI. Entropy detection occasionally produces false positives on generated files (checksums, minified output, encoded assets). Pattern detection has a lower false positive rate than entropy detection. Use pattern-only as the CI gate and run full scan locally where you can interactively suppress false positives.
-
-Pattern matches in CI fail with exit code 1, blocking the build until the secret is moved into Clef or the match is suppressed via `.clefignore`.
+Use `--severity high` in CI — entropy detection can produce false positives on generated files; pattern detection does not. Pattern matches exit with code 1, blocking the build until the secret is moved into Clef or suppressed via `.clefignore`.
 
 ## The pre-commit hook
 
-When you run `clef hooks install`, Clef installs a pre-commit hook that automatically runs `clef scan --staged` before each commit. Only staged files are scanned, so performance is fast — typically under one second for a normal commit.
-
-If the scan finds issues, the commit is blocked with a message explaining what was found. The `--no-verify` flag bypasses the hook:
+`clef hooks install` installs a pre-commit hook that runs `clef scan --staged` before each commit (staged files only — typically under one second). The `--no-verify` flag bypasses all hooks:
 
 ```bash
-git commit --no-verify  # bypasses all hooks
+git commit --no-verify
 ```
-
-This escape hatch is intentional. Teams sometimes need to commit test fixtures or respond to emergencies. Bypassing the hook is a deliberate choice that leaves a visible record in the reflog.
 
 ## Using the scan screen in the UI
 
-`clef ui` includes a Scan screen that provides the same detection as `clef scan`. Navigate to **Scan** in the sidebar to run a scan and review results.
-
-The Scan screen shows the same severity toggle (All / High) and per-match dismiss controls as the CLI. Fix commands shown in the UI are copy-paste ready for the terminal. When you navigate away and back, the last scan result is preserved — you do not need to re-run the scan.
-
-The Scan nav item shows a badge count (⚠2) when the last scan found unresolved issues.
+Navigate to **Scan** in the sidebar for the same detection as `clef scan`. Fix commands are copy-paste ready, the last scan result is preserved between navigation, and the Scan nav item shows a badge count when unresolved issues exist.
 
 ## What clef scan does not do
 
-`clef scan` checks your working tree only. It does not scan git history. A secret that was committed and then removed in a later commit is still present in git history and still accessible to anyone with repo access.
-
-For historical scanning, use dedicated tools:
-
-- [truffleHog](https://github.com/trufflesecurity/trufflehog) — git history secret scanning
-- [gitleaks](https://github.com/gitleaks/gitleaks) — git secrets detection with pre-commit support
-
-Use `clef scan` to stay clean going forward. Use truffleHog or gitleaks to audit history when onboarding Clef into an existing repository.
+`clef scan` checks the working tree only — not git history. A secret committed and later removed is still in history and accessible to anyone with repo access. For historical scanning use [truffleHog](https://github.com/trufflesecurity/trufflehog) or [gitleaks](https://github.com/gitleaks/gitleaks).

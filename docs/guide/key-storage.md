@@ -1,10 +1,10 @@
 # Key Storage
 
-Clef stores your age private key using the most secure method available on your system. The OS keychain is always preferred. Filesystem storage is a last resort that requires explicit confirmation.
+Clef stores your age private key using the most secure method available. The OS keychain is preferred; filesystem is a last resort requiring explicit confirmation.
 
 ## Per-repo labeled keys
 
-Each `clef init` generates a unique **label** (e.g. `coral-tiger`) for the repo's age key. This label is stored in `.clef/config.yaml` as `age_keychain_label` and is used to namespace the key in both the OS keychain and the filesystem. This ensures that compromising one repo's key does not expose other repos' secrets.
+Each `clef init` generates a unique **label** (e.g. `coral-tiger`) stored in `.clef/config.yaml`. The label namespaces the key in the OS keychain and filesystem, so compromising one repo's key does not expose others.
 
 ## Storage priority
 
@@ -13,7 +13,7 @@ When `clef init` generates a new age key pair, it attempts to store the private 
 1. **OS keychain** (preferred) -- the key is stored in your operating system's credential manager under a labeled account (e.g. `age-private-key:coral-tiger`) and never written to disk as plaintext
 2. **Filesystem** (fallback) -- the key is written to a labeled path outside any git repository (e.g. `~/.config/clef/keys/coral-tiger/keys.txt`) with restrictive permissions (`0600`), only after you confirm
 
-If the OS keychain is unavailable, Clef warns you and asks for explicit acknowledgment before writing the key to disk.
+If the keychain is unavailable, Clef warns you and asks for explicit acknowledgment before writing to disk.
 
 ## OS keychain storage
 
@@ -23,28 +23,13 @@ If the OS keychain is unavailable, Clef warns you and asks for explicit acknowle
 | Linux    | libsecret (`secret-tool`)             | GNOME Keyring or KWallet                                 |
 | Windows  | Credential Manager (advapi32 PInvoke) | Control Panel > Credential Manager > Generic Credentials |
 
-**Advantages:**
+**Advantages:** key is encrypted at rest by the OS, never written as plaintext, tied to your user session, retrieved into memory only when needed, and namespaced per repo.
 
-- Private key is encrypted at rest by the OS (DPAPI on Windows, Keychain encryption on macOS, kernel keyring on Linux)
-- Key is never written to disk as plaintext
-- Access is tied to your user session -- other users on the same machine cannot read it
-- Key is retrieved into memory only when needed
-- Each repo uses a unique labeled entry, preventing cross-repo key reuse
-
-**When keychain is unavailable:**
-
-- Linux without `secret-tool` installed (no GNOME Keyring / KWallet)
-- Headless Linux servers without a desktop environment
-- Windows without PowerShell
-- CI/CD environments (use `CLEF_AGE_KEY` environment variable instead -- see [CI/CD Integration](/guide/ci-cd))
+**When keychain is unavailable:** Linux without `secret-tool`, headless servers, CI/CD environments. Use `CLEF_AGE_KEY` in CI — see [CI/CD Integration](/guide/ci-cd).
 
 ## Filesystem storage
 
-When the OS keychain is not available, Clef falls back to storing the private key as a file. You will see a warning and a link to this page. In interactive mode, you must explicitly confirm before the file is written.
-
-**Default location:** `~/.config/clef/keys/{label}/keys.txt`
-
-Each repo gets its own labeled directory, ensuring key isolation across projects.
+**Default location:** `~/.config/clef/keys/{label}/keys.txt` — each repo gets its own directory. You must explicitly confirm before the file is written.
 
 ### Protections in place
 
@@ -54,12 +39,11 @@ Each repo gets its own labeled directory, ensuring key isolation across projects
 
 ### Risks to understand
 
-- The private key exists as plaintext on disk, protected only by filesystem permissions
-- Any process running as your user can read the file
+- The key is plaintext on disk, readable by any process running as your user
 - Disk forensics, backups, or snapshots may capture the key
-- If your home directory is on a network filesystem (NFS, SMB), the key traverses the network
+- Network-mounted home directories (NFS, SMB) expose the key over the wire
 
-Full-disk encryption (FileVault, BitLocker, LUKS) mitigates the at-rest risk but does not prevent access by processes running under your user account.
+Full-disk encryption mitigates at-rest risk but does not prevent access by processes running under your user account.
 
 ### Recommendations if using filesystem storage
 
@@ -72,14 +56,14 @@ Full-disk encryption (FileVault, BitLocker, LUKS) mitigates the at-rest risk but
 
 ## Environment variables
 
-For CI/CD and automation, Clef supports its own environment variables that bypass both keychain and filesystem:
+For CI/CD and automation, these variables bypass keychain and filesystem:
 
 | Variable            | Description                                                    |
 | ------------------- | -------------------------------------------------------------- |
 | `CLEF_AGE_KEY`      | The full private key string, injected into the SOPS subprocess |
 | `CLEF_AGE_KEY_FILE` | Path to a key file, injected into the SOPS subprocess          |
 
-These take precedence over `.clef/config.yaml` but not over the OS keychain. See [CI/CD Integration](/guide/ci-cd) for details.
+These take precedence over `.clef/config.yaml` but not the OS keychain. See [CI/CD Integration](/guide/ci-cd).
 
 ::: info Why CLEF*AGE_KEY instead of SOPS_AGE_KEY?
 Clef uses its own `CLEF*\*`namespace to prevent silent, unexpected credential leakage. If Clef read`SOPS_AGE_KEY`directly, existing SOPS users could have their key silently reused by Clef — or vice versa — with no signal that cross-tool sharing is happening. By using`CLEF_AGE_KEY`, the intent is explicit: you opt in to providing Clef with a key, and Clef passes it to the SOPS subprocess directly without mutating the parent process environment.
@@ -98,11 +82,7 @@ The first source that returns a valid `AGE-SECRET-KEY-` value wins.
 
 ## Blast radius containment
 
-Each repo generates its own key and label during `clef init`. This means:
-
-- Compromising one repo's key does not expose secrets from other repos
-- Keys are independently rotatable per repo
-- The label provides a human-readable identifier for key management
+Each repo has its own key and label. Keys are independently rotatable, and compromising one repo does not expose others.
 
 ## See also
 

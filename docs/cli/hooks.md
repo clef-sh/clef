@@ -1,6 +1,6 @@
 # clef hooks
 
-Manage git hooks and merge drivers for Clef. Provides the `install` subcommand for setting up the pre-commit hook and SOPS-aware merge driver.
+Manage git hooks and the SOPS-aware merge driver for Clef.
 
 ## Syntax
 
@@ -95,22 +95,14 @@ To bypass (use with caution): git commit --no-verify
 
 ## SOPS merge driver
 
-In addition to the pre-commit hook, `clef hooks install` configures a SOPS-aware git merge driver. This allows git to automatically merge encrypted files by decrypting them, performing a three-way merge on the plaintext, and re-encrypting the result.
-
-The merge driver is configured in two places:
-
-- **`.gitattributes`** — maps `*.enc.yaml` and `*.enc.json` files to the `sops` merge strategy
-- **`.git/config`** — defines the `sops` merge driver command as `clef merge-driver %O %A %B`
-
-Both are set up automatically by `clef init` and `clef hooks install`.
+`clef hooks install` also configures a SOPS-aware git merge driver, written to `.gitattributes` and `.git/config`, allowing git to merge encrypted files by decrypting, three-way merging, and re-encrypting automatically.
 
 See [Merge Conflicts](/guide/merge-conflicts) for a detailed explanation of the problem and how the driver resolves it.
 
 ## Notes
 
-- The hook and merge driver are installed automatically during `clef init`. Use `clef hooks install` to reinstall them or set them up in an existing repository.
-- The hook validates SOPS metadata on staged encrypted files, then runs `clef scan --staged` to detect plaintext secrets. See `packages/core/src/git/integration.ts` for the hook script source.
-- The hook does not block on warnings — only errors prevent a commit.
+- The hook and merge driver are installed automatically during `clef init`. Use `clef hooks install` to reinstall or set them up in an existing repo.
+- Only errors prevent a commit — warnings do not block.
 - `clef doctor` verifies that both the merge driver and pre-commit hook are configured correctly.
 
 ## Related commands

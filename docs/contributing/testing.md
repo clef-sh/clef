@@ -1,6 +1,6 @@
 # Testing
 
-Clef follows strict testing practices to ensure reliability and security. Every meaningful behaviour is covered by a unit test, and all tests run entirely offline — no real KMS providers, no live git remotes, no actual SOPS binaries.
+Every meaningful behaviour is covered by a unit test. All tests run entirely offline — no KMS providers, no live git remotes, no actual SOPS binaries.
 
 ## Philosophy
 
@@ -31,7 +31,7 @@ npm test -- --watch
 
 ### Core library tests
 
-Each core module has a test file that validates all code paths:
+Each module has a test file covering all code paths:
 
 | Module             | Test file                          | What is tested                                                                                |
 | ------------------ | ---------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -57,7 +57,7 @@ Each core module has a test file that validates all code paths:
 
 ### CLI tests
 
-Each command has a test file that validates argument parsing, output formatting, and error handling:
+Each command has a test file covering argument parsing, output formatting, and error handling:
 
 | Command           | Test file                         |
 | ----------------- | --------------------------------- |
@@ -85,7 +85,7 @@ Each command has a test file that validates argument parsing, output formatting,
 
 ## Mocking pattern
 
-The dependency injection pattern centres on the `SubprocessRunner` interface:
+All SOPS interactions are tested by injecting a mock `SubprocessRunner`:
 
 ```typescript
 // In production code
@@ -103,16 +103,11 @@ const mockRunner: SubprocessRunner = {
 const sopsClient = new SopsClient(mockRunner);
 ```
 
-This allows testing all SOPS interactions without the `sops` binary installed. The mock runner can simulate:
-
-- Successful decryption (return decrypted YAML on stdout)
-- Decryption failures (non-zero exit code with stderr message)
-- Missing keys (specific error messages in stderr)
-- Encryption (verify the correct args and stdin were passed)
+The mock can simulate successful decryption, decryption failures, missing keys, and encryption arg verification — all without the `sops` binary.
 
 ## Integration tests
 
-Integration tests live in the `integration/` directory at the repo root and are excluded from the default `npm test` run. They require the `sops` binary installed on your machine. age key pairs are generated via the `age-encryption` npm package — no `age` binary is required.
+Integration tests live in `integration/` and are excluded from the default `npm test` run. They require the `sops` binary; age key pairs are generated via the `age-encryption` npm package.
 
 ### Prerequisites
 
@@ -130,7 +125,7 @@ brew install sops
 npm run test:integration
 ```
 
-If `sops` is not found in PATH, the tests will fail with a clear message explaining what to install.
+If `sops` is not found, the tests fail with a clear install message.
 
 ### What the integration tests cover
 
@@ -142,31 +137,19 @@ If `sops` is not found in PATH, the tests will fail with a clear message explain
 
 ### Server binding test
 
-The server binding test verifies that the UI server binds exclusively to `127.0.0.1` and does not listen on `0.0.0.0` or any external interface. This test lives in the integration suite rather than unit tests because it requires an actual network socket. It is excluded from the standard `npm test` run to keep unit tests fast and dependency-free.
+Verifies that the UI server binds exclusively to `127.0.0.1` and not `0.0.0.0`. Requires an actual network socket, so it lives in the integration suite rather than unit tests.
 
 ### Exec and export roundtrip tests
 
-These tests use real age keys (generated via the `age-encryption` npm package) and real `sops` encryption to verify the full decrypt-and-consume pipeline. They scaffold a temporary repo with a manifest and encrypted files, run `clef exec` or `clef export` against them, and verify the output. All temporary files are cleaned up after each test run, including on failure.
+Use real age keys and real `sops` encryption to verify the full decrypt-and-consume pipeline. Scaffold a temporary repo, run `clef exec` or `clef export`, and verify output. Temporary files are cleaned up after each run, including on failure.
 
 ## Test coverage philosophy
 
-Clef uses a tiered coverage model. The goal is tests that
-verify behaviour, not tests that execute lines.
+Clef uses a tiered coverage model — tests that verify behaviour, not merely execute lines.
 
 ### Tier 1 — Security and correctness critical
 
-Some modules handle encryption, secret values, or state
-where a silent failure would be a security issue or
-invisible data loss. These modules are marked with a
-comment at the top of the file and carry a higher
-coverage threshold (95% lines/functions, 90% branches).
-
-The threshold is a floor, not a target. The real
-standard for Tier 1 modules is: every public function
-has tests for its happy path, all documented error
-paths, and at least one boundary case. A reviewer
-reading the test file should be able to understand
-exactly what the module guarantees.
+Modules handling encryption, secret values, or state where a silent failure is a security issue. Marked at the top of the file; threshold is 95% lines/functions, 90% branches. The threshold is a floor: every public function must have happy-path, error-path, and boundary-case tests.
 
 Current Tier 1 modules:
 
@@ -178,27 +161,11 @@ Current Tier 1 modules:
 
 ### Tier 2 — Behavioural coverage
 
-Everything else carries an 80% global threshold. The
-expectation is: every command, route, and component
-has tests for its primary behaviour and its most likely
-failure modes. Trivial code does not need dedicated tests.
-
-What counts as trivial: simple property accessors, type
-guard functions with no logic, log and formatting output,
-pass-through wrappers with no conditional logic.
-
-What does not count as trivial: any code path that
-handles user input, any code path that touches the
-filesystem or a subprocess, any code path that produces
-output the user sees.
+80% global threshold. Every command, route, and component must have tests for primary behaviour and likely failure modes. Trivial code (property accessors, type guards, formatting pass-throughs) does not need dedicated tests. Code that handles user input, touches the filesystem or a subprocess, or produces visible output is not trivial.
 
 ### What the CI gate enforces
 
-The CI build fails if Jest thresholds are breached. It
-does not fail on a coverage drop that stays within
-thresholds. Coverage is reported as a summary on every
-PR — reviewers can see it but a one-point drop on a
-cli command does not block a merge.
+CI fails if Jest thresholds are breached. Coverage is reported as a summary on every PR — a one-point drop on a CLI command does not block a merge if it stays within thresholds.
 
 ### Running coverage locally
 
@@ -215,10 +182,7 @@ open coverage/lcov-report/index.html
 
 ### What we do not measure
 
-Integration tests (`npm run test:integration`) do not
-contribute to coverage metrics. They verify end-to-end
-correctness with real SOPS. Coverage
-is not the right lens for integration tests.
+Integration tests do not contribute to coverage metrics — coverage is not the right lens for end-to-end correctness tests.
 
 ## Writing new tests
 

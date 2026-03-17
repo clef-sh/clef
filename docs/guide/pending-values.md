@@ -1,12 +1,10 @@
 # Pending Values
 
-Pending values solve a common bootstrapping problem: when you set up a new namespace, you often don't have the real credentials yet. The Stripe account isn't provisioned, the database isn't created, the third-party API key hasn't been issued.
-
-Without pending values you either block on getting real credentials or put in a plaintext placeholder like `CHANGEME` which is easy to forget and never tracked.
+Pending values solve the bootstrapping problem of setting up a namespace before real credentials are available. Without them you either block or use a plaintext placeholder like `CHANGEME` that's easy to forget.
 
 ## How it works
 
-A **pending value** is a cryptographically random placeholder that occupies a key slot in an encrypted file until the real secret is available. The key is properly encrypted from day one — the file is valid, the schema passes, the matrix is complete — but the value is flagged as unresolved and tracked until it is replaced.
+A **pending value** is a cryptographically random placeholder that occupies a key slot until the real secret is available. The file is valid and the matrix is complete from day one — the value is just flagged as unresolved until replaced.
 
 ### The lifecycle
 
@@ -17,9 +15,7 @@ A **pending value** is a cryptographically random placeholder that occupies a ke
 
 ### Scaffolding a new namespace
 
-There are two approaches to scaffolding pending values.
-
-**At init time** — when the namespace has a schema, `clef init --random-values` populates all required keys with random placeholders across every environment in one step. This requires the `schema` field in the manifest to point to a valid schema file.
+**At init time** — when the namespace has a schema, `clef init --random-values` populates all required keys with random placeholders in one step:
 
 ```bash
 # Create random placeholders for all required schema keys
@@ -29,14 +25,14 @@ clef init --random-values
 clef init --random-values --include-optional
 ```
 
-**Incrementally** — when you don't have a schema, or when you need to add individual keys after init:
+**Incrementally** — without a schema, or to add individual keys after init:
 
 ```bash
 clef set payments/staging STRIPE_SECRET_KEY --random
 clef set payments/staging STRIPE_WEBHOOK_SECRET --random
 ```
 
-**From the UI** — click `+ Add key` in the Namespace Editor, switch to "Random (pending)" mode, enter the key name, and click "Generate random value". The random value is generated server-side and never leaves the API boundary.
+**From the UI** — click `+ Add key`, switch to "Random (pending)" mode, and click "Generate random value". The value is generated server-side.
 
 ### Seeing what's pending
 
@@ -62,21 +58,13 @@ Pending keys appear as warnings:
 
 ### Resolving pending values
 
-Replace the random placeholder with the real secret:
+Set the key normally — no special flag needed. The pending state clears automatically:
 
 ```bash
 clef set payments/staging STRIPE_SECRET_KEY sk_live_abc123...
 ```
 
-Output:
-
-```
-✓ STRIPE_SECRET_KEY set in payments/staging
-```
-
-No special flag is needed — just set the key normally and the pending state clears automatically.
-
-From the UI, click the `Set value` button on a pending row, enter the real value, and save.
+From the UI, click `Set value` on a pending row.
 
 ## The `.clef-meta.yaml` files
 
@@ -90,7 +78,7 @@ database/
   staging.clef-meta.yaml
 ```
 
-The `.clef-meta.yaml` file is **plaintext and committed to the repo**. It contains **only key names and metadata, never secret values**:
+The `.clef-meta.yaml` file is plaintext and committed to the repo. It contains only key names and metadata — never secret values:
 
 ```yaml
 # Managed by Clef. Do not edit manually.
@@ -104,22 +92,22 @@ pending:
     setBy: clef init --random-values
 ```
 
-This allows the UI, lint runner, and CLI to read pending state without decrypting the main file.
+This lets the UI, lint runner, and CLI read pending state without decrypting the main file.
 
 ## FAQ
 
 ### Can I commit a repo with pending values?
 
-Yes — that is the point. Pending values are properly encrypted random strings. The repo is in a valid state. Lint will report warnings (not errors) for pending keys, so commits are not blocked.
+Yes — pending values are properly encrypted random strings. Lint reports warnings (not errors), so commits are not blocked.
 
 ### What if I never replace a pending value?
 
-It stays as a lint warning indefinitely. The random placeholder value is cryptographically secure and properly encrypted, so it's not a security risk — but it's not a real secret either.
+It stays as a lint warning indefinitely. The placeholder is cryptographically secure but not a real secret.
 
 ### What format are random values?
 
-Random values are 64-character lowercase hex strings generated from `crypto.randomBytes(32)`. They are cryptographically secure and long enough to be unguessable.
+64-character lowercase hex strings from `crypto.randomBytes(32)`.
 
 ### Can I see the random placeholder values?
 
-The random values are encrypted like any other secret. You can reveal them with `clef get` or in the UI — but since they are meaningless placeholders, there's no reason to.
+Yes, with `clef get` or in the UI — but since they are meaningless placeholders, there's no reason to.

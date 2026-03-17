@@ -84,7 +84,7 @@ export class BundleGenerator {
     // age-encrypt the JSON blob to the service identity's recipient.
     // Note: age-encryption is a runtime dependency that must be installed by the consumer.
     // The generated bundle also dynamically imports age-encryption at runtime for decryption.
-    let plaintext = JSON.stringify(allValues);
+    const plaintext = JSON.stringify(allValues);
 
     let ciphertext: string;
     try {
