@@ -57,12 +57,25 @@
         </p>
 
         <!-- Install Command Pill -->
-        <div class="install-pill">
-          <span class="install-prefix">$</span>
-          <span class="install-cmd">curl -fsSL https://clef.sh/install.sh | sh</span>
-          <button class="install-copy" aria-label="Copy install command">
-            copy
-          </button>
+        <div class="install-wrapper">
+          <div class="install-tabs" role="tablist">
+            <button class="install-tab active" role="tab" aria-selected="true" data-os="unix">macOS / Linux</button>
+            <button class="install-tab" role="tab" aria-selected="false" data-os="windows">Windows</button>
+          </div>
+          <div class="install-pill" data-os-panel="unix">
+            <span class="install-prefix">$</span>
+            <span class="install-cmd">curl -fsSL https://clef.sh/install.sh | sh</span>
+            <button class="install-copy" aria-label="Copy install command" data-cmd="curl -fsSL https://clef.sh/install.sh | sh">
+              copy
+            </button>
+          </div>
+          <div class="install-pill" data-os-panel="windows" style="display:none">
+            <span class="install-prefix">&gt;</span>
+            <span class="install-cmd">irm https://clef.sh/install.ps1 | iex</span>
+            <button class="install-copy" aria-label="Copy install command" data-cmd="irm https://clef.sh/install.ps1 | iex">
+              copy
+            </button>
+          </div>
         </div>
 
         <!-- Actions -->
@@ -376,18 +389,53 @@
 </section>
 
 <style>
+  .install-wrapper {
+    margin-top: 24px;
+    margin-bottom: 32px;
+  }
+
+  .install-tabs {
+    display: inline-flex;
+    gap: 0;
+    margin-bottom: 0;
+  }
+
+  .install-tab {
+    background: none;
+    border: 1px solid var(--staff-bright, #2a2a4a);
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    color: var(--text-secondary, #8888aa);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    padding: 5px 14px;
+    cursor: pointer;
+    transition: color 150ms, background 150ms;
+  }
+
+  .install-tab + .install-tab {
+    border-left: none;
+  }
+
+  .install-tab:hover {
+    color: var(--text-primary, #e8e8f0);
+  }
+
+  .install-tab.active {
+    background: var(--bg-raised, #1c1c2e);
+    color: var(--gold, #c9a84c);
+  }
+
   .install-pill {
     display: inline-flex;
     align-items: center;
     gap: 12px;
     background: var(--bg-raised, #1c1c2e);
     border: 1px solid var(--staff-bright, #2a2a4a);
-    border-radius: 6px;
+    border-radius: 0 6px 6px 6px;
     padding: 10px 16px;
     font-family: "JetBrains Mono", monospace;
     font-size: 14px;
-    margin-top: 24px;
-    margin-bottom: 32px;
   }
 
   .install-prefix {
@@ -425,19 +473,45 @@
 </style>
 
 <script>
-  // Install pill copy button
-  const copyBtn = document.querySelector(".install-copy");
-  if (copyBtn) {
-    copyBtn.addEventListener("click", function (this: HTMLButtonElement, _event) {
-      navigator.clipboard.writeText("curl -fsSL https://clef.sh/install.sh | sh");
-      this.textContent = "copied ✓";
+  // OS-aware tab switching
+  (function () {
+    const tabs = document.querySelectorAll<HTMLButtonElement>(".install-tab");
+    const panels = document.querySelectorAll<HTMLElement>(".install-pill[data-os-panel]");
+
+    function activateTab(os: string) {
+      tabs.forEach((t) => {
+        const isActive = t.dataset.os === os;
+        t.classList.toggle("active", isActive);
+        t.setAttribute("aria-selected", String(isActive));
+      });
+      panels.forEach((p) => {
+        p.style.display = p.dataset.osPanel === os ? "inline-flex" : "none";
+      });
+    }
+
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => activateTab(tab.dataset.os!));
+    });
+
+    // Auto-detect Windows visitors
+    if (navigator.userAgent.includes("Windows")) {
+      activateTab("windows");
+    }
+  })();
+
+  // Install pill copy buttons
+  document.querySelectorAll<HTMLButtonElement>(".install-copy").forEach((btn) => {
+    btn.addEventListener("click", function (this: HTMLButtonElement) {
+      const cmd = this.dataset.cmd || "";
+      navigator.clipboard.writeText(cmd);
+      this.textContent = "copied \u2713";
       this.classList.add("copied");
       setTimeout(() => {
         this.textContent = "copy";
         this.classList.remove("copied");
       }, 2000);
     });
-  }
+  });
 
   // Terminal entrance animation via IntersectionObserver
   (function () {

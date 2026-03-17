@@ -86,8 +86,9 @@ detect_platform() {
     linux)  ;;
     darwin) ;;
     mingw*|msys*|cygwin*|windows*)
-      fatal "Windows is not supported by this installer. Install via npm: npm install -g @clef-sh/cli
-       Or download the .exe from: https://github.com/$CLEF_REPO/releases"
+      fatal "Use the PowerShell installer on Windows:
+       irm https://clef.sh/install.ps1 | iex
+       Or install via npm: npm install -g @clef-sh/cli"
       ;;
     *)
       fatal "Unsupported operating system: $OS"
@@ -187,9 +188,30 @@ main() {
     SOPS_SUFFIX=$(sops_asset_suffix "$PLATFORM")
     SOPS_ASSET="sops-v${SOPS_VER}.${SOPS_SUFFIX}"
     SOPS_URL="https://github.com/getsops/sops/releases/download/v${SOPS_VER}/${SOPS_ASSET}"
+    SOPS_CHECKSUMS_URL="https://github.com/getsops/sops/releases/download/v${SOPS_VER}/sops-v${SOPS_VER}.checksums.txt"
 
     info "Downloading sops ${SOPS_VER} for ${PLATFORM}..."
     download "$SOPS_URL" "$TMPDIR/sops" || fatal "Failed to download sops binary."
+
+    # Verify sops checksum against the official getsops checksums file
+    # (mirrors the approach used in publish-sops.yml)
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsSL -o "$TMPDIR/sops.checksums.txt" "$SOPS_CHECKSUMS_URL" 2>/dev/null || true
+    elif command -v wget >/dev/null 2>&1; then
+      wget -qO "$TMPDIR/sops.checksums.txt" "$SOPS_CHECKSUMS_URL" 2>/dev/null || true
+    fi
+    if [ -s "$TMPDIR/sops.checksums.txt" ]; then
+      SOPS_EXPECTED_HASH=$(grep "  ${SOPS_ASSET}$" "$TMPDIR/sops.checksums.txt" | awk '{print $1}')
+      if [ -n "$SOPS_EXPECTED_HASH" ]; then
+        verify_checksum "$TMPDIR/sops" "$SOPS_EXPECTED_HASH"
+        success "sops checksum verified"
+      else
+        warn "No checksum entry for ${SOPS_ASSET} — skipping sops verification"
+      fi
+    else
+      warn "Could not download sops checksums — skipping sops verification"
+    fi
+
     success "Downloaded sops"
   fi
 

@@ -122,6 +122,45 @@ jobs:
       - run: cd www && npm ci
       - run: cd www && npm run build
 
+  install-script-lint:
+    name: Install Script Lint
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate PowerShell script syntax
+        shell: pwsh
+        run: |
+          $errors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            "${{ github.workspace }}/www/public/install.ps1",
+            [ref]$null,
+            [ref]$errors
+          )
+          if ($errors.Count -gt 0) {
+            Write-Host "PowerShell parse errors found:" -ForegroundColor Red
+            $errors | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+            exit 1
+          }
+          Write-Host "install.ps1 syntax is valid" -ForegroundColor Green
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+          $results = Invoke-ScriptAnalyzer -Path "${{ github.workspace }}/www/public/install.ps1" -Severity Error
+          if ($results.Count -gt 0) {
+            Write-Host "PSScriptAnalyzer errors:" -ForegroundColor Red
+            $results | Format-Table -AutoSize
+            exit 1
+          }
+          Write-Host "PSScriptAnalyzer passed" -ForegroundColor Green
+  install-sh-lint:
+    name: ShellCheck install.sh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate shell script (shellcheck)
+        run: shellcheck www/public/install.sh
+
   integration-test:
     name: Integration Tests
     needs: test
@@ -145,3 +184,33 @@ jobs:
       - run: npm run build --workspace=packages/agent
       - run: npm run build --workspace=packages/cli
       - run: npm run test:integration
+
+  e2e:
+    name: E2E (${{ matrix.os }})
+    needs: integration-test
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu
+            runner: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install SOPS
+        run: |
+          SOPS_VERSION=$(node -p "require('./sops-version.json').version")
+          curl -Lo /usr/local/bin/sops https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64
+          chmod +x /usr/local/bin/sops
+          sops --version
+      - run: npm ci
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report-${{ matrix.os }}
+          path: e2e/playwright-report/

@@ -445,6 +445,109 @@ Check:
   not reference the author — describe the library by its
   package name only
 
+### 1.13 Agent server — binding and authentication
+
+Read:
+
+- `packages/agent/src/server.ts`
+- `packages/agent/src/config.ts`
+
+Check:
+
+- Server binds to `127.0.0.1` only — not `0.0.0.0`, not
+  `localhost` (which may resolve to `::` on dual-stack systems)
+- Bearer token is required on all `/v1/secrets` and `/v1/keys`
+  routes — token is 64 hex characters (256 bits of entropy)
+  when auto-generated
+- `/v1/health` and `/v1/ready` are unauthenticated — health
+  probes must not require a token
+- Host header validation rejects any request where the Host is
+  not the loopback address — returns 403
+- Token comparison is timing-safe — not a naive `===` compare
+- Missing token returns 401; wrong token returns 401; correct
+  token returns 200
+
+### 1.14 Agent — plaintext never touches disk
+
+Read:
+
+- `packages/agent/src/poller.ts`
+- `packages/agent/src/decryptor.ts`
+- `packages/agent/src/cache.ts`
+
+Check:
+
+- Fetched artifact ciphertext is decrypted in memory only —
+  no temp file is created during decryption
+- SHA256 of the fetched artifact is verified against the
+  `ciphertextHash` field in the envelope before decryption
+- On decryption failure the error message does not contain any
+  artifact contents — only a generic failure indication
+- Cache swap is atomic — concurrent readers never see a
+  partial or empty secrets map during a refresh
+- On fetch failure the existing cache is preserved and
+  continues serving (stale-serve is preferred to empty)
+
+### 1.15 Agent — Lambda Extension key handling
+
+Read:
+
+- `packages/agent/src/lifecycle/lambda-extension.ts`
+
+Check:
+
+- Age private key is read from env var or key file at startup
+  only — it is not re-read on every Lambda invocation
+- Auto-generated token uses `crypto.randomBytes` — not
+  `Math.random`, not `uuid`
+- No key material appears in Lambda log output or in error
+  responses forwarded to the Lambda Extensions API
+- SHUTDOWN event is handled — in-flight requests are drained
+  before the process exits
+
+### 1.16 Pack command — plaintext handling
+
+Read:
+
+- `packages/core/src/artifact/packer.ts`
+- `packages/cli/src/commands/pack.ts`
+
+Check:
+
+- Decryption of source secrets happens in memory — no temp
+  plaintext file is created
+- The value written to the output file is age-encrypted
+  ciphertext — the output JSON must not contain any plaintext
+  secret values
+- If age encryption fails, the error message does not include
+  any decrypted values from the secrets being packed
+- `--output` is required — omitting it produces a clear error,
+  not output to stdout (which would expose ciphertext in
+  terminal history and shell logs)
+- Encrypted artifact JSON contains only ciphertext, key names,
+  and metadata — no plaintext values anywhere in the envelope
+
+### 1.17 Install script — download integrity
+
+Read:
+
+- `www/public/install.sh`
+
+Check:
+
+- Clef binary SHA256 checksum is downloaded and verified
+  before installation — using the `.sha256` file uploaded to
+  the GitHub Release alongside each binary
+- Sops binary SHA256 is verified against the official
+  `checksums.txt` file published by getsops — not skipped,
+  not hardcoded
+- `curl` is called with `-fsSL` so any HTTP error status
+  (including 404) causes a non-zero exit — not silent failure
+- Temporary directory is cleaned up via `trap … EXIT` even
+  when the script exits on error — no leftover files
+- Downloaded content is never interpreted as shell code —
+  only written to files and executed after chmod
+
 ---
 
 ## 2. Correctness Audit
@@ -747,6 +850,86 @@ Check:
 - Command is idempotent — running twice produces no changes
   on second run
 
+### 2.13 Drift command correctness
+
+Read:
+
+- `packages/cli/src/commands/drift.ts`
+- `packages/core/src/drift/detector.ts`
+
+Check:
+
+- Exits 0 when no drift is detected, exits 1 when drift
+  exists — making it scriptable in CI
+- `--json` output is machine-parseable and matches the
+  `DriftResult` type from core
+- Operates on encrypted YAML key names only — no decryption,
+  no sops subprocess invoked at any point
+- `--namespace` flag correctly limits comparison to the
+  specified namespaces
+- Comparing against a nonexistent path produces a clear error
+  and exits 1
+- Reports both missing keys and extra keys per namespace and
+  per environment
+
+### 2.14 Pack/artifact command correctness
+
+Read:
+
+- `packages/cli/src/commands/pack.ts`
+- `packages/core/src/artifact/packer.ts`
+
+Check:
+
+- Nonexistent identity produces a clear error and exits 1
+- Nonexistent environment produces a clear error and exits 1
+- Artifact encrypts to the identity's public key for the
+  target environment — not to a developer key, not to a
+  hardcoded recipient
+- Artifact envelope includes the git revision SHA so the
+  agent can detect stale artifacts
+- `--output` is required — omitting it produces a clear error
+- Exits 0 on success, 1 on any error
+
+### 2.15 Agent CLI correctness
+
+Read:
+
+- `packages/cli/src/commands/agent.ts`
+
+Check:
+
+- `clef agent start` launches the agent process and validates
+  required configuration before starting
+- Missing `CLEF_AGENT_SOURCE` produces a clear error and
+  exits 1 rather than starting a non-functional server
+- Port, poll interval, and other flags are passed through
+  to the agent correctly
+- `--help` text accurately describes all flags and env vars
+
+### 2.16 Agent lifecycle correctness
+
+Read:
+
+- `packages/agent/src/poller.ts`
+- `packages/agent/src/lifecycle/daemon.ts`
+
+Check:
+
+- Poller performs an initial fetch synchronously before the
+  server begins accepting requests — `/v1/ready` returns 503
+  until the first successful fetch and decrypt
+- Revision field in the artifact envelope is used to skip
+  re-decryption when the artifact has not changed (SHA256
+  of fetched bytes compared before decryption)
+- Poll interval is configurable via env var and defaults to
+  a documented value
+- On fetch failure (network error, 404, bad checksum) the
+  existing cache remains in service — error is logged but
+  secrets continue to be served
+- On graceful shutdown the poller stops before the HTTP
+  server closes, preventing new fetches during drain
+
 ---
 
 ## 3. Completeness Audit
@@ -943,6 +1126,86 @@ Check:
 - `scripts/download-sops.mjs` exists and handles all five
   platforms
 
+### 3.9 Agent package completeness
+
+Check:
+
+- `clef agent` command (or subcommand) is registered in
+  `packages/cli/src/index.ts`
+- `packages/agent/` contains: server, poller, config, cache,
+  decryptor, health, and lifecycle modules
+- Lambda Extension entry point exists under
+  `packages/agent/src/lifecycle/`
+- Agent SEA build workflow exists
+  (`.github/workflows/build-sea.yml`) and triggers on
+  `@clef-sh/agent@` release tags
+- Agent SEA binaries follow the `clef-agent-{platform}`
+  naming convention across all five platforms
+- All agent configuration env vars are documented:
+  `CLEF_AGENT_SOURCE`, `CLEF_AGENT_PORT`,
+  `CLEF_AGENT_POLL_INTERVAL`, `CLEF_AGENT_AGE_KEY`,
+  `CLEF_AGENT_AGE_KEY_FILE`, `CLEF_AGENT_TOKEN`
+- `docs/guide/agent.md` exists covering: concept, env var
+  reference, deployment workflow, key provider examples
+- `docs/cli/agent.md` documents all flags and env vars
+
+### 3.10 Pack and drift completeness
+
+Check:
+
+- `clef pack` and `clef drift` are registered in
+  `packages/cli/src/index.ts`
+- Both commands support `--dir` flag
+- Both commands have co-located `.test.ts` files with
+  meaningful assertions
+- `ArtifactPacker` and `DriftDetector` are exported from
+  `packages/core/src/index.ts`
+- Artifact envelope type (version, identity, environment,
+  revision, ciphertextHash, ciphertext, keys) is exported
+  from `packages/core/src/index.ts`
+- `docs/cli/pack.md` and `docs/cli/drift.md` exist
+- The end-to-end workflow (`pack` → upload → agent fetches)
+  is documented in at least one guide page
+
+### 3.11 SEA binary completeness
+
+Check:
+
+- CLI SEA workflow (`.github/workflows/build-sea-cli.yml`)
+  triggers on `@clef-sh/cli@` release tags and builds all
+  five platforms
+- Agent SEA workflow (`.github/workflows/build-sea.yml`)
+  triggers on `@clef-sh/agent@` release tags and builds all
+  five platforms
+- Both workflows generate SHA256 checksums and upload them
+  to the GitHub Release alongside the binaries
+- `packages/cli/sea-config.json` exists and references the
+  correct entry point and any embedded UI assets
+- `packages/agent/` has an equivalent `sea-config.json`
+- `www/public/install.sh` downloads the clef CLI SEA binary
+  (not an npm tarball) and verifies its checksum
+
+### 3.12 Install script completeness
+
+Check:
+
+- `www/public/install.sh` is served at
+  `https://clef.sh/install.sh` and `www/dist/client/install.sh`
+  is kept in sync with the source
+- All four Unix platforms are handled: `linux-x64`,
+  `linux-arm64`, `darwin-x64`, `darwin-arm64`
+- Windows produces a helpful error suggesting
+  `npm install -g @clef-sh/cli` with the download link
+- All documented env vars are implemented: `CLEF_VERSION`,
+  `CLEF_INSTALL_DIR`, `SOPS_VERSION`, `SOPS_SKIP`
+- Version auto-detection queries the GitHub Releases API
+  and finds the latest `@clef-sh/cli@` tag — not the
+  `/latest` endpoint (which may return a non-CLI release)
+- Sops is downloaded and verified alongside clef;
+  `SOPS_SKIP=1` skips it for users who manage sops separately
+- PATH check warns the user if the install directory is not
+  on their `$PATH`
+
 ---
 
 ## 4. Test Quality Audit
@@ -1103,6 +1366,52 @@ Check:
 - Assertions verify merge output values, not just that
   the function ran
 
+### 4.7 Agent test coverage
+
+Read all `*.test.ts` files under `packages/agent/src/`.
+
+Check:
+
+- A test asserts the server binds to `127.0.0.1` and rejects
+  a connection on any non-loopback address
+- Auth tests: missing token → 401, wrong token → 401,
+  correct token → 200 for all protected routes
+- Host header validation test: a non-loopback Host value
+  returns 403
+- `/v1/health` and `/v1/ready` return 200 without any token
+- A test asserts `/v1/ready` returns 503 before the first
+  successful fetch, then 200 after
+- A test asserts that a fetch failure preserves the
+  existing cache (stale-serve, not empty-serve)
+- A test asserts the SHA256 `ciphertextHash` field is
+  verified before decryption — a tampered payload is rejected
+- A test asserts no plaintext is written to any file during
+  the fetch-decrypt-cache cycle
+
+### 4.8 Pack and drift test coverage
+
+Read:
+
+- `packages/cli/src/commands/pack.test.ts`
+- `packages/cli/src/commands/drift.test.ts`
+- Core-level test files for `ArtifactPacker` and
+  `DriftDetector` if they exist
+
+Check:
+
+- Pack: a test asserts the output file contains age ciphertext
+  — not plaintext values
+- Pack: a test asserts a nonexistent identity produces a
+  clear error and does not create an output file
+- Pack: a test asserts `--output` is required
+- Drift: a test asserts exit 0 when matrices are identical,
+  exit 1 when they differ
+- Drift: a test asserts `--namespace` correctly limits the
+  comparison scope
+- Drift: a test asserts that no SOPS subprocess is invoked —
+  the command must not call `SubprocessRunner.run()` with
+  sops as the executable
+
 ---
 
 ## 5. Documentation Accuracy Audit
@@ -1239,6 +1548,55 @@ Check:
   use correct CLI syntax for those tools
 - The verification checklist commands all exist and work
   as described
+
+### 5.10 Agent guide accuracy
+
+Read `docs/guide/agent.md` and `docs/cli/agent.md`.
+Read `packages/agent/src/config.ts` and
+`packages/agent/src/server.ts`.
+
+Check:
+
+- Every env var documented in the guide matches the actual
+  config implementation — names, defaults, and required vs
+  optional all match
+- API routes documented (`/v1/secrets`, `/v1/secrets/:key`,
+  `/v1/keys`, `/v1/health`, `/v1/ready`) match the routes
+  registered in `server.ts`
+- Token authentication description matches the
+  implementation: Bearer scheme, 64-hex-char token
+- Lambda Extension workflow is documented and the steps
+  described match `lambda-extension.ts`
+- Key provider examples (e.g. loading `CLEF_AGENT_AGE_KEY`
+  from AWS Secrets Manager) use correct SDK syntax and
+  reference the correct env var names
+- Poll interval, port, and other config knobs shown in
+  the guide match their defaults in `config.ts`
+
+### 5.11 Pack, drift, and installation guide accuracy
+
+Read `docs/cli/pack.md`, `docs/cli/drift.md`, and
+`docs/guide/installation.md`.
+Read `packages/cli/src/commands/pack.ts` and
+`packages/cli/src/commands/drift.ts`.
+
+Check:
+
+- Every flag shown in pack docs exists in `pack.ts`;
+  every flag in `pack.ts` is documented
+- Every flag shown in drift docs exists in `drift.ts`;
+  every flag in `drift.ts` is documented
+- Installation guide documents both install methods:
+  one-line shell installer and `npm install -g @clef-sh/cli`
+- Installation guide lists all supported env vars:
+  `CLEF_VERSION`, `CLEF_INSTALL_DIR`, `SOPS_VERSION`,
+  `SOPS_SKIP`
+- Installation guide notes that sops is co-installed by
+  the shell installer and explains `SOPS_SKIP` for users
+  who manage sops separately
+- Shell installer example (`curl … | sh`) matches what
+  `install.sh` actually does — no flags or steps that
+  don't exist
 
 ---
 
