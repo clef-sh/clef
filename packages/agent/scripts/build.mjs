@@ -1,6 +1,6 @@
 // @ts-check
 import { build } from "esbuild";
-import { copyFileSync, existsSync, rmSync, writeFileSync } from "fs";
+import { copyFileSync, rmSync, writeFileSync } from "fs";
 import { execFileSync } from "child_process";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
