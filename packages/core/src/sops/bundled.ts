@@ -3,6 +3,7 @@
  * Extracted into its own module for testability — the resolver imports this
  * so tests can mock it without overriding require.resolve.
  */
+import * as fs from "fs";
 import * as path from "path";
 
 /**
@@ -35,7 +36,8 @@ export function tryBundled(): string | null {
     // Use createRequire to resolve the platform package.
     const packageMain = require.resolve(`${packageName}/package.json`);
     const packageDir = path.dirname(packageMain);
-    return path.join(packageDir, "bin", binName);
+    const binPath = path.join(packageDir, "bin", binName);
+    return fs.existsSync(binPath) ? binPath : null;
   } catch {
     return null;
   }
