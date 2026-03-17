@@ -86,8 +86,9 @@ detect_platform() {
     linux)  ;;
     darwin) ;;
     mingw*|msys*|cygwin*|windows*)
-      fatal "Windows is not supported by this installer. Install via npm: npm install -g @clef-sh/cli
-       Or download the .exe from: https://github.com/$CLEF_REPO/releases"
+      fatal "Use the PowerShell installer on Windows:
+       irm https://clef.sh/install.ps1 | iex
+       Or install via npm: npm install -g @clef-sh/cli"
       ;;
     *)
       fatal "Unsupported operating system: $OS"
