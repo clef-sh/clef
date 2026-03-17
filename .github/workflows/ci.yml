@@ -153,11 +153,13 @@ jobs:
             exit 1
           }
           Write-Host "PSScriptAnalyzer passed" -ForegroundColor Green
+  install-sh-lint:
+    name: ShellCheck install.sh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
       - name: Validate shell script (shellcheck)
-        shell: bash
-        run: |
-          # shellcheck is pre-installed on GitHub runners
-          shellcheck www/public/install.sh
+        run: shellcheck www/public/install.sh
 
   integration-test:
     name: Integration Tests
