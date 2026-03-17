@@ -64,20 +64,19 @@ export function registerUiCommand(program: Command, deps: { runner: SubprocessRu
       const tokenUrl = `${handle.url}?token=${handle.token}`;
 
       formatter.print(`${sym("clef")}  Starting Clef UI...\n`);
-      formatter.print(`   ${sym("locked")}  Server   ${handle.url}`);
-      formatter.print(`   ${sym("copied")}  Token    ${handle.token}`);
+      formatter.print(`   ${sym("locked")}  URL   ${tokenUrl}`);
 
       if (options.open) {
         if (isHeadless()) {
           formatter.info(
-            `Browser auto-open skipped (no display detected). Open ${tokenUrl} manually.`,
+            `Browser auto-open skipped (no display detected). Open the URL above manually.`,
           );
         } else {
           formatter.print(`\n   Opening browser...`);
           try {
             await openBrowser(tokenUrl, deps.runner);
           } catch {
-            formatter.warn(`Could not open browser automatically. Visit ${tokenUrl} manually.`);
+            formatter.warn(`Could not open browser automatically. Visit the URL above manually.`);
           }
         }
       }
