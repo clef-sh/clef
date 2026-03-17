@@ -1,0 +1,105 @@
+# Build Single Executable Application (SEA) binaries for @clef-sh/cli
+# and attach them to the GitHub Release created by semantic-release.
+#
+# Triggered when a new @clef-sh/cli release is published. SEA embeds the
+# host Node binary, so each platform/arch must build on a native runner.
+# Unlike build-sea.yml (agent), the CLI requires UI assets to be built first.
+
+name: Build SEA CLI Binaries
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  # Only run for CLI releases (tags like @clef-sh/cli@X.Y.Z)
+  check-tag:
+    name: Check Tag
+    runs-on: ubuntu-latest
+    outputs:
+      is_cli: ${{ steps.check.outputs.is_cli }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - id: check
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          if [[ "$TAG" =~ ^@clef-sh/cli@(.+)$ ]]; then
+            echo "is_cli=true" >> "$GITHUB_OUTPUT"
+            echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_cli=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: SEA (${{ matrix.label }})
+    needs: check-tag
+    if: needs.check-tag.outputs.is_cli == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x64
+            os: ubuntu-latest
+            binary: clef
+            asset: clef-linux-x64
+          - label: linux-arm64
+            os: ubuntu-24.04-arm
+            binary: clef
+            asset: clef-linux-arm64
+          - label: darwin-x64
+            os: macos-13
+            binary: clef
+            asset: clef-darwin-x64
+          - label: darwin-arm64
+            os: macos-latest
+            binary: clef
+            asset: clef-darwin-arm64
+          - label: windows-x64
+            os: windows-latest
+            binary: clef.exe
+            asset: clef-windows-x64.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build UI client assets
+        run: npm run build -w packages/ui
+
+      - name: Build SEA binary
+        run: npm run build:sea -w packages/cli
+
+      - name: Rename binary for platform
+        shell: bash
+        run: mv "packages/cli/dist/${{ matrix.binary }}" "packages/cli/dist/${{ matrix.asset }}"
+
+      - name: Generate checksum
+        shell: bash
+        run: |
+          cd packages/cli/dist
+          if command -v sha256sum &> /dev/null; then
+            sha256sum "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          else
+            shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          fi
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "packages/cli/dist/${{ matrix.asset }}" \
+            "packages/cli/dist/${{ matrix.asset }}.sha256" \
+            --clobber

@@ -20,7 +20,7 @@
         Why Clef?
       </h2>
       <p class="text-[15px] leading-relaxed text-clef-textSecondary">
-        A CLI, a local web UI, schema validation, and drift detection — built to
+        A CLI, a local web UI, and schema validation — built to
         manage encrypted secrets without leaving the repo.
       </p>
     </div>
@@ -47,9 +47,9 @@
           Git-native
         </div>
         <p class="text-[13px] leading-relaxed text-clef-textSecondary">
-          Every secret lives in your repo as an encrypted file. No external
-          state, no database, no server to run. Version history comes free via
-          git.
+          Encrypted secrets under version control, managed with the same tools
+          you use to track code changes. No external state, no database, no
+          server to run.
         </p>
       </div>
 
@@ -72,8 +72,8 @@
           Namespace &times; Environment Matrix
         </div>
         <p class="text-[13px] leading-relaxed text-clef-textSecondary">
-          Organise secrets by service and deployment stage. See key drift
-          between dev, staging, and production at a glance in a single
+          Organise secrets by service and deployment stage. See which keys
+          exist in dev, staging, and production at a glance in a single
           colour-coded grid.
         </p>
       </div>
@@ -126,8 +126,8 @@
         <p class="text-[13px] leading-relaxed text-clef-textSecondary">
           Pair Clef with AWS KMS or GCP KMS and your existing IAM policies
           become your access control layer. CloudTrail and Cloud Audit Logs capture every decryption
-          event. OIDC federation means CI never stores a long-lived credential. Enterprise
-          access control — from infrastructure you already operate.
+          event. OIDC federation means CI never stores a long-lived credential. Production-grade
+          security — from infrastructure you already operate.
         </p>
       </div>
 
@@ -171,12 +171,12 @@
             stroke-linejoin="round"></path>
         </svg>
         <div class="mb-2 text-base font-semibold text-clef-text">
-          Lint &amp; Drift Detection
+          Lint &amp; Validation
         </div>
         <p class="text-[13px] leading-relaxed text-clef-textSecondary">
           Automated checks for missing keys, schema violations, and
-          cross-environment drift. Run in CI to enforce policy or locally to
-          catch issues early.
+          cross-environment consistency. Run locally to catch issues early
+          or add to CI for your team.
         </p>
       </div>
     </div>

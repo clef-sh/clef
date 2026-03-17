@@ -44,15 +44,22 @@ You are not choosing between developer ergonomics and enterprise compliance. Cle
 ## Install
 
 ```bash
-npm install -g @clef-sh/cli
+curl -fsSL https://clef.sh/install.sh | sh
 ```
+
+The install script downloads the Clef binary and sops for your platform, verifies checksums, and places them in `/usr/local/bin`. See `CLEF_INSTALL_DIR`, `CLEF_VERSION`, and other options in the [installation guide](https://docs.clef.sh/guide/installation).
 
 ### Prerequisites
 
 - Git
-- Node.js 18+
 
-**sops** is bundled automatically via platform-specific optional dependencies — no manual install required. If the bundled binary is not available for your platform, Clef falls back to any `sops` on your system PATH. You can also override the binary path with the `CLEF_SOPS_PATH` environment variable.
+### Alternative: npm
+
+```bash
+npm install -g @clef-sh/cli
+```
+
+The npm package bundles a platform-specific sops binary via optional dependencies. This is a good choice for Node.js environments and CI pipelines. If the bundled binary is not available for your platform, Clef falls back to any `sops` on your system PATH. You can also override the binary path with the `CLEF_SOPS_PATH` environment variable.
 
 Run `clef doctor` after installing to verify your environment. It shows where sops was resolved from (`[bundled]`, `[system]`, or `[CLEF_SOPS_PATH]`).
 

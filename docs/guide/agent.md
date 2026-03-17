@@ -98,6 +98,50 @@ jobs:
             s3://my-bucket/clef/api-gateway/production.json
 ```
 
+## Installing the agent
+
+### npm
+
+```bash
+npm install -g @clef-sh/cli
+```
+
+The `clef agent` command is included in the CLI package.
+
+### Standalone binary
+
+Download a standalone `clef-agent` binary from [GitHub Releases](https://github.com/clef-sh/clef/releases) — no Node.js required:
+
+::: code-group
+
+```bash [macOS (Apple Silicon)]
+curl -fsSLO https://github.com/clef-sh/clef/releases/latest/download/clef-agent-darwin-arm64
+chmod +x clef-agent-darwin-arm64
+sudo mv clef-agent-darwin-arm64 /usr/local/bin/clef-agent
+```
+
+```bash [macOS (Intel)]
+curl -fsSLO https://github.com/clef-sh/clef/releases/latest/download/clef-agent-darwin-x64
+chmod +x clef-agent-darwin-x64
+sudo mv clef-agent-darwin-x64 /usr/local/bin/clef-agent
+```
+
+```bash [Linux (x64)]
+curl -fsSLO https://github.com/clef-sh/clef/releases/latest/download/clef-agent-linux-x64
+chmod +x clef-agent-linux-x64
+sudo mv clef-agent-linux-x64 /usr/local/bin/clef-agent
+```
+
+```bash [Linux (ARM64)]
+curl -fsSLO https://github.com/clef-sh/clef/releases/latest/download/clef-agent-linux-arm64
+chmod +x clef-agent-linux-arm64
+sudo mv clef-agent-linux-arm64 /usr/local/bin/clef-agent
+```
+
+:::
+
+SHA256 checksums (`.sha256` files) are available alongside each binary on the release.
+
 ## Starting the agent
 
 ```bash

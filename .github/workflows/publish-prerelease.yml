@@ -59,9 +59,11 @@ jobs:
 
           # Base version always comes from main so prerelease stamps align with
           # the next stable release, regardless of how far branches have diverged.
+          # For new packages not yet on main, fall back to the current branch version.
           git show origin/main:packages/core/package.json  > /tmp/core-main.json
           git show origin/main:packages/cli/package.json   > /tmp/cli-main.json
-          git show origin/main:packages/agent/package.json > /tmp/agent-main.json
+          git show origin/main:packages/agent/package.json > /tmp/agent-main.json 2>/dev/null \
+            || cp packages/agent/package.json /tmp/agent-main.json
 
           CORE_BASE=$(node -p "require('/tmp/core-main.json').version.replace(/-.*/, '')")
           CLI_BASE=$(node -p "require('/tmp/cli-main.json').version.replace(/-.*/, '')")
