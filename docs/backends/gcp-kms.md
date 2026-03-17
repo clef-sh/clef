@@ -47,7 +47,7 @@ projects/my-project/locations/global/keyRings/clef-keyring/cryptoKeys/clef-secre
 
 ### Per-environment override (recommended)
 
-The most common pattern is to use age for dev/staging and GCP KMS for production. This gives you simple local development with cloud-managed keys and audit logging in production:
+The most common pattern is age for dev/staging and GCP KMS for production:
 
 ```yaml
 version: 1
@@ -76,11 +76,11 @@ sops:
 file_pattern: "secrets/{namespace}/{environment}.enc.yaml"
 ```
 
-In this configuration, dev and staging use the global default (age), while production uses GCP KMS. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override) for details.
+Dev and staging use the global default (age); production uses GCP KMS. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override) for details.
 
 ### All environments with KMS
 
-If you want every environment to use GCP KMS:
+To use GCP KMS for all environments:
 
 ```yaml
 version: 1
@@ -109,11 +109,7 @@ file_pattern: "secrets/{namespace}/{environment}.enc.yaml"
 
 ## IAM permissions
 
-The service account or user running Clef needs the following IAM roles on the KMS key:
-
-- `roles/cloudkms.cryptoKeyEncrypterDecrypter` — for encrypting and decrypting
-
-Grant the role:
+The service account or user running Clef needs `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the KMS key:
 
 ```bash
 gcloud kms keys add-iam-policy-binding clef-secrets-key \

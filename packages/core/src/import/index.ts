@@ -82,7 +82,7 @@ export class ImportRunner {
 
     if (options.dryRun) {
       // Dry run: check existing keys but never call encrypt
-      let existingKeys = new Set<string>();
+      let existingKeys: Set<string>;
       try {
         const decrypted = await this.sopsClient.decrypt(filePath);
         existingKeys = new Set(Object.keys(decrypted.values));

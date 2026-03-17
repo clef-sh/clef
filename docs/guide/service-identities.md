@@ -1,8 +1,6 @@
 # Service Identities
 
-Service identities let serverless functions, containers, and other machine workloads consume Clef-managed secrets at runtime — without git, without the `sops` binary, and without storing private keys in build artifacts.
-
-A service identity is a named, scoped set of per-environment age key pairs declared in `clef.yaml`. At build time, `clef bundle` generates a self-contained JS module that embeds an age-encrypted blob of the scoped secrets. At runtime, the module decrypts using the [age-encryption](https://www.npmjs.com/package/age-encryption) npm package (pure JavaScript, no native dependencies) and a private key fetched from your secret manager on demand.
+Service identities let serverless functions, containers, and other machine workloads consume Clef-managed secrets at runtime — without git, without the `sops` binary, and without storing private keys in build artifacts. A service identity is a named, scoped set of per-environment age key pairs declared in `clef.yaml`. At build time, `clef bundle` generates a self-contained JS module with an age-encrypted blob of the scoped secrets. At runtime the module decrypts via the [age-encryption](https://www.npmjs.com/package/age-encryption) npm package and a private key fetched from your secret manager on demand.
 
 ## When to use service identities
 
@@ -97,7 +95,7 @@ clef service create api-gateway \
   --description "API gateway service"
 ```
 
-This generates an age key pair per environment, updates `clef.yaml`, registers the public keys as SOPS recipients on the scoped files, and prints the private keys to stdout once:
+Generates an age key pair per environment, updates `clef.yaml`, registers the public keys as SOPS recipients on the scoped files, and prints the private keys once:
 
 ```
 ✓  Service identity 'api-gateway' created.
@@ -120,7 +118,7 @@ This generates an age key pair per environment, updates `clef.yaml`, registers t
 ```
 
 ::: warning Store private keys immediately
-Private keys are printed once and never stored by Clef. Copy each key to the appropriate secret manager before closing the terminal. If you lose a key, use `clef service rotate` to generate a replacement.
+Private keys are printed once. Copy each key to the appropriate secret manager before closing the terminal. If you lose a key, use `clef service rotate` to generate a replacement.
 :::
 
 Commit the updated manifest after creating the identity:
@@ -131,7 +129,7 @@ git add clef.yaml && git add -A && git commit -m "feat: add service identity 'ap
 
 ### Multi-namespace identities
 
-A service that needs secrets from multiple namespaces:
+For a service that needs secrets from multiple namespaces:
 
 ```bash
 clef service create backend-api \
@@ -139,7 +137,7 @@ clef service create backend-api \
   --description "Backend API server"
 ```
 
-When a multi-namespace identity is bundled, keys are prefixed with the namespace to avoid collisions:
+Keys from multi-namespace bundles are prefixed with the namespace to avoid collisions:
 
 ```javascript
 await getSecret("api/STRIPE_KEY", keyProvider);
@@ -174,7 +172,7 @@ clef service show api-gateway
 
 ### Rotating keys
 
-Generate new age keys for a service identity. The old keys are removed from SOPS recipients and new ones are added:
+Generates new age keys, removing the old ones from SOPS recipients:
 
 ```bash
 # Rotate all environments
@@ -184,7 +182,7 @@ clef service rotate api-gateway
 clef service rotate api-gateway --environment production
 ```
 
-New private keys are printed to stdout — store them in your secret manager and update the runtime configuration. Re-generate bundles after rotation.
+New private keys are printed to stdout — store them immediately and re-generate bundles after rotation.
 
 ## Generating bundles
 
@@ -194,11 +192,7 @@ clef bundle api-gateway production \
   --format esm
 ```
 
-The `bundle` command:
-
-1. Decrypts all SOPS files scoped to the identity's namespaces for the specified environment
-2. Age-encrypts the merged values as a single blob to the identity's public key for that environment
-3. Generates a JS module that embeds the ciphertext and exports `getSecret()`, `getAllSecrets()`, and `KEYS`
+The `bundle` command decrypts all scoped SOPS files, age-encrypts the merged values as a single blob to the identity's public key, and generates a JS module embedding the ciphertext with `getSecret()`, `getAllSecrets()`, and `KEYS` exports.
 
 ### Output formats
 
@@ -234,13 +228,11 @@ export function clearCache(): void;
 
 ### Key provider
 
-The `keyProvider` function is called **once** on the first `getSecret()` or `getAllSecrets()` call. It should return the age private key as a string. The runtime caches the decrypted values (not the private key) — subsequent calls are O(1) map lookups.
-
-Concurrent cold-start calls are deduplicated: if multiple requests hit `getSecret()` before decryption completes, only one decrypt operation runs.
+The `keyProvider` function is called once on the first `getSecret()` or `getAllSecrets()` call and should return the age private key as a string. The runtime caches decrypted values — subsequent calls are O(1) map lookups. Concurrent cold-start calls are deduplicated so only one decrypt operation runs.
 
 ## AWS Lambda walkthrough
 
-This is a complete, production-ready example of using Clef service identities with AWS Lambda.
+Complete example using Clef service identities with AWS Lambda.
 
 ### 1. Prerequisites
 
@@ -283,8 +275,6 @@ Grant your Lambda execution role permission to read this secret:
 ```
 
 ### 4. Generate the bundle in CI
-
-Add a build step to your CI pipeline that generates the bundle and includes it in the deployment artifact:
 
 ```yaml
 # .github/workflows/deploy.yml
@@ -361,13 +351,11 @@ export async function handler(event) {
 
 ### 6. Install the runtime dependency
 
-The generated module dynamically imports `age-encryption` at runtime. Include it in your Lambda's `node_modules`:
-
 ```bash
 npm install age-encryption
 ```
 
-This is a pure JavaScript package with no native dependencies — it works on any Lambda runtime without layers or custom builds.
+Pure JavaScript, no native dependencies — works on any Lambda runtime without layers.
 
 ### Performance characteristics
 
@@ -378,7 +366,7 @@ This is a pure JavaScript package with no native dependencies — it works on an
 | Bundle size overhead    | ~200 bytes per key + age envelope     |
 | Runtime dependency      | `age-encryption` only (~50 KB)        |
 
-The entire secrets blob is decrypted on first access and cached for the lifetime of the Lambda execution context. There is no per-key decrypt overhead after initialization.
+The entire blob is decrypted on first access and cached for the Lambda execution context lifetime — no per-key overhead after initialization.
 
 ## Key providers for other platforms
 
@@ -437,7 +425,7 @@ async function keyProvider() {
 | `recipient_not_registered` | warning  | Identity's public key is not in a scoped SOPS file's recipients |
 | `scope_mismatch`           | warning  | Identity's key found as recipient outside its namespace scope   |
 
-These rules help catch configuration drift after manifest changes, team member rotations, or manual edits to encrypted files.
+These rules catch configuration drift after manifest changes, team member rotations, or manual edits to encrypted files.
 
 ## Security model
 
@@ -461,7 +449,7 @@ The generated JS module contains:
 
 ### No custom crypto
 
-The runtime decryption uses [age-encryption](https://www.npmjs.com/package/age-encryption), a JavaScript implementation of the [age specification](https://age-encryption.org). Clef does not implement any cryptographic primitives — all encryption and decryption is delegated to established libraries.
+Runtime decryption uses [age-encryption](https://www.npmjs.com/package/age-encryption). Clef implements no cryptographic primitives — all encryption and decryption is delegated to established libraries.
 
 ## See also
 

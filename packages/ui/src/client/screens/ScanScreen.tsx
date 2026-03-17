@@ -319,7 +319,7 @@ export function ScanScreen() {
                   typeLabel="UNENCRYPTED FILE"
                   file={file}
                   message="Missing SOPS metadata — file is in plaintext."
-                  fixCommand={`clef encrypt ${file.replace(/\.enc\.(yaml|json)$/, "").replace(/\//g, "/")}`}
+                  fixCommand={`clef encrypt ${file.replace(/\.enc\.(yaml|json)$/, "")}`}
                   onViewFile={() => openFile(file)}
                 />
               ))}

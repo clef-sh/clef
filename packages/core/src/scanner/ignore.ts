@@ -80,14 +80,22 @@ export function shouldIgnoreMatch(match: ScanMatch, rules: ClefIgnoreRules): boo
 }
 
 function matchesGlob(filePath: string, pattern: string): boolean {
-  // Convert glob to regex: support *, **, and ? wildcards
-  const MARKER = "__GLOBDOUBLE__";
+  // Convert glob to regex: support *, **, and ? wildcards.
+  // Step 1: stash ** segments, Step 2: escape all regex metacharacters,
+  // Step 3: restore wildcards as their regex equivalents.
+  const DOUBLE_STAR = "\x00DS\x00";
+  const SINGLE_STAR = "\x00SS\x00";
+  const QUESTION = "\x00QM\x00";
+
   const escaped = pattern
-    .replace(/\./g, "\\.")
-    .replace(/\*\*/g, MARKER)
-    .replace(/\*/g, "[^/]*")
-    .replace(new RegExp(MARKER, "g"), ".*")
-    .replace(/\?/g, "[^/]");
+    .replace(/\*\*/g, DOUBLE_STAR)
+    .replace(/\*/g, SINGLE_STAR)
+    .replace(/\?/g, QUESTION)
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(DOUBLE_STAR, ".*")
+    .replace(SINGLE_STAR, "[^/]*")
+    .replace(QUESTION, "[^/]");
+
   const regex = new RegExp("^" + escaped + "$");
   // Also match if the pattern matches a prefix directory
   const prefixRegex = new RegExp("^" + escaped + "/");

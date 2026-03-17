@@ -12,9 +12,7 @@ clef recipients remove <age-public-key> [-e <environment>]
 
 ## Description
 
-Every encrypted file in a Clef repository is encrypted for its current recipients. A recipient is an age public key — anyone with the corresponding private key can decrypt the secrets.
-
-`clef recipients` manages the recipient list. It handles adding new team members, removing departing team members, and listing who currently has access. Recipients can be scoped globally (all environments) or to a specific environment using `-e`.
+A recipient is an age public key — anyone with the corresponding private key can decrypt. `clef recipients` manages the recipient list globally or scoped to a specific environment via `-e`.
 
 ## Subcommands
 
@@ -46,15 +44,7 @@ clef recipients add age1abc... --label "Alice"
 clef recipients add age1abc... --label "Alice" -e production
 ```
 
-This will:
-
-1. Validate the age public key format
-2. Add the key to `clef.yaml` (globally or under the specified environment)
-3. Re-encrypt the affected encrypted files in the matrix
-
-Without `-e`, the new recipient can decrypt all environments. With `-e`, only the specified environment's files are re-encrypted and the recipient is scoped to that environment.
-
-**Always run `--dry-run` first when importing secrets. For recipients, the confirmation prompt serves the same purpose — review the details before confirming.**
+Validates the key, adds it to `clef.yaml`, and re-encrypts affected files. Without `-e`, the recipient can decrypt all environments; with `-e`, only that environment's files are re-encrypted.
 
 ### remove
 
@@ -75,16 +65,14 @@ This command requires interactive input and cannot be run in CI. See [Re-encrypt
 Re-encryption removes **future** access, not **past** access.
 :::
 
-When you remove a recipient, Clef re-encrypts all files so the removed key cannot decrypt future versions. However, if the removed recipient previously decrypted any file, they may have the plaintext value in memory or on disk.
-
-**To fully revoke access, you must also rotate the secret values themselves:**
+Re-encryption removes future access only. If the removed recipient previously decrypted any file, they may retain the plaintext. **To fully revoke access, rotate the secret values:**
 
 ```bash
 clef rotate database/staging
 clef rotate database/production
 ```
 
-This distinction is fundamental to how asymmetric encryption works. Clef surfaces it prominently because getting it wrong is a security risk.
+This is fundamental to how asymmetric encryption works.
 
 ## Labels
 
@@ -104,7 +92,7 @@ sops:
 
 Labels are purely for display. Changing a label does not require re-encryption.
 
-Both the object form (`key` + `label`) and the plain string form are valid. When adding a recipient with `--label`, the object form is used. Without `--label`, the plain string form is used.
+Both the object form and plain string form are valid. `--label` uses the object form; omitting it uses the string form.
 
 ## Per-environment recipients
 
@@ -123,7 +111,7 @@ environments:
       - age1def...
 ```
 
-When an environment has its own recipient list, only those recipients can decrypt that environment's files. See [Per-environment recipients](/guide/manifest#per-environment-recipients) for details.
+See [Per-environment recipients](/guide/manifest#per-environment-recipients) for details.
 
 ## Flags
 

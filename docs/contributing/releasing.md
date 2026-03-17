@@ -17,31 +17,23 @@ Clef uses a three-tier branch model that maps directly to release channels:
 
 ### dev → alpha
 
-Every push to `dev` triggers an automatic publish to GitHub Packages under the `alpha` dist-tag.
-Alpha packages are **restricted** (organization-only) — not publicly installable from npm.
-
-Version scheme: the base version is always sourced from `main`, not the current branch.
-This keeps alpha stamps anchored to the next stable release regardless of branch divergence:
+Every push to `dev` triggers an automatic publish to GitHub Packages under the `alpha` dist-tag. Alpha packages are **restricted** (organization-only) — not publicly installable from npm. The base version is sourced from `main`, keeping alpha stamps anchored to the next stable release:
 
 ```
 main@0.1.0  →  alpha: 0.1.0-alpha.<run_number>
 ```
 
-Alpha packages are for internal development iteration only. They are not promoted to npm.
+Alpha packages are for internal development only — not promoted to npm.
 
 ### staging → beta
 
-Every push to `staging` triggers an automatic publish to GitHub Packages (public) under the `beta`
-dist-tag and creates a draft GitHub pre-release.
-
-Version scheme: same base-from-main approach as alpha:
+Every push to `staging` publishes to GitHub Packages (public) under the `beta` dist-tag and creates a draft GitHub pre-release. Same base-from-main versioning as alpha:
 
 ```
 main@0.1.0  →  beta: 0.1.0-beta.<run_number>
 ```
 
-Beta packages are **not** published to npm automatically. Promoting a beta to npm requires a
-manual workflow dispatch (see [Promoting beta to npm](#promoting-beta-to-npm) below).
+Beta packages are not published to npm automatically — promotion requires a manual workflow dispatch (see [Promoting beta to npm](#promoting-beta-to-npm)).
 
 ### main → stable
 
@@ -99,12 +91,11 @@ BREAKING CHANGE: The --all-envs flag has been renamed to
 
 ## How releases work on main
 
-Releasing is fully automated when changes land on `main`. No manual steps are needed.
+Fully automated — no manual steps needed.
 
 ### 1. Merge PRs to main
 
-All changes land on `main` via pull requests. Each PR title (which becomes the squash commit
-message) must follow Conventional Commits so Semantic Release can parse it.
+All changes land on `main` via pull requests. Each PR title (squash commit message) must follow Conventional Commits.
 
 ### 2. Semantic Release runs automatically
 
@@ -131,14 +122,11 @@ For each package that has releasable commits:
 
 ### Independent versioning
 
-`@clef-sh/core` and `@clef-sh/cli` release **independently** — each is versioned by its own
-commits. Core at `0.2.0` and CLI at `0.3.1` is a valid state. `@clef-sh/ui` is private and is
-never published separately; it is bundled into the CLI package.
+`@clef-sh/core` and `@clef-sh/cli` release independently — core at `0.2.0` and CLI at `0.3.1` is valid. `@clef-sh/ui` is private and bundled into the CLI package, never published separately.
 
 ## Promoting beta to npm
 
-Beta versions land on GitHub Packages automatically. Promoting to npm requires a manual
-workflow dispatch — this is a deliberate gate for public pre-release testing.
+Beta versions land on GitHub Packages automatically. A manual workflow dispatch is the deliberate gate before publishing to npm.
 
 ### Steps
 
@@ -148,9 +136,7 @@ workflow dispatch — this is a deliberate gate for public pre-release testing.
 4. Optionally set the ref (defaults to `staging`)
 5. Click **Run workflow**
 
-The workflow validates the version format (`X.Y.Z-beta.N`), rebuilds both packages from the
-specified ref, publishes both to npm under the `beta` dist-tag with OIDC provenance, tags the
-commit as `npm-beta/vX.Y.Z-beta.N`, and updates the GitHub pre-release notes.
+Validates the version format, rebuilds from the specified ref, publishes to npm under `beta` with OIDC provenance, tags the commit as `npm-beta/vX.Y.Z-beta.N`, and updates the GitHub pre-release notes.
 
 ### Installing a beta
 
@@ -160,18 +146,11 @@ npm install @clef-sh/cli@beta
 
 ## Authentication
 
-All npm publishes use **GitHub Actions OIDC** — there are no long-lived npm tokens stored as
-repository secrets. The `id-token: write` permission is granted to release workflows, and npm
-verifies the GitHub OIDC token directly. This also generates cryptographic provenance attestations
-for every published package.
+All npm publishes use **GitHub Actions OIDC** — no long-lived npm tokens. The `id-token: write` permission is granted to release workflows; npm verifies the OIDC token directly and generates cryptographic provenance attestations for every package.
 
 ## Sops binary packages
 
-The `@clef-sh/sops-{platform}-{arch}` packages are **versioned by sops version** (e.g. `3.9.4`),
-not by the Clef version. They are published separately via the `publish-sops.yml` workflow
-(manual dispatch) and are not part of the Semantic Release cycle. See
-[`sops-version.json`](https://github.com/clef-sh/clef/blob/main/sops-version.json) for the
-currently pinned sops version and platform checksums.
+The `@clef-sh/sops-{platform}-{arch}` packages are **versioned by sops version** (e.g. `3.9.4`), not by Clef version. Published via the `publish-sops.yml` workflow (manual dispatch), outside the Semantic Release cycle. See [`sops-version.json`](https://github.com/clef-sh/clef/blob/main/sops-version.json) for the pinned sops version and checksums.
 
 ## Pre-release checklist
 
@@ -187,7 +166,7 @@ Before merging a PR that should trigger a release on `main`, verify:
 
 ## Manual release (emergency only)
 
-If the automated pipeline fails and a release must go out immediately:
+Only use this when the automated pipeline fails and a release must go out immediately:
 
 ```bash
 # Update versions manually
@@ -208,5 +187,4 @@ npm publish --provenance --access public -w packages/core
 npm publish --provenance --access public -w packages/cli
 ```
 
-This bypasses Semantic Release and must only be used as a last resort. The automated process
-is strongly preferred.
+This bypasses Semantic Release — use only as a last resort.

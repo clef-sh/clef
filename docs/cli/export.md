@@ -1,6 +1,6 @@
 # clef export
 
-Print decrypted secrets as shell export statements to stdout. This is the escape hatch for environments where `clef exec` is not possible — for example, CI systems that require environment variables to be set before the main script runs.
+Print decrypted secrets as shell export statements to stdout — the escape hatch for environments where `clef exec` is not possible.
 
 ## Syntax
 
@@ -74,20 +74,16 @@ done
 
 ## Unsupported Formats
 
-The following formats are explicitly **not supported** because they would write plaintext values to disk or encourage unsafe patterns:
+The following formats are explicitly **not supported** — they write plaintext to disk:
 
-- `--format dotenv` — writes plaintext `.env` file to disk
-- `--format json` — writes plaintext JSON to disk
-- `--format yaml` — writes plaintext YAML to disk
+- `--format dotenv`, `--format json`, `--format yaml` — plaintext files
 - `--output <file>` — Clef never writes plaintext to disk
 
-Use `clef exec` instead of `clef export` wherever possible. If you need secrets in a running process, use [`clef exec`](/cli/exec) instead — it injects values directly into the process environment without any intermediate file.
+Use [`clef exec`](/cli/exec) wherever possible — it injects values directly into the process environment.
 
 ## Security Considerations
 
-When using `eval $(clef export ...)`, the decrypted values are briefly present in the shell environment and visible to any process that can read `/proc/<pid>/environ` on Linux. `clef exec` does not have this exposure because it spawns the child process directly.
-
-**Use `clef exec` whenever possible.** Use `clef export` only when your CI system or workflow cannot support the subprocess wrapping pattern.
+When using `eval $(clef export ...)`, decrypted values are visible to any process that can read `/proc/<pid>/environ` on Linux. `clef exec` avoids this exposure by spawning the child process directly. Use `clef export` only when your CI system cannot support subprocess wrapping.
 
 ## Related Commands
 

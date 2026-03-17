@@ -41,7 +41,7 @@ aws kms create-alias \
 
 ### Per-environment override (recommended)
 
-The most common pattern is to use age for dev/staging and AWS KMS for production. This gives you simple local development with cloud-managed keys and audit logging in production:
+The most common pattern is age for dev/staging and AWS KMS for production:
 
 ```yaml
 version: 1
@@ -70,11 +70,11 @@ sops:
 file_pattern: "secrets/{namespace}/{environment}.enc.yaml"
 ```
 
-In this configuration, dev and staging use the global default (age), while production uses AWS KMS. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override) for details.
+Dev and staging use the global default (age); production uses AWS KMS. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override) for details.
 
 ### All environments with KMS
 
-If you want every environment to use AWS KMS:
+To use AWS KMS for all environments:
 
 ```yaml
 version: 1
@@ -118,7 +118,7 @@ The IAM user or role that runs Clef needs `kms:Encrypt`, `kms:Decrypt`, and `kms
 }
 ```
 
-Attach this policy to the IAM users or roles that need to encrypt or decrypt secrets.
+Attach this to the IAM users or roles that need to encrypt or decrypt secrets.
 
 ## Example workflow
 
@@ -138,7 +138,7 @@ clef get database/dev DB_PASSWORD
 
 ## Multiple regions
 
-For cross-region redundancy, you can configure multiple KMS keys in your `.sops.yaml`. SOPS encrypts the data key with each KMS key, so decryption works from any region:
+Configure multiple KMS keys in `.sops.yaml` for cross-region redundancy. SOPS encrypts the data key with each, so decryption works from any region:
 
 ```yaml
 creation_rules:
@@ -148,13 +148,13 @@ creation_rules:
 
 ## Access control
 
-The primary advantage of AWS KMS over age is IAM-based access control:
+IAM-based access control is the primary advantage over age:
 
 - **Grant access:** Attach the KMS policy to a user or role
-- **Revoke access:** Remove the policy — the user immediately loses the ability to decrypt
-- **Audit:** CloudTrail logs every KMS API call, providing a full audit trail of who decrypted what and when
+- **Revoke access:** Remove the policy — the user immediately loses decrypt access
+- **Audit:** CloudTrail logs every KMS API call
 
-No key files need to be generated, distributed, or rotated.
+No key files to generate, distribute, or rotate.
 
 ## See also
 

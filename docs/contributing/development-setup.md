@@ -1,6 +1,6 @@
 # Development Setup
 
-This guide walks you from cloning the repository to a fully working `clef` command, running every test tier, and iterating on changes.
+From cloning the repository to a working `clef` command, all test tiers, and iterating on changes.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ This guide walks you from cloning the repository to a fully working `clef` comma
 | npm     | `npm -v`        | included with Node.js |
 | git     | `git --version` | >= 2.28.0             |
 
-> **Node.js, npm, and git** are required for all development — building, unit testing, and linting. Unit tests mock all subprocess calls and do not need sops installed.
+> Unit tests mock all subprocess calls — sops is not needed to build or run unit tests.
 
 ### sops binary — bundled by default
 
@@ -26,7 +26,7 @@ The `@clef-sh/cli` package declares platform-specific `optionalDependencies` tha
 @clef-sh/sops-win32-x64      (Windows x64)
 ```
 
-When you run `npm install` (or `npm ci`), npm automatically installs only the package matching your current OS and architecture. The Clef resolver finds this bundled binary at runtime — no manual sops install needed.
+`npm install` installs the package matching your OS and architecture. The Clef resolver finds it at runtime — no manual sops install needed.
 
 **Resolution order** (checked at runtime by `resolveSopsPath()`):
 
@@ -34,11 +34,11 @@ When you run `npm install` (or `npm ci`), npm automatically installs only the pa
 2. Bundled `@clef-sh/sops-{platform}-{arch}` optional dependency
 3. System PATH fallback — bare `sops` command
 
-Run `clef doctor` to see which source was resolved (`[bundled]`, `[system]`, or `[CLEF_SOPS_PATH]`).
+Run `clef doctor` to confirm which source was resolved.
 
 ### When bundled sops is not available
 
-If you are on an unsupported platform, or the optional dependency failed to install, Clef falls back to any `sops` binary on your system PATH. Install it manually:
+On unsupported platforms or if the optional dependency failed, Clef falls back to any `sops` on your PATH:
 
 ```bash
 # macOS
@@ -54,9 +54,7 @@ brew install sops
 
 ### Using sops in CI
 
-In CI environments, `npm ci` installs the bundled sops binary automatically (the runner's OS/arch determines which optional dependency is installed). No extra install step is needed.
-
-If you prefer to pin a specific sops binary (e.g. for reproducibility or to use a system-installed version), set `CLEF_SOPS_PATH`:
+In CI, `npm ci` installs the bundled sops binary automatically — no extra step needed. To pin a specific binary, set `CLEF_SOPS_PATH`:
 
 ```bash
 # Example: CI installs sops manually and points Clef at it
@@ -69,11 +67,11 @@ npm run build
 npm run test:integration
 ```
 
-If `CLEF_SOPS_PATH` is not set and the bundled package installed successfully, the bundled binary is used. This is the recommended default for CI.
+If `CLEF_SOPS_PATH` is unset and the bundled package installed successfully, the bundled binary is used — the recommended default for CI.
 
 ### Skipping optional dependencies
 
-During local development, if you only need to run unit tests (which mock all subprocess calls), you can skip optional dependencies entirely:
+To skip optional dependencies when only running unit tests:
 
 ```bash
 npm install --ignore-optional
@@ -88,7 +86,7 @@ cd clef
 npm install
 ```
 
-The `npm install` at the root installs dependencies for all packages in the monorepo via npm workspaces.
+Installs dependencies for all packages via npm workspaces.
 
 ## Build
 
@@ -96,11 +94,11 @@ The `npm install` at the root installs dependencies for all packages in the mono
 npm run build
 ```
 
-This compiles TypeScript in all three packages: `packages/core`, `packages/cli`, and `packages/ui`.
+Compiles TypeScript for `packages/core`, `packages/cli`, and `packages/ui`.
 
 ## Running Clef from source
 
-After building, there are three ways to run the CLI locally.
+Three ways to run the CLI locally after building:
 
 ### Approach 1 — Direct invocation (recommended for quick tests)
 
@@ -111,7 +109,7 @@ node packages/cli/bin/clef.js init
 node packages/cli/bin/clef.js get database/dev DB_HOST
 ```
 
-`packages/cli/bin/clef.js` requires the compiled output in `packages/cli/dist/`. After editing TypeScript source, `npm run build` must be run before the CLI reflects changes.
+Requires compiled output in `packages/cli/dist/`. Run `npm run build` after editing source.
 
 ### Approach 2 — npm link (global symlink)
 
@@ -120,12 +118,7 @@ cd packages/cli
 npm link
 ```
 
-After this, `clef` is available as a global command from any directory.
-
-- **Verify:** `which clef` should point to the npm link in Node's global bin directory.
-- **Unlink when done:** `npm unlink -g @clef-sh/cli`
-- **Important:** if you also have Clef installed globally (`npm install -g @clef-sh/cli`), the two installations will conflict — `which clef` shows which one wins based on PATH order. Use direct invocation to avoid ambiguity.
-- **Caveat:** `npm link` uses the compiled `dist/` output, so the build step is still required after every edit.
+`clef` becomes available as a global command. Unlink with `npm unlink -g @clef-sh/cli`. If Clef is also installed globally, the two installations conflict — use direct invocation to avoid ambiguity. Build step still required after every edit.
 
 ### Approach 3 — Shell alias (no global pollution)
 
@@ -137,7 +130,7 @@ alias clef="node $(pwd)/packages/cli/bin/clef.js"
 alias clef="node /path/to/clef/packages/cli/bin/clef.js"
 ```
 
-This is the safest approach for developers who do not want to modify their global npm, or who are working across multiple Clef checkouts simultaneously. The alias disappears when the shell session ends unless added to a profile file.
+Safest approach for developers working across multiple checkouts or avoiding global npm changes. The alias disappears when the shell session ends unless added to a profile file.
 
 ## Edit-build-test cycle
 
@@ -170,7 +163,7 @@ packages/core  ←  packages/cli
 packages/core  ←  packages/ui
 ```
 
-If you edit `packages/core`, rebuild core first before rebuilding cli or ui. They import from core's compiled `dist/` output — a stale core build means the CLI and UI reflect old behaviour even after their own rebuild.
+If you edit `packages/core`, rebuild it before rebuilding cli or ui — they import from core's compiled `dist/`, so a stale core build produces stale behaviour even after their own rebuild.
 
 ```bash
 # Correct order after editing core source:
@@ -184,7 +177,7 @@ npm run build -w packages/cli   # if cli was also changed
 npx tsc -w -p packages/core/tsconfig.json
 ```
 
-This is not part of the standard scripts but works for rapid iteration on a single package. It only recompiles TypeScript — it does not re-run tests or restart any server. For UI development, use the Vite dev server (see UI development section below) which has hot module replacement built in.
+Recompiles TypeScript only — does not re-run tests or restart servers. For UI development, use the Vite dev server (below) which has hot module replacement.
 
 ## Test tiers
 
@@ -204,7 +197,7 @@ npx jest --config packages/cli/jest.config.js \
   packages/cli/src/commands/get.test.ts
 ```
 
-Everything is mocked. No sops, no git, no network. These tests run identically on any machine with Node installed.
+Everything is mocked — no sops, no git, no network. Runs identically on any machine with Node.
 
 **Coverage:**
 
@@ -212,7 +205,7 @@ Everything is mocked. No sops, no git, no network. These tests run identically o
 npm run test:coverage
 ```
 
-The CI gate enforces 100% line coverage on `packages/core`. Coverage regressions fail the build. If you add a new function, add tests for it before opening a PR.
+Coverage regressions fail the build. Add tests for any new function before opening a PR.
 
 ### Tier 2 — Lint and format checks
 
@@ -224,7 +217,7 @@ npm run format:check
 npm run format
 ```
 
-Must pass before committing. Run `npm run format` before pushing if you see format errors. ESLint uses the flat config in `eslint.config.js`.
+Must pass before committing. Run `npm run format` to auto-fix format errors.
 
 ### Tier 3 — Integration tests (requires sops)
 
@@ -232,11 +225,9 @@ Must pass before committing. Run `npm run format` before pushing if you see form
 npm run test:integration
 ```
 
-Integration tests create a temporary git repository, generate a temporary age key pair using the `age-encryption` npm package (no binary required), create a real `clef.yaml` manifest, and run actual SOPS encrypt/decrypt operations against real files. They verify end-to-end behaviour that unit tests cannot cover.
+Integration tests create a temporary git repository, generate an age key pair via the `age-encryption` npm package, scaffold a real `clef.yaml`, and run actual SOPS encrypt/decrypt operations. If you ran `npm install` without `--ignore-optional`, the bundled sops is available and no extra setup is needed.
 
-The sops binary is resolved using the standard three-tier resolution chain: `CLEF_SOPS_PATH` env, bundled platform package, then system PATH. If you ran `npm install` (not `--ignore-optional`), the bundled sops is available and no extra setup is needed. No environment variables need to be set — the integration test setup script generates its own temporary key pair.
-
-If sops cannot be found via any resolution path, the suite exits with:
+If sops cannot be found, the suite exits with:
 
 ```
 sops not found. Install sops to run integration tests:
@@ -246,7 +237,7 @@ sops not found. Install sops to run integration tests:
 
 ## Local experimentation with real encryption
 
-This section explains how to try Clef commands against real encrypted files — not for unit testing (which is fully mocked), but for understanding the tool's actual end-to-end behaviour.
+Try Clef commands against real encrypted files to understand end-to-end behaviour (unit tests are fully mocked):
 
 ```bash
 # 1. Create a playground directory
@@ -269,15 +260,13 @@ node /path/to/clef/packages/cli/bin/clef.js \
 node /path/to/clef/packages/cli/bin/clef.js ui
 ```
 
-**Important notes:**
-
-- The age private key is stored in the OS keychain or at `~/.config/clef/keys/{label}/keys.txt` (outside the repository). The label and storage method are recorded in `.clef/config.yaml` (gitignored).
-- If you see `could not decrypt` errors, run `clef doctor` to diagnose.
-- The `/tmp/clef-playground` directory is safe for experimentation — cleaned up on system restart.
+- The private key is stored in the OS keychain or `~/.config/clef/keys/{label}/keys.txt`; label and storage method in `.clef/config.yaml` (gitignored).
+- On `could not decrypt` errors, run `clef doctor`.
+- `/tmp/clef-playground` is safe for experimentation and cleaned up on restart.
 
 ## UI development
 
-For active UI development, run the Vite dev server and the API server separately in two terminals.
+Run the Vite dev server and API server separately in two terminals:
 
 ### Terminal 1 — API server
 
@@ -299,7 +288,7 @@ npm run dev
 
 ### How the proxy works
 
-The Vite config proxies all `/api/*` requests from `:5173` to `127.0.0.1:7777`. The developer interacts with `localhost:5173` in the browser. API calls transparently route to the Express server. Hot module replacement means React component changes reflect instantly without rebuilding.
+Vite proxies `/api/*` from `:5173` to `127.0.0.1:7777`. React component changes reflect instantly via hot module replacement.
 
 ### When to use which approach
 
@@ -316,7 +305,7 @@ The Vite config proxies all `/api/*` requests from `:5173` to `127.0.0.1:7777`. 
 npm test -w packages/ui
 ```
 
-UI tests use React Testing Library and jsdom. No real server is started — all API calls are mocked. Tests use `data-testid` selectors, not text content, for stability.
+Uses React Testing Library and jsdom. All API calls are mocked; tests use `data-testid` selectors for stability.
 
 ## Monorepo structure
 
@@ -345,7 +334,7 @@ clef/
 
 ### packages/core
 
-The core library that both the CLI and UI depend on. Contains all business logic:
+All business logic; both CLI and UI depend on it:
 
 | Module          | Location                  | Responsibility                                     |
 | --------------- | ------------------------- | -------------------------------------------------- |
@@ -361,7 +350,7 @@ The core library that both the CLI and UI depend on. Contains all business logic
 
 ### packages/cli
 
-The CLI entry point. Each command is registered as a commander.js subcommand:
+Commander.js entry point. Each command is a subcommand:
 
 | File                     | Command       |
 | ------------------------ | ------------- |
@@ -379,20 +368,14 @@ The CLI entry point. Each command is registered as a commander.js subcommand:
 
 ### packages/ui
 
-The React frontend and Express API server:
-
-- **Frontend:** React SPA built with Vite. Four main views: matrix, editor, diff, lint.
-- **Server:** Express.js HTTP server bound to `127.0.0.1`. Provides REST API endpoints that call core library functions.
+- **Frontend:** React SPA (Vite) with four views: matrix, editor, diff, lint.
+- **Server:** Express bound to `127.0.0.1`, REST API calling core library functions.
 
 ## Platform notes
 
 ### Windows
 
-Clef is developed and tested on macOS and Linux. **Windows is supported only via WSL** (Windows Subsystem for Linux).
-
-Native Windows has a known limitation: Node.js on Windows does not support Unix signals (`SIGINT`, `SIGTERM`), so `clef exec` cannot reliably forward signals to child processes. Running inside WSL avoids this issue entirely.
-
-If you are developing on Windows, install WSL 2 and run all Clef commands inside your WSL distribution.
+Developed and tested on macOS and Linux. **Windows is supported only via WSL** — native Windows cannot reliably forward Unix signals (`SIGINT`, `SIGTERM`) to child processes, breaking `clef exec`. Install WSL 2 and run all commands inside your WSL distribution.
 
 ## Troubleshooting
 

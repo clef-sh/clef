@@ -84,7 +84,7 @@ export class BundleGenerator {
     // age-encrypt the JSON blob to the service identity's recipient.
     // Note: age-encryption is a runtime dependency that must be installed by the consumer.
     // The generated bundle also dynamically imports age-encryption at runtime for decryption.
-    let plaintext = JSON.stringify(allValues);
+    const plaintext = JSON.stringify(allValues);
 
     let ciphertext: string;
     try {
@@ -94,15 +94,10 @@ export class BundleGenerator {
       e.addRecipient(envConfig.recipient);
       ciphertext = await e.encrypt(plaintext);
     } catch {
-      for (const k of Object.keys(allValues)) allValues[k] = "";
-      plaintext = "";
       throw new Error("Failed to age-encrypt bundle. Check recipient key.");
     }
 
-    // Best-effort cleanup — immutable strings cannot be reliably scrubbed in a GC runtime
     const keys = Object.keys(allValues);
-    for (const k of keys) allValues[k] = "";
-    plaintext = "";
     const source = generateRuntimeModule(ciphertext, keys, config.format);
 
     // Write to disk

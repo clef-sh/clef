@@ -19,6 +19,7 @@
   "dependencies": {
     "@clef-sh/core": "*",
     "express": "^4.18.0",
+    "express-rate-limit": "^7.0.0",
     "yaml": "^2.4.0"
   },
   "devDependencies": {
