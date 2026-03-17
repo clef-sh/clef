@@ -5,6 +5,10 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Astro / Wrangler generated files
+www/.astro/
+www/.wrangler/
+
 # Generated API docs (typedoc output, rebuilt by docs:api)
 docs/api/
 

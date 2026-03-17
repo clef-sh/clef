@@ -59,7 +59,7 @@
         <!-- Install Command Pill -->
         <div class="install-pill">
           <span class="install-prefix">$</span>
-          <span class="install-cmd">npm install -g @clef-sh/cli</span>
+          <span class="install-cmd">curl -fsSL https://clef.sh/install.sh | sh</span>
           <button class="install-copy" aria-label="Copy install command">
             copy
           </button>
@@ -429,7 +429,7 @@
   const copyBtn = document.querySelector(".install-copy");
   if (copyBtn) {
     copyBtn.addEventListener("click", function (this: HTMLButtonElement, _event) {
-      navigator.clipboard.writeText("npm install -g @clef-sh/cli");
+      navigator.clipboard.writeText("curl -fsSL https://clef.sh/install.sh | sh");
       this.textContent = "copied ✓";
       this.classList.add("copied");
       setTimeout(() => {
