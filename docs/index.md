@@ -4,19 +4,19 @@ layout: home
 # hero:
 #   name: Clef
 #   text: Secrets that ship with your code
-#   tagline: "A structured workflow layer on SOPS that makes co-located, encrypted secrets manageable for teams — so a single commit hash is your entire system state."
+#   tagline: "A structured workflow layer on SOPS that makes version-controlled, encrypted secrets manageable for teams."
 
 features:
-  - title: One commit = full system state
-    details: Secrets live alongside code in the same repo. CI checks out one ref and has everything. Rollbacks are one operation. Drift is visible at PR time.
+  - title: Git-native, no server required
+    details: Encrypted secrets tracked in git — managed with the same tools you already use for code changes. No external database, no hosted service, no sync step.
     link: /guide/introduction
     linkText: Read the guide
   - title: CLI + UI
     details: 17 commands and a local web UI for the full secrets lifecycle — browsing, editing, diffing, linting, and deploying.
     link: /cli/overview
     linkText: Browse commands
-  - title: Drift detection built in
-    details: Schema validation, cross-environment key comparison, and matrix completeness checks — caught at PR time, not deploy time.
+  - title: Validate before you ship
+    details: Schema validation, cross-environment key comparison, and matrix completeness checks — run locally or in CI to catch misconfigurations early.
     link: /ui/overview
     linkText: Explore the UI
 ---

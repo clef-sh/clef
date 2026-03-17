@@ -126,7 +126,7 @@ For the full schema specification, see the [Schema Reference](/schemas/reference
 
 ## Git-native philosophy
 
-Clef treats git as the only persistence layer — no external database, cloud sync, or server. Secrets live on branches, history is in git log, changes propagate via pull, and backups are git remotes. The UI surfaces git state throughout: current branch, uncommitted file count, and commit flow.
+Clef treats git as the only persistence layer — no external database, cloud sync, or server. Secrets are version-controlled like any other config: history is in git log, changes propagate via pull, and backups are git remotes. The UI surfaces git state throughout: current branch, uncommitted file count, and commit flow.
 
 ## Protected environments
 
@@ -150,9 +150,9 @@ Clef has no `encrypted: false` option. Every file in the matrix is encrypted by 
 
 Clef supports two approaches to organizing secrets. Choose based on your team size, compliance requirements, and security posture.
 
-### Co-located secrets (default)
+### Co-located secrets
 
-For most teams, **co-location** is the simplest and most productive pattern: secrets live in the same repository as the code that uses them, inside a `secrets/` directory.
+Secrets live in the same repository as the code that uses them, inside a `secrets/` directory. This is the simplest pattern and works well for many teams.
 
 ```
 my-app/
@@ -173,11 +173,10 @@ my-app/
 **Why co-location works well:**
 
 - **Blast radius containment.** Each repo has its own age key. Compromising one repo's key does not expose any other repo's secrets.
-- **Drift detection.** `clef lint` catches missing keys, schema violations, and environment gaps at PR cadence.
-- **One commit hash = complete system state.** A single git SHA represents everything needed to run — code, config, and credentials. `git checkout <sha> && clef exec ... -- deploy.sh` deploys from one ref with no separate secrets repo to coordinate.
+- **Built-in validation.** `clef lint` catches missing keys, schema violations, and environment gaps before they become production problems.
+- **Single checkout.** Code, config, and credentials are in one place. `git checkout <sha> && clef exec ... -- deploy.sh` deploys from one ref with no separate repo to coordinate.
 - **Atomic reviews.** Secrets and code change in the same PR.
 - **No sync step.** Developers get secret changes by pulling the repository.
-- **Ownership clarity.** The team that owns the code owns the secrets, with the same review and access controls.
 
 ### Production isolation
 

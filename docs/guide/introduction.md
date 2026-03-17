@@ -1,6 +1,6 @@
 # Introduction
 
-Clef is a local-first, open source tool that brings structure, validation, and a UI on top of [Mozilla SOPS](https://github.com/getsops/sops). It keeps encrypted secrets **in the same repository as your code** — one commit hash represents your entire system: code, config, and credentials.
+Clef is a local-first, open source developer tool that brings structure, validation, and a UI on top of [Mozilla SOPS](https://github.com/getsops/sops). It keeps encrypted secrets **under version control in git** — no external database, no hosted service, no sync step.
 
 ## Why this matters
 
@@ -36,11 +36,11 @@ Three principles guide every decision in Clef:
 | Vendor holds secrets | No (OSS)                          | Self-hosted | Yes      | Yes          | No       |
 | Key management       | age / KMS                         | Built-in    | SaaS     | SaaS         | Manual   |
 
-Clef's unique position: **co-located secrets that scale to teams with no intermediary between you and your data.** Unlike Vault or Doppler, no server holds your secrets. Unlike raw SOPS, you get structure, validation, and a workflow layer.
+Clef's unique position: **version-controlled secrets that scale to teams with no intermediary between you and your data.** Unlike Vault or Doppler, no server holds your secrets. Unlike raw SOPS, you get structure, validation, and a workflow layer.
 
-## Your KMS is your enterprise security layer
+## Works with your existing KMS
 
-With Clef and a cloud KMS backend, three common security questions are answered by infrastructure you already run:
+If your team already uses a cloud KMS, Clef plugs into it — no new infrastructure required:
 
 **Access control via IAM.** Access to a secret is an IAM policy — same workflows, approval processes, and break-glass procedures as any other cloud permission. No separate access control system.
 
@@ -48,7 +48,7 @@ With Clef and a cloud KMS backend, three common security questions are answered 
 
 **Zero-secret CI via OIDC.** GitHub Actions, GitLab CI, and CircleCI support OIDC token exchange with AWS and GCP. Your pipeline assumes an IAM role with KMS decrypt permission — no long-lived credential stored anywhere.
 
-Clef provides the workflow layer. Your KMS provides the security posture. You get both without choosing between them.
+Clef provides the developer workflow. Your KMS provides the security posture. You get both without choosing between them.
 
 ## What Clef provides
 
@@ -56,7 +56,7 @@ Clef provides the workflow layer. Your KMS provides the security posture. You ge
 - A **namespace-by-environment matrix** that maps every secret file to its logical location and detects missing cells
 - **Schema validation** that enforces required keys, types, and patterns on every namespace
 - A **CLI** with 17 commands covering the full secrets lifecycle: `init`, `get`, `set`, `delete`, `diff`, `lint`, `rotate`, `hooks`, `exec`, `export`, `import`, `doctor`, `update`, `scan`, `recipients`, `ui`, and `merge-driver`
-- A **local web UI** served at `127.0.0.1` that visualises the matrix, provides inline editing with masked values, and highlights drift between environments
+- A **local web UI** served at `127.0.0.1` that visualises the matrix, provides inline editing with masked values, and compares keys across environments
 - A **pre-commit hook** that blocks accidental plaintext commits
 - Support for all SOPS encryption backends: **age**, **AWS KMS**, **GCP KMS**, and **PGP**
 
