@@ -23,6 +23,11 @@
   --vp-c-default-soft: #161a22;
 }
 
+/* Mermaid diagrams — transparent background so they blend with the page */
+.vp-doc .mermaid svg {
+  background: transparent !important;
+}
+
 .dark .VPHero .name {
   background: linear-gradient(135deg, #f0a500, #ffb733);
   -webkit-background-clip: text;

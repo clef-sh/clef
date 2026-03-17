@@ -1,6 +1,6 @@
 # age (Recommended)
 
-[age](https://age-encryption.org/) is the recommended default encryption backend for Clef. It uses X25519 for key agreement and ChaCha20-Poly1305 for encryption, with a compact ASCII-armored format. It requires no infrastructure, no cloud accounts, and no key servers — just a key file on disk.
+[age](https://age-encryption.org/) is the recommended default encryption backend for Clef. It uses X25519 for key agreement and ChaCha20-Poly1305 for encryption, with a compact ASCII-armored format. It requires no infrastructure, no cloud accounts, and no key servers — just a key stored in your OS keychain.
 
 ## When to use age
 
