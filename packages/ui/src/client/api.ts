@@ -1,5 +1,8 @@
-// Session token — extracted from URL query parameter on initial page load,
-// stored in memory only (never localStorage).
+// Session token — extracted from URL query parameter on initial page load.
+// Persisted in sessionStorage so it survives same-tab refreshes but is
+// cleared when the tab closes (never written to localStorage).
+const SESSION_KEY = "clef_ui_token";
+
 let sessionToken: string | null = null;
 
 export function initToken(): void {
@@ -7,10 +10,14 @@ export function initToken(): void {
   const token = params.get("token");
   if (token) {
     sessionToken = token;
+    sessionStorage.setItem(SESSION_KEY, token);
     // Remove token from URL to avoid leaking it in browser history
     const url = new URL(window.location.href);
     url.searchParams.delete("token");
     window.history.replaceState({}, "", url.pathname + url.hash);
+  } else {
+    // Restore from sessionStorage on refresh (token no longer in URL)
+    sessionToken = sessionStorage.getItem(SESSION_KEY);
   }
 }
 

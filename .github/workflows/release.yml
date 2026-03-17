@@ -1,9 +1,9 @@
-# Release workflow — publishes @clef-sh/core and @clef-sh/cli to npm
-# independently, each versioned by its own commits.
+# Release workflow — publishes @clef-sh/core, @clef-sh/agent, and @clef-sh/cli
+# to npm independently, each versioned by its own commits.
 #
-# Core releases first. If core publishes a new version, cli's @clef-sh/core
-# devDependency is bumped automatically, creating a commit that triggers
-# cli's own semantic-release.
+# Release order: core → agent → cli.
+# If core publishes a new version, cli's @clef-sh/core devDependency is bumped
+# automatically, creating a commit that triggers cli's own semantic-release.
 #
 # Authentication: uses GitHub Actions OIDC for npm provenance.
 # Each package has its own .releaserc.json extending semantic-release-monorepo.
@@ -55,6 +55,21 @@ jobs:
             echo "version=$AFTER" >> "$GITHUB_OUTPUT"
           fi
         working-directory: packages/core
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+
+      - name: Release @clef-sh/agent
+        id: agent
+        run: |
+          BEFORE=$(node -p "require('./package.json').version")
+          npx semantic-release
+          AFTER=$(node -p "require('./package.json').version")
+          if [ "$BEFORE" != "$AFTER" ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            echo "version=$AFTER" >> "$GITHUB_OUTPUT"
+          fi
+        working-directory: packages/agent
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"

@@ -59,19 +59,25 @@ jobs:
 
           # Base version always comes from main so prerelease stamps align with
           # the next stable release, regardless of how far branches have diverged.
-          git show origin/main:packages/core/package.json > /tmp/core-main.json
-          git show origin/main:packages/cli/package.json  > /tmp/cli-main.json
+          # For new packages not yet on main, fall back to the current branch version.
+          git show origin/main:packages/core/package.json  > /tmp/core-main.json
+          git show origin/main:packages/cli/package.json   > /tmp/cli-main.json
+          git show origin/main:packages/agent/package.json > /tmp/agent-main.json 2>/dev/null \
+            || cp packages/agent/package.json /tmp/agent-main.json
 
           CORE_BASE=$(node -p "require('/tmp/core-main.json').version.replace(/-.*/, '')")
           CLI_BASE=$(node -p "require('/tmp/cli-main.json').version.replace(/-.*/, '')")
+          AGENT_BASE=$(node -p "require('/tmp/agent-main.json').version.replace(/-.*/, '')")
 
           CORE_VER="${CORE_BASE}-${PRE}.${{ github.run_number }}"
           CLI_VER="${CLI_BASE}-${PRE}.${{ github.run_number }}"
+          AGENT_VER="${AGENT_BASE}-${PRE}.${{ github.run_number }}"
 
-          echo "dist_tag=${DIST_TAG}"      >> "$GITHUB_OUTPUT"
-          echo "prerelease=${PRE}"         >> "$GITHUB_OUTPUT"
-          echo "core_version=${CORE_VER}"  >> "$GITHUB_OUTPUT"
-          echo "cli_version=${CLI_VER}"    >> "$GITHUB_OUTPUT"
+          echo "dist_tag=${DIST_TAG}"        >> "$GITHUB_OUTPUT"
+          echo "prerelease=${PRE}"           >> "$GITHUB_OUTPUT"
+          echo "core_version=${CORE_VER}"    >> "$GITHUB_OUTPUT"
+          echo "cli_version=${CLI_VER}"      >> "$GITHUB_OUTPUT"
+          echo "agent_version=${AGENT_VER}"  >> "$GITHUB_OUTPUT"
 
       # ── Alpha (dev → GitHub Packages, restricted/internal) ───────────────
       - name: Publish @clef-sh/core (alpha)
@@ -79,6 +85,15 @@ jobs:
         working-directory: packages/core
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ steps.ver.outputs.core_version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+          npm publish --tag alpha --access restricted --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/agent (alpha)
+        if: github.ref_name == 'dev'
+        working-directory: packages/agent
+        run: |
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ steps.ver.outputs.agent_version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
           npm publish --tag alpha --access restricted --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -98,6 +113,15 @@ jobs:
         working-directory: packages/core
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ steps.ver.outputs.core_version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+          npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/agent (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/agent
+        run: |
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ steps.ver.outputs.agent_version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
           npm publish --tag beta --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -133,6 +157,7 @@ jobs:
           echo "| Package | Version |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/core\` | \`${{ steps.ver.outputs.core_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/agent\` | \`${{ steps.ver.outputs.agent_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/cli\` | \`${{ steps.ver.outputs.cli_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Registry:** GitHub Packages (\`npm.pkg.github.com\`)" >> "$GITHUB_STEP_SUMMARY"

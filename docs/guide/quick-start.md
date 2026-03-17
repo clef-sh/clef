@@ -5,8 +5,10 @@ From an existing git repository to a fully managed secrets setup. Every command 
 ## Install Clef
 
 ```bash
-npm install -g @clef-sh/cli
+curl -fsSL https://clef.sh/install.sh | sh
 ```
+
+This installs both `clef` and `sops` to `/usr/local/bin`. Alternatively, install via npm: `npm install -g @clef-sh/cli`.
 
 Verify:
 
@@ -14,12 +16,8 @@ Verify:
 clef --version
 ```
 
-## Prerequisites
-
-`@clef-sh/cli` includes a bundled sops binary for your platform — no manual install needed in most cases. Run `clef doctor` to verify.
-
 ::: tip
-If the bundled sops is unavailable for your platform: `brew install sops` (macOS) or see [installation guide](./installation.md).
+The install script handles sops automatically. If you installed via npm, the bundled sops binary is included via optional dependencies. Run `clef doctor` to verify your setup regardless of install method.
 :::
 
 ## 1. Initialise a Clef repository

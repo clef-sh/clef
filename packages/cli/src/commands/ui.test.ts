@@ -54,7 +54,7 @@ describe("clef ui", () => {
     );
   });
 
-  it("should print the session token", async () => {
+  it("should print the full URL with token embedded as a query param", async () => {
     const runner: SubprocessRunner = {
       run: jest.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 }),
     };
@@ -65,7 +65,15 @@ describe("clef ui", () => {
 
     await parsePromise;
 
-    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("Token"));
+    // Should show one line with both the server address and the token embedded
+    const calls = (mockFormatter.print as jest.Mock).mock.calls.flat();
+    const urlLine = calls.find(
+      (s: string) =>
+        typeof s === "string" && s.includes("http://127.0.0.1:7777") && s.includes("?token="),
+    );
+    expect(urlLine).toBeDefined();
+    // The bare token and a separate "Token" label should NOT appear
+    expect(calls.join(" ")).not.toMatch(/\bToken\s/);
   });
 
   it("should accept custom port", async () => {

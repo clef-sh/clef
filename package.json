@@ -6,7 +6,8 @@
   "workspaces": [
     "packages/core",
     "packages/cli",
-    "packages/ui"
+    "packages/ui",
+    "packages/agent"
   ],
   "scripts": {
     "test": "npm test --workspaces --if-present",
@@ -15,7 +16,7 @@
     "format": "prettier --write . && npm run format --workspaces --if-present",
     "format:check": "prettier --check .",
     "lint": "eslint .",
-    "build": "npm run build -w packages/core && npm run build -w packages/ui && npm run build -w packages/cli",
+    "build": "npm run build -w packages/core && npm run build -w packages/ui && npm run build -w packages/agent && npm run build -w packages/cli",
     "docs:api": "typedoc",
     "docs:build": "npm run docs:api && vitepress build docs",
     "docs:dev": "npm run docs:api && vitepress dev docs",
@@ -45,6 +46,10 @@
     "semantic-release-monorepo": "^8.0.2",
     "typedoc": "^0.28.17",
     "typedoc-plugin-markdown": "^4.10.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "vitepress": "^1.6.4"
+  },
+  "dependencies": {
+    "vitepress-plugin-mermaid": "^2.0.17"
   }
 }

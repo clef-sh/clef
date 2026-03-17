@@ -1,6 +1,13 @@
-import { defineConfig } from "vitepress";
+import { withMermaid } from "vitepress-plugin-mermaid";
 
-export default defineConfig({
+export default withMermaid({
+  mermaid: {
+    theme: "dark",
+    themeVariables: {
+      background: "transparent",
+      fontFamily: "inherit",
+    },
+  },
   title: "Clef",
   description: "Keep encrypted secrets alongside your code. One commit hash = your entire system.",
 
@@ -86,7 +93,8 @@ export default defineConfig({
             { text: "clef export", link: "/cli/export" },
             { text: "clef import", link: "/cli/import" },
             { text: "clef service", link: "/cli/service" },
-            { text: "clef bundle", link: "/cli/bundle" },
+            { text: "clef pack", link: "/cli/pack" },
+            { text: "clef agent", link: "/cli/agent" },
             { text: "clef ui", link: "/cli/ui" },
           ],
         },
@@ -156,7 +164,6 @@ export default defineConfig({
             { text: "ImportRunner", link: "/api/classes/ImportRunner" },
             { text: "RecipientManager", link: "/api/classes/RecipientManager" },
             { text: "ServiceIdentityManager", link: "/api/classes/ServiceIdentityManager" },
-            { text: "BundleGenerator", link: "/api/classes/BundleGenerator" },
             { text: "SopsMergeDriver", link: "/api/classes/SopsMergeDriver" },
           ],
         },
@@ -187,7 +194,6 @@ export default defineConfig({
             { text: "formatAgeKeyFile", link: "/api/functions/formatAgeKeyFile" },
             { text: "generateAgeIdentity", link: "/api/functions/generateAgeIdentity" },
             { text: "generateRandomValue", link: "/api/functions/generateRandomValue" },
-            { text: "generateRuntimeModule", link: "/api/functions/generateRuntimeModule" },
             { text: "getPendingKeys", link: "/api/functions/getPendingKeys" },
             { text: "isHighEntropy", link: "/api/functions/isHighEntropy" },
             { text: "isPending", link: "/api/functions/isPending" },
@@ -225,8 +231,6 @@ export default defineConfig({
           items: [
             { text: "AgeIdentity", link: "/api/interfaces/AgeIdentity" },
             { text: "AgeKeyValidation", link: "/api/interfaces/AgeKeyValidation" },
-            { text: "BundleConfig", link: "/api/interfaces/BundleConfig" },
-            { text: "BundleResult", link: "/api/interfaces/BundleResult" },
             { text: "ClefEnvironment", link: "/api/interfaces/ClefEnvironment" },
             { text: "ClefIgnoreRules", link: "/api/interfaces/ClefIgnoreRules" },
             { text: "ClefLocalConfig", link: "/api/interfaces/ClefLocalConfig" },
