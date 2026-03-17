@@ -1,6 +1,8 @@
 # Service Identities
 
-Service identities let serverless functions, containers, and other machine workloads consume Clef-managed secrets at runtime — without git, without the `sops` binary, and without storing private keys in build artifacts. A service identity is a named, scoped set of per-environment age key pairs declared in `clef.yaml`. At build time, `clef bundle` generates a self-contained JS module with an age-encrypted blob of the scoped secrets. At runtime the module decrypts via the [age-encryption](https://www.npmjs.com/package/age-encryption) npm package and a private key fetched from your secret manager on demand.
+Service identities let serverless functions, containers, and other machine workloads consume Clef-managed secrets at runtime — without git, without the `sops` binary, and without storing private keys in deployment artifacts. A service identity is a named, scoped set of per-environment age key pairs declared in `clef.yaml`.
+
+At build time, `clef pack` creates a portable JSON artifact with age-encrypted secrets. At runtime the [Clef Agent](/guide/agent) fetches the artifact, decrypts in memory, and serves secrets via a localhost HTTP API — no language-specific SDK required.
 
 ## When to use service identities
 
@@ -17,27 +19,27 @@ If your workload has access to git and `sops`, you can continue using [`clef exe
 
 ```mermaid
 flowchart LR
-  subgraph devmachine["Developer Machine"]
-    manifest["clef.yaml\nservice_identities:\n  - name: api-gateway\n    namespaces: [api]\n    environments:\n      production:\n        recipient: age1prod..."]
-    bundle["clef bundle\napi-gateway production"]
+  subgraph ci["CI Pipeline"]
+    pack["clef pack\napi-gateway production"]
+    upload["aws s3 cp / gsutil cp\n→ HTTP-accessible store"]
   end
-  subgraph runtimeEnv["Runtime (Lambda / Container)"]
-    module["secrets.mjs\nage-encrypted blob\n(all scoped secrets)"]
-    getSecret["getSecret('DB_URL', keyFn)\n→ age-decrypt → in-memory cache"]
+  subgraph runtime["Runtime (Container / Lambda)"]
+    agent["clef agent\npolls source URL"]
+    app["Application\nGET /v1/secrets/KEY"]
   end
-  kms["Secrets Manager / KMS\n(private key fetched at runtime)"]
+  kms["Secrets Manager or KMS\n(private key at runtime)"]
 
-  manifest --> bundle
-  bundle -->|"1. decrypt SOPS files\n2. age-encrypt to recipient\n3. generate JS module"| module
-  module --> getSecret
-  kms -->|provide private key| getSecret
+  pack -->|"1. decrypt SOPS files\n2. age-encrypt to recipient\n3. write artifact.json"| upload
+  upload -->|"HTTP URL"| agent
+  agent -->|"fetch → decrypt → cache"| app
+  kms -->|"provide private key"| agent
 ```
 
 1. **`clef service create`** generates an age key pair per environment, registers the public keys as SOPS recipients on scoped files, and prints the private keys once
-2. The operator stores each private key in the environment's secret manager (e.g. AWS Secrets Manager for production, local file for dev)
-3. **`clef bundle`** decrypts scoped SOPS files, age-encrypts all values as a single blob to the environment's public key, and writes a JS module
-4. The generated module is deployed alongside application code (but never committed to git)
-5. At runtime, the module calls `keyProvider()` once on first access, decrypts the blob, and caches all values in memory
+2. The operator stores each private key in the environment's secret manager (e.g. AWS Secrets Manager) — or wraps it with a cloud KMS key
+3. **`clef pack`** decrypts scoped SOPS files, age-encrypts all values as a single blob to the environment's public key, and writes a JSON artifact
+4. **CI uploads** the artifact to any HTTP-accessible store (S3, GCS, Azure Blob, etc.)
+5. **The Clef Agent** fetches the artifact, decrypts in memory with the private key, and serves secrets via localhost HTTP
 
 ## Manifest schema
 
@@ -135,17 +137,17 @@ clef service create backend-api \
   --description "Backend API server"
 ```
 
-Keys from multi-namespace bundles are prefixed with the namespace to avoid collisions:
+Keys from multi-namespace artifacts are prefixed with the namespace to avoid collisions:
 
-```javascript
-await getSecret("api/STRIPE_KEY", keyProvider);
-await getSecret("database/DB_HOST", keyProvider);
+```
+api/STRIPE_KEY
+database/DB_HOST
 ```
 
 Single-namespace identities use bare keys:
 
-```javascript
-await getSecret("STRIPE_KEY", keyProvider);
+```
+STRIPE_KEY
 ```
 
 ## Managing service identities
@@ -180,53 +182,25 @@ clef service rotate api-gateway
 clef service rotate api-gateway --environment production
 ```
 
-New private keys are printed to stdout — store them immediately and re-generate bundles after rotation.
+New private keys are printed to stdout — store them immediately and re-pack artifacts after rotation.
 
-## Generating bundles
+## Packing artifacts
 
 ```bash
-clef bundle api-gateway production \
-  --output ./dist/secrets.mjs \
-  --format esm
+clef pack api-gateway production \
+  --output ./artifact.json
 ```
 
-The `bundle` command decrypts all scoped SOPS files, age-encrypts the merged values as a single blob to the identity's public key, and generates a JS module embedding the ciphertext with `getSecret()`, `getAllSecrets()`, and `KEYS` exports.
+The `pack` command decrypts all scoped SOPS files, age-encrypts the merged values as a single blob to the identity's public key, and writes a JSON artifact. Upload the artifact to an HTTP-accessible store for the agent to consume.
 
-### Output formats
+```bash
+# Upload with your CI tools (Clef has zero cloud SDK dependencies)
+aws s3 cp ./artifact.json s3://my-bucket/clef/api-gateway/production.json
+```
 
-| Flag           | Extension | Use case                                                  |
-| -------------- | --------- | --------------------------------------------------------- |
-| `--format esm` | `.mjs`    | ES modules (default). Lambda with ESM, Vite, modern Node. |
-| `--format cjs` | `.cjs`    | CommonJS. Older Node, webpack, require().                 |
-
-::: warning Do not commit bundles
-The generated file contains encrypted secrets. Add the output path to `.gitignore`. Generate bundles in CI and include them in the deployment artifact.
+::: warning Do not commit artifacts
+The generated file contains encrypted secrets. Add the output path to `.gitignore`. Generate artifacts in CI and upload them to your secrets store.
 :::
-
-## Generated module API
-
-```typescript
-// secrets.mjs (generated by clef bundle — do not edit)
-
-// Introspect available keys without decryption
-export const KEYS: readonly string[];
-
-// Decrypt a single key. keyProvider is called once per cold start.
-export async function getSecret(key: string, keyProvider: () => Promise<string>): Promise<string>;
-
-// Decrypt all keys at once.
-export async function getAllSecrets(
-  keyProvider: () => Promise<string>,
-): Promise<Record<string, string>>;
-
-// Clear the decrypted secrets cache. Call after key rotation to force
-// a fresh decrypt on the next getSecret()/getAllSecrets() call.
-export function clearCache(): void;
-```
-
-### Key provider
-
-The `keyProvider` function is called once on the first `getSecret()` or `getAllSecrets()` call and should return the age private key as a string. The runtime caches decrypted values — subsequent calls are O(1) map lookups. Concurrent cold-start calls are deduplicated so only one decrypt operation runs.
 
 ## AWS Lambda walkthrough
 
@@ -236,7 +210,6 @@ Complete example using Clef service identities with AWS Lambda.
 
 - A Clef repository with an `api` namespace and `production` environment
 - An AWS account with Secrets Manager and Lambda access
-- Node.js 22+ runtime for Lambda
 
 ### 2. Create the service identity
 
@@ -272,7 +245,7 @@ Grant your Lambda execution role permission to read this secret:
 }
 ```
 
-### 4. Generate the bundle in CI
+### 4. Pack and upload in CI
 
 ```yaml
 # .github/workflows/deploy.yml
@@ -294,121 +267,56 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate secrets bundle
+      - name: Pack secrets artifact
         env:
           CLEF_AGE_KEY: ${{ secrets.CLEF_DEPLOY_KEY }}
         run: |
-          npx @clef-sh/cli bundle api-lambda production \
-            --output ./dist/secrets.mjs \
-            --format esm
+          npx @clef-sh/cli pack api-lambda production \
+            --output ./artifact.json
+
+      - name: Upload to S3
+        run: |
+          aws s3 cp ./artifact.json \
+            s3://my-bucket/clef/api-lambda/production.json
 
       - name: Deploy to Lambda
         run: |
           cd dist
-          zip -r function.zip index.mjs secrets.mjs node_modules/
+          zip -r function.zip index.mjs
           aws lambda update-function-code \
             --function-name api-handler \
             --zip-file fileb://function.zip
 ```
 
 ::: info Why does the CI runner need a deploy key?
-The `clef bundle` command must decrypt SOPS files to re-encrypt them for the service identity. The CI runner needs a key that can decrypt the `api` namespace in the `production` environment — this is the same `CLEF_AGE_KEY` you would use for `clef exec`. The service identity's own private key is not used during bundle generation.
+The `clef pack` command must decrypt SOPS files to re-encrypt them for the service identity. The CI runner needs a key that can decrypt the `api` namespace in the `production` environment — this is the same `CLEF_AGE_KEY` you would use for `clef exec`. The service identity's own private key is not used during packing.
 :::
 
-### 5. Write the Lambda handler
+### 5. Configure the agent as a Lambda Extension
+
+The Clef Agent runs as a sidecar or Lambda Extension, fetching the artifact and serving secrets via localhost HTTP:
 
 ```javascript
 // index.mjs
-import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
-import { getSecret, getAllSecrets } from "./secrets.mjs";
+const AGENT_URL = "http://127.0.0.1:7779";
+const TOKEN = process.env.CLEF_AGENT_TOKEN;
 
-const smClient = new SecretsManagerClient({});
-
-// Key provider — called once per cold start
-async function keyProvider() {
-  const cmd = new GetSecretValueCommand({
-    SecretId: "clef/api-lambda/production",
+async function getSecret(key) {
+  const res = await fetch(`${AGENT_URL}/v1/secrets/${key}`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
   });
-  const response = await smClient.send(cmd);
-  return response.SecretString;
+  const { value } = await res.json();
+  return value;
 }
 
 export async function handler(event) {
-  // First call decrypts the bundle (~5-15ms for 50 keys)
-  // Subsequent calls are cached O(1) lookups
-  const dbUrl = await getSecret("DATABASE_URL", keyProvider);
-  const apiKey = await getSecret("STRIPE_KEY", keyProvider);
+  const dbUrl = await getSecret("DATABASE_URL");
+  const apiKey = await getSecret("STRIPE_KEY");
 
-  // Use the secrets...
   return {
     statusCode: 200,
     body: JSON.stringify({ ok: true }),
   };
-}
-```
-
-### 6. Install the runtime dependency
-
-```bash
-npm install age-encryption
-```
-
-Pure JavaScript, no native dependencies — works on any Lambda runtime without layers.
-
-### Performance characteristics
-
-| Metric                  | Value                                 |
-| ----------------------- | ------------------------------------- |
-| First call (cold start) | ~5-15ms for 50 keys (one age decrypt) |
-| Subsequent calls        | <0.01ms (in-memory map lookup)        |
-| Bundle size overhead    | ~200 bytes per key + age envelope     |
-| Runtime dependency      | `age-encryption` only (~50 KB)        |
-
-The entire blob is decrypted on first access and cached for the Lambda execution context lifetime — no per-key overhead after initialization.
-
-## Key providers for other platforms
-
-### Google Cloud — Secret Manager
-
-```javascript
-import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
-
-const client = new SecretManagerServiceClient();
-
-async function keyProvider() {
-  const [version] = await client.accessSecretVersion({
-    name: "projects/my-project/secrets/clef-api-lambda-production/versions/latest",
-  });
-  return version.payload.data.toString("utf8");
-}
-```
-
-### Azure — Key Vault
-
-```javascript
-import { SecretClient } from "@azure/keyvault-secrets";
-import { DefaultAzureCredential } from "@azure/identity";
-
-const client = new SecretClient("https://my-vault.vault.azure.net", new DefaultAzureCredential());
-
-async function keyProvider() {
-  const secret = await client.getSecret("clef-api-lambda-production");
-  return secret.value;
-}
-```
-
-### Local development — file or env var
-
-```javascript
-import { readFile } from "node:fs/promises";
-
-async function keyProvider() {
-  // From environment variable
-  if (process.env.CLEF_SERVICE_KEY) {
-    return process.env.CLEF_SERVICE_KEY;
-  }
-  // From a local key file (gitignored)
-  return readFile(".clef/service-keys/api-lambda-dev.key", "utf8");
 }
 ```
 
@@ -427,23 +335,23 @@ These rules catch configuration drift after manifest changes, team member rotati
 
 ## Security model
 
-### What the bundle contains
+### What the artifact contains
 
-The generated JS module contains:
+The packed artifact contains:
 
 - **Age-encrypted ciphertext** — the secrets blob encrypted to the service identity's public key. Cannot be decrypted without the corresponding private key.
-- **Key names in plaintext** — the `KEYS` array lists available secret names for introspection. Key names are not considered secret data.
-- **No private keys** — the private key is never embedded in the bundle. It is fetched at runtime from the secret manager.
+- **Key names in plaintext** — the `keys` array lists available secret names for introspection. Key names are not considered secret data.
+- **No plaintext private keys** — the private key is never embedded. It is fetched at runtime from a secret manager or provided as an environment variable.
 
 ### Trust boundaries
 
-| Component              | Contains secrets?                              | Needs git? | Needs sops? |
-| ---------------------- | ---------------------------------------------- | ---------- | ----------- |
-| Developer machine      | Plaintext (in memory via sops)                 | Yes        | Yes         |
-| CI runner              | Plaintext (in memory during bundle generation) | Yes        | Yes         |
-| Generated bundle       | Ciphertext only                                | No         | No          |
-| Runtime (Lambda, etc.) | Plaintext (in memory after decrypt)            | No         | No          |
-| Secret manager         | Private key only                               | No         | No          |
+| Component            | Contains secrets?                   | Needs git? | Needs sops? |
+| -------------------- | ----------------------------------- | ---------- | ----------- |
+| Developer machine    | Plaintext (in memory via sops)      | Yes        | Yes         |
+| CI runner            | Plaintext (in memory during pack)   | Yes        | Yes         |
+| Packed artifact      | Ciphertext only                     | No         | No          |
+| Runtime (Agent)      | Plaintext (in memory after decrypt) | No         | No          |
+| Secret manager / KMS | Private key (plaintext or wrapped)  | No         | No          |
 
 ### No custom crypto
 
@@ -452,7 +360,8 @@ Runtime decryption uses [age-encryption](https://www.npmjs.com/package/age-encry
 ## See also
 
 - [`clef service`](/cli/service) — CLI reference for service identity commands
-- [`clef bundle`](/cli/bundle) — CLI reference for the bundle command
+- [`clef pack`](/cli/pack) — CLI reference for the pack command
+- [Runtime Agent](/guide/agent) — sidecar agent for secret rotation without redeployment
 - [Team Setup](/guide/team-setup) — adding human recipients
 - [CI/CD Integration](/guide/ci-cd) — using `clef exec` in CI pipelines
 - [Manifest Reference](/guide/manifest) — full manifest field reference

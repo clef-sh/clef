@@ -100,7 +100,7 @@ clef service rotate api-gateway -e production
 After rotation:
 
 1. Store the new private keys in your secret manager
-2. Re-generate bundles with `clef bundle`
+2. Re-pack artifacts with `clef pack`
 3. Redeploy the affected services
 4. Commit the updated `clef.yaml`
 
@@ -168,8 +168,8 @@ aws secretsmanager create-secret \
 # Commit
 git add clef.yaml && git add -A && git commit -m "feat: add service identity 'api-lambda'"
 
-# Generate a bundle (separate step, see clef bundle)
-clef bundle api-lambda production --output ./dist/secrets.mjs
+# Pack an artifact (separate step, see clef pack)
+clef pack api-lambda production --output ./artifact.json
 
 # Later: rotate production key
 clef service rotate api-lambda -e production
@@ -177,6 +177,6 @@ clef service rotate api-lambda -e production
 
 ## Related commands
 
-- [`clef bundle`](bundle.md) — generate a runtime bundle for a service identity
+- [`clef pack`](pack.md) — pack an encrypted artifact for a service identity
 - [`clef recipients`](recipients.md) — manage human recipient keys
 - [`clef lint`](lint.md) — detects service identity drift issues

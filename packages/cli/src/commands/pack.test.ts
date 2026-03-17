@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as YAML from "yaml";
 import { Command } from "commander";
-import { registerBundleCommand } from "./bundle";
+import { registerPackCommand } from "./pack";
 import { SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 
@@ -97,11 +97,11 @@ function makeProgram(runner: SubprocessRunner): Command {
   const program = new Command();
   program.option("--dir <path>", "Path to a local Clef repository root");
   program.exitOverride();
-  registerBundleCommand(program, { runner });
+  registerPackCommand(program, { runner });
   return program;
 }
 
-describe("clef bundle", () => {
+describe("clef pack", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFs.readFileSync.mockReturnValue(manifestYaml);
@@ -110,73 +110,76 @@ describe("clef bundle", () => {
     mockFs.mkdirSync.mockImplementation(() => undefined as unknown as string);
   });
 
-  it("should generate a bundle and print success", async () => {
+  it("should pack an artifact and print success", async () => {
     const runner = makeRunner();
     const program = makeProgram(runner);
 
     await program.parseAsync([
       "node",
       "clef",
-      "bundle",
+      "pack",
       "api-gateway",
       "dev",
       "--output",
-      "/tmp/secrets.mjs",
+      "/tmp/artifact.json",
     ]);
 
-    expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Bundle generated"));
-    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("/tmp/secrets.mjs"));
+    expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Artifact packed"));
+    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("/tmp/artifact.json"));
+    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("Revision"));
     expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("Do NOT commit"));
+  });
 
-    // Verify the written bundle does not contain plaintext secret values
+  it("should write valid JSON artifact", async () => {
+    const runner = makeRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync([
+      "node",
+      "clef",
+      "pack",
+      "api-gateway",
+      "dev",
+      "--output",
+      "/tmp/artifact.json",
+    ]);
+
     const writeCall = mockFs.writeFileSync.mock.calls.find((c: unknown[]) =>
-      String(c[0]).includes("secrets.mjs"),
+      String(c[0]).includes("artifact.json"),
+    );
+    expect(writeCall).toBeTruthy();
+    if (writeCall) {
+      const artifact = JSON.parse(String(writeCall[1]));
+      expect(artifact.version).toBe(1);
+      expect(artifact.identity).toBe("api-gateway");
+      expect(artifact.environment).toBe("dev");
+      expect(artifact.ciphertext).toContain("BEGIN AGE ENCRYPTED FILE");
+      expect(artifact.keys).toEqual(expect.arrayContaining(["DATABASE_URL", "API_KEY"]));
+    }
+  });
+
+  it("should not contain plaintext values in artifact", async () => {
+    const runner = makeRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync([
+      "node",
+      "clef",
+      "pack",
+      "api-gateway",
+      "dev",
+      "--output",
+      "/tmp/artifact.json",
+    ]);
+
+    const writeCall = mockFs.writeFileSync.mock.calls.find((c: unknown[]) =>
+      String(c[0]).includes("artifact.json"),
     );
     if (writeCall) {
       const content = String(writeCall[1]);
       expect(content).not.toContain("postgres://localhost");
       expect(content).not.toContain("sk-123");
     }
-  });
-
-  it("should support --format cjs", async () => {
-    const runner = makeRunner();
-    const program = makeProgram(runner);
-
-    await program.parseAsync([
-      "node",
-      "clef",
-      "bundle",
-      "api-gateway",
-      "dev",
-      "--output",
-      "/tmp/secrets.cjs",
-      "--format",
-      "cjs",
-    ]);
-
-    expect(mockFormatter.success).toHaveBeenCalled();
-    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("CJS"));
-  });
-
-  it("should reject invalid format", async () => {
-    const runner = makeRunner();
-    const program = makeProgram(runner);
-
-    await program.parseAsync([
-      "node",
-      "clef",
-      "bundle",
-      "api-gateway",
-      "dev",
-      "--output",
-      "/tmp/secrets.mjs",
-      "--format",
-      "typescript",
-    ]);
-
-    expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("Invalid format"));
-    expect(mockExit).toHaveBeenCalledWith(1);
   });
 
   it("should error when identity not found", async () => {
@@ -186,11 +189,11 @@ describe("clef bundle", () => {
     await program.parseAsync([
       "node",
       "clef",
-      "bundle",
+      "pack",
       "nonexistent",
       "dev",
       "--output",
-      "/tmp/secrets.mjs",
+      "/tmp/artifact.json",
     ]);
 
     expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("not found"));
@@ -204,11 +207,11 @@ describe("clef bundle", () => {
     await program.parseAsync([
       "node",
       "clef",
-      "bundle",
+      "pack",
       "api-gateway",
       "staging",
       "--output",
-      "/tmp/secrets.mjs",
+      "/tmp/artifact.json",
     ]);
 
     expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("not found"));
@@ -224,11 +227,11 @@ describe("clef bundle", () => {
       "clef",
       "--dir",
       "/custom/repo",
-      "bundle",
+      "pack",
       "api-gateway",
       "dev",
       "--output",
-      "/tmp/secrets.mjs",
+      "/tmp/artifact.json",
     ]);
 
     expect(mockFs.readFileSync).toHaveBeenCalledWith(

@@ -208,7 +208,7 @@ Each environment entry:
 | ----------- | -------- | -------- | ----------------------------------------------------------------- |
 | `recipient` | `string` | Yes      | Age public key (`age1...`). The private key is stored externally. |
 
-Service identities are managed with [`clef service`](/cli/service) and consumed via [`clef bundle`](/cli/bundle). See the [Service Identities guide](/guide/service-identities) for the full walkthrough.
+Service identities are managed with [`clef service`](/cli/service) and consumed via [`clef pack`](/cli/pack). See the [Service Identities guide](/guide/service-identities) for the full walkthrough.
 
 ## Validation
 

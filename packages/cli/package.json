@@ -33,6 +33,7 @@
     "@clef-sh/sops-win32-x64": "3.9.4"
   },
   "devDependencies": {
+    "@clef-sh/agent": "*",
     "@clef-sh/core": "^0.1.0",
     "@clef-sh/ui": "*",
     "@types/jest": "^29.5.0",

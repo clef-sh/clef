@@ -472,22 +472,6 @@ export interface ServiceIdentityDefinition {
   environments: Record<string, ServiceIdentityEnvironmentConfig>;
 }
 
-/** Configuration for generating a runtime JS bundle for a service identity. */
-export interface BundleConfig {
-  identity: string;
-  environment: string;
-  outputPath: string;
-  format: "esm" | "cjs";
-}
-
-/** Result of a bundle generation operation. */
-export interface BundleResult {
-  outputPath: string;
-  namespaceCount: number;
-  keyCount: number;
-  bundleSize: number;
-}
-
 /** A drift issue detected in a service identity configuration. */
 export interface ServiceIdentityDriftIssue {
   identity: string;
@@ -501,6 +485,28 @@ export interface ServiceIdentityDriftIssue {
     | "namespace_not_found";
   message: string;
   fixCommand?: string;
+}
+
+// ── Cross-repo drift detection ───────────────────────────────────────────────
+
+/** A single drift issue: a key present in some environments but missing from others. */
+export interface DriftIssue {
+  namespace: string;
+  key: string;
+  /** Environment names where the key exists. */
+  presentIn: string[];
+  /** Environment names where the key is missing. */
+  missingFrom: string[];
+  message: string;
+}
+
+/** Result of comparing key sets across two local Clef repos without decryption. */
+export interface DriftResult {
+  issues: DriftIssue[];
+  namespacesCompared: number;
+  namespacesClean: number;
+  localEnvironments: string[];
+  remoteEnvironments: string[];
 }
 
 // ── Dependency check types ───────────────────────────────────────────────────

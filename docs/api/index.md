@@ -6,8 +6,8 @@
 
 ## Classes
 
+- [ArtifactPacker](classes/ArtifactPacker.md)
 - [BulkOps](classes/BulkOps.md)
-- [BundleGenerator](classes/BundleGenerator.md)
 - [ClefError](classes/ClefError.md)
 - [ConsumptionClient](classes/ConsumptionClient.md)
 - [DiffEngine](classes/DiffEngine.md)
@@ -35,8 +35,6 @@
 
 - [AgeIdentity](interfaces/AgeIdentity.md)
 - [AgeKeyValidation](interfaces/AgeKeyValidation.md)
-- [BundleConfig](interfaces/BundleConfig.md)
-- [BundleResult](interfaces/BundleResult.md)
 - [ClefEnvironment](interfaces/ClefEnvironment.md)
 - [ClefIgnoreRules](interfaces/ClefIgnoreRules.md)
 - [ClefLocalConfig](interfaces/ClefLocalConfig.md)
@@ -110,7 +108,6 @@
 - [formatAgeKeyFile](functions/formatAgeKeyFile.md)
 - [generateAgeIdentity](functions/generateAgeIdentity.md)
 - [generateRandomValue](functions/generateRandomValue.md)
-- [generateRuntimeModule](functions/generateRuntimeModule.md)
 - [getPendingKeys](functions/getPendingKeys.md)
 - [isHighEntropy](functions/isHighEntropy.md)
 - [isPending](functions/isPending.md)
