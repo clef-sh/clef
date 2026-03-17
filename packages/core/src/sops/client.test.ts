@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import * as net from "net";
 import { SopsClient } from "./client";
 import {
   ClefError,
@@ -19,6 +20,10 @@ import {
 jest.mock("fs", () => ({
   readFileSync: jest.fn(),
   writeFileSync: jest.fn(),
+}));
+
+jest.mock("net", () => ({
+  createServer: jest.fn(),
 }));
 
 jest.mock("./resolver", () => ({
@@ -267,7 +272,6 @@ sops:
       const client = new SopsClient({ run: runFn });
       await client.encrypt("database/dev.enc.yaml", { KEY: "value" }, testManifest());
 
-      // Verify sops encrypt was called with correct stdin content
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing dynamic mock call args
       const encryptCall = (runFn.mock.calls as any[]).find(
         (c: unknown[]) => c[0] === "sops" && (c[1] as string[])[0] === "encrypt",
@@ -277,8 +281,190 @@ sops:
       const YAML = await import("yaml");
       const parsed = YAML.parse(stdinContent);
       expect(parsed).toEqual({ KEY: "value" });
-      // Verify fs.writeFileSync was called with the encrypted content
       expect(mockWriteFileSync).toHaveBeenCalledWith("database/dev.enc.yaml", "encrypted-content");
+    });
+
+    it("passes /dev/stdin as the input file argument on Unix", async () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+
+      const runFn = jest.fn(async () => ({ stdout: "enc", stderr: "", exitCode: 0 }));
+      const client = new SopsClient({ run: runFn });
+
+      try {
+        await client.encrypt("db/dev.enc.yaml", {}, testManifest());
+      } finally {
+        Object.defineProperty(process, "platform", {
+          value: originalPlatform,
+          configurable: true,
+        });
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing dynamic mock call args
+      const encryptCall = (runFn.mock.calls as any[]).find(
+        (c: unknown[]) => c[0] === "sops" && (c[1] as string[])[0] === "encrypt",
+      );
+      const args = encryptCall[1] as string[];
+      expect(args[args.length - 1]).toBe("/dev/stdin");
+    });
+
+    it("pipes content via stdin on Unix", async () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
+
+      const runFn = jest.fn(async () => ({ stdout: "enc", stderr: "", exitCode: 0 }));
+      const client = new SopsClient({ run: runFn });
+
+      try {
+        await client.encrypt("db/dev.enc.yaml", { SECRET: "val" }, testManifest());
+      } finally {
+        Object.defineProperty(process, "platform", {
+          value: originalPlatform,
+          configurable: true,
+        });
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing dynamic mock call args
+      const encryptCall = (runFn.mock.calls as any[]).find(
+        (c: unknown[]) => c[0] === "sops" && (c[1] as string[])[0] === "encrypt",
+      );
+      const opts = encryptCall[2] as { stdin?: string };
+      expect(opts.stdin).toBeDefined();
+      const YAML = await import("yaml");
+      expect(YAML.parse(opts.stdin!)).toEqual({ SECRET: "val" });
+    });
+
+    it("uses a named pipe as the input file on Windows", async () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+
+      const mockClose = jest.fn();
+      const mockSocket = { end: jest.fn() } as unknown as net.Socket;
+      let connectionHandler: ((socket: net.Socket) => void) | undefined;
+      let listenCallback: (() => void) | undefined;
+
+      const mockServer = {
+        on: jest.fn(),
+        listen: jest.fn((_path: string, cb: () => void) => {
+          listenCallback = cb;
+          return mockServer;
+        }),
+        close: mockClose,
+      } as unknown as net.Server;
+
+      (net.createServer as jest.Mock).mockImplementation(
+        (handler: (socket: net.Socket) => void) => {
+          connectionHandler = handler;
+          return mockServer;
+        },
+      );
+
+      const runFn = jest.fn(async () => ({ stdout: "enc", stderr: "", exitCode: 0 }));
+      const client = new SopsClient({ run: runFn });
+
+      // Trigger the encrypt — it awaits the pipe being ready, so simulate listen firing
+      const encryptPromise = client.encrypt("db/dev.enc.yaml", {}, testManifest());
+      // Allow the Promise chain inside openWindowsInputPipe to reach .listen()
+      await Promise.resolve();
+      listenCallback!();
+      connectionHandler!(mockSocket);
+      await encryptPromise;
+
+      Object.defineProperty(process, "platform", {
+        value: originalPlatform,
+        configurable: true,
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing dynamic mock call args
+      const encryptCall = (runFn.mock.calls as any[]).find(
+        (c: unknown[]) => c[0] === "sops" && (c[1] as string[])[0] === "encrypt",
+      );
+      const args = encryptCall[1] as string[];
+      expect(args[args.length - 1]).toMatch(/^\\\\\.\\pipe\\clef-sops-[0-9a-f]{16}$/);
+    });
+
+    it("cleans up the named pipe after encryption on Windows", async () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+
+      const mockClose = jest.fn();
+      const mockSocket = { end: jest.fn() } as unknown as net.Socket;
+      let connectionHandler: ((socket: net.Socket) => void) | undefined;
+      let listenCallback: (() => void) | undefined;
+
+      const mockServer = {
+        on: jest.fn(),
+        listen: jest.fn((_path: string, cb: () => void) => {
+          listenCallback = cb;
+          return mockServer;
+        }),
+        close: mockClose,
+      } as unknown as net.Server;
+
+      (net.createServer as jest.Mock).mockImplementation(
+        (handler: (socket: net.Socket) => void) => {
+          connectionHandler = handler;
+          return mockServer;
+        },
+      );
+
+      const runFn = jest.fn(async () => ({ stdout: "enc", stderr: "", exitCode: 0 }));
+      const client = new SopsClient({ run: runFn });
+
+      const encryptPromise = client.encrypt("db/dev.enc.yaml", {}, testManifest());
+      await Promise.resolve();
+      listenCallback!();
+      connectionHandler!(mockSocket);
+      await encryptPromise;
+
+      Object.defineProperty(process, "platform", {
+        value: originalPlatform,
+        configurable: true,
+      });
+
+      expect(mockClose).toHaveBeenCalled();
+    });
+
+    it("cleans up the named pipe even when sops fails on Windows", async () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+
+      const mockClose = jest.fn();
+      const mockSocket = { end: jest.fn() } as unknown as net.Socket;
+      let connectionHandler: ((socket: net.Socket) => void) | undefined;
+      let listenCallback: (() => void) | undefined;
+
+      const mockServer = {
+        on: jest.fn(),
+        listen: jest.fn((_path: string, cb: () => void) => {
+          listenCallback = cb;
+          return mockServer;
+        }),
+        close: mockClose,
+      } as unknown as net.Server;
+
+      (net.createServer as jest.Mock).mockImplementation(
+        (handler: (socket: net.Socket) => void) => {
+          connectionHandler = handler;
+          return mockServer;
+        },
+      );
+
+      const runFn = jest.fn(async () => ({ stdout: "", stderr: "failed", exitCode: 1 }));
+      const client = new SopsClient({ run: runFn });
+
+      const encryptPromise = client.encrypt("db/dev.enc.yaml", {}, testManifest());
+      await Promise.resolve();
+      listenCallback!();
+      connectionHandler!(mockSocket);
+      await expect(encryptPromise).rejects.toThrow(SopsEncryptionError);
+
+      Object.defineProperty(process, "platform", {
+        value: originalPlatform,
+        configurable: true,
+      });
+
+      expect(mockClose).toHaveBeenCalled();
     });
 
     it("should throw SopsEncryptionError on failure", async () => {

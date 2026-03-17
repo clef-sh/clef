@@ -31,7 +31,7 @@ Three principles guide every decision in Clef:
 | UI                   | Yes                               | Yes         | Yes      | Yes          | No       |
 | Schema validation    | Yes                               | No          | No       | No           | No       |
 | No infrastructure    | Yes                               | No          | No       | No           | Yes      |
-| RBAC                 | Via KMS IAM                       | Built-in    | Built-in | Limited      | Manual   |
+| Access control       | Via KMS IAM                       | Built-in    | Built-in | Limited      | Manual   |
 | Audit logs           | Via CloudTrail / Cloud Audit Logs | Built-in    | Built-in | No           | No       |
 | Vendor holds secrets | No (OSS)                          | Self-hosted | Yes      | Yes          | No       |
 | Key management       | age / KMS                         | Built-in    | SaaS     | SaaS         | Manual   |
@@ -42,7 +42,7 @@ Clef's unique position: **co-located secrets that scale to teams with no interme
 
 With Clef and a cloud KMS backend, three common security questions are answered by infrastructure you already run:
 
-**Access control via IAM.** Access to a secret is an IAM policy — same workflows, approval processes, and break-glass procedures as any other cloud permission. No separate RBAC system.
+**Access control via IAM.** Access to a secret is an IAM policy — same workflows, approval processes, and break-glass procedures as any other cloud permission. No separate access control system.
 
 **Audit logs via CloudTrail and Cloud Audit Logs.** Every decryption is a KMS API call, captured with caller identity, timestamp, and source IP — in the same SIEM your security team already queries.
 

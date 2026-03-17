@@ -80,6 +80,16 @@ Split client (Vite/React) and server (Express). Server binds `127.0.0.1` only. V
 - TypeScript: ES2022 target, strict mode, commonjs modules
 - Conventional Commits: `type(scope): description` — types: feat, fix, docs, chore, refactor, test, ci
 
+## After Every Change
+
+Always run these two commands from the repo root before considering a task done:
+
+```bash
+npm run lint          # must pass with zero errors
+npm run test:coverage # must meet all coverage thresholds
+npm run format:check  # must pass with no formatting issues
+```
+
 ## Test Coverage Thresholds
 
 - **Global** (core & CLI): 80% lines/functions/statements, 75% branches
