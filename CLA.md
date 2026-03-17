@@ -1,7 +1,7 @@
 # Contributor License Agreement
 
 Thank you for your interest in contributing to Clef (the "Project"), maintained by
-15797535 Canada Inc. D.B.A Spandrel Systems ("Company"). This Contributor License Agreement ("Agreement") applies
+15797535 Canada Inc. ("Company"). This Contributor License Agreement ("Agreement") applies
 to any contribution — including code, documentation, configuration, or other material
 — that you submit to the Project.
 
@@ -95,4 +95,4 @@ Signing is handled automatically. When you open your first pull request, the CLA
 Assistant bot will post a comment asking you to sign. Click the link, authenticate
 with GitHub, and your signature is recorded — you only need to do this once.
 
-If you have questions, open a GitHub Discussion or email opensource@spandrelsys.com.
+If you have questions, open a GitHub Discussion or email oss@clef.sh.

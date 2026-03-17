@@ -14,9 +14,7 @@ For teams that need IAM integration or centralised key management, consider [AWS
 
 ## Key generation
 
-`clef init` automatically generates an age key pair with a unique per-repo label (e.g., `coral-tiger`) using the `age-encryption` npm package — no age binary is required. The private key is stored in your OS keychain when available (macOS Keychain, Linux libsecret, Windows Credential Manager), namespaced by label. If the keychain is unavailable, Clef falls back to writing the key to `~/.config/clef/keys/{label}/keys.txt` after explicit confirmation. See [Key Storage](/guide/key-storage) for full details on the storage hierarchy and security tradeoffs.
-
-Each repository gets its own key and label, so compromising one repo's key does not expose any other repo's secrets.
+`clef init` generates an age key pair with a unique per-repo label (e.g., `coral-tiger`) using the `age-encryption` npm package — no age binary required. The private key is stored in your OS keychain (macOS Keychain, Linux libsecret, Windows Credential Manager), falling back to `~/.config/clef/keys/{label}/keys.txt` after explicit confirmation. Each repository gets its own key so compromising one does not expose any other. See [Key Storage](/guide/key-storage) for details.
 
 To find your public key (when using filesystem storage):
 
@@ -29,15 +27,13 @@ grep "public key" ~/.config/clef/keys/<label>/keys.txt
 
 ## Configuring SOPS to find your key
 
-Clef reads the age key path from `.clef/config.yaml` (gitignored) and passes it to the SOPS subprocess automatically via `SOPS_AGE_KEY_FILE`. In most cases you do not need to configure anything manually — `clef init` handles this during setup.
-
-If you need to override the key location (for example, in CI), set the Clef environment variable:
+Clef reads the age key path from `.clef/config.yaml` (gitignored) and passes it to SOPS via `SOPS_AGE_KEY_FILE` — no manual configuration needed in most cases. To override the key location (e.g., in CI):
 
 ```bash
 export CLEF_AGE_KEY_FILE=/path/to/your/keys.txt
 ```
 
-Clef checks `CLEF_AGE_KEY_FILE` before the path stored in `.clef/config.yaml`, so this override takes precedence.
+`CLEF_AGE_KEY_FILE` takes precedence over the path stored in `.clef/config.yaml`.
 
 ::: info
 Clef uses `CLEF_AGE_KEY` and `CLEF_AGE_KEY_FILE` (not `SOPS_AGE_KEY` / `SOPS_AGE_KEY_FILE`) to avoid silent cross-tool credential leakage. Clef passes the resolved key to the SOPS subprocess directly — it never mutates the parent process environment.
@@ -71,11 +67,11 @@ sops:
 file_pattern: "secrets/{namespace}/{environment}.enc.yaml"
 ```
 
-The age private key path and key label are **not** stored in `clef.yaml`. They are stored in `.clef/config.yaml` on each developer's machine (gitignored).
+The private key path and label are stored in `.clef/config.yaml` on each developer's machine (gitignored), not in `clef.yaml`.
 
 ## Full working example
 
-From scratch to first encrypted secret, with secrets co-located alongside application code:
+From scratch to first encrypted secret:
 
 ```bash
 # 1. Inside your existing project
@@ -101,15 +97,13 @@ cat secrets/database/dev.enc.yaml
 
 ## Multiple recipients for team access
 
-age supports multiple recipients. Each team member generates their own key pair and shares their public key. All public keys are listed as recipients so any team member can decrypt.
+age supports multiple recipients. Each team member generates their own key pair and shares their public key.
 
 ### Adding a recipient
 
-When a new team member joins:
-
-1. They run `clef init` in a clone of the repository — a key pair is generated with a unique label and stored in their OS keychain (or at `~/.config/clef/keys/{label}/keys.txt`)
+1. New member runs `clef init` — key pair generated, stored in their keychain (or `~/.config/clef/keys/{label}/keys.txt`)
 2. They share their public key: `grep "public key" ~/.config/clef/keys/<label>/keys.txt`
-3. An existing team member adds them as a recipient:
+3. An existing member adds them:
 
 ```bash
 clef rotate database/dev --new-key age1newmember...
@@ -132,13 +126,13 @@ creation_rules:
       age1carol...
 ```
 
-New files created by SOPS will be encrypted for all listed recipients.
+New files are encrypted for all listed recipients.
 
 ## Security considerations
 
-- **Private keys stay local.** Each team member's private key lives only on their machine. It is never committed to git or shared over the network.
-- **Public keys are safe to share.** The public key is needed by anyone who encrypts files that the key holder should be able to decrypt.
-- **Revoking access.** Remove the former member's public key from `.sops.yaml` and re-encrypt all files using `sops updatekeys`. They can still decrypt old git commits but not the current files.
+- **Private keys stay local.** Never committed to git or shared over the network.
+- **Public keys are safe to share.** Required by anyone encrypting files the key holder should decrypt.
+- **Revoking access.** Remove the key from `.sops.yaml` and re-encrypt with `sops updatekeys`. The former member retains access to old git commits but not current files.
 
 ## See also
 

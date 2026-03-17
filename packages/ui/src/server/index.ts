@@ -2,6 +2,7 @@ import * as path from "path";
 import { extname } from "path";
 import { randomBytes, timingSafeEqual } from "crypto";
 import express, { Request, Response, NextFunction } from "express";
+import rateLimit from "express-rate-limit";
 import { Server } from "http";
 import { SubprocessRunner } from "@clef-sh/core";
 import { createApiRouter } from "./api";
@@ -54,7 +55,11 @@ function mimeFor(filePath: string): string {
 // Register express routes that serve static assets from the embedded SEA blob.
 // Assets are keyed by their path relative to the dist/ root, e.g.
 // "client/index.html", "client/assets/index-abc123.js".
-function mountSeaStaticRoutes(app: ReturnType<typeof express>, sea: SeaModule): void {
+function mountSeaStaticRoutes(
+  app: ReturnType<typeof express>,
+  sea: SeaModule,
+  limiter: ReturnType<typeof rateLimit>,
+): void {
   const serveAsset = (key: string, res: Response, next: NextFunction): void => {
     try {
       const buf = Buffer.from(sea.getAsset(key, "buffer"));
@@ -67,14 +72,14 @@ function mountSeaStaticRoutes(app: ReturnType<typeof express>, sea: SeaModule): 
   };
 
   // Serve any request whose path maps to a known asset key
-  app.use((req: Request, res: Response, next: NextFunction) => {
+  app.use(limiter, (req: Request, res: Response, next: NextFunction) => {
     const reqPath = req.path === "/" ? "/index.html" : req.path;
     const key = `client${reqPath}`;
     serveAsset(key, res, next);
   });
 
   // SPA fallback — anything unmatched gets index.html
-  app.get("*", (_req: Request, res: Response, next: NextFunction) => {
+  app.get("*", limiter, (_req: Request, res: Response, next: NextFunction) => {
     serveAsset("client/index.html", res, next);
   });
 }
@@ -109,10 +114,10 @@ export async function startServer(
   // Bearer token authentication for all API routes
   app.use("/api", (req: Request, res: Response, next: NextFunction) => {
     const authHeader = req.headers.authorization ?? "";
-    const match = authHeader.match(/^Bearer\s+(.+)$/);
-    const provided = Buffer.from(match ? match[1] : "");
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+    const provided = Buffer.from(token);
     const expected = Buffer.from(sessionToken);
-    if (!match || provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
+    if (!token || provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
@@ -127,21 +132,31 @@ export async function startServer(
     app.use("/api", apiRouter);
   }
 
+  // Rate-limit static asset serving. This server binds to 127.0.0.1 only, so
+  // the limit is generous — it exists solely to satisfy the DoS-prevention
+  // requirement and will not affect normal interactive use.
+  const staticLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 1000,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+  });
+
   // Serve static client files.
   // Priority: SEA blob > explicit clientDir > default path relative to this file.
   const sea = getSea();
   if (sea?.isSea()) {
-    mountSeaStaticRoutes(app, sea);
+    mountSeaStaticRoutes(app, sea, staticLimiter);
   } else {
     // When the CLI bundles this code with esbuild, all modules land in a single
     // dist/index.js, so __dirname resolves to that file's directory.  The caller
     // passes an explicit clientDir (dist/client/) to handle that case.
     // In standalone/dev use, the default path relative to this file works.
     const resolvedClientDir = clientDir ?? path.resolve(__dirname, "../client");
-    app.use(express.static(resolvedClientDir));
+    app.use(staticLimiter, express.static(resolvedClientDir));
 
     // SPA fallback — serve index.html for non-API routes
-    app.get("*", (_req, res) => {
+    app.get("*", staticLimiter, (_req, res) => {
       res.sendFile(path.join(resolvedClientDir, "index.html"));
     });
   }

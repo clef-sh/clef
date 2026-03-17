@@ -498,8 +498,7 @@ describe("clef doctor", () => {
 
     const hintCalls = mockFormatter.hint.mock.calls.map((c) => String(c[0]));
     // Should show URL-based hints instead of brew
-    const urlHints = hintCalls.filter((l) => l.includes("https://github.com/getsops/sops"));
-    expect(urlHints.length).toBeGreaterThanOrEqual(1);
+    expect(hintCalls.some((l) => l.includes("getsops/sops/releases"))).toBe(true);
 
     Object.defineProperty(process, "platform", { value: origPlatform, configurable: true });
   });

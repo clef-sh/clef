@@ -10,7 +10,7 @@ clef ui [options]
 
 ## Description
 
-`clef ui` starts a local HTTP server that serves the Clef web interface. The server binds to `127.0.0.1` only — it is never accessible from the network. This is a non-negotiable security constraint: decrypted secret values are transmitted between the server and the browser, so the connection must be local-only.
+`clef ui` starts a local HTTP server bound to `127.0.0.1` only — never accessible from the network. Decrypted values are transmitted between server and browser, so the connection must be local-only.
 
 The UI provides four main views:
 
@@ -75,13 +75,7 @@ Shutting down Clef UI...
 
 ## Security
 
-The server binds exclusively to `127.0.0.1`. It will never bind to `0.0.0.0` or any other address. This means:
-
-- The UI is only accessible from your local machine
-- Other devices on your network cannot reach it
-- Decrypted secret values transmitted via the API never leave your machine
-
-If you need to access the UI from another machine (not recommended), use SSH port forwarding:
+The server binds exclusively to `127.0.0.1` — other devices on your network cannot reach it and decrypted values never leave your machine. To access from another machine (not recommended), use SSH port forwarding:
 
 ```bash
 ssh -L 7777:127.0.0.1:7777 user@remote-host
@@ -89,7 +83,7 @@ ssh -L 7777:127.0.0.1:7777 user@remote-host
 
 ## API
 
-The UI communicates with the server over a REST API at the same address. The API endpoints are internal and not intended for direct use, but they follow standard patterns:
+Internal REST API at the same address (not intended for direct use):
 
 | Endpoint                    | Method | Description                           |
 | --------------------------- | ------ | ------------------------------------- |

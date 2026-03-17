@@ -114,7 +114,7 @@ function formatScanOutput(result: ScanResult): void {
   for (const file of result.unencryptedMatrixFiles) {
     formatter.print(pc.red(`${sym("failure")} Unencrypted matrix file`));
     formatter.print(`  ${pc.white(file)} \u2014 missing ${sym("locked")}`);
-    const base = file.replace(/\.enc\.(yaml|json)$/, "").replace(/\//g, "/");
+    const base = file.replace(/\.enc\.(yaml|json)$/, "");
     formatter.hint(`clef encrypt ${base}`);
     formatter.print("");
   }

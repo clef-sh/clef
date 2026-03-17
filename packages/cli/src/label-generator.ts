@@ -1,3 +1,5 @@
+import { randomInt } from "crypto";
+
 const ADJECTIVES = [
   "amber",
   "azure",
@@ -105,7 +107,7 @@ const NOUNS = [
 ];
 
 export function generateKeyLabel(): string {
-  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
-  const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+  const adj = ADJECTIVES[randomInt(ADJECTIVES.length)];
+  const noun = NOUNS[randomInt(NOUNS.length)];
   return `${adj}-${noun}`;
 }
