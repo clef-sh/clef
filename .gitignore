@@ -47,3 +47,5 @@ platforms/*/bin/sops
 
 # Blackbox test runs
 .blackbox-runs/
+
+cache

@@ -15,24 +15,22 @@ If your workload has access to git and `sops`, you can continue using [`clef exe
 
 ## How it works
 
-```
-Developer machine                        Runtime (Lambda, container, etc.)
-─────────────────                        ──────────────────────────────────
+```mermaid
+flowchart LR
+  subgraph devmachine["Developer Machine"]
+    manifest["clef.yaml\nservice_identities:\n  - name: api-gateway\n    namespaces: [api]\n    environments:\n      production:\n        recipient: age1prod..."]
+    bundle["clef bundle\napi-gateway production"]
+  end
+  subgraph runtimeEnv["Runtime (Lambda / Container)"]
+    module["secrets.mjs\nage-encrypted blob\n(all scoped secrets)"]
+    getSecret["getSecret('DB_URL', keyFn)\n→ age-decrypt → in-memory cache"]
+  end
+  kms["Secrets Manager / KMS\n(private key fetched at runtime)"]
 
-clef.yaml                                secrets.mjs (generated bundle)
-  service_identities:                      ┌─────────────────────────────┐
-    - name: api-gateway                    │ age-encrypted blob          │
-      namespaces: [api]                    │ (all scoped secrets)        │
-      environments:                        │                             │
-        production:                        │ getSecret("DB_URL", keyFn)  │
-          recipient: age1prod...           │   → age-decrypt → cache     │
-                                           └─────────────────────────────┘
-
-      clef bundle api-gateway production          age-encryption (pure JS)
-      ──────────────────────────>                 private key from Secrets
-          decrypt SOPS files                      Manager / Vault / KMS
-          age-encrypt to recipient
-          generate JS module
+  manifest --> bundle
+  bundle -->|"1. decrypt SOPS files\n2. age-encrypt to recipient\n3. generate JS module"| module
+  module --> getSecret
+  kms -->|provide private key| getSecret
 ```
 
 1. **`clef service create`** generates an age key pair per environment, registers the public keys as SOPS recipients on scoped files, and prints the private keys once

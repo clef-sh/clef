@@ -1,6 +1,13 @@
-import { defineConfig } from "vitepress";
+import { withMermaid } from "vitepress-plugin-mermaid";
 
-export default defineConfig({
+export default withMermaid({
+  mermaid: {
+    theme: "dark",
+    themeVariables: {
+      background: "transparent",
+      fontFamily: "inherit",
+    },
+  },
   title: "Clef",
   description: "Keep encrypted secrets alongside your code. One commit hash = your entire system.",
 

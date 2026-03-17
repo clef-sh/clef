@@ -4,32 +4,25 @@ Clef's internal architecture: package relationships, data flow, and subprocess i
 
 ## High-level overview
 
-```
-┌─────────────────────────────────────────────────────┐
-│                    User Interfaces                   │
-│                                                      │
-│   ┌──────────────┐          ┌──────────────────┐    │
-│   │   CLI Layer  │          │  Local Web UI     │    │
-│   │  (commander) │          │  (React + Express)│    │
-│   └──────┬───────┘          └────────┬─────────┘    │
-└──────────┼──────────────────────────┼───────────────┘
-           │                          │
-           ▼                          ▼
-┌─────────────────────────────────────────────────────┐
-│                    Core Library                      │
-│                                                      │
-│  ManifestParser  │  MatrixManager  │  SchemaValidator│
-│  DiffEngine      │  BulkOps        │  GitIntegration │
-│  LintRunner      │  SopsClient     │  ScanRunner     │
-│  ImportRunner    │  RecipientMgr   │  ConsumptionCli │
-│  PendingMetadata │  DependencyChk  │  AgeKeygen      │
-└──────────────────────────┬──────────────────────────┘
-                           │
-           ┌───────────────┼───────────────┐
-           ▼               ▼               ▼
-    ┌────────────┐  ┌────────────┐  ┌────────────┐
-    │ SOPS binary│  │ git binary │  │ Filesystem  │
-    └────────────┘  └────────────┘  └────────────┘
+```mermaid
+graph TD
+  subgraph ui["User Interfaces"]
+    cli["CLI Layer\ncommander.js"]
+    webui["Local Web UI\nReact + Express"]
+  end
+  subgraph core["Core Library (@clef-sh/core)"]
+    parsers["ManifestParser · MatrixManager · SchemaValidator"]
+    ops["DiffEngine · BulkOps · GitIntegration"]
+    runners["LintRunner · SopsClient · ScanRunner"]
+    others["ImportRunner · RecipientMgr · ConsumptionClient\nPendingMetadata · DependencyChk · AgeKeygen"]
+  end
+  sops[("SOPS binary")]
+  git[("git binary")]
+  fs[("Filesystem")]
+
+  cli --> core
+  webui --> core
+  core --> sops & git & fs
 ```
 
 Both the CLI and the UI are thin interface layers. All business logic lives in `packages/core`, ensuring consistent behaviour across both surfaces.
@@ -104,61 +97,39 @@ Generates age key pairs using the `age-encryption` npm package. Used during `cle
 
 ## Data flow: `clef set`
 
-```
-User runs: clef set payments/staging STRIPE_KEY sk_test_123
-   │
-   ▼
-CLI (commander.js)
-   │  Parse arguments: namespace=payments, env=staging,
-   │                    key=STRIPE_KEY, value=sk_test_123
-   ▼
-ManifestParser.parse("clef.yaml")
-   │  Returns ClefManifest with environments, namespaces, sops config
-   ▼
-MatrixManager.isProtectedEnvironment(manifest, "staging")
-   │  Returns false — no confirmation needed
-   ▼
-SopsClient.decrypt("payments/staging.enc.yaml")
-   │  Subprocess: sops decrypt --output-type yaml payments/staging.enc.yaml
-   │  Returns: { values: { EXISTING_KEY: "old" }, metadata: {...} }
-   ▼
-Modify values in memory: values["STRIPE_KEY"] = "sk_test_123"
-   │  Plaintext exists ONLY in this in-memory object
-   ▼
-SopsClient.encrypt("payments/staging.enc.yaml", values, manifest)
-   │  Subprocess: echo <yaml> | sops encrypt --input-type yaml
-   │              --output-type yaml --filename-override <path>
-   │  SOPS reads plaintext from stdin, writes encrypted YAML to stdout
-   │  Clef writes stdout to disk via tee
-   ▼
-formatter.success("Set payments/staging STRIPE_KEY")
-   │  Note: the value is NEVER printed
-   ▼
-Done. Plaintext object is garbage collected.
+```mermaid
+flowchart TD
+  A(["clef set payments/staging STRIPE_KEY sk_test_123"]) --> B
+  B["Parse arguments"] --> C
+  C["Load clef.yaml"] --> D
+  D{"Protected env?"} -->|No| E
+  D -->|Yes| D2["Prompt for confirmation"] --> E
+  E["Decrypt file via SOPS\nvalues enter memory"] --> F
+  F["Set key in memory\nplaintext never touches disk"] --> G
+  G["Re-encrypt via SOPS\nstdin → stdout → disk"] --> H
+  H(["Done"])
 ```
 
 Plaintext values exist only in process memory — piped to SOPS via stdin, never written to temporary files or logged.
 
 ## Data flow: `clef ui` (API request)
 
-```
-Browser: GET /api/namespace/payments/staging
-   │
-   ▼
-Express router (127.0.0.1:7777)
-   │
-   ▼
-ManifestParser.parse("clef.yaml")
-   │
-   ▼
-SopsClient.decrypt("payments/staging.enc.yaml")
-   │  Subprocess: sops decrypt --output-type yaml payments/staging.enc.yaml
-   │  Returns decrypted values in memory
-   ▼
-JSON response: { values: { STRIPE_KEY: "sk_test_123", ... }, metadata: {...} }
-   │  Sent over 127.0.0.1 loopback only
-   ▼
-Browser renders masked values in the editor
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant E as Express (127.0.0.1:7777)
+  participant M as ManifestParser
+  participant S as SopsClient
+
+  B->>E: GET /api/namespace/payments/staging
+  E->>M: parse("clef.yaml")
+  M-->>E: ClefManifest
+  E->>S: decrypt("payments/staging.enc.yaml")
+  Note over S: subprocess — sops decrypt
+  S-->>E: values in memory
+  E-->>B: JSON { values: { STRIPE_KEY: "…" } }
+  Note over E: values travel over 127.0.0.1 only
+  Note over B: renders masked values in editor
 ```
 
 The API server binds exclusively to `127.0.0.1` — decrypted values travel only over the local loopback interface.
@@ -177,11 +148,15 @@ In production, `NodeSubprocessRunner` uses `child_process.spawn` to execute real
 
 ## Package dependency graph
 
-```
-@clef-sh/cli
-   ├── @clef-sh/core    (business logic)
-   └── @clef-sh/ui      (server + React build)
-          └── @clef-sh/core    (business logic)
+```mermaid
+graph LR
+  cli["@clef-sh/cli"]
+  core["@clef-sh/core\nbusiness logic"]
+  ui["@clef-sh/ui\nserver + React build"]
+
+  cli -->|depends on| core
+  cli -->|depends on| ui
+  ui -->|depends on| core
 ```
 
 Core has no dependencies on CLI or UI. CLI depends on both core and UI (for `clef ui`). UI depends on core for its API server.

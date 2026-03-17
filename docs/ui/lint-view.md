@@ -4,34 +4,23 @@ Full-repo health report: every matrix file scanned, issues grouped by severity w
 
 ## Layout
 
-```
-┌───────────────────────────────────────────────────────────────┐
-│  Lint                                                         │
-├───────────────────────────────────────────────────────────────┤
-│  [All] [Errors] [Warnings] [Info]    [Matrix] [Schema] [SOPS]│
-├───────────────────────────────────────────────────────────────┤
-│                                                               │
-│  ✗ 2 Errors                                                   │
-│  ┌───────────────────────────────────────────────────────────┐│
-│  │ [matrix] database/staging.enc.yaml                        ││
-│  │ File is missing from the matrix.                          ││
-│  │ fix: clef lint --fix                            [copy]    ││
-│  │                                              [dismiss]    ││
-│  ├───────────────────────────────────────────────────────────┤│
-│  │ [schema] payments/production.enc.yaml  WEBHOOK_SECRET     ││
-│  │ Required key 'WEBHOOK_SECRET' is missing.                 ││
-│  │ fix: clef set payments/production WEBHOOK_SECRET  [copy]  ││
-│  │                                              [dismiss]    ││
-│  └───────────────────────────────────────────────────────────┘│
-│                                                               │
-│  ⚠ 1 Warning                                                 │
-│  ┌───────────────────────────────────────────────────────────┐│
-│  │ [schema] auth/dev.enc.yaml  LEGACY_TOKEN                  ││
-│  │ Key 'LEGACY_TOKEN' is not declared in the schema.         ││
-│  │                                              [dismiss]    ││
-│  └───────────────────────────────────────────────────────────┘│
-│                                                               │
-└───────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+  subgraph filters["Filter Bar"]
+    direction LR
+    severity["Severity: All · Errors · Warnings · Info"]
+    category["Category: Matrix · Schema · SOPS"]
+  end
+  subgraph errors["✗ 2 Errors"]
+    e1["matrix · database/staging.enc.yaml\nFile is missing from the matrix\nfix: clef lint --fix"]
+    e2["schema · payments/production.enc.yaml · WEBHOOK_SECRET\nRequired key 'WEBHOOK_SECRET' is missing\nfix: clef set payments/production WEBHOOK_SECRET"]
+  end
+  subgraph warnings["⚠ 1 Warning"]
+    w1["schema · auth/dev.enc.yaml · LEGACY_TOKEN\nKey 'LEGACY_TOKEN' is not declared in the schema"]
+  end
+
+  filters --> errors
+  filters --> warnings
 ```
 
 ## Filter bar
