@@ -69,7 +69,7 @@ Scanning repository for unencrypted secrets...
 
 ✗ Unencrypted matrix file
   payments/staging.yaml — missing SOPS metadata
-  fix: clef encrypt payments/staging
+  fix: sops encrypt -i payments/staging.yaml
 
 ⚠ Pattern match: Stripe live key
   src/config/payment.ts:23

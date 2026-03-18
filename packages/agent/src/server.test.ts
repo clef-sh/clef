@@ -1,20 +1,26 @@
+import * as http from "http";
 import { startAgentServer, AgentServerHandle } from "./server";
 import { SecretsCache } from "./cache";
+import type { AddressInfo } from "net";
 
 let handle: AgentServerHandle;
 let cache: SecretsCache;
 const TOKEN = "test-token-12345";
 const TEST_PORT = 19779;
 
-async function getJson(path: string, token?: string): Promise<{ status: number; body: unknown }> {
+async function getJson(
+  path: string,
+  token?: string,
+  customHost?: string,
+): Promise<{ status: number; body: unknown; headers: Headers }> {
   const headers: Record<string, string> = {
-    Host: `127.0.0.1:${TEST_PORT}`,
+    Host: customHost ?? `127.0.0.1:${TEST_PORT}`,
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(`http://127.0.0.1:${TEST_PORT}${path}`, { headers });
   const body = await res.json();
-  return { status: res.status, body };
+  return { status: res.status, body, headers: res.headers };
 }
 
 describe("Agent HTTP server", () => {
@@ -75,10 +81,20 @@ describe("Agent HTTP server", () => {
       expect(body).toEqual({ DB_URL: "postgres://...", API_KEY: "secret" });
     });
 
+    it("GET /v1/secrets should include Cache-Control: no-store", async () => {
+      const { headers } = await getJson("/v1/secrets", TOKEN);
+      expect(headers.get("cache-control")).toBe("no-store");
+    });
+
     it("GET /v1/secrets/:key should return single secret", async () => {
       const { status, body } = await getJson("/v1/secrets/DB_URL", TOKEN);
       expect(status).toBe(200);
       expect(body).toEqual({ value: "postgres://..." });
+    });
+
+    it("GET /v1/secrets/:key should include Cache-Control: no-store", async () => {
+      const { headers } = await getJson("/v1/secrets/DB_URL", TOKEN);
+      expect(headers.get("cache-control")).toBe("no-store");
     });
 
     it("GET /v1/secrets/:key should return 404 for missing key", async () => {
@@ -102,6 +118,33 @@ describe("Agent HTTP server", () => {
     it("GET /v1/secrets should return 503 when cache empty", async () => {
       const { status } = await getJson("/v1/secrets", TOKEN);
       expect(status).toBe(503);
+    });
+  });
+
+  describe("server binding", () => {
+    it("binds to 127.0.0.1", () => {
+      const addr = handle.address() as AddressInfo;
+      expect(addr.address).toBe("127.0.0.1");
+    });
+  });
+
+  describe("host header validation", () => {
+    it("should return 403 for requests with an invalid Host header", async () => {
+      // Use http.request directly — fetch() does not allow overriding the Host header
+      const status = await new Promise<number>((resolve) => {
+        const req = http.request(
+          {
+            hostname: "127.0.0.1",
+            port: TEST_PORT,
+            path: "/v1/health",
+            method: "GET",
+            headers: { Host: "evil.example.com" },
+          },
+          (res) => resolve(res.statusCode ?? 0),
+        );
+        req.end();
+      });
+      expect(status).toBe(403);
     });
   });
 });

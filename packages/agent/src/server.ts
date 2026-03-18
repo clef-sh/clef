@@ -1,12 +1,14 @@
 import { timingSafeEqual } from "crypto";
 import express, { Request, Response, NextFunction } from "express";
 import { Server } from "http";
+import type { AddressInfo } from "net";
 import { SecretsCache } from "./cache";
 import { healthHandler, readyHandler } from "./health";
 
 export interface AgentServerHandle {
   url: string;
   stop: () => Promise<void>;
+  address: () => AddressInfo | string | null;
 }
 
 export interface AgentServerOptions {
@@ -35,11 +37,17 @@ export function startAgentServer(options: AgentServerOptions): Promise<AgentServ
   app.use("/v1", (req: Request, res: Response, next: NextFunction) => {
     const host = req.headers.host ?? "";
     const actualPort = (req.socket.address() as { port?: number })?.port ?? port;
-    const allowedHosts = [`127.0.0.1:${actualPort}`, `127.0.0.1:${port}`];
+    const allowedHosts = [`127.0.0.1:${actualPort}`, `127.0.0.1:${port}`, "127.0.0.1"];
     if (!allowedHosts.includes(host)) {
       res.status(403).json({ error: "Forbidden: invalid Host header" });
       return;
     }
+    next();
+  });
+
+  // Prevent intermediary caches from storing decrypted secret values
+  app.use("/v1/secrets", (_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader("Cache-Control", "no-store");
     next();
   });
 
@@ -88,6 +96,7 @@ export function startAgentServer(options: AgentServerOptions): Promise<AgentServ
             new Promise<void>((resolveStop, rejectStop) => {
               server.close((err) => (err ? rejectStop(err) : resolveStop()));
             }),
+          address: () => server.address(),
         });
       });
 

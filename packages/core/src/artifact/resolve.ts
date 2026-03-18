@@ -50,7 +50,7 @@ export async function resolveIdentitySecrets(
   for (const cell of cells) {
     const decrypted = await encryption.decrypt(cell.filePath);
     for (const [key, value] of Object.entries(decrypted.values)) {
-      const qualifiedKey = isMultiNamespace ? `${cell.namespace}/${key}` : key;
+      const qualifiedKey = isMultiNamespace ? `${cell.namespace}__${key}` : key;
       if (qualifiedKey in allValues && allValues[qualifiedKey] !== value) {
         collisions.push(qualifiedKey);
       }

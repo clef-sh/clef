@@ -61,6 +61,8 @@ describe("clef doctor", () => {
       const pathStr = String(p);
       if (pathStr.includes(".clef/config.yaml"))
         return "age_key_file: /mock/keys.txt\nage_keychain_label: mock-label\n";
+      if (pathStr.includes(".gitattributes"))
+        return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n";
       return "version: 1\nsops:\n  default_backend: age\n";
     });
   });
@@ -177,6 +179,7 @@ describe("clef doctor", () => {
       if (p.includes(".sops.yaml")) return sopsYamlContent;
       if (p.includes(".clef/config.yaml"))
         return "age_key_file: /mock/keys.txt\nage_keychain_label: mock-label\n";
+      if (p.includes(".gitattributes")) return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n";
       return manifestContent;
     });
 
@@ -347,6 +350,8 @@ describe("clef doctor", () => {
       const pathStr = String(p);
       if (pathStr.includes(".clef/config.yaml"))
         return "age_key_file: /custom/clef/keys.txt\nage_keychain_label: coral-tiger\n";
+      if (pathStr.includes(".gitattributes"))
+        return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n";
       return "version: 1\nsops:\n  default_backend: age\n";
     });
 

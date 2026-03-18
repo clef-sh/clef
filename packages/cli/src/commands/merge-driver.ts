@@ -123,14 +123,10 @@ export function registerMergeDriverCommand(
 
           for (const c of result.conflicts) {
             formatter.failure(`  ${c.key}:`);
+            formatter.failure(`    base:   ${c.baseValue !== null ? "(has value)" : "(absent)"}`);
+            formatter.failure(`    ours:   ${c.oursValue !== null ? "(has value)" : "(deleted)"}`);
             formatter.failure(
-              `    base:   ${c.baseValue !== undefined ? "(has value)" : "(absent)"}`,
-            );
-            formatter.failure(
-              `    ours:   ${c.oursValue !== undefined ? "(has value)" : "(deleted)"}`,
-            );
-            formatter.failure(
-              `    theirs: ${c.theirsValue !== undefined ? "(has value)" : "(deleted)"}`,
+              `    theirs: ${c.theirsValue !== null ? "(has value)" : "(deleted)"}`,
             );
           }
 

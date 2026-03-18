@@ -48,6 +48,7 @@ function openWindowsInputPipe(content: string): Promise<{ inputArg: string; clea
     const server = net.createServer((socket) => {
       socket.end(content);
     });
+    server.maxConnections = 1;
     server.on("error", reject);
     server.listen(pipeName, () => {
       resolve({

@@ -57,6 +57,8 @@ export function registerAgentCommand(program: Command, _deps: { runner: Subproce
           onError: (err) => formatter.error(`Poll error: ${err.message}`),
         });
 
+        await poller.fetchAndDecrypt();
+
         const server = await startAgentServer({
           port: config.port,
           token: config.token,
@@ -67,7 +69,7 @@ export function registerAgentCommand(program: Command, _deps: { runner: Subproce
         formatter.print(`   Source: ${config.source}`);
         formatter.print(`   Port:   ${config.port}`);
         formatter.print(`   Poll:   every ${config.pollInterval}s`);
-        formatter.print(`   Token:  ${config.token}\n`);
+        formatter.print(`   Token:  ${config.token.slice(0, 8)}...\n`);
 
         const daemon = new Daemon({
           poller,
@@ -80,11 +82,8 @@ export function registerAgentCommand(program: Command, _deps: { runner: Subproce
         formatter.print(`\n   ${sym("locked")}  API: http://127.0.0.1:${config.port}/v1/secrets`);
         formatter.print(`   Press Ctrl+C to stop.\n`);
 
-        // Keep process alive
-        await new Promise<void>((resolve) => {
-          process.on("SIGINT", () => resolve());
-          process.on("SIGTERM", () => resolve());
-        });
+        // Keep process alive until daemon shuts down via signal handler
+        await daemon.waitForShutdown();
       } catch (err) {
         const message = err instanceof Error ? err.message : "Agent failed to start";
         formatter.error(message);

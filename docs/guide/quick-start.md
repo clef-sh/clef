@@ -28,7 +28,7 @@ clef init --namespaces database,payments,auth --non-interactive
 # Creates three default environments: dev, staging, production
 ```
 
-This creates `clef.yaml`, `.sops.yaml`, `.clef/config.yaml` (gitignored), a `secrets/` directory with one encrypted file per namespace/environment cell, and a pre-commit hook.
+This creates `clef.yaml`, `.sops.yaml`, `.clef/config.yaml` (gitignored), namespace directories with one encrypted file per namespace/environment cell, and a pre-commit hook.
 
 ::: tip
 `clef init` generates an age key pair automatically — no manual key generation or age binary needed. The private key is stored in your OS keychain (or `~/.config/clef/keys/{label}/keys.txt` as a fallback).

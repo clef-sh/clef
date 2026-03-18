@@ -20,6 +20,40 @@ jest.mock("../output/formatter", () => ({
   },
 }));
 
+// Mock @clef-sh/agent so no real network calls or servers are started in tests
+jest.mock("@clef-sh/agent", () => {
+  const mockDaemon = {
+    start: jest.fn().mockResolvedValue(undefined),
+    waitForShutdown: jest.fn().mockResolvedValue(undefined),
+  };
+  const mockServer = {
+    url: "http://127.0.0.1:19700",
+    stop: jest.fn().mockResolvedValue(undefined),
+    address: jest.fn().mockReturnValue({ address: "127.0.0.1", port: 19700, family: "IPv4" }),
+  };
+  return {
+    resolveConfig: jest.fn().mockReturnValue({
+      source: "https://example.com/artifact.json",
+      port: 19700,
+      token: "test-token-12345678",
+      pollInterval: 30,
+      ageKey: "AGE-SECRET-KEY-1TESTKEY",
+      ageKeyFile: undefined,
+    }),
+    SecretsCache: jest.fn().mockImplementation(() => ({})),
+    AgeDecryptor: jest.fn().mockImplementation(() => ({
+      resolveKey: jest.fn().mockReturnValue("age-private-key"),
+    })),
+    ArtifactPoller: jest.fn().mockImplementation(() => ({
+      fetchAndDecrypt: jest.fn().mockResolvedValue(undefined),
+      start: jest.fn().mockResolvedValue(undefined),
+      stop: jest.fn(),
+    })),
+    startAgentServer: jest.fn().mockResolvedValue(mockServer),
+    Daemon: jest.fn().mockImplementation(() => mockDaemon),
+  };
+});
+
 const mockFormatter = formatter as jest.Mocked<typeof formatter>;
 const _mockExit = jest.spyOn(process, "exit").mockImplementation(() => undefined as never);
 
@@ -37,22 +71,6 @@ function makeProgram(runner: SubprocessRunner): Command {
   return program;
 }
 
-// Mock process.on to auto-resolve the SIGINT wait so tests don't hang
-function mockProcessSignals(): void {
-  jest.spyOn(process, "on").mockImplementation(function (
-    this: NodeJS.Process,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- matching overloaded process.on signature
-    event: any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- matching overloaded process.on signature
-    listener: any,
-  ) {
-    if (event === "SIGINT") {
-      setTimeout(() => listener(), 10);
-    }
-    return this;
-  } as NodeJS.Process["on"]);
-}
-
 describe("clef agent", () => {
   const originalEnv = { ...process.env };
 
@@ -60,7 +78,6 @@ describe("clef agent", () => {
     jest.clearAllMocks();
     process.env.CLEF_AGENT_SOURCE = "https://bucket.example.com/artifact.json";
     process.env.CLEF_AGENT_AGE_KEY = "AGE-SECRET-KEY-1TESTKEY";
-    mockProcessSignals();
   });
 
   afterEach(() => {
@@ -111,5 +128,18 @@ describe("clef agent", () => {
     await program.parseAsync(["node", "clef", "agent", "start", "--poll-interval", "60"]);
 
     expect(process.env.CLEF_AGENT_POLL_INTERVAL).toBe("60");
+  });
+
+  it("should truncate token in output", async () => {
+    const runner = makeRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "agent", "start"]);
+
+    // Token must not be fully exposed in printed output
+    const allPrintCalls = mockFormatter.print.mock.calls.map((c) => c[0]);
+    for (const msg of allPrintCalls) {
+      expect(msg).not.toContain("test-token-12345678");
+    }
   });
 });
