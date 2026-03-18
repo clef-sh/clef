@@ -92,7 +92,7 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
           const primaryDecrypted = await sopsClient.decrypt(primaryFilePath);
 
           // Merge values: primary first, then --also targets in order (later overrides earlier)
-          let mergedValues = { ...primaryDecrypted.values };
+          const mergedValues = { ...primaryDecrypted.values };
 
           for (const alsoTarget of options.also) {
             try {
@@ -104,15 +104,15 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
                   .replace("{environment}", alsoEnv),
               );
               const alsoDecrypted = await sopsClient.decrypt(alsoFilePath);
-              // Warn when --also overrides keys from a previous source
               for (const key of Object.keys(alsoDecrypted.values)) {
                 if (key in mergedValues) {
+                  if (!options.override) continue;
                   formatter.warn(
                     `--also '${alsoTarget}' overrides key '${key}' from a previous source.`,
                   );
                 }
+                mergedValues[key] = alsoDecrypted.values[key];
               }
-              mergedValues = { ...mergedValues, ...alsoDecrypted.values };
             } catch (err) {
               throw new Error(
                 `Failed to decrypt --also '${alsoTarget}': ${(err as Error).message}`,

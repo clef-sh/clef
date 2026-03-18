@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { registerUiCommand, isHeadless } from "./ui";
 import { SubprocessRunner } from "@clef-sh/core";
-import { startServer } from "@clef-sh/ui/dist/server";
+import { startServer } from "@clef-sh/ui";
 import { formatter } from "../output/formatter";
 
 jest.mock("../output/formatter", () => ({

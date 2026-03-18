@@ -7,6 +7,7 @@ import {
   SubprocessRunner,
   MatrixManager,
   ServiceIdentityManager,
+  PartialRotationError,
   keyPreview,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
@@ -74,6 +75,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           formatter.print(`  ${envName}:`);
           formatter.print(`    ${privateKey}\n`);
         }
+        for (const k of Object.keys(result.privateKeys)) result.privateKeys[k] = "";
         result.privateKeys = {};
 
         formatter.hint(`git add clef.yaml && git commit -m "feat: add service identity '${name}'"`);
@@ -285,6 +287,19 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
       } catch (err) {
         if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
           formatter.formatDependencyError(err);
+          process.exit(1);
+          return;
+        }
+        if (err instanceof PartialRotationError) {
+          formatter.error(err.message);
+          formatter.warn("Partial rotation succeeded. New private keys below — store them NOW.\n");
+          for (const [envName, privateKey] of Object.entries(err.rotatedKeys)) {
+            formatter.print(`  ${envName}:`);
+            formatter.print(`    ${privateKey}\n`);
+          }
+          for (const k of Object.keys(err.rotatedKeys)) {
+            (err.rotatedKeys as Record<string, string>)[k] = "";
+          }
           process.exit(1);
           return;
         }

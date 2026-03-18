@@ -32,7 +32,7 @@ interface PendingMetadata {
  */
 function metadataPath(encryptedFilePath: string): string {
   const dir = path.dirname(encryptedFilePath);
-  const base = path.basename(encryptedFilePath, ".enc.yaml");
+  const base = path.basename(encryptedFilePath).replace(/\.enc\.(yaml|json)$/, "");
   return path.join(dir, `${base}.clef-meta.yaml`);
 }
 

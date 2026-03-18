@@ -291,6 +291,84 @@ describe("clef set", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
+  describe("--all-envs", () => {
+    it("should set the same value in all environments", async () => {
+      mockFormatter.secretPrompt.mockResolvedValue("shared-secret");
+      const runner = sopsRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync(["node", "clef", "set", "payments", "API_KEY", "--all-envs"]);
+
+      expect(mockFormatter.success).toHaveBeenCalledWith(
+        expect.stringContaining("payments across all environments"),
+      );
+      // sops encrypt called once per environment
+      const encryptCalls = (runner.run as jest.Mock).mock.calls.filter(
+        (c) => c[0] === "sops" && c[1][0] === "encrypt",
+      );
+      expect(encryptCalls.length).toBe(2); // dev + production
+    });
+
+    it("should generate distinct random values per env with --random --all-envs", async () => {
+      const runner = sopsRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync([
+        "node",
+        "clef",
+        "set",
+        "payments",
+        "WEBHOOK_SECRET",
+        "--all-envs",
+        "--random",
+      ]);
+
+      expect(mockFormatter.success).toHaveBeenCalledWith(
+        expect.stringContaining("payments across all environments"),
+      );
+      expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("pending"));
+    });
+
+    it("should prompt for confirmation when protected envs exist", async () => {
+      mockFormatter.confirm.mockResolvedValueOnce(false);
+      const runner = sopsRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync(["node", "clef", "set", "payments", "API_KEY", "--all-envs"]);
+
+      expect(mockFormatter.info).toHaveBeenCalledWith("Aborted.");
+    });
+
+    it("should accept namespace/env format and extract namespace", async () => {
+      mockFormatter.secretPrompt.mockResolvedValue("value");
+      const runner = sopsRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync(["node", "clef", "set", "payments/dev", "API_KEY", "--all-envs"]);
+
+      expect(mockFormatter.success).toHaveBeenCalledWith(
+        expect.stringContaining("payments across all environments"),
+      );
+    });
+
+    it("should warn when value is passed as CLI argument", async () => {
+      const runner = sopsRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync([
+        "node",
+        "clef",
+        "set",
+        "payments",
+        "API_KEY",
+        "plain-text",
+        "--all-envs",
+      ]);
+
+      expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("shell history"));
+    });
+  });
+
   it("should handle dependency error and call formatDependencyError", async () => {
     const runner: SubprocessRunner = {
       run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {

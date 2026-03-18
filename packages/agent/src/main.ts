@@ -27,6 +27,8 @@ async function main(): Promise<void> {
     onError: (err) => console.error(`[clef-agent] poll error: ${err.message}`),
   });
 
+  await poller.fetchAndDecrypt();
+
   const server = await startAgentServer({
     port: config.port,
     token: config.token,
@@ -39,7 +41,7 @@ async function main(): Promise<void> {
     onLog: (msg) => console.log(`[clef-agent] ${msg}`),
   });
 
-  console.log(`[clef-agent] token: ${config.token}`);
+  console.log(`[clef-agent] token: ${config.token.slice(0, 8)}...`);
   await daemon.start();
 }
 

@@ -110,7 +110,7 @@ describe("resolveIdentitySecrets", () => {
       matrixManager,
     );
 
-    expect(result.values).toEqual({ "api/API_KEY": "key1", "database/DB_HOST": "localhost" });
+    expect(result.values).toEqual({ api__API_KEY: "key1", database__DB_HOST: "localhost" });
   });
 
   it("should throw if identity not found", async () => {
@@ -160,8 +160,8 @@ describe("resolveIdentitySecrets", () => {
     );
 
     // With multi-namespace, keys are prefixed, so no collision
-    expect(result.values["api/SAME_KEY"]).toBe("val_a");
-    expect(result.values["database/SAME_KEY"]).toBe("val_b");
+    expect(result.values["api__SAME_KEY"]).toBe("val_a");
+    expect(result.values["database__SAME_KEY"]).toBe("val_b");
   });
 
   it("should handle zero keys gracefully", async () => {

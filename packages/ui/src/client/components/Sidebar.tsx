@@ -2,7 +2,15 @@ import React from "react";
 import { theme } from "../theme";
 import type { ClefManifest, MatrixStatus, GitStatus as GitStatusType } from "@clef-sh/core";
 
-export type ViewName = "matrix" | "editor" | "diff" | "lint" | "scan" | "import" | "recipients";
+export type ViewName =
+  | "matrix"
+  | "editor"
+  | "diff"
+  | "lint"
+  | "scan"
+  | "import"
+  | "recipients"
+  | "history";
 
 interface SidebarProps {
   activeView: ViewName;
@@ -137,6 +145,12 @@ export function Sidebar({
           label="Recipients"
           active={activeView === "recipients"}
           onClick={() => setView("recipients")}
+        />
+        <NavItem
+          icon={"\u23F1"}
+          label="History"
+          active={activeView === "history"}
+          onClick={() => setView("history")}
         />
 
         <div style={{ marginTop: 20, marginBottom: 6, padding: "0 8px" }}>
