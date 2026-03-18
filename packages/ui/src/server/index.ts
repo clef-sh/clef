@@ -79,7 +79,7 @@ function mountSeaStaticRoutes(
   });
 
   // SPA fallback — anything unmatched gets index.html
-  app.get("*", limiter, (_req: Request, res: Response, next: NextFunction) => {
+  app.get("/{*splat}", limiter, (_req: Request, res: Response, next: NextFunction) => {
     serveAsset("client/index.html", res, next);
   });
 }
@@ -164,7 +164,7 @@ export async function startServer(
   app.use(staticLimiter, express.static(resolvedClientDir));
 
   // SPA fallback — serve index.html for non-API routes
-  app.get("*", staticLimiter, (_req, res) => {
+  app.get("/{*splat}", staticLimiter, (_req, res) => {
     res.sendFile(path.join(resolvedClientDir, "index.html"));
   });
 

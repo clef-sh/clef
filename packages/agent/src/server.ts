@@ -70,7 +70,7 @@ export function startAgentServer(options: AgentServerOptions): Promise<AgentServ
   });
 
   // GET /v1/secrets/:key — single secret
-  app.get("/v1/secrets/:key", (req: Request, res: Response) => {
+  app.get("/v1/secrets/:key", (req: Request<{ key: string }>, res: Response) => {
     const value = cache.get(req.params.key);
     if (value === undefined) {
       res.status(404).json({ error: `Secret '${req.params.key}' not found` });

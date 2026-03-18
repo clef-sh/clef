@@ -82,10 +82,19 @@ export class ReportSanitizer {
       { namespace: string; targetEnv: string; sourceEnvs: string; count: number }
     >();
     for (const issue of driftIssues) {
-      const match = issue.message.match(/is missing in (\S+) but present in (.+)\.$/);
-      if (!match) continue;
-      const targetEnv = match[1];
-      const sourceEnvs = match[2];
+      // Use indexOf/lastIndexOf instead of a regex with unbounded quantifiers to
+      // avoid ReDoS on uncontrolled `issue.message` input.
+      const prefix = "is missing in ";
+      const middle = " but present in ";
+      const pi = issue.message.indexOf(prefix);
+      if (pi === -1) continue;
+      const afterPrefix = issue.message.indexOf(middle, pi + prefix.length);
+      if (afterPrefix === -1) continue;
+      const targetEnv = issue.message.slice(pi + prefix.length, afterPrefix);
+      if (!targetEnv || /\s/.test(targetEnv)) continue;
+      const rest = issue.message.slice(afterPrefix + middle.length);
+      if (!rest.endsWith(".")) continue;
+      const sourceEnvs = rest.slice(0, -1);
       const namespace = this.extractNamespace(issue.file);
       const groupKey = `${namespace}|${targetEnv}|${sourceEnvs}`;
       const existing = driftGroups.get(groupKey);

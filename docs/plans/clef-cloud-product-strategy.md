@@ -27,13 +27,13 @@ The cloud product is not a top-down sale to security teams. It's a bottom-up ado
 
 The cloud product serves **anyone who needs visibility beyond a single repo checkout**:
 
-| Audience | Primary need | What they use |
-|---|---|---|
-| **Developer** (hands-on-keyboard) | Manage secrets, resolve drift | CLI + local UI |
-| **Developer** (operational awareness) | Cross-repo status, troubleshooting, incident triage | Cloud dashboard |
-| **Engineering manager / team lead** | "Which teams have secrets out of date?" | Cloud dashboard |
-| **Security / platform engineer** | Governance, compliance posture, access maps | Cloud dashboard + policy engine |
-| **Compliance auditor** | Evidence for SOC2/HIPAA/PCI-DSS | Exported reports (via security team) |
+| Audience                              | Primary need                                        | What they use                        |
+| ------------------------------------- | --------------------------------------------------- | ------------------------------------ |
+| **Developer** (hands-on-keyboard)     | Manage secrets, resolve drift                       | CLI + local UI                       |
+| **Developer** (operational awareness) | Cross-repo status, troubleshooting, incident triage | Cloud dashboard                      |
+| **Engineering manager / team lead**   | "Which teams have secrets out of date?"             | Cloud dashboard                      |
+| **Security / platform engineer**      | Governance, compliance posture, access maps         | Cloud dashboard + policy engine      |
+| **Compliance auditor**                | Evidence for SOC2/HIPAA/PCI-DSS                     | Exported reports (via security team) |
 
 The key insight: the developer isn't just the adoption engine — they're the **internal advocate**. They've already internalized the mental model (namespaces, matrix, drift). When the security team asks "how do we get org-wide visibility?" the developer says "we already use Clef." The developer pain is the wedge; the security team signs the contract.
 
