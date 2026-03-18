@@ -14,7 +14,7 @@
     "@tailwindcss/vite": "^4.0.0",
     "astro": "^6.0.0-beta.20",
     "tailwindcss": "^4.0.0",
-    "wrangler": "^4.72.0"
+    "wrangler": "^4.75.0"
   },
   "engines": {
     "node": ">=18"
