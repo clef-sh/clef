@@ -5,13 +5,25 @@
   "description": "Local web UI for Clef — git-native secrets management",
   "main": "dist/server/index.js",
   "types": "dist/server/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/server/index.d.ts",
+      "default": "./dist/server/index.js"
+    },
+    "./client": {
+      "types": "./dist/client-lib/index.d.ts",
+      "default": "./src/client/index.ts"
+    }
+  },
   "files": [
-    "dist"
+    "dist",
+    "src/client"
   ],
   "scripts": {
-    "build": "npm run build:client && npm run build:server",
+    "build": "npm run build:client && npm run build:server && npm run build:client-lib",
     "build:client": "vite build",
     "build:server": "tsc",
+    "build:client-lib": "tsc -p tsconfig.client.json",
     "dev": "vite",
     "test": "jest",
     "test:coverage": "jest --coverage"
