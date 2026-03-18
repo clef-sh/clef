@@ -20,6 +20,7 @@ describe("Daemon", () => {
     mockServer = {
       url: "http://127.0.0.1:7779",
       stop: jest.fn().mockResolvedValue(undefined),
+      address: jest.fn().mockReturnValue({ address: "127.0.0.1", family: "IPv4", port: 7779 }),
     };
 
     // Capture signal handlers without actually registering them on the real process

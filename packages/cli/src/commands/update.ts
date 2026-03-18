@@ -75,11 +75,8 @@ export function registerUpdateCommand(program: Command, deps: { runner: Subproce
           return;
         }
 
-        if (failedCount > 0) {
-          formatter.error(`${failedCount} cell(s) could not be scaffolded.`);
-          process.exit(1);
-          return;
-        }
+        formatter.error(`${failedCount} cell(s) could not be scaffolded.`);
+        process.exit(1);
       } catch (err) {
         if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
           formatter.formatDependencyError(err);

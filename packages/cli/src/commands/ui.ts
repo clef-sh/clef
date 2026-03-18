@@ -39,7 +39,7 @@ export function registerUiCommand(program: Command, deps: { runner: SubprocessRu
 
       // Lazy-load @clef-sh/ui so the CLI doesn't fail at startup when the UI
       // module hasn't been resolved yet for commands other than `clef ui`.
-      const uiModule = await import("@clef-sh/ui/dist/server");
+      const uiModule = await import("@clef-sh/ui");
       const { startServer } = uiModule as {
         startServer: (
           port: number,

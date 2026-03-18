@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import * as path from "path";
 import { GitCommit, GitOperationError, GitStatus, SubprocessRunner } from "../types";
 
@@ -251,8 +252,9 @@ export class GitIntegration {
     const gitConfig = configResult.exitCode === 0 && configResult.stdout.trim().length > 0;
 
     // Check .gitattributes
-    const catResult = await this.runner.run("cat", [path.join(repoRoot, ".gitattributes")]);
-    const gitattributes = catResult.exitCode === 0 && catResult.stdout.includes("merge=sops");
+    const attrFilePath = path.join(repoRoot, ".gitattributes");
+    const attrContent = fs.existsSync(attrFilePath) ? fs.readFileSync(attrFilePath, "utf-8") : "";
+    const gitattributes = attrContent.includes("merge=sops");
 
     return { gitConfig, gitattributes };
   }
@@ -262,8 +264,7 @@ export class GitIntegration {
     const mergeRule = "*.enc.yaml merge=sops\n*.enc.json merge=sops";
 
     // Read existing content
-    const catResult = await this.runner.run("cat", [attrPath]);
-    const existing = catResult.exitCode === 0 ? catResult.stdout : "";
+    const existing = fs.existsSync(attrPath) ? fs.readFileSync(attrPath, "utf-8") : "";
 
     if (existing.includes("merge=sops")) {
       return; // Already configured

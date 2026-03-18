@@ -68,8 +68,7 @@ verify_checksum() {
   elif command -v shasum >/dev/null 2>&1; then
     actual=$(shasum -a 256 "$file" | awk '{print $1}')
   else
-    warn "No sha256sum or shasum found — skipping checksum verification"
-    return 0
+    fatal "No sha256sum or shasum found — cannot verify checksum"
   fi
   if [ "$actual" != "$expected" ]; then
     fatal "Checksum mismatch for $(basename "$file"): expected $expected, got $actual"

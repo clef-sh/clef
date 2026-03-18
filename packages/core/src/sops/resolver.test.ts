@@ -1,11 +1,13 @@
 import * as fs from "fs";
 import { resolveSopsPath, resetSopsResolution } from "./resolver";
+import { tryBundled } from "./bundled";
 
 jest.mock("fs");
 jest.mock("./bundled", () => ({
   tryBundled: jest.fn().mockReturnValue(null),
 }));
 const mockFs = fs as jest.Mocked<typeof fs>;
+const mockTryBundled = tryBundled as jest.MockedFunction<typeof tryBundled>;
 
 describe("resolveSopsPath", () => {
   const originalEnv = process.env.CLEF_SOPS_PATH;
@@ -73,6 +75,24 @@ describe("resolveSopsPath", () => {
 
     expect(result.source).toBe("env");
     expect(result.path).toBe("/explicit/override");
+  });
+
+  it("should return bundled source when tryBundled returns a path", () => {
+    mockTryBundled.mockReturnValueOnce("/path/to/bundled/sops");
+
+    const result = resolveSopsPath();
+
+    expect(result.source).toBe("bundled");
+    expect(result.path).toBe("/path/to/bundled/sops");
+  });
+
+  it("should not use system PATH when bundled package is available", () => {
+    mockTryBundled.mockReturnValueOnce("/path/to/bundled/sops");
+
+    const result = resolveSopsPath();
+
+    expect(result.source).not.toBe("system");
+    expect(result.path).not.toBe("sops");
   });
 
   it("should reject relative CLEF_SOPS_PATH", () => {

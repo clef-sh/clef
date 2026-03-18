@@ -1,17 +1,26 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ES2022",
     "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "outDir": "dist/client-lib",
+    "rootDir": "src/client",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "jsx": "react-jsx",
-    "outDir": "dist/client",
-    "declaration": false
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": true,
+    "jsx": "react-jsx"
   },
-  "include": ["src/client/**/*.ts", "src/client/**/*.tsx"],
+  "include": [
+    "src/client/index.ts",
+    "src/client/theme.ts",
+    "src/client/api.ts",
+    "src/client/components/**/*.ts",
+    "src/client/components/**/*.tsx"
+  ],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }

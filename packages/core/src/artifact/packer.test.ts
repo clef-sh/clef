@@ -186,8 +186,8 @@ describe("ArtifactPacker", () => {
     expect(result.keyCount).toBe(2);
 
     const written: PackedArtifact = JSON.parse(String(mockFs.writeFileSync.mock.calls[0][1]));
-    expect(written.keys).toContain("api/API_KEY");
-    expect(written.keys).toContain("database/DB_HOST");
+    expect(written.keys).toContain("api__API_KEY");
+    expect(written.keys).toContain("database__DB_HOST");
   });
 
   it("should not contain plaintext secret values in the artifact", async () => {

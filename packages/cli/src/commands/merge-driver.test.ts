@@ -366,6 +366,8 @@ describe("clef merge-driver", () => {
     expect(mockFormatter.failure).toHaveBeenCalledWith(expect.stringContaining("base:"));
     expect(mockFormatter.failure).toHaveBeenCalledWith(expect.stringContaining("ours:"));
     expect(mockFormatter.failure).toHaveBeenCalledWith(expect.stringContaining("theirs:"));
+    // "(has value)" label should appear for keys that exist in base/ours/theirs
+    expect(mockFormatter.failure).toHaveBeenCalledWith(expect.stringContaining("(has value)"));
     // Values must NOT appear in the output — only "(has value)" / "(deleted)" / "(absent)"
     const allFailureCalls = mockFormatter.failure.mock.calls.map((c) => c[0]);
     for (const msg of allFailureCalls) {
