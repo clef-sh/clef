@@ -13,6 +13,36 @@ The market currently offers two extremes — full-trust platforms (Vault, cloud 
 
 ---
 
+## Go-to-Market: Developer-First Adoption Funnel
+
+The cloud product is not a top-down sale to security teams. It's a bottom-up adoption play where the developer is both the top of the funnel and the internal champion.
+
+### The Funnel
+
+1. **Developer adopts the CLI** (MIT, zero friction) — solves their immediate problem of managing encrypted secrets in git. No account, no SaaS dependency.
+2. **Developer hits the single-repo visibility ceiling** — they can't see drift across repos, can't show a PM or incident commander the current state without asking them to run CLI commands, can't answer "is staging missing a secret?" across 5 repos without cloning each one.
+3. **That pain becomes the upsell trigger** — the developer either champions the cloud product internally ("we're already using Clef, they have a dashboard") or the security team discovers Clef is already adopted and wants the governance layer on top.
+
+### Who Uses What
+
+The cloud product serves **anyone who needs visibility beyond a single repo checkout**:
+
+| Audience | Primary need | What they use |
+|---|---|---|
+| **Developer** (hands-on-keyboard) | Manage secrets, resolve drift | CLI + local UI |
+| **Developer** (operational awareness) | Cross-repo status, troubleshooting, incident triage | Cloud dashboard |
+| **Engineering manager / team lead** | "Which teams have secrets out of date?" | Cloud dashboard |
+| **Security / platform engineer** | Governance, compliance posture, access maps | Cloud dashboard + policy engine |
+| **Compliance auditor** | Evidence for SOC2/HIPAA/PCI-DSS | Exported reports (via security team) |
+
+The key insight: the developer isn't just the adoption engine — they're the **internal advocate**. They've already internalized the mental model (namespaces, matrix, drift). When the security team asks "how do we get org-wide visibility?" the developer says "we already use Clef." The developer pain is the wedge; the security team signs the contract.
+
+### Positioning Implication
+
+Frame the cloud product as **"the view your developers already want but can't get from the CLI alone"** — not just "governance for security teams." Lead with the developer's unmet need (cross-repo visibility, stakeholder communication, incident troubleshooting), then layer on compliance and policy enforcement for the buyer.
+
+---
+
 ## Product Tiers
 
 ### Tier 1: Clef OSS (MIT)

@@ -21,6 +21,7 @@ import { registerServiceCommand } from "./commands/service";
 import { registerPackCommand } from "./commands/pack";
 import { registerDriftCommand } from "./commands/drift";
 import { registerAgentCommand } from "./commands/agent";
+import { registerReportCommand } from "./commands/report";
 import { formatter } from "./output/formatter";
 import { setPlainMode, isPlainMode, symbols } from "./output/symbols";
 import pkg from "../package.json";
@@ -93,6 +94,7 @@ registerServiceCommand(program, deps);
 registerPackCommand(program, deps);
 registerDriftCommand(program, deps);
 registerAgentCommand(program, deps);
+registerReportCommand(program, deps);
 
 program.parseAsync(process.argv).catch((err) => {
   formatter.error(err.message);

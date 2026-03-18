@@ -534,3 +534,90 @@ export interface DependencyStatus {
   /** `null` if `git` is not installed or version could not be parsed. */
   git: DependencyVersion | null;
 }
+
+// ── Report ───────────────────────────────────────────────────────────────────
+
+/** Schema version for {@link ClefReport}. Increment when the shape changes. */
+export const CLEF_REPORT_SCHEMA_VERSION = 1;
+
+/** Repository identity fields included at the top of every report. */
+export interface ReportRepoIdentity {
+  repoOrigin: string;
+  commitSha: string;
+  branch: string;
+  commitTimestamp: string;
+  reportGeneratedAt: string;
+  clefVersion: string;
+  sopsVersion: string | null;
+}
+
+/** Manifest structure summary included in a report. */
+export interface ReportManifestStructure {
+  manifestVersion: number;
+  filePattern: string;
+  environments: { name: string; protected: boolean }[];
+  namespaces: { name: string; hasSchema: boolean; owners: string[] }[];
+  defaultBackend: string;
+}
+
+/** SOPS metadata for a single matrix cell. */
+export interface ReportCellMetadata {
+  backend: string;
+  recipients: string[];
+  lastModified: string | null;
+}
+
+/** A single cell in the matrix as represented in a report. */
+export interface ReportMatrixCell {
+  namespace: string;
+  environment: string;
+  filePath: string;
+  exists: boolean;
+  keyCount: number;
+  pendingCount: number;
+  metadata: ReportCellMetadata | null;
+}
+
+/** A sanitized policy issue — key names are never present. */
+export interface ReportPolicyIssue {
+  severity: LintSeverity;
+  category: string;
+  file?: string;
+  namespace?: string;
+  environment?: string;
+  message: string;
+  count?: number;
+  driftCount?: number;
+  sourceEnvironment?: string;
+  targetEnvironment?: string;
+}
+
+/** Aggregated counts of policy issues by severity. */
+export interface ReportIssueCounts {
+  error: number;
+  warning: number;
+  info: number;
+}
+
+/** Policy section of a report: aggregated counts and sanitized issues. */
+export interface ReportPolicy {
+  issueCount: ReportIssueCounts;
+  issues: ReportPolicyIssue[];
+}
+
+/** Summary of a single recipient across all matrix cells. */
+export interface ReportRecipientSummary {
+  type: string;
+  environments: string[];
+  fileCount: number;
+}
+
+/** Top-level structure for a `clef report` output. */
+export interface ClefReport {
+  schemaVersion: number;
+  repoIdentity: ReportRepoIdentity;
+  manifest: ReportManifestStructure;
+  matrix: ReportMatrixCell[];
+  policy: ReportPolicy;
+  recipients: Record<string, ReportRecipientSummary>;
+}
