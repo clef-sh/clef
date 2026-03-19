@@ -1,4 +1,6 @@
 import * as path from "path";
+import * as os from "os";
+import { execFileSync, spawn } from "child_process";
 import { Router, Request, Response } from "express";
 import {
   ManifestParser,
@@ -35,20 +37,72 @@ export function createApiRouter(deps: ApiDeps): Router {
   const router = Router();
   const parser = new ManifestParser();
   const matrix = new MatrixManager();
-  // Wrap the runner so sops subprocesses always run from the repo root
-  // and always receive an explicit config path via $SOPS_CONFIG.
+  // Wrap the runner so sops subprocesses always run from the repo root,
+  // receive an explicit config path via $SOPS_CONFIG, and work around
+  // /dev/stdin failures on Linux.
   //
-  // Why? When encrypting from stdin (/dev/stdin), sops walks up from the
-  // *input file* to discover .sops.yaml. On Linux /dev/stdin resolves to
-  // /dev/ → / which never finds the repo's .sops.yaml. Setting SOPS_CONFIG
-  // bypasses file-path-based discovery entirely.
+  // Problem: SopsClient.encrypt passes /dev/stdin as the input file.
+  // On Linux /dev/stdin → /proc/self/fd/0 which fails with ENXIO when
+  // the Node SEA binary was spawned with stdin detached.
+  //
+  // Fix: when we see /dev/stdin in the args AND stdin content in opts,
+  // replace it with a FIFO (named pipe). A FIFO is an in-memory kernel
+  // buffer — plaintext never touches disk. The FIFO is cleaned up after
+  // the subprocess exits.
   const sopsRunner: SubprocessRunner = {
-    run: (cmd, args, opts) =>
-      deps.runner.run(cmd, args, {
-        ...opts,
-        cwd: opts?.cwd ?? deps.repoRoot,
-        env: { SOPS_CONFIG: path.join(deps.repoRoot, ".sops.yaml"), ...opts?.env },
-      }),
+    run: (cmd, args, opts) => {
+      const stdinIdx = args.indexOf("/dev/stdin");
+      // /dev/stdin works on macOS but fails on Linux when the Node SEA binary's
+      // stdin is detached (/dev/stdin → /proc/self/fd/0 → ENXIO). Only use the
+      // FIFO workaround on Linux.
+      const needsFifo = stdinIdx >= 0 && opts?.stdin !== undefined && process.platform === "linux";
+
+      if (!needsFifo) {
+        return deps.runner.run(cmd, args, {
+          ...opts,
+          cwd: opts?.cwd ?? deps.repoRoot,
+          env: { SOPS_CONFIG: path.join(deps.repoRoot, ".sops.yaml"), ...opts?.env },
+        });
+      }
+
+      // Create a FIFO and feed stdin content through a background process
+      const fifoDir = execFileSync("mktemp", ["-d", path.join(os.tmpdir(), "clef-fifo-XXXXXX")])
+        .toString()
+        .trim();
+      const fifoPath = path.join(fifoDir, "input");
+      execFileSync("mkfifo", [fifoPath]);
+
+      // Background writer — blocks at OS level until sops opens the read end
+      const writer = spawn("dd", [`of=${fifoPath}`, "status=none"], {
+        stdio: ["pipe", "ignore", "ignore"],
+      });
+      writer.stdin.write(opts.stdin);
+      writer.stdin.end();
+
+      const patchedArgs = [...args];
+      patchedArgs[stdinIdx] = fifoPath;
+
+      const { stdin: _stdin, ...restOpts } = opts;
+
+      return deps.runner
+        .run(cmd, patchedArgs, {
+          ...restOpts,
+          cwd: restOpts?.cwd ?? deps.repoRoot,
+          env: { SOPS_CONFIG: path.join(deps.repoRoot, ".sops.yaml"), ...restOpts?.env },
+        })
+        .finally(() => {
+          try {
+            writer.kill();
+          } catch {
+            /* already exited */
+          }
+          try {
+            execFileSync("rm", ["-rf", fifoDir]);
+          } catch {
+            /* best effort */
+          }
+        });
+    },
   };
   const sops = new SopsClient(sopsRunner, deps.ageKeyFile, deps.ageKey, deps.sopsPath);
   const diffEngine = new DiffEngine();
