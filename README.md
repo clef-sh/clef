@@ -1,4 +1,4 @@
-# Clef
+# 🎼 Clef
 
 [![CI](https://github.com/clef-sh/clef/actions/workflows/ci.yml/badge.svg)](https://github.com/clef-sh/clef/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
