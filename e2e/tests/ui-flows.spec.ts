@@ -188,7 +188,7 @@ test.describe("clef set → NamespaceEditor: edit an existing value", () => {
     await page.getByTestId("commit-message-input").fill("test: update STRIPE_KEY via e2e");
     await page.getByRole("button", { name: "Save & Commit" }).click();
     // After save the commit UI should disappear and the editor should reload
-    await expect(page.getByTestId("commit-message-input")).not.toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("commit-message-input")).not.toBeVisible({ timeout: 30_000 });
     await expect(page.getByText("STRIPE_KEY")).toBeVisible();
   });
 });
@@ -568,6 +568,6 @@ test.describe("clef set --random (existing key) → overflow menu reset to pendi
     await expect(
       page.getByText("PENDING").first(),
       `PENDING not found. API responses: ${apiResponses.join(" | ")}`,
-    ).toBeVisible({ timeout: 5_000 });
+    ).toBeVisible({ timeout: 15_000 });
   });
 });

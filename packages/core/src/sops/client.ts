@@ -46,7 +46,13 @@ function openWindowsInputPipe(content: string): Promise<{ inputArg: string; clea
 
   return new Promise((resolve, reject) => {
     const server = net.createServer((socket) => {
-      socket.end(content);
+      // On Windows, socket.end() does not reliably signal EOF to named pipe
+      // clients because libuv's uv_shutdown is a no-op for pipes. Write the
+      // content and then force-destroy the socket so the pipe handle is closed,
+      // which the Go client (sops) sees as ERROR_BROKEN_PIPE → io.EOF.
+      socket.write(content, () => {
+        socket.destroy();
+      });
     });
     server.maxConnections = 1;
     server.on("error", reject);
