@@ -82,12 +82,13 @@ Split client (Vite/React) and server (Express). Server binds `127.0.0.1` only. V
 
 ## After Every Change
 
-Always run these two commands from the repo root before considering a task done:
+Always run these commands from the repo root before considering a task done:
 
 ```bash
 npm run lint          # must pass with zero errors
 npm run test:coverage # must meet all coverage thresholds
 npm run format:check  # must pass with no formatting issues
+npm run test:e2e      # must pass with zero failures (builds SEA binary + runs Playwright)
 ```
 
 ## Test Coverage Thresholds

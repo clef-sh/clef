@@ -35,12 +35,20 @@ export function createApiRouter(deps: ApiDeps): Router {
   const router = Router();
   const parser = new ManifestParser();
   const matrix = new MatrixManager();
-  // Wrap the runner so sops subprocesses always run from the repo root.
-  // This ensures sops finds .sops.yaml via working-directory discovery,
-  // even when the server process CWD differs (e.g. e2e / CI environments).
+  // Wrap the runner so sops subprocesses always run from the repo root
+  // and always receive an explicit config path via $SOPS_CONFIG.
+  //
+  // Why? When encrypting from stdin (/dev/stdin), sops walks up from the
+  // *input file* to discover .sops.yaml. On Linux /dev/stdin resolves to
+  // /dev/ → / which never finds the repo's .sops.yaml. Setting SOPS_CONFIG
+  // bypasses file-path-based discovery entirely.
   const sopsRunner: SubprocessRunner = {
     run: (cmd, args, opts) =>
-      deps.runner.run(cmd, args, { ...opts, cwd: opts?.cwd ?? deps.repoRoot }),
+      deps.runner.run(cmd, args, {
+        ...opts,
+        cwd: opts?.cwd ?? deps.repoRoot,
+        env: { SOPS_CONFIG: path.join(deps.repoRoot, ".sops.yaml"), ...opts?.env },
+      }),
   };
   const sops = new SopsClient(sopsRunner, deps.ageKeyFile, deps.ageKey, deps.sopsPath);
   const diffEngine = new DiffEngine();
