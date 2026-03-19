@@ -5,6 +5,7 @@ import * as path from "path";
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const SEA_BINARY = path.join(REPO_ROOT, "packages/cli/dist/clef");
+const NODE_ENTRY = path.join(REPO_ROOT, "packages/cli/bin/clef.js");
 
 export interface ServerInfo {
   /** Full tokenized URL, e.g. http://127.0.0.1:49321?token=<hex> */
@@ -25,27 +26,46 @@ function findFreePort(): Promise<number> {
 }
 
 /**
- * Spawn the SEA binary and run `clef ui`.
+ * Spawn `clef ui` and wait for the tokenized URL.
  *
- * Waits for the process to print the tokenized URL to stdout, then resolves
- * with that URL and a stop() function. The SEA binary is the blackbox under
- * test — no internal modules are imported directly.
+ * Two modes controlled by `CLEF_E2E_MODE`:
+ *   - `"sea"` (default): uses the SEA binary at packages/cli/dist/clef
+ *   - `"node"`:           uses `node packages/cli/bin/clef.js`
  *
  * @param repoDir   Path to the scaffolded Clef test repository.
  * @param ageKeyFilePath  Path to the age key file for SOPS decryption.
  */
 export async function startClefUI(repoDir: string, ageKeyFilePath: string): Promise<ServerInfo> {
-  if (!fs.existsSync(SEA_BINARY)) {
-    throw new Error(
-      `SEA binary not found at ${SEA_BINARY}.\n` +
-        `Build it first: npm run build:sea -w packages/cli`,
-    );
+  const mode = (process.env.CLEF_E2E_MODE ?? "sea") as "sea" | "node";
+
+  let command: string;
+  let args: string[];
+
+  if (mode === "node") {
+    if (!fs.existsSync(NODE_ENTRY)) {
+      throw new Error(
+        `CLI entry not found at ${NODE_ENTRY}.\n` +
+          `Build first: npm run build -w packages/core && npm run build -w packages/ui && npm run build -w packages/cli`,
+      );
+    }
+    command = process.execPath; // node
+    args = [NODE_ENTRY, "--dir", repoDir, "ui", "--no-open", "--port"];
+  } else {
+    const bin = process.platform === "win32" ? SEA_BINARY + ".exe" : SEA_BINARY;
+    if (!fs.existsSync(bin)) {
+      throw new Error(
+        `SEA binary not found at ${bin}.\n` + `Build it first: npm run build:sea -w packages/cli`,
+      );
+    }
+    command = bin;
+    args = ["--dir", repoDir, "ui", "--no-open", "--port"];
   }
 
   const port = await findFreePort();
+  args.push(String(port));
 
   return new Promise<ServerInfo>((resolve, reject) => {
-    const proc = spawn(SEA_BINARY, ["--dir", repoDir, "ui", "--no-open", "--port", String(port)], {
+    const proc = spawn(command, args, {
       cwd: repoDir,
       env: {
         ...process.env,
