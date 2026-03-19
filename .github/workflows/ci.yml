@@ -202,10 +202,6 @@ jobs:
             runner: ubuntu-24.04-arm
             sops_asset: sops-v${SOPS_VERSION}.linux.arm64
             mode: sea
-          - label: sea-macos-x64
-            runner: macos-13
-            sops_asset: sops-v${SOPS_VERSION}.darwin.amd64
-            mode: sea
           - label: sea-macos-arm64
             runner: macos-latest
             sops_asset: sops-v${SOPS_VERSION}.darwin.arm64
@@ -239,8 +235,8 @@ jobs:
           URL="https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/${ASSET}"
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             curl -Lo "$RUNNER_TEMP/sops.exe" "$URL"
-            cp "$RUNNER_TEMP/sops.exe" /usr/bin/sops.exe
-            sops.exe --version
+            echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+            "$RUNNER_TEMP/sops.exe" --version
           else
             curl -Lo /usr/local/bin/sops "$URL"
             chmod +x /usr/local/bin/sops
@@ -257,7 +253,13 @@ jobs:
       - name: Run E2E (Node)
         if: matrix.mode == 'node'
         shell: bash
-        run: npm run test:e2e:node
+        env:
+          CLEF_E2E_MODE: node
+        run: |
+          npm run build -w packages/core
+          npm run build -w packages/ui
+          npm run build -w packages/cli
+          cd e2e && npm ci && npx playwright install --with-deps chromium && npx playwright test
 
       - uses: actions/upload-artifact@v7
         if: failure()

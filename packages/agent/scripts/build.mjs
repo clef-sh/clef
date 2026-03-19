@@ -116,7 +116,10 @@ async function buildSea() {
     }
   }
 
-  const postjectBin = resolve(repoRoot, "node_modules/.bin/postject");
+  const postjectBin = resolve(
+    repoRoot,
+    process.platform === "win32" ? "node_modules/.bin/postject.cmd" : "node_modules/.bin/postject",
+  );
   const postjectArgs = [
     outBinary,
     "NODE_SEA_BLOB",
@@ -127,7 +130,11 @@ async function buildSea() {
   if (process.platform === "darwin") {
     postjectArgs.push("--macho-segment-name", "NODE_SEA");
   }
-  execFileSync(postjectBin, postjectArgs, { cwd: packageRoot, stdio: "inherit" });
+  execFileSync(postjectBin, postjectArgs, {
+    cwd: packageRoot,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
 
   if (process.platform === "darwin") {
     try {

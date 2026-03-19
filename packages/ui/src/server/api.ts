@@ -3,19 +3,11 @@ import * as os from "os";
 import { execFileSync, spawn } from "child_process";
 import { Router, Request, Response } from "express";
 
-// On Linux, Node SEA binaries use socketpairs (not pipes) for child stdio.
-// Go's os.Open("/dev/stdin") re-opens /proc/self/fd/0 which fails with ENXIO
-// on socketpairs. Detect this at startup so the sopsRunner can use a FIFO.
-function isLinuxSea(): boolean {
-  if (process.platform !== "linux") return false;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return (require("node:sea") as { isSea(): boolean }).isSea();
-  } catch {
-    return false;
-  }
-}
-const _useStdinFifo = isLinuxSea();
+// On Linux, libuv creates socketpairs for child stdio. Go's os.Open on
+// /dev/stdin re-opens /proc/self/fd/0 which fails with ENXIO on socketpairs.
+// Use a FIFO workaround on Linux, but not inside Jest (where the runner is
+// mocked and real subprocesses are never spawned).
+const _useStdinFifo = process.platform === "linux" && !process.env.JEST_WORKER_ID;
 import {
   ManifestParser,
   MatrixManager,
