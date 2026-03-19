@@ -60,7 +60,7 @@ jobs:
         working-directory: packages/core
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public
+          npm publish --tag beta --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -68,7 +68,7 @@ jobs:
         working-directory: packages/agent
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public
+          npm publish --tag beta --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -76,7 +76,7 @@ jobs:
         working-directory: packages/cli
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public
+          npm publish --tag beta --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
