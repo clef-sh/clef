@@ -24,7 +24,10 @@ export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
       { name: "production", description: "Production", protected: true },
     ],
     namespaces: [{ name: "payments", description: "Payment secrets" }],
-    sops: { default_backend: "age" },
+    sops: {
+      default_backend: "age",
+      age: { recipients: [keys.publicKey] },
+    },
     file_pattern: "{namespace}/{environment}.enc.yaml",
   };
 

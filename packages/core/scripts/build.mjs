@@ -94,8 +94,12 @@ await build({
 // etc.), so the full tree must be present under dist/.
 
 console.log("Generating declarations...");
+const tscBin = resolve(
+  repoRoot,
+  process.platform === "win32" ? "node_modules/.bin/tsc.cmd" : "node_modules/.bin/tsc",
+);
 execFileSync(
-  resolve(repoRoot, "node_modules/.bin/tsc"),
+  tscBin,
   [
     "--project",
     resolve(packageRoot, "tsconfig.json"),
@@ -103,7 +107,7 @@ execFileSync(
     "--outDir",
     resolve(packageRoot, "dist"),
   ],
-  { cwd: packageRoot, stdio: "inherit" },
+  { cwd: packageRoot, stdio: "inherit", shell: process.platform === "win32" },
 );
 
 // ESM consumers get the same entry declaration with .d.mts extension

@@ -65,7 +65,15 @@ rmSync(resolve(packageRoot, "dist"), { recursive: true, force: true });
 // ── Library build — tsc (declarations + CJS for npm consumers) ────────────────
 
 console.log("Building library (tsc)...");
-execFileSync("npx", ["tsc"], { cwd: packageRoot, stdio: "inherit" });
+const tscBin = resolve(
+  repoRoot,
+  process.platform === "win32" ? "node_modules/.bin/tsc.cmd" : "node_modules/.bin/tsc",
+);
+execFileSync(tscBin, ["--project", resolve(packageRoot, "tsconfig.json")], {
+  cwd: packageRoot,
+  stdio: "inherit",
+  shell: process.platform === "win32",
+});
 
 // ── CJS single-file bundle — dist/agent.cjs (SEA input) ──────────────────────
 
@@ -116,7 +124,10 @@ async function buildSea() {
     }
   }
 
-  const postjectBin = resolve(repoRoot, "node_modules/.bin/postject");
+  const postjectBin = resolve(
+    repoRoot,
+    process.platform === "win32" ? "node_modules/.bin/postject.cmd" : "node_modules/.bin/postject",
+  );
   const postjectArgs = [
     outBinary,
     "NODE_SEA_BLOB",
@@ -127,7 +138,11 @@ async function buildSea() {
   if (process.platform === "darwin") {
     postjectArgs.push("--macho-segment-name", "NODE_SEA");
   }
-  execFileSync(postjectBin, postjectArgs, { cwd: packageRoot, stdio: "inherit" });
+  execFileSync(postjectBin, postjectArgs, {
+    cwd: packageRoot,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
 
   if (process.platform === "darwin") {
     try {
