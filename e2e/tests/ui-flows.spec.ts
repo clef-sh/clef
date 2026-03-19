@@ -215,7 +215,20 @@ test.describe("clef set (new key) → NamespaceEditor: add a key", () => {
     await page.getByTestId("add-key-btn").click();
     await page.getByTestId("new-key-input").fill("PLAYWRIGHT_NEW_KEY");
     await page.getByTestId("new-value-input").fill("newvalue123");
+    const putPromise = page.waitForResponse(
+      (r) => r.url().includes("/api/namespace/") && r.request().method() === "PUT",
+    );
     await page.getByTestId("add-key-submit").click();
+    const putRes = await putPromise;
+    let putBody = "";
+    try {
+      putBody = await putRes.text();
+    } catch {
+      putBody = "(body unavailable)";
+    }
+    expect(putRes.status(), `PUT /api/namespace responded ${putRes.status()}: ${putBody}`).toBe(
+      200,
+    );
     // SOPS encrypt + decrypt takes ~2-4s; allow extra time
     await expect(page.getByText("PLAYWRIGHT_NEW_KEY")).toBeVisible({ timeout: 15_000 });
   });
@@ -255,7 +268,20 @@ test.describe("clef set --random → NamespaceEditor: generate random placeholde
     await page.getByTestId("add-key-btn").click();
     await page.getByTestId("new-key-input").fill("PLAYWRIGHT_PENDING_KEY");
     await page.getByTestId("mode-random").click();
+    const putPromise = page.waitForResponse(
+      (r) => r.url().includes("/api/namespace/") && r.request().method() === "PUT",
+    );
     await page.getByTestId("add-key-submit").click();
+    const putRes = await putPromise;
+    let putBody = "";
+    try {
+      putBody = await putRes.text();
+    } catch {
+      putBody = "(body unavailable)";
+    }
+    expect(putRes.status(), `PUT /api/namespace responded ${putRes.status()}: ${putBody}`).toBe(
+      200,
+    );
     // SOPS encrypt + decrypt takes ~2-4s; allow extra time
     await expect(page.getByText("PLAYWRIGHT_PENDING_KEY")).toBeVisible({ timeout: 15_000 });
     // The PENDING badge should appear at least once (may be multiple pending keys by now)
@@ -522,6 +548,13 @@ test.describe("clef set --random (existing key) → overflow menu reset to pendi
   });
 
   test("[positive] confirming Reset to random marks the key as PENDING", async ({ page }) => {
+    // Collect all API responses for diagnostics
+    const apiResponses: string[] = [];
+    page.on("response", (r) => {
+      if (r.url().includes("/api/")) {
+        apiResponses.push(`${r.request().method()} ${r.url()} → ${r.status()}`);
+      }
+    });
     await page.goto(server.url);
     await page.getByTestId("matrix-row-payments").click();
     await expect(page.getByText("STRIPE_WEBHOOK_SECRET")).toBeVisible();
@@ -532,6 +565,9 @@ test.describe("clef set --random (existing key) → overflow menu reset to pendi
     // the dialog body also contains the key name, so we must avoid the strict-mode
     // error that fires while both the key row and dialog text are in the DOM.
     await expect(page.getByTestId("confirm-reset-dialog")).not.toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText("PENDING").first()).toBeVisible();
+    await expect(
+      page.getByText("PENDING").first(),
+      `PENDING not found. API responses: ${apiResponses.join(" | ")}`,
+    ).toBeVisible({ timeout: 5_000 });
   });
 });
