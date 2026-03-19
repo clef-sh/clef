@@ -19,7 +19,9 @@
 name: Publish Prerelease
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [dev, staging]
 
 permissions:
@@ -28,13 +30,15 @@ permissions:
 
 jobs:
   publish:
-    name: Publish ${{ github.ref_name == 'dev' && 'Alpha' || 'Beta' }}
+    name: Publish ${{ github.event.workflow_run.head_branch == 'dev' && 'Alpha' || 'Beta' }}
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'dev' && 'alpha' || 'beta' }}
+    if: github.event.workflow_run.conclusion == 'success'
+    environment: ${{ github.event.workflow_run.head_branch == 'dev' && 'alpha' || 'beta' }}
 
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
       - uses: actions/setup-node@v6
@@ -48,8 +52,10 @@ jobs:
 
       - name: Compute and stamp prerelease versions
         id: ver
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          if [ "$GITHUB_REF_NAME" = "dev" ]; then
+          if [ "$HEAD_BRANCH" = "dev" ]; then
             PRE="alpha"
             DIST_TAG="alpha"
           else
@@ -154,28 +160,28 @@ jobs:
 
       # ── Alpha (dev → GitHub Packages, restricted/internal) ───────────────
       - name: Publish @clef-sh/core (alpha)
-        if: github.ref_name == 'dev'
+        if: github.event.workflow_run.head_branch == 'dev'
         working-directory: packages/core
         run: npm publish --tag alpha --access restricted --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/agent (alpha)
-        if: github.ref_name == 'dev'
+        if: github.event.workflow_run.head_branch == 'dev'
         working-directory: packages/agent
         run: npm publish --tag alpha --access restricted --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/cli (alpha)
-        if: github.ref_name == 'dev'
+        if: github.event.workflow_run.head_branch == 'dev'
         working-directory: packages/cli
         run: npm publish --tag alpha --access restricted --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/ui (alpha)
-        if: github.ref_name == 'dev'
+        if: github.event.workflow_run.head_branch == 'dev'
         working-directory: packages/ui
         run: npm publish --tag alpha --access restricted --no-provenance
         env:
@@ -183,28 +189,28 @@ jobs:
 
       # ── Beta (staging → GitHub Packages, public) ─────────────────────────
       - name: Publish @clef-sh/core (beta)
-        if: github.ref_name == 'staging'
+        if: github.event.workflow_run.head_branch == 'staging'
         working-directory: packages/core
         run: npm publish --tag beta --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/agent (beta)
-        if: github.ref_name == 'staging'
+        if: github.event.workflow_run.head_branch == 'staging'
         working-directory: packages/agent
         run: npm publish --tag beta --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/cli (beta)
-        if: github.ref_name == 'staging'
+        if: github.event.workflow_run.head_branch == 'staging'
         working-directory: packages/cli
         run: npm publish --tag beta --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/ui (beta)
-        if: github.ref_name == 'staging'
+        if: github.event.workflow_run.head_branch == 'staging'
         working-directory: packages/ui
         run: npm publish --tag beta --access restricted --no-provenance
         env:
@@ -212,7 +218,7 @@ jobs:
 
       # Beta: create a GitHub pre-release so the version surfaces in Releases
       - name: Create GitHub pre-release (beta)
-        if: github.ref_name == 'staging'
+        if: github.event.workflow_run.head_branch == 'staging'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
