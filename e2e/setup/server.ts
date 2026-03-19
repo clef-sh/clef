@@ -53,7 +53,10 @@ export async function startClefUI(repoDir: string, ageKeyFilePath: string): Prom
         // Suppress browser auto-open warning on headless environments.
         CI: "1",
       },
-      stdio: ["ignore", "pipe", "pipe"],
+      // stdin must be "pipe" (not "ignore") so that /dev/stdin is valid inside
+      // the process tree. On Linux /dev/stdin → /proc/self/fd/0; if fd 0 is
+      // closed, sops encrypt fails with ENXIO when it opens /dev/stdin.
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
     let settled = false;

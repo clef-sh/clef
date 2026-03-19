@@ -176,21 +176,19 @@ export class SopsClient implements EncryptionBackend {
     const args = this.buildEncryptArgs(filePath, manifest, environment);
     const env = this.buildSopsEnv();
 
-    // Pipe plaintext via stdin; sops reads it when no file argument is given.
-    //
-    // On Windows /dev/stdin does not exist and sops cannot read from an
-    // anonymous pipe, so we create a named pipe and pass its path instead.
-    //
-    // We avoid /dev/stdin on all platforms because Node SEA binaries may be
-    // spawned with stdin detached (stdio: "ignore"), which makes
-    // /dev/stdin → /proc/self/fd/0 fail with ENXIO on Linux.
-    let inputArg: string | undefined;
+    // sops requires an explicit input path — it does not read from stdin implicitly.
+    // On Unix we pass /dev/stdin (a special file backed by the process's stdin pipe).
+    // On Windows /dev/stdin does not exist, so we create a named pipe, feed content
+    // through it, and pass the pipe path as the input file instead.
+    let inputArg: string;
     let pipeCleanup: (() => void) | undefined;
 
     if (process.platform === "win32") {
       const pipe = await openWindowsInputPipe(content);
       inputArg = pipe.inputArg;
       pipeCleanup = pipe.cleanup;
+    } else {
+      inputArg = "/dev/stdin";
     }
 
     let result;
@@ -206,9 +204,11 @@ export class SopsClient implements EncryptionBackend {
           fmt,
           "--filename-override",
           filePath,
-          ...(inputArg ? [inputArg] : []),
+          inputArg,
         ],
         {
+          // stdin is still piped on Unix (/dev/stdin reads from it);
+          // on Windows the named pipe server feeds content directly.
           ...(process.platform !== "win32" ? { stdin: content } : {}),
           ...(env ? { env } : {}),
         },

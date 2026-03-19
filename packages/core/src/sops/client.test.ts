@@ -284,7 +284,7 @@ sops:
       expect(mockWriteFileSync).toHaveBeenCalledWith("database/dev.enc.yaml", "encrypted-content");
     });
 
-    it("does not pass /dev/stdin as a file argument on Unix (reads from stdin pipe)", async () => {
+    it("passes /dev/stdin as the input file argument on Unix", async () => {
       const originalPlatform = process.platform;
       Object.defineProperty(process, "platform", { value: "linux", configurable: true });
 
@@ -305,9 +305,7 @@ sops:
         (c: unknown[]) => c[0] === "sops" && (c[1] as string[])[0] === "encrypt",
       );
       const args = encryptCall[1] as string[];
-      // /dev/stdin is not used — sops reads from its stdin pipe directly.
-      // This avoids ENXIO on Linux when the parent process has stdin detached.
-      expect(args).not.toContain("/dev/stdin");
+      expect(args[args.length - 1]).toBe("/dev/stdin");
     });
 
     it("pipes content via stdin on Unix", async () => {
