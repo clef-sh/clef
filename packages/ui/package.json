@@ -2,6 +2,11 @@
   "name": "@clef-sh/ui",
   "version": "0.1.5",
   "description": "Local web UI for Clef — git-native secrets management",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clef-sh/clef",
+    "directory": "packages/ui"
+  },
   "main": "dist/server/index.js",
   "types": "dist/server/index.d.ts",
   "exports": {
