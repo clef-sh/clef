@@ -1,7 +1,26 @@
+import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { execFileSync, spawn } from "child_process";
 import { Router, Request, Response } from "express";
+
+// Cache whether /dev/stdin is usable. It fails in Node SEA binaries on Linux
+// when the process was spawned with stdin detached (fd 0 closed).
+let _devStdinBroken: boolean | null = null;
+function isDevStdinBroken(): boolean {
+  if (_devStdinBroken !== null) return _devStdinBroken;
+  if (process.platform !== "linux") {
+    _devStdinBroken = false;
+    return false;
+  }
+  try {
+    fs.accessSync("/dev/stdin", fs.constants.R_OK);
+    _devStdinBroken = false;
+  } catch {
+    _devStdinBroken = true;
+  }
+  return _devStdinBroken;
+}
 import {
   ManifestParser,
   MatrixManager,
@@ -52,10 +71,10 @@ export function createApiRouter(deps: ApiDeps): Router {
   const sopsRunner: SubprocessRunner = {
     run: (cmd, args, opts) => {
       const stdinIdx = args.indexOf("/dev/stdin");
-      // /dev/stdin works on macOS but fails on Linux when the Node SEA binary's
-      // stdin is detached (/dev/stdin → /proc/self/fd/0 → ENXIO). Only use the
-      // FIFO workaround on Linux.
-      const needsFifo = stdinIdx >= 0 && opts?.stdin !== undefined && process.platform === "linux";
+      // Only use the FIFO workaround when /dev/stdin is actually broken
+      // (Node SEA binary on Linux with stdin detached). Normal Node.js
+      // processes (including Jest on Linux CI) have a working /dev/stdin.
+      const needsFifo = stdinIdx >= 0 && opts?.stdin !== undefined && isDevStdinBroken();
 
       if (!needsFifo) {
         return deps.runner.run(cmd, args, {
