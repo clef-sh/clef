@@ -42,6 +42,20 @@ test.afterAll(async () => {
   }
 });
 
+test("SEA binary serves assets from the embedded blob, not disk", async ({ page }) => {
+  // /_runtime reports whether the server is serving static assets from the SEA
+  // blob.  When CLEF_E2E_MODE=sea, the binary MUST be serving from the blob —
+  // a false value means getAsset() is silently failing and the UI would 404.
+  const mode = process.env.CLEF_E2E_MODE ?? "sea";
+  const res = await page.request.get(new URL("/_runtime", server.url).href);
+  const body = await res.json();
+  if (mode === "sea") {
+    expect(body.sea, "SEA binary must serve assets from blob, not disk").toBe(true);
+  } else {
+    expect(body.sea, "Node mode should use disk fallback").toBe(false);
+  }
+});
+
 test("matrix view renders the Secret Matrix heading", async ({ page }) => {
   await page.goto(server.url);
   await expect(page.getByText("Secret Matrix")).toBeVisible();
