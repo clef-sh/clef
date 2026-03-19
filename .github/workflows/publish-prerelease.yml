@@ -25,10 +25,49 @@ on:
 permissions:
   contents: write # create GitHub releases on staging
   packages: write # publish to GitHub Packages
+  actions: read # query CI workflow status
 
 jobs:
+  # Gate: wait for the CI workflow (including the full E2E matrix) to pass
+  # before publishing. This replaces workflow_run which only works when the
+  # workflow file is on the default branch.
+  wait-for-ci:
+    name: Wait for CI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for CI workflow to succeed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Waiting for CI workflow on $GITHUB_SHA ..."
+          for i in $(seq 1 90); do
+            RUN=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow ci.yml \
+              --commit "$GITHUB_SHA" \
+              --json databaseId,conclusion,status \
+              --jq '.[0]')
+
+            STATUS=$(echo "$RUN" | jq -r '.status // "not_found"')
+            CONCLUSION=$(echo "$RUN" | jq -r '.conclusion // "pending"')
+
+            if [ "$CONCLUSION" = "success" ]; then
+              echo "CI passed ✓"
+              exit 0
+            elif [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "cancelled" ]; then
+              echo "::error::CI $CONCLUSION — aborting publish"
+              exit 1
+            fi
+
+            echo "CI status=$STATUS conclusion=$CONCLUSION — waiting (attempt $i/90)..."
+            sleep 20
+          done
+          echo "::error::Timed out waiting for CI after 30 minutes"
+          exit 1
+
   publish:
     name: Publish ${{ github.ref_name == 'dev' && 'Alpha' || 'Beta' }}
+    needs: wait-for-ci
     runs-on: ubuntu-latest
     environment: ${{ github.ref_name == 'dev' && 'alpha' || 'beta' }}
 
