@@ -54,6 +54,8 @@ npm run docs:api     # Generate API docs only (typedoc)
 - **Matrix**: namespace × environment grid; each cell maps to an encrypted SOPS file (default: `{namespace}/{environment}.enc.yaml`)
 - **ManifestParser** validates and parses YAML; **MatrixManager** resolves cells and scaffolds files
 - **SopsClient** wraps the `sops` binary — all encrypt/decrypt piped via stdin/stdout, never written to disk as plaintext. Uses `resolveSopsPath()` to locate the binary.
+  - **Windows named pipe pitfall** (`openWindowsInputPipe` in `sops/client.ts`): On Unix, encrypt feeds plaintext to SOPS via `/dev/stdin`. Windows has no `/dev/stdin`, so we create a `net.createServer` named pipe, pass its `\\.\pipe\...` path as the input file, and SOPS (Go) connects via `CreateFile`. **Critical**: you must use `socket.write(content, () => socket.destroy())`, never `socket.end(content)`. On Windows, libuv's `uv_shutdown` is a no-op for pipes, so `socket.end()` never signals EOF — the Go client blocks forever waiting for more data. `socket.destroy()` (called after the write callback confirms flush) closes the handle, which Go sees as `ERROR_BROKEN_PIPE` → `io.EOF`. This caused all SOPS encrypt operations to hang on Windows CI until fixed.
+  - The UI server (`packages/ui/src/server/api.ts`) has a separate **Linux FIFO workaround** for SEA binaries where `/dev/stdin` → `/proc/self/fd/0` fails with ENXIO on socketpairs. This uses `mkfifo` + `dd` and is unrelated to the Windows pipe issue.
 - **SopsResolver** (`sops/resolver.ts`) — three-tier resolution: `CLEF_SOPS_PATH` env → bundled `@clef-sh/sops-{platform}-{arch}` package → system PATH fallback. Result is cached.
 - **LintRunner** validates matrix completeness, schema conformance, and SOPS file integrity
 

@@ -339,7 +339,10 @@ sops:
       Object.defineProperty(process, "platform", { value: "win32", configurable: true });
 
       const mockClose = jest.fn();
-      const mockSocket = { end: jest.fn() } as unknown as net.Socket;
+      const mockSocket = {
+        write: jest.fn((_data: string, cb: () => void) => cb()),
+        destroy: jest.fn(),
+      } as unknown as net.Socket;
       let connectionHandler: ((socket: net.Socket) => void) | undefined;
       let listenCallback: (() => void) | undefined;
 
@@ -388,7 +391,10 @@ sops:
       Object.defineProperty(process, "platform", { value: "win32", configurable: true });
 
       const mockClose = jest.fn();
-      const mockSocket = { end: jest.fn() } as unknown as net.Socket;
+      const mockSocket = {
+        write: jest.fn((_data: string, cb: () => void) => cb()),
+        destroy: jest.fn(),
+      } as unknown as net.Socket;
       let connectionHandler: ((socket: net.Socket) => void) | undefined;
       let listenCallback: (() => void) | undefined;
 
@@ -430,7 +436,10 @@ sops:
       Object.defineProperty(process, "platform", { value: "win32", configurable: true });
 
       const mockClose = jest.fn();
-      const mockSocket = { end: jest.fn() } as unknown as net.Socket;
+      const mockSocket = {
+        write: jest.fn((_data: string, cb: () => void) => cb()),
+        destroy: jest.fn(),
+      } as unknown as net.Socket;
       let connectionHandler: ((socket: net.Socket) => void) | undefined;
       let listenCallback: (() => void) | undefined;
 
