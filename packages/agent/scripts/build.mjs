@@ -65,7 +65,15 @@ rmSync(resolve(packageRoot, "dist"), { recursive: true, force: true });
 // ── Library build — tsc (declarations + CJS for npm consumers) ────────────────
 
 console.log("Building library (tsc)...");
-execFileSync("npx", ["tsc"], { cwd: packageRoot, stdio: "inherit" });
+const tscBin = resolve(
+  repoRoot,
+  process.platform === "win32" ? "node_modules/.bin/tsc.cmd" : "node_modules/.bin/tsc",
+);
+execFileSync(tscBin, ["--project", resolve(packageRoot, "tsconfig.json")], {
+  cwd: packageRoot,
+  stdio: "inherit",
+  shell: process.platform === "win32",
+});
 
 // ── CJS single-file bundle — dist/agent.cjs (SEA input) ──────────────────────
 
