@@ -6,7 +6,7 @@
 #
 # Environment variables:
 #   CLEF_VERSION      — Install a specific version (default: latest)
-#   CLEF_INSTALL_DIR  — Installation directory (default: /usr/local/bin)
+#   CLEF_INSTALL_DIR  — Installation directory (default: ~/.local/bin)
 #   SOPS_VERSION      — Override sops version (default: 3.9.4, from sops-version.json)
 #   SOPS_SKIP         — Set to 1 to skip sops download
 #
@@ -14,7 +14,7 @@ set -eu
 
 CLEF_REPO="clef-sh/clef"
 DEFAULT_SOPS_VERSION="3.9.4"  # keep in sync with sops-version.json
-DEFAULT_INSTALL_DIR="/usr/local/bin"
+DEFAULT_INSTALL_DIR="$HOME/.local/bin"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -87,7 +87,7 @@ detect_platform() {
     mingw*|msys*|cygwin*|windows*)
       fatal "Use the PowerShell installer on Windows:
        irm https://clef.sh/install.ps1 | iex
-       Or install via npm: npm install -g @clef-sh/cli"
+       Or install via npm: npm install -g @clef-sh/cli@beta"
       ;;
     *)
       fatal "Unsupported operating system: $OS"
@@ -249,9 +249,7 @@ main() {
   fi
 
   if [ ! -w "$INSTALL_DIR" ]; then
-    fatal "$INSTALL_DIR is not writable. Try:
-       curl -fsSL https://clef.sh/install.sh | sudo sh
-       Or set CLEF_INSTALL_DIR to a writable directory."
+    fatal "$INSTALL_DIR is not writable. Set CLEF_INSTALL_DIR to a writable directory."
   fi
 
   chmod +x "$TMPDIR/clef"

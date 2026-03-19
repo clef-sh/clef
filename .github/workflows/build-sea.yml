@@ -72,7 +72,7 @@ jobs:
             binary: clef
             asset: clef-linux-arm64
           - label: darwin-x64
-            os: macos-13
+            os: macos-14
             binary: clef
             asset: clef-darwin-x64
           - label: darwin-arm64
@@ -96,8 +96,10 @@ jobs:
 
       - run: npm ci
 
-      - name: Build UI client assets
-        run: npm run build -w packages/ui
+      - name: Build packages
+        run: |
+          npm run build -w packages/core
+          npm run build -w packages/ui
 
       - name: Build SEA binary
         run: npm run build:sea -w packages/cli
@@ -143,7 +145,7 @@ jobs:
             binary: clef-agent
             asset: clef-agent-linux-arm64
           - label: darwin-x64
-            os: macos-13
+            os: macos-14
             binary: clef-agent
             asset: clef-agent-darwin-x64
           - label: darwin-arm64
@@ -166,6 +168,9 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      - name: Build packages
+        run: npm run build -w packages/core
 
       - name: Build SEA binary
         run: npm run build:sea -w packages/agent
