@@ -265,8 +265,9 @@ export function createApiRouter(deps: ApiDeps): Router {
 
           res.json({ success: true, key });
         }
-      } catch {
-        res.status(500).json({ error: "Failed to set value", code: "SET_ERROR" });
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        res.status(500).json({ error: `Failed to set value: ${detail}`, code: "SET_ERROR" });
       }
     },
   );
