@@ -14,6 +14,7 @@
     "test:coverage": "npm run test:coverage --workspaces --if-present",
     "test:integration": "cd integration && npm test",
     "test:e2e": "npm run build -w packages/core && npm run build -w packages/ui && npm run build:sea -w packages/cli && cd e2e && npm ci && npx playwright install --with-deps chromium && npx playwright test",
+    "test:e2e:node": "npm run build -w packages/core && npm run build -w packages/ui && npm run build -w packages/cli && cd e2e && npm ci && npx playwright install --with-deps chromium && CLEF_E2E_MODE=node npx playwright test",
     "format": "prettier --write . && npm run format --workspaces --if-present",
     "format:check": "prettier --check .",
     "lint": "eslint .",

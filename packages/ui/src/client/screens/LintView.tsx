@@ -67,112 +67,114 @@ export function LintView({ setView, setNs }: LintViewProps) {
         subtitle="clef lint \u2014 full repo health check"
         actions={
           <>
-            <Button onClick={loadLint}>{"\u21BA"} Re-run</Button>
+            <Button onClick={loadLint}>{"\u21BB"} Re-run</Button>
             {errors.length === 0 && <Button variant="primary">All clear {"\u2014"} commit</Button>}
           </>
         }
       />
 
-      {/* Summary bar */}
-      <div
-        style={{
-          padding: "14px 24px",
-          background: "#0D0F14",
-          borderBottom: `1px solid ${theme.border}`,
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          flexWrap: "wrap",
-        }}
-      >
-        {/* Severity filters */}
-        {[
-          {
-            key: "all",
-            label: "All issues",
-            count: issues.length,
-            color: theme.textMuted,
-          },
-          {
-            key: "error",
-            label: "Errors",
-            count: errors.length,
-            color: theme.red,
-          },
-          {
-            key: "warning",
-            label: "Warnings",
-            count: warnings.length,
-            color: theme.yellow,
-          },
-          {
-            key: "info",
-            label: "Info",
-            count: infos.length,
-            color: theme.blue,
-          },
-        ].map((f) => (
-          <button
-            key={f.key}
-            data-testid={`filter-${f.key}`}
-            onClick={() => setFilter(f.key)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "5px 12px",
-              borderRadius: 20,
-              cursor: "pointer",
-              fontFamily: theme.sans,
-              fontSize: 12,
-              fontWeight: filter === f.key ? 600 : 400,
-              color: filter === f.key ? f.color : theme.textMuted,
-              background: filter === f.key ? `${f.color}18` : "transparent",
-              border: `1px solid ${filter === f.key ? `${f.color}55` : theme.border}`,
-              transition: "all 0.12s",
-            }}
-          >
-            <span
-              style={{
-                fontFamily: theme.mono,
-                fontSize: 11,
-                fontWeight: 700,
-                color: f.color,
-              }}
-            >
-              {f.count}
-            </span>
-            {f.label}
-          </button>
-        ))}
-
-        <div style={{ flex: 1 }} />
-
-        {/* Category filters */}
-        {(["matrix", "schema", "sops"] as const).map((cat) => {
-          const m = CATEGORY_META[cat];
-          return (
+      {/* Summary bar — only shown when there are issues */}
+      {!loading && !allClear && (
+        <div
+          style={{
+            padding: "14px 24px",
+            background: "#0D0F14",
+            borderBottom: `1px solid ${theme.border}`,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+          }}
+        >
+          {/* Severity filters */}
+          {[
+            {
+              key: "all",
+              label: "All issues",
+              count: issues.length,
+              color: theme.textMuted,
+            },
+            {
+              key: "error",
+              label: "Errors",
+              count: errors.length,
+              color: theme.red,
+            },
+            {
+              key: "warning",
+              label: "Warnings",
+              count: warnings.length,
+              color: theme.yellow,
+            },
+            {
+              key: "info",
+              label: "Info",
+              count: infos.length,
+              color: theme.blue,
+            },
+          ].map((f) => (
             <button
-              key={cat}
-              onClick={() => setFilter(filter === cat ? "all" : cat)}
+              key={f.key}
+              data-testid={`filter-${f.key}`}
+              onClick={() => setFilter(f.key)}
               style={{
-                padding: "4px 10px",
-                borderRadius: 4,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "5px 12px",
+                borderRadius: 20,
                 cursor: "pointer",
-                fontFamily: theme.mono,
-                fontSize: 10,
-                fontWeight: 600,
-                color: filter === cat ? m.color : theme.textDim,
-                background: filter === cat ? `${m.color}18` : "transparent",
-                border: `1px solid ${filter === cat ? `${m.color}55` : theme.borderLight}`,
-                letterSpacing: "0.06em",
+                fontFamily: theme.sans,
+                fontSize: 12,
+                fontWeight: filter === f.key ? 600 : 400,
+                color: filter === f.key ? f.color : theme.textMuted,
+                background: filter === f.key ? `${f.color}18` : "transparent",
+                border: `1px solid ${filter === f.key ? `${f.color}55` : theme.border}`,
+                transition: "all 0.12s",
               }}
             >
-              {m.label}
+              <span
+                style={{
+                  fontFamily: theme.mono,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: f.color,
+                }}
+              >
+                {f.count}
+              </span>
+              {f.label}
             </button>
-          );
-        })}
-      </div>
+          ))}
+
+          <div style={{ flex: 1 }} />
+
+          {/* Category filters */}
+          {(["matrix", "schema", "sops"] as const).map((cat) => {
+            const m = CATEGORY_META[cat];
+            return (
+              <button
+                key={cat}
+                onClick={() => setFilter(filter === cat ? "all" : cat)}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  fontFamily: theme.mono,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: filter === cat ? m.color : theme.textDim,
+                  background: filter === cat ? `${m.color}18` : "transparent",
+                  border: `1px solid ${filter === cat ? `${m.color}55` : theme.borderLight}`,
+                  letterSpacing: "0.06em",
+                }}
+              >
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
         {loading && <p style={{ color: theme.textMuted, fontFamily: theme.sans }}>Loading...</p>}

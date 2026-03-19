@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   test:
-    name: Test
+    name: Unit Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -185,16 +185,12 @@ jobs:
       - run: npm run build --workspace=packages/cli
       - run: npm run test:integration
 
-  e2e:
-    name: E2E (${{ matrix.os }})
+  # Smoke test: single SEA+Linux on every PR for fast feedback.
+  e2e-smoke:
+    name: E2E Smoke (sea-linux-x64)
     needs: integration-test
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu
-            runner: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -204,7 +200,7 @@ jobs:
       - name: Install SOPS
         run: |
           SOPS_VERSION=$(node -p "require('./sops-version.json').version")
-          curl -Lo /usr/local/bin/sops https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64
+          curl -Lo /usr/local/bin/sops "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
           chmod +x /usr/local/bin/sops
           sops --version
       - run: npm ci
@@ -212,5 +208,100 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: playwright-report-${{ matrix.os }}
+          name: playwright-report-smoke
+          path: e2e/playwright-report/
+
+  # Full matrix: all platforms × SEA + Node. Runs only on merge to main/staging/dev.
+  e2e:
+    name: E2E (${{ matrix.label }})
+    needs: integration-test
+    if: github.event_name == 'push'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # SEA binary — every platform the CLI ships binaries for
+          - label: sea-linux-x64
+            runner: ubuntu-latest
+            sops_asset: sops-v${SOPS_VERSION}.linux.amd64
+            mode: sea
+          - label: sea-linux-arm64
+            runner: ubuntu-24.04-arm
+            sops_asset: sops-v${SOPS_VERSION}.linux.arm64
+            mode: sea
+          - label: sea-macos-arm64
+            runner: macos-latest
+            sops_asset: sops-v${SOPS_VERSION}.darwin.arm64
+            mode: sea
+          - label: sea-windows-x64
+            runner: windows-latest
+            sops_asset: sops-v${SOPS_VERSION}.exe
+            mode: sea
+          # Pure Node.js (no SEA) — verifies the npm-installed path
+          - label: node-linux-x64
+            runner: ubuntu-latest
+            sops_asset: sops-v${SOPS_VERSION}.linux.amd64
+            mode: node
+          - label: node-windows-x64
+            runner: windows-latest
+            sops_asset: sops-v${SOPS_VERSION}.exe
+            mode: node
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install SOPS
+        shell: bash
+        run: |
+          SOPS_VERSION=$(node -p "require('./sops-version.json').version")
+          ASSET="${{ matrix.sops_asset }}"
+          ASSET="${ASSET//\$\{SOPS_VERSION\}/$SOPS_VERSION}"
+          URL="https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/${ASSET}"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            curl -Lo "$RUNNER_TEMP/sops.exe" "$URL"
+            echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+            "$RUNNER_TEMP/sops.exe" --version
+          else
+            curl -Lo /usr/local/bin/sops "$URL"
+            chmod +x /usr/local/bin/sops
+            sops --version
+          fi
+
+      - run: npm ci
+
+      - name: Build packages
+        shell: bash
+        run: |
+          npm run build -w packages/core
+          npm run build -w packages/ui
+          if [[ "${{ matrix.mode }}" == "sea" ]]; then
+            npm run build:sea -w packages/cli
+          else
+            npm run build -w packages/cli
+          fi
+
+      - name: Install Playwright
+        shell: bash
+        run: |
+          cd e2e && npm ci
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            npx playwright install --with-deps chromium
+          else
+            npx playwright install chromium
+          fi
+
+      - name: Run E2E
+        shell: bash
+        env:
+          CLEF_E2E_MODE: ${{ matrix.mode }}
+        run: cd e2e && npx playwright test
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report-${{ matrix.label }}
           path: e2e/playwright-report/

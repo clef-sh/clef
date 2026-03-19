@@ -33,12 +33,18 @@
   max-width: 1100px;
   margin: 0 auto;
   padding: 0 40px;
+  overflow: hidden;
 }
 
 @media (max-width: 768px) {
   .hero-inner {
     grid-template-columns: 1fr;
     gap: 40px;
+    padding: 0 24px;
+  }
+
+  .hero-inner .terminal {
+    display: none;
   }
 }
 
@@ -55,6 +61,7 @@
     0 4px 16px rgba(0, 0, 0, 0.4);
   width: 100%;
   max-width: 520px;
+  min-width: 0;
 }
 
 .terminal-chrome {
@@ -97,6 +104,7 @@
   background: #0a0a16;
   padding: 20px 24px;
   line-height: 1.7;
+  overflow-x: auto;
 }
 
 .terminal-line {

@@ -12,6 +12,14 @@ curl -fsSL https://clef.sh/install.sh | sh
 irm https://clef.sh/install.ps1 | iex
 ```
 
+```bash [npm]
+npm install -g @clef-sh/cli
+```
+
+```bash [npx (no install)]
+npx @clef-sh/cli --help
+```
+
 :::
 
 The installer downloads the Clef binary and sops for your platform, verifies checksums, and places them on your PATH.
