@@ -2,6 +2,11 @@
   "name": "@clef-sh/core",
   "version": "0.1.5",
   "description": "Core library for Clef — git-native secrets management",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clef-sh/clef",
+    "directory": "packages/core"
+  },
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",

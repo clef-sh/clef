@@ -2,6 +2,11 @@
   "name": "@clef-sh/agent",
   "version": "0.1.5",
   "description": "Runtime secrets sidecar agent for Clef",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clef-sh/clef",
+    "directory": "packages/agent"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {

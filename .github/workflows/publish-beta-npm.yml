@@ -17,11 +17,6 @@ on:
         description: "Beta version to publish (e.g. 0.1.0-beta.7)"
         required: true
         type: string
-      ref:
-        description: "Branch or tag to build from"
-        required: false
-        default: "staging"
-        type: string
 
 permissions:
   contents: write # tag the promoted commit
@@ -36,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: staging
           fetch-depth: 0
 
       - uses: actions/setup-node@v6
@@ -65,25 +60,25 @@ jobs:
         working-directory: packages/core
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public
+          npm publish --tag beta --access public --provenance
         env:
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/agent
         working-directory: packages/agent
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public
+          npm publish --tag beta --access public --provenance
         env:
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/cli
         working-directory: packages/cli
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public
+          npm publish --tag beta --access public --provenance
         env:
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # Tag the promoted commit so it's traceable from npm back to source
       - name: Tag promoted commit
