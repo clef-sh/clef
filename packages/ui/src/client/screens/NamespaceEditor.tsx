@@ -143,34 +143,71 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
 
   const handleAdd = async () => {
     if (!newKey.trim()) return;
+    const trimmedKey = newKey.trim();
     const body = addMode === "random" ? { random: true } : { value: newValue };
-    const res = await apiFetch(`/api/namespace/${ns}/${env}/${newKey.trim()}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) {
+    try {
+      const res = await apiFetch(`/api/namespace/${ns}/${env}/${trimmedKey}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error || "Failed to add key");
+        return;
+      }
       const data = await res.json();
       if (data.warning) {
         setError(data.warning);
       }
+      // Update local state directly — avoids an extra decrypt round-trip
+      setRows((prev) => [
+        ...prev,
+        {
+          key: trimmedKey,
+          value: addMode === "random" ? "" : newValue,
+          type: "string",
+          required: false,
+          visible: false,
+          edited: false,
+          isNew: true,
+          pending: addMode === "random",
+        },
+      ]);
+    } catch {
+      setError("Failed to add key");
+    } finally {
+      setAdding(false);
+      setAddMode("value");
+      setNewKey("");
+      setNewValue("");
     }
-    setAdding(false);
-    setAddMode("value");
-    setNewKey("");
-    setNewValue("");
-    await loadData();
   };
 
   const handleResetToRandom = async (key: string) => {
-    await apiFetch(`/api/namespace/${ns}/${env}/${key}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ random: true }),
-    });
-    setConfirmReset(null);
-    setOverflowKey(null);
-    await loadData();
+    try {
+      const res = await apiFetch(`/api/namespace/${ns}/${env}/${key}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ random: true }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error || "Failed to reset key");
+        return;
+      }
+      // Update local state directly — avoids an extra decrypt round-trip
+      setRows((prev) =>
+        prev.map((row) =>
+          row.key === key ? { ...row, pending: true, value: "", edited: false } : row,
+        ),
+      );
+    } catch {
+      setError("Failed to reset key");
+    } finally {
+      setConfirmReset(null);
+      setOverflowKey(null);
+    }
   };
 
   const hasChanges = rows.some((r) => r.edited);

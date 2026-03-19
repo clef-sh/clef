@@ -46,6 +46,7 @@ export async function startClefUI(repoDir: string, ageKeyFilePath: string): Prom
 
   return new Promise<ServerInfo>((resolve, reject) => {
     const proc = spawn(SEA_BINARY, ["--dir", repoDir, "ui", "--no-open", "--port", String(port)], {
+      cwd: repoDir,
       env: {
         ...process.env,
         SOPS_AGE_KEY_FILE: ageKeyFilePath,
