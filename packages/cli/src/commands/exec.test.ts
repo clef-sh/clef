@@ -114,7 +114,7 @@ function makeSignalChildEmitter(signal: string): EventEmitter {
 
 function makeProgram(runner: SubprocessRunner): Command {
   const program = new Command();
-  program.option("--repo <path>", "Path to the Clef repository root");
+  program.option("--dir <path>", "Path to a local Clef repository root");
   program.exitOverride();
   registerExecCommand(program, { runner });
   return program;
@@ -547,20 +547,20 @@ describe("clef exec", () => {
     expect(mockExit).toHaveBeenCalledWith(130);
   });
 
-  // --repo flag test
+  // --dir flag test
 
-  it("should use --repo path instead of cwd for manifest lookup", async () => {
+  it("should use --dir path instead of cwd for manifest lookup", async () => {
     const child = makeChildEmitter(0);
     mockSpawn.mockReturnValue(child);
 
     const runner = makeRunner();
     const program = makeProgram(runner);
 
-    process.argv = ["node", "clef", "--repo", "/custom/repo", "exec", "payments/dev", "--", "env"];
+    process.argv = ["node", "clef", "--dir", "/custom/repo", "exec", "payments/dev", "--", "env"];
     await program.parseAsync([
       "node",
       "clef",
-      "--repo",
+      "--dir",
       "/custom/repo",
       "exec",
       "payments/dev",
@@ -710,7 +710,7 @@ describe("clef exec", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
-  it("should map unknown signal to exit code 128", async () => {
+  it("should map SIGHUP to exit code 129", async () => {
     const child = makeSignalChildEmitter("SIGHUP");
     mockSpawn.mockReturnValue(child);
 

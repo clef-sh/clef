@@ -226,6 +226,7 @@ describe("BulkOps", () => {
         "/repo/database/staging.enc.yaml",
         { EXISTING: "keep", SECRET: "secret-value" },
         expect.any(Object),
+        "staging",
       );
     });
 

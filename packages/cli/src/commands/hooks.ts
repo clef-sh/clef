@@ -13,7 +13,7 @@ export function registerHooksCommand(program: Command, deps: { runner: Subproces
     .description("Install the Clef pre-commit hook that blocks unencrypted secret commits")
     .action(async () => {
       try {
-        const repoRoot = (program.opts().repo as string) || process.cwd();
+        const repoRoot = (program.opts().dir as string) || process.cwd();
         const hookPath = path.join(repoRoot, ".git", "hooks", "pre-commit");
 
         // Check if hook already exists
@@ -43,7 +43,17 @@ export function registerHooksCommand(program: Command, deps: { runner: Subproces
 
         formatter.success("Pre-commit hook installed");
         formatter.print(`   ${sym("pending")}  ${hookPath}`);
-        formatter.hint("Hook runs: clef lint --pre-commit && clef scan --staged");
+        formatter.hint(
+          "Hook checks SOPS metadata on staged .enc files and runs: clef scan --staged",
+        );
+
+        // Also ensure the merge driver is configured (idempotent)
+        try {
+          await git.installMergeDriver(repoRoot);
+          formatter.success("SOPS merge driver configured");
+        } catch {
+          formatter.warn("Could not configure SOPS merge driver. Run inside a git repository.");
+        }
       } catch (err) {
         formatter.error((err as Error).message);
         process.exit(1);

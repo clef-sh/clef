@@ -12,19 +12,50 @@
  */
 import * as fs from "fs";
 import * as YAML from "yaml";
-import { ClefManifest, ManifestValidationError } from "../types";
+import {
+  ClefManifest,
+  ClefEnvironment,
+  ManifestValidationError,
+  ServiceIdentityDefinition,
+} from "../types";
+import { validateAgePublicKey } from "../recipients/validator";
 
-// CANONICAL MANIFEST FILENAME
-// This is the single source of truth for the manifest filename.
-// All other references in the codebase must import this constant.
+/**
+ * Canonical filename for the Clef manifest.
+ * All code that references this filename must import this constant.
+ */
 export const CLEF_MANIFEST_FILENAME = "clef.yaml";
 
 const VALID_BACKENDS = ["age", "awskms", "gcpkms", "pgp"] as const;
-const VALID_TOP_LEVEL_KEYS = ["version", "environments", "namespaces", "sops", "file_pattern"];
+const VALID_TOP_LEVEL_KEYS = [
+  "version",
+  "environments",
+  "namespaces",
+  "sops",
+  "file_pattern",
+  "service_identities",
+];
 const ENV_NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
 const FILE_PATTERN_REQUIRED_TOKENS = ["{namespace}", "{environment}"];
 
+/**
+ * Parses and validates `clef.yaml` manifest files.
+ *
+ * @example
+ * ```ts
+ * const parser = new ManifestParser();
+ * const manifest = parser.parse("/path/to/clef.yaml");
+ * ```
+ */
 export class ManifestParser {
+  /**
+   * Read and validate a `clef.yaml` file from disk.
+   *
+   * @param filePath - Absolute or relative path to the manifest file.
+   * @returns Validated {@link ClefManifest}.
+   * @throws {@link ManifestValidationError} If the file cannot be read, contains invalid YAML,
+   *   or fails schema validation.
+   */
   parse(filePath: string): ClefManifest {
     let raw: string;
     try {
@@ -47,6 +78,13 @@ export class ManifestParser {
     return this.validate(parsed);
   }
 
+  /**
+   * Validate an already-parsed object against the manifest schema.
+   *
+   * @param input - Raw value returned by `YAML.parse`.
+   * @returns Validated {@link ClefManifest}.
+   * @throws {@link ManifestValidationError} On any schema violation.
+   */
   validate(input: unknown): ClefManifest {
     if (input === null || input === undefined || typeof input !== "object") {
       throw new ManifestValidationError(
@@ -91,7 +129,7 @@ export class ManifestParser {
         "environments",
       );
     }
-    const environments = obj.environments.map((env: unknown, i: number) => {
+    const environments: ClefEnvironment[] = obj.environments.map((env: unknown, i: number) => {
       if (typeof env !== "object" || env === null) {
         throw new ManifestValidationError(
           `Environment at index ${i} must be an object with 'name' and 'description'.`,
@@ -117,12 +155,136 @@ export class ManifestParser {
           "environments",
         );
       }
-      return {
+
+      const result: ClefEnvironment = {
         name: envObj.name,
         description: envObj.description,
         ...(typeof envObj.protected === "boolean" ? { protected: envObj.protected } : {}),
       };
+
+      // Parse optional per-environment sops override
+      if (envObj.sops !== undefined) {
+        if (typeof envObj.sops !== "object" || envObj.sops === null) {
+          throw new ManifestValidationError(
+            `Environment '${envObj.name}' has an invalid 'sops' field. It must be an object.`,
+            "environments",
+          );
+        }
+        const sopsOverride = envObj.sops as Record<string, unknown>;
+        if (!sopsOverride.backend || typeof sopsOverride.backend !== "string") {
+          throw new ManifestValidationError(
+            `Environment '${envObj.name}' sops override is missing 'backend'. Must be one of: ${VALID_BACKENDS.join(", ")}.`,
+            "environments",
+          );
+        }
+        if (!(VALID_BACKENDS as readonly string[]).includes(sopsOverride.backend)) {
+          throw new ManifestValidationError(
+            `Environment '${envObj.name}' has invalid sops backend '${sopsOverride.backend}'. Must be one of: ${VALID_BACKENDS.join(", ")}.`,
+            "environments",
+          );
+        }
+        const backend = sopsOverride.backend as (typeof VALID_BACKENDS)[number];
+
+        // Validate required fields per backend
+        if (backend === "awskms" && typeof sopsOverride.aws_kms_arn !== "string") {
+          throw new ManifestValidationError(
+            `Environment '${envObj.name}' uses 'awskms' backend but is missing 'aws_kms_arn'.`,
+            "environments",
+          );
+        }
+        if (backend === "gcpkms" && typeof sopsOverride.gcp_kms_resource_id !== "string") {
+          throw new ManifestValidationError(
+            `Environment '${envObj.name}' uses 'gcpkms' backend but is missing 'gcp_kms_resource_id'.`,
+            "environments",
+          );
+        }
+        if (backend === "pgp" && typeof sopsOverride.pgp_fingerprint !== "string") {
+          throw new ManifestValidationError(
+            `Environment '${envObj.name}' uses 'pgp' backend but is missing 'pgp_fingerprint'.`,
+            "environments",
+          );
+        }
+
+        result.sops = {
+          backend,
+          ...(typeof sopsOverride.aws_kms_arn === "string"
+            ? { aws_kms_arn: sopsOverride.aws_kms_arn }
+            : {}),
+          ...(typeof sopsOverride.gcp_kms_resource_id === "string"
+            ? { gcp_kms_resource_id: sopsOverride.gcp_kms_resource_id }
+            : {}),
+          ...(typeof sopsOverride.pgp_fingerprint === "string"
+            ? { pgp_fingerprint: sopsOverride.pgp_fingerprint }
+            : {}),
+        };
+      }
+
+      // Parse optional per-environment recipients
+      if (envObj.recipients !== undefined) {
+        if (!Array.isArray(envObj.recipients)) {
+          throw new ManifestValidationError(
+            `Environment '${envObj.name}' has an invalid 'recipients' field. It must be an array.`,
+            "environments",
+          );
+        }
+        const parsedRecipients: (string | { key: string; label?: string })[] = [];
+        for (let ri = 0; ri < envObj.recipients.length; ri++) {
+          const entry = envObj.recipients[ri];
+          if (typeof entry === "string") {
+            const validation = validateAgePublicKey(entry);
+            if (!validation.valid) {
+              throw new ManifestValidationError(
+                `Environment '${envObj.name}' recipient at index ${ri}: ${validation.error}`,
+                "environments",
+              );
+            }
+            parsedRecipients.push(validation.key!);
+          } else if (typeof entry === "object" && entry !== null) {
+            const entryObj = entry as Record<string, unknown>;
+            if (typeof entryObj.key !== "string") {
+              throw new ManifestValidationError(
+                `Environment '${envObj.name}' recipient at index ${ri} must have a 'key' string.`,
+                "environments",
+              );
+            }
+            const validation = validateAgePublicKey(entryObj.key);
+            if (!validation.valid) {
+              throw new ManifestValidationError(
+                `Environment '${envObj.name}' recipient at index ${ri}: ${validation.error}`,
+                "environments",
+              );
+            }
+            const recipientObj: { key: string; label?: string } = { key: validation.key! };
+            if (typeof entryObj.label === "string") {
+              recipientObj.label = entryObj.label;
+            }
+            parsedRecipients.push(recipientObj);
+          } else {
+            throw new ManifestValidationError(
+              `Environment '${envObj.name}' recipient at index ${ri} must be a string or object.`,
+              "environments",
+            );
+          }
+        }
+        if (parsedRecipients.length > 0) {
+          result.recipients = parsedRecipients;
+        }
+      }
+
+      return result;
     });
+
+    // Check for duplicate environment names
+    const envNames = new Set<string>();
+    for (const env of environments) {
+      if (envNames.has(env.name)) {
+        throw new ManifestValidationError(
+          `Duplicate environment name '${env.name}'. Each environment must have a unique name.`,
+          "environments",
+        );
+      }
+      envNames.add(env.name);
+    }
 
     // namespaces
     // Design decision: all namespaces are encrypted. There is no `encrypted: false`
@@ -168,6 +330,18 @@ export class ManifestParser {
       };
     });
 
+    // Check for duplicate namespace names
+    const nsNames = new Set<string>();
+    for (const ns of namespaces) {
+      if (nsNames.has(ns.name)) {
+        throw new ManifestValidationError(
+          `Duplicate namespace name '${ns.name}'. Each namespace must have a unique name.`,
+          "namespaces",
+        );
+      }
+      nsNames.add(ns.name);
+    }
+
     // sops
     if (!obj.sops) {
       throw new ManifestValidationError(
@@ -203,6 +377,19 @@ export class ManifestParser {
         : {}),
     };
 
+    // Post-processing: validate per-env recipients are only used with age backend
+    for (const env of environments) {
+      if (env.recipients && env.recipients.length > 0) {
+        const effectiveBackend = env.sops?.backend ?? sopsConfig.default_backend;
+        if (effectiveBackend !== "age") {
+          throw new ManifestValidationError(
+            `Environment '${env.name}' has per-environment recipients but uses '${effectiveBackend}' backend. Per-environment recipients are only supported with the 'age' backend.`,
+            "environments",
+          );
+        }
+      }
+    }
+
     // file_pattern
     if (!obj.file_pattern || typeof obj.file_pattern !== "string") {
       throw new ManifestValidationError(
@@ -219,15 +406,153 @@ export class ManifestParser {
       }
     }
 
+    // service_identities (optional)
+    let serviceIdentities: ServiceIdentityDefinition[] | undefined;
+    if (obj.service_identities !== undefined) {
+      if (!Array.isArray(obj.service_identities)) {
+        throw new ManifestValidationError(
+          "Field 'service_identities' must be an array.",
+          "service_identities",
+        );
+      }
+      serviceIdentities = obj.service_identities.map((si: unknown, i: number) => {
+        if (typeof si !== "object" || si === null) {
+          throw new ManifestValidationError(
+            `Service identity at index ${i} must be an object.`,
+            "service_identities",
+          );
+        }
+        const siObj = si as Record<string, unknown>;
+
+        if (!siObj.name || typeof siObj.name !== "string") {
+          throw new ManifestValidationError(
+            `Service identity at index ${i} is missing a 'name' string.`,
+            "service_identities",
+          );
+        }
+        const siName = siObj.name;
+
+        if (!siObj.description || typeof siObj.description !== "string") {
+          throw new ManifestValidationError(
+            `Service identity '${siName}' is missing a 'description' string.`,
+            "service_identities",
+          );
+        }
+
+        // namespaces
+        if (!Array.isArray(siObj.namespaces) || siObj.namespaces.length === 0) {
+          throw new ManifestValidationError(
+            `Service identity '${siName}' must have a non-empty 'namespaces' array.`,
+            "service_identities",
+          );
+        }
+        for (const ns of siObj.namespaces) {
+          if (typeof ns !== "string") {
+            throw new ManifestValidationError(
+              `Service identity '${siName}' has a non-string entry in 'namespaces'.`,
+              "service_identities",
+            );
+          }
+          if (!nsNames.has(ns)) {
+            throw new ManifestValidationError(
+              `Service identity '${siName}' references unknown namespace '${ns}'.`,
+              "service_identities",
+            );
+          }
+        }
+
+        // environments
+        if (
+          !siObj.environments ||
+          typeof siObj.environments !== "object" ||
+          Array.isArray(siObj.environments)
+        ) {
+          throw new ManifestValidationError(
+            `Service identity '${siName}' must have an 'environments' object.`,
+            "service_identities",
+          );
+        }
+        const siEnvs = siObj.environments as Record<string, unknown>;
+        const parsedEnvs: Record<string, { recipient: string }> = {};
+
+        // Validate that all declared environments are covered
+        for (const env of environments) {
+          if (!(env.name in siEnvs)) {
+            throw new ManifestValidationError(
+              `Service identity '${siName}' is missing environment '${env.name}'. Service identities must cover all declared environments.`,
+              "service_identities",
+            );
+          }
+        }
+
+        for (const [envName, envVal] of Object.entries(siEnvs)) {
+          if (!envNames.has(envName)) {
+            throw new ManifestValidationError(
+              `Service identity '${siName}' references unknown environment '${envName}'.`,
+              "service_identities",
+            );
+          }
+          if (typeof envVal !== "object" || envVal === null) {
+            throw new ManifestValidationError(
+              `Service identity '${siName}' environment '${envName}' must be an object with 'recipient'.`,
+              "service_identities",
+            );
+          }
+          const envObj = envVal as Record<string, unknown>;
+          if (!envObj.recipient || typeof envObj.recipient !== "string") {
+            throw new ManifestValidationError(
+              `Service identity '${siName}' environment '${envName}' is missing a 'recipient' string.`,
+              "service_identities",
+            );
+          }
+          const recipientValidation = validateAgePublicKey(envObj.recipient);
+          if (!recipientValidation.valid) {
+            throw new ManifestValidationError(
+              `Service identity '${siName}' environment '${envName}': ${recipientValidation.error}`,
+              "service_identities",
+            );
+          }
+          parsedEnvs[envName] = { recipient: recipientValidation.key! };
+        }
+
+        return {
+          name: siName,
+          description: siObj.description as string,
+          namespaces: siObj.namespaces as string[],
+          environments: parsedEnvs,
+        };
+      });
+
+      // Check for duplicate identity names
+      const siNames = new Set<string>();
+      for (const si of serviceIdentities) {
+        if (siNames.has(si.name)) {
+          throw new ManifestValidationError(
+            `Duplicate service identity name '${si.name}'.`,
+            "service_identities",
+          );
+        }
+        siNames.add(si.name);
+      }
+    }
+
     return {
       version: 1,
       environments,
       namespaces,
       sops: sopsConfig,
       file_pattern: obj.file_pattern,
+      ...(serviceIdentities ? { service_identities: serviceIdentities } : {}),
     };
   }
 
+  /**
+   * Watch a manifest file for changes and invoke a callback on each successful parse.
+   *
+   * @param filePath - Path to the manifest file to watch.
+   * @param onChange - Called with the newly parsed manifest on each valid change.
+   * @returns Unsubscribe function — call it to stop watching.
+   */
   watch(filePath: string, onChange: (manifest: ClefManifest) => void): () => void {
     const watcher = fs.watch(filePath, () => {
       try {

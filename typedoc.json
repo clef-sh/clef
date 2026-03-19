@@ -1,0 +1,21 @@
+{
+  "plugin": ["typedoc-plugin-markdown"],
+  "entryPoints": ["packages/core/src/index.ts"],
+  "out": "docs/api",
+  "readme": "none",
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "hideGenerator": true,
+  "githubPages": false,
+  "entryFileName": "index",
+  "hidePageHeader": false,
+  "hideBreadcrumbs": false,
+  "useCodeBlocks": true,
+  "parametersFormat": "table",
+  "interfacePropertiesFormat": "table",
+  "classPropertiesFormat": "table",
+  "enumMembersFormat": "table",
+  "typeDeclarationFormat": "table",
+  "mergeReadme": false,
+  "tsconfig": "packages/core/tsconfig.json"
+}

@@ -26,16 +26,19 @@ interface PendingMetadata {
   pending: PendingKey[];
 }
 
-// Derive .clef-meta.yaml path from .enc.yaml path
-// database/dev.enc.yaml → database/dev.clef-meta.yaml
+/**
+ * Derive the `.clef-meta.yaml` path from an `.enc.yaml` path.
+ * Example: `database/dev.enc.yaml` → `database/dev.clef-meta.yaml`
+ */
 function metadataPath(encryptedFilePath: string): string {
   const dir = path.dirname(encryptedFilePath);
-  const base = path.basename(encryptedFilePath, ".enc.yaml");
+  const base = path.basename(encryptedFilePath).replace(/\.enc\.(yaml|json)$/, "");
   return path.join(dir, `${base}.clef-meta.yaml`);
 }
 
 const HEADER_COMMENT = "# Managed by Clef. Do not edit manually.\n";
 
+/** Load pending-key metadata for an encrypted file. Returns empty metadata if the file is missing. */
 async function loadMetadata(filePath: string): Promise<PendingMetadata> {
   const metaPath = metadataPath(filePath);
   try {
@@ -60,6 +63,7 @@ async function loadMetadata(filePath: string): Promise<PendingMetadata> {
   }
 }
 
+/** Write pending-key metadata to disk. Creates parent directories if needed. */
 async function saveMetadata(filePath: string, metadata: PendingMetadata): Promise<void> {
   const metaPath = metadataPath(filePath);
   const dir = path.dirname(metaPath);
@@ -77,6 +81,14 @@ async function saveMetadata(filePath: string, metadata: PendingMetadata): Promis
   fs.writeFileSync(metaPath, HEADER_COMMENT + YAML.stringify(data), "utf-8");
 }
 
+/**
+ * Mark one or more keys as pending (placeholder value) for an encrypted file.
+ * If a key is already pending, its timestamp and `setBy` are updated.
+ *
+ * @param filePath - Path to the encrypted file.
+ * @param keys - Key names to mark as pending.
+ * @param setBy - Identifier of the actor setting these keys (e.g. a username or CI job).
+ */
 async function markPending(filePath: string, keys: string[], setBy: string): Promise<void> {
   const metadata = await loadMetadata(filePath);
   const now = new Date();
@@ -92,26 +104,38 @@ async function markPending(filePath: string, keys: string[], setBy: string): Pro
   await saveMetadata(filePath, metadata);
 }
 
+/** Remove keys from the pending list after they have received real values. */
 async function markResolved(filePath: string, keys: string[]): Promise<void> {
   const metadata = await loadMetadata(filePath);
   metadata.pending = metadata.pending.filter((p) => !keys.includes(p.key));
   await saveMetadata(filePath, metadata);
 }
 
+/** Return the list of key names that are still pending for the given encrypted file. */
 async function getPendingKeys(filePath: string): Promise<string[]> {
   const metadata = await loadMetadata(filePath);
   return metadata.pending.map((p) => p.key);
 }
 
+/** Check whether a single key is currently pending for the given encrypted file. */
 async function isPending(filePath: string, key: string): Promise<boolean> {
   const metadata = await loadMetadata(filePath);
   return metadata.pending.some((p) => p.key === key);
 }
 
+/** Generate a cryptographically random 64-character hex string for use as a placeholder value. */
 function generateRandomValue(): string {
   return crypto.randomBytes(32).toString("hex");
 }
 
+/**
+ * Same as {@link markPending} but retries once after `retryDelayMs` on transient failure.
+ *
+ * @param filePath - Path to the encrypted file.
+ * @param keys - Key names to mark as pending.
+ * @param setBy - Identifier of the actor setting these keys.
+ * @param retryDelayMs - Delay in milliseconds before the single retry (default: 200).
+ */
 async function markPendingWithRetry(
   filePath: string,
   keys: string[],

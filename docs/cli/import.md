@@ -66,7 +66,7 @@ Only string values are imported. Non-string values are skipped with a warning.
 | `--overwrite`                   | boolean | false   | Overwrite keys that already exist in the target file.                                |
 | `--dry-run`                     | boolean | false   | Preview which keys would be imported, skipped, or overwritten. No encryption occurs. |
 | `--stdin`                       | boolean | false   | Read source content from stdin instead of a file.                                    |
-| `--repo`                        | string  | auto    | Path to the Clef repo root. Overrides auto-detection.                                |
+| `--dir`                         | string  | auto    | Path to a local Clef repo root. Overrides auto-detection.                            |
 
 ## Exit Codes
 

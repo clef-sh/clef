@@ -4,7 +4,6 @@ import { Command } from "commander";
 import {
   ManifestParser,
   MatrixManager,
-  SopsClient,
   SopsMissingError,
   SopsVersionError,
   SubprocessRunner,
@@ -13,6 +12,7 @@ import {
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
+import { createSopsClient } from "../age-credential";
 
 async function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -79,7 +79,7 @@ export function registerImportCommand(program: Command, deps: { runner: Subproce
             return;
           }
 
-          const repoRoot = (program.opts().repo as string) || process.cwd();
+          const repoRoot = (program.opts().dir as string) || process.cwd();
 
           const parser = new ManifestParser();
           let manifest;
@@ -145,7 +145,7 @@ export function registerImportCommand(program: Command, deps: { runner: Subproce
             formatter.print(`Importing to ${namespace}/${environment} from ${sourceLabel}...\n`);
           }
 
-          const sopsClient = new SopsClient(deps.runner);
+          const sopsClient = await createSopsClient(repoRoot, deps.runner);
           const importRunner = new ImportRunner(sopsClient);
 
           let result;

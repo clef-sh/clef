@@ -1,16 +1,14 @@
 # Quick Start
 
-::: tip Pattern A (co-located)
-This walkthrough uses **Pattern A** — secrets live alongside your application code in the same repository. This is the simplest setup. For a standalone secrets repository (Pattern B), see [Choosing a repository structure](/guide/concepts#choosing-a-repository-structure).
-:::
-
-This walkthrough takes you from an empty git repository to a fully managed secrets setup with encrypted files, schema validation, and a running web UI. Every command is copy-pasteable.
+From an existing git repository to a fully managed secrets setup. Every command is copy-pasteable.
 
 ## Install Clef
 
 ```bash
-npm install -g @clef-sh/cli
+curl -fsSL https://clef.sh/install.sh | sh
 ```
+
+This installs both `clef` and `sops` to `/usr/local/bin`. Alternatively, install via npm: `npm install -g @clef-sh/cli`.
 
 Verify:
 
@@ -18,110 +16,61 @@ Verify:
 clef --version
 ```
 
-## Prerequisites
-
-Before starting, ensure you have installed:
-
-- **sops** — `brew install sops` (macOS) or see [installation guide](./installation.md)
-
-Verify sops is ready:
-
-```bash
-clef doctor
-```
+::: tip
+The install script handles sops automatically. If you installed via npm, the bundled sops binary is included via optional dependencies. Run `clef doctor` to verify your setup regardless of install method.
+:::
 
 ## 1. Initialise a Clef repository
 
-Start in an existing git repository (or create a new one):
-
 ```bash
-mkdir my-project && cd my-project
-git init
-```
-
-Run `clef init` to generate the manifest and scaffold the encrypted file matrix:
-
-```bash
+cd my-project
 clef init --namespaces database,payments,auth --non-interactive
 # Creates three default environments: dev, staging, production
 ```
 
-This creates:
-
-- `clef.yaml` — the manifest declaring your namespaces, environments, and SOPS configuration
-- `.sops.yaml` — SOPS creation rules that tell the `sops` binary how to encrypt new files
-- `.sops/` directory with a `.gitignore` that excludes your private key
-- One encrypted file per namespace/environment cell (e.g., `database/dev.enc.yaml`, `payments/staging.enc.yaml`)
-- A pre-commit hook that blocks unencrypted secret commits
+This creates `clef.yaml`, `.sops.yaml`, `.clef/config.yaml` (gitignored), namespace directories with one encrypted file per namespace/environment cell, and a pre-commit hook.
 
 ::: tip
-When using the age backend, `clef init` automatically generates an age key pair and stores the private key at `.clef/key.txt` (gitignored). No manual key generation is required.
+`clef init` generates an age key pair automatically — no manual key generation or age binary needed. The private key is stored in your OS keychain (or `~/.config/clef/keys/{label}/keys.txt` as a fallback).
 :::
 
-> **Migrating from an existing project?** If you already have secrets in `.env` files or a secrets manager, use `clef import` to bulk-migrate them. See the [migration guide](migrating.md).
+> **Migrating from .env files or a secrets manager?** Use `clef import`. See the [migration guide](migrating.md).
 
 ## 2. Set a secret
-
-Add a secret to the `payments` namespace in the `staging` environment:
 
 ```bash
 clef set payments/staging STRIPE_SECRET_KEY
 ```
 
-Because the value argument is omitted, Clef prompts for it with hidden input — the value is never echoed to the terminal or written to disk as plaintext. You can also provide the value directly:
+Omitting the value prompts for hidden input — the value is never echoed or written to disk as plaintext. You can provide it inline, but the value will appear in shell history:
 
 ```bash
 clef set payments/staging STRIPE_PUBLIC_KEY pk_test_abc123
 ```
 
-> **Note:** Passing a secret value directly on the command line shows a warning — the value will be visible in your shell history. For sensitive values, omit the value argument and Clef will prompt you interactively:
->
-> ```bash
-> clef set payments/staging STRIPE_PUBLIC_KEY
-> Enter value: (hidden)
-> ```
->
-> Or use `--random` to scaffold a placeholder.
+Use `--random` to scaffold a placeholder when you don't have the real value yet.
 
 ## 3. Retrieve a secret
-
-Read the value back:
 
 ```bash
 clef get payments/staging STRIPE_SECRET_KEY
 ```
 
-The output is raw (no labels, no colour) so it pipes cleanly into other tools:
-
-```bash
-clef get payments/staging STRIPE_SECRET_KEY | pbcopy
-```
-
 ## 4. Compare environments
-
-See what differs between `dev` and `staging` for the `payments` namespace:
 
 ```bash
 clef diff payments dev staging
 ```
 
-Output shows a table of keys with their values in each environment and a status column indicating which keys are changed, identical, or missing from one side. If keys are missing, Clef prints the exact `clef set` command to fix the gap.
+Shows a table of keys with status (changed, identical, or missing). For missing keys, Clef prints the exact `clef set` command to fix the gap.
 
 ## 5. Run the linter
-
-Validate the entire repository — matrix completeness, schema compliance, and SOPS integrity:
 
 ```bash
 clef lint
 ```
 
-A healthy repo prints:
-
-```
-All clear — 9 files healthy
-```
-
-If there are issues, Clef groups them by severity (errors, warnings, info) and provides a fix command for each one. To auto-fix safe issues like missing matrix files:
+A healthy repo prints `All clear — 9 files healthy`. Issues are grouped by severity with fix commands. To auto-fix missing matrix files:
 
 ```bash
 clef lint --fix
@@ -129,31 +78,17 @@ clef lint --fix
 
 ## 6. Open the web UI
 
-Launch the local web UI:
-
 ```bash
 clef ui
 ```
 
-Your browser opens to `http://127.0.0.1:7777` where you can:
-
-- Browse the namespace-by-environment matrix and spot missing cells or key drift at a glance
-- Click into a namespace to view and edit secrets with masked values
-- Diff two environments side-by-side
-- Run lint and see validation issues with inline fix commands
-
-The server binds to `127.0.0.1` only — it is never accessible from the network.
-
-Press `Ctrl+C` in the terminal to stop the server.
+Opens `http://127.0.0.1:7777` — browse the matrix, edit secrets with masked values, diff environments, and run lint. Press `Ctrl+C` to stop.
 
 ## Full example session
 
 ```bash
-# Set up the repository
-mkdir acme-secrets && cd acme-secrets
-git init
-
-# Initialise Clef with three namespaces
+# Initialise Clef in your existing project
+cd my-project
 clef init --namespaces database,payments,auth --non-interactive
 
 # Add secrets to dev
@@ -181,8 +116,25 @@ clef lint
 clef ui
 ```
 
-## Next steps
+## age vs KMS: choosing an encryption backend
 
-Now that you have a working Clef setup, learn about the core concepts that make it work.
+This walkthrough uses the **age** backend for every environment — the simplest configuration. age keys are free, require no cloud infrastructure, and work offline. The tradeoff is no built-in audit logging and fully self-managed key management.
+
+Two mechanisms restrict access within a repo:
+
+1. **Per-environment recipients** — scope age recipients to specific environments with `clef recipients add <key> -e production`. See [Team Setup](/guide/team-setup).
+2. **Per-environment backends** — configure production to use AWS KMS or GCP KMS for IAM-based access control and server-side audit logging. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override).
+
+|                      | age (all envs) | Per-env age recipients | Per-env KMS              |
+| -------------------- | -------------- | ---------------------- | ------------------------ |
+| **Setup complexity** | Lowest         | Low                    | Medium                   |
+| **Access control**   | All-or-nothing | Per-environment        | Per-environment + IAM    |
+| **Audit logging**    | None           | None                   | Server-side (CloudTrail) |
+| **Key management**   | Self-managed   | Self-managed           | Cloud-managed            |
+| **Cost**             | Free           | Free                   | KMS API charges          |
+
+For most teams, age for all environments is the right starting point. Add per-environment recipients for access restrictions; move to KMS for audit logging.
+
+## Next steps
 
 [Next: Core Concepts](/guide/concepts)

@@ -1,53 +1,97 @@
 # CLI Overview
 
-Clef provides twelve commands that cover the full secrets lifecycle — from verifying your environment to injecting secrets into running processes. The CLI is built on [commander.js](https://github.com/tj/commander.js) and follows Unix conventions: raw output for piping, meaningful exit codes, and no colour when stdout is not a TTY.
+The CLI is built on [commander.js](https://github.com/tj/commander.js) and follows Unix conventions: raw output for piping, meaningful exit codes, and no colour when stdout is not a TTY.
 
 ## Command summary
 
-| Command                            | Description                              | Common flags                                                     |
-| ---------------------------------- | ---------------------------------------- | ---------------------------------------------------------------- |
-| [`clef doctor`](/cli/doctor)       | Check dependencies and configuration     | `--json`                                                         |
-| [`clef init`](/cli/init)           | Initialise a new Clef repo               | `--namespaces`, `--environments`, `--backend`, `--random-values` |
-| [`clef get`](/cli/get)             | Retrieve a single decrypted value        | —                                                                |
-| [`clef set`](/cli/set)             | Set a secret value                       | `--random`, `--all-envs`                                         |
-| [`clef delete`](/cli/delete)       | Remove a key from an encrypted file      | `--all-envs`                                                     |
-| [`clef diff`](/cli/diff)           | Compare secrets between two environments | `--show-identical`, `--json`                                     |
-| [`clef lint`](/cli/lint)           | Full repo health check                   | `--fix`, `--json`                                                |
-| [`clef rotate`](/cli/rotate)       | Re-encrypt with a new recipient key      | `--new-key`, `--confirm`                                         |
-| [`clef hooks install`](/cli/hooks) | Install the pre-commit hook              | —                                                                |
-| [`clef exec`](/cli/exec)           | Run a command with injected secrets      | `--only`, `--prefix`, `--also`                                   |
-| [`clef export`](/cli/export)       | Print secrets as shell export statements | `--format`, `--no-export`                                        |
-| [`clef ui`](/cli/ui)               | Start the local web UI                   | `--port`, `--no-open`                                            |
+### Setup & diagnostics
+
+| Command                            | Description                                           | Flags                                                                                                                                                    |
+| ---------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`clef init`](/cli/init)           | Initialise a new Clef repo or onboard a new developer | `--namespaces <ns>`, `--environments <envs>`, `--backend <backend>`, `--secrets-dir <dir>`, `--non-interactive`, `--random-values`, `--include-optional` |
+| [`clef doctor`](/cli/doctor)       | Check dependencies, keys, and configuration           | `--json`, `--fix`                                                                                                                                        |
+| [`clef update`](/cli/update)       | Scaffold missing matrix cells after manifest changes  | —                                                                                                                                                        |
+| [`clef hooks install`](/cli/hooks) | Install or reinstall the pre-commit hook              | —                                                                                                                                                        |
+
+### Reading & writing secrets
+
+| Command                      | Description                                   | Arguments & flags                                                                                               |
+| ---------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| [`clef get`](/cli/get)       | Retrieve a single decrypted value (pipe-safe) | `<target> <key>`                                                                                                |
+| [`clef set`](/cli/set)       | Set a secret value (prompts for hidden input) | `<target> <key> [value]`, `--random`                                                                            |
+| [`clef delete`](/cli/delete) | Remove a key from an encrypted file           | `<target> <key>`, `--all-envs`                                                                                  |
+| [`clef import`](/cli/import) | Bulk-import from `.env`, JSON, or YAML        | `<target> [source]`, `--format <fmt>`, `--prefix <str>`, `--keys <keys>`, `--overwrite`, `--dry-run`, `--stdin` |
+
+### Validation & visibility
+
+| Command                  | Description                                           | Arguments & flags                                                            |
+| ------------------------ | ----------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [`clef lint`](/cli/lint) | Full repo health check — matrix, schemas, drift, SOPS | `--fix`, `--json`                                                            |
+| [`clef diff`](/cli/diff) | Compare secrets between two environments              | `<namespace> <env-a> <env-b>`, `--show-identical`, `--show-values`, `--json` |
+| [`clef scan`](/cli/scan) | Scan repo for leaked plaintext secrets                | `[paths...]`, `--staged`, `--severity <level>`, `--json`                     |
+
+### Key & recipient management
+
+| Command                                     | Description                         | Arguments & flags                     |
+| ------------------------------------------- | ----------------------------------- | ------------------------------------- |
+| [`clef rotate`](/cli/rotate)                | Re-encrypt with a new recipient key | `<target>`, `--new-key <key>`         |
+| [`clef recipients list`](/cli/recipients)   | List current recipients             | `-e <env>`                            |
+| [`clef recipients add`](/cli/recipients)    | Add an age recipient                | `<key>`, `--label <name>`, `-e <env>` |
+| [`clef recipients remove`](/cli/recipients) | Remove an age recipient             | `<key>`, `-e <env>`                   |
+
+### Consumption & deployment
+
+| Command                      | Description                                     | Arguments & flags                                                                          |
+| ---------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [`clef exec`](/cli/exec)     | Run a command with secrets injected as env vars | `<target> -- <cmd>`, `--only <keys>`, `--prefix <str>`, `--also <target>`, `--no-override` |
+| [`clef export`](/cli/export) | Print secrets as shell export statements        | `<target>`, `--format <fmt>`, `--no-export`                                                |
+
+### Service identities & artifacts
+
+| Command                               | Description                                          | Arguments & flags                              |
+| ------------------------------------- | ---------------------------------------------------- | ---------------------------------------------- |
+| [`clef service create`](/cli/service) | Create a service identity with per-env age key pairs | `<name>`, `--namespaces <ns>`, `--description` |
+| [`clef service list`](/cli/service)   | List all service identities                          | —                                              |
+| [`clef service show`](/cli/service)   | Show details of a service identity                   | `<name>`                                       |
+| [`clef service rotate`](/cli/service) | Rotate keys for a service identity                   | `<name>`, `-e <env>`                           |
+| [`clef pack`](/cli/pack)              | Pack an encrypted artifact for a service identity    | `<identity> <env>`, `-o <path>`                |
+
+### Interface & integration
+
+| Command                                  | Description                                            | Flags                        |
+| ---------------------------------------- | ------------------------------------------------------ | ---------------------------- |
+| [`clef ui`](/cli/ui)                     | Start the local web UI                                 | `--port <port>`, `--no-open` |
+| [`clef merge-driver`](/cli/merge-driver) | Git merge driver for encrypted files (auto-configured) | —                            |
 
 ## Global options
 
 ```bash
-clef --version                  # Print the version number
-clef --help                     # Print help for all commands
-clef <cmd> --help               # Print help for a specific command
-clef --repo <path> <cmd> ...    # Use a different repo root
+clef --version              # Print the version number
+clef --help                 # Print help for all commands
+clef <cmd> --help           # Print help for a specific command
+clef --dir <path> <cmd>     # Run against a different local directory
+clef --plain <cmd>          # Disable emoji and colour output
 ```
 
-### `--repo <path>`
+### `--dir <path>`
 
-Override the default repository root. By default, Clef looks for `clef.yaml` in the current working directory. Use `--repo` to point at a different directory — for example, a separate secrets repository:
+Override the default repository root. Accepts a local directory path. Defaults to the current working directory.
 
 ```bash
-clef --repo ../acme-secrets get database/production DB_URL
-clef --repo /opt/secrets lint
-clef --repo ../acme-secrets exec payments/production -- ./deploy.sh
+clef --dir ../other-project get database/production DB_URL
+clef --dir /opt/my-app lint
+clef --dir ../other-project exec payments/production -- ./deploy.sh
 ```
-
-This flag works with every command and is essential for the [Pattern B (standalone secrets repo)](/guide/concepts#choosing-a-repository-structure) workflow.
 
 ## Exit codes
 
 All commands follow the same exit code convention:
 
-| Code | Meaning                                    |
-| ---- | ------------------------------------------ |
-| `0`  | Success (for `diff`: no differences found) |
-| `1`  | Error or differences found                 |
+| Code | Meaning                                                                       |
+| ---- | ----------------------------------------------------------------------------- |
+| `0`  | Success (for `diff`: no differences found)                                    |
+| `1`  | Error or differences found                                                    |
+| `2`  | Precondition failure — command could not start or complete (`scan`, `import`) |
 
 `clef exec` is an exception: its exit code matches the child process exactly.
 
@@ -85,4 +129,14 @@ clef diff payments dev staging --json | jq '.rows[] | select(.status != "identic
 
 ## Configuration
 
-Clef reads its configuration from `clef.yaml` in the current working directory (or the directory specified by `--repo`). There are no global configuration files or environment variables specific to Clef. SOPS-related environment variables (`SOPS_AGE_KEY_FILE`, `SOPS_AGE_RECIPIENTS`, etc.) are passed through to the SOPS binary.
+Clef reads its configuration from `clef.yaml` in the current working directory (or the directory specified by `--dir`). There are no global configuration files specific to Clef. Per-repo local settings live in `.clef/config.yaml` (gitignored). Clef uses its own environment variables (`CLEF_AGE_KEY`, `CLEF_AGE_KEY_FILE`) which are translated to SOPS equivalents and passed to the SOPS subprocess — `SOPS_*` variables in the parent environment are not inherited by Clef to prevent cross-tool credential leakage.
+
+### sops binary resolution
+
+Clef locates the `sops` binary using a three-tier resolution chain:
+
+1. **`CLEF_SOPS_PATH`** — if set, used as the absolute path to the sops binary
+2. **Bundled package** — `@clef-sh/sops-{platform}-{arch}` installed as an optional dependency
+3. **System PATH** — falls back to bare `sops` command
+
+Run `clef doctor` to see which source was resolved. The `--json` flag includes `source` and `path` fields in the `sops` object.

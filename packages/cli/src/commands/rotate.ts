@@ -3,13 +3,13 @@ import { Command } from "commander";
 import {
   ManifestParser,
   MatrixManager,
-  SopsClient,
   SopsMissingError,
   SopsVersionError,
   SubprocessRunner,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
+import { createSopsClient } from "../age-credential";
 
 export function registerRotateCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -26,7 +26,7 @@ export function registerRotateCommand(program: Command, deps: { runner: Subproce
     .action(async (target: string, options: { newKey: string }) => {
       try {
         const [namespace, environment] = parseTarget(target);
-        const repoRoot = (program.opts().repo as string) || process.cwd();
+        const repoRoot = (program.opts().dir as string) || process.cwd();
 
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
@@ -39,7 +39,6 @@ export function registerRotateCommand(program: Command, deps: { runner: Subproce
           );
           if (!confirmed) {
             formatter.info("Rotation cancelled.");
-            process.exit(0);
             return;
           }
         }
@@ -51,7 +50,7 @@ export function registerRotateCommand(program: Command, deps: { runner: Subproce
             .replace("{environment}", environment),
         );
 
-        const sopsClient = new SopsClient(deps.runner);
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
 
         const relativeFile = manifest.file_pattern
           .replace("{namespace}", namespace)

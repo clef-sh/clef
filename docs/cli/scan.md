@@ -17,8 +17,10 @@ clef scan [paths...] [flags]
 | `--staged`           | boolean     | false   | Only scan files staged for commit                  |
 | `--severity <level>` | `all\|high` | `all`   | `all` = patterns + entropy; `high` = patterns only |
 | `--json`             | boolean     | false   | Machine-readable JSON output                       |
-| `--no-git`           | boolean     | false   | Scan all files regardless of `.gitignore`          |
-| `--repo <path>`      | string      | cwd     | Override repository root                           |
+
+::: tip
+`--dir <path>` is a global option available on all commands, not specific to `clef scan`. It overrides the repository root (default: cwd). See [Global Options](overview.md#global-options).
+:::
 
 ## Exit codes
 
@@ -67,7 +69,7 @@ Scanning repository for unencrypted secrets...
 
 ✗ Unencrypted matrix file
   payments/staging.yaml — missing SOPS metadata
-  fix: clef encrypt payments/staging
+  fix: sops encrypt -i payments/staging.yaml
 
 ⚠ Pattern match: Stripe live key
   src/config/payment.ts:23

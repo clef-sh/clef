@@ -43,7 +43,7 @@ clef set payments/staging STRIPE_SECRET_KEY sk_test_abc123
 ```
 
 ```
-✓ Set payments/staging STRIPE_SECRET_KEY
+✓ STRIPE_SECRET_KEY set in payments/staging
 ```
 
 ### Set with hidden prompt
@@ -56,7 +56,7 @@ clef set payments/staging STRIPE_SECRET_KEY
 
 ```
 Enter value for STRIPE_SECRET_KEY: ********
-✓ Set payments/staging STRIPE_SECRET_KEY
+✓ STRIPE_SECRET_KEY set in payments/staging
 ```
 
 This is the recommended approach for sensitive values because the value never appears in your shell history.
@@ -70,7 +70,7 @@ clef set database/production DB_PASSWORD
 ```
 This is a protected environment (production). Confirm? (y/N) y
 Enter value for DB_PASSWORD: ********
-✓ Set database/production DB_PASSWORD
+✓ DB_PASSWORD set in database/production
 ```
 
 ### Set via pipe
@@ -90,7 +90,8 @@ clef set payments/staging STRIPE_SECRET_KEY --random
 ```
 
 ```
-✓ Set payments/staging STRIPE_SECRET_KEY (random placeholder — pending)
+✓ STRIPE_SECRET_KEY set in payments/staging 🔒
+   ⏳  Marked as pending — replace with a real value before deploying
 ```
 
 Later, when the real value is available:
@@ -100,7 +101,7 @@ clef set payments/staging STRIPE_SECRET_KEY sk_live_abc123
 ```
 
 ```
-✓ Set payments/staging STRIPE_SECRET_KEY
+✓ STRIPE_SECRET_KEY set in payments/staging
 ```
 
 The pending state clears automatically when a real value is set. See [Pending Values](/guide/pending-values) for more details.

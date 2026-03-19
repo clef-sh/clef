@@ -2,10 +2,15 @@ import * as fs from "fs";
 import * as path from "path";
 import * as YAML from "yaml";
 import { Command } from "commander";
-import { checkAll, REQUIREMENTS, SubprocessRunner } from "@clef-sh/core";
+import { checkAll, GitIntegration, REQUIREMENTS, SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { scaffoldSopsConfig } from "./init";
+import {
+  resolveAgeCredential,
+  getExpectedKeyStorage,
+  getExpectedKeyLabel,
+} from "../age-credential";
 
 interface DoctorCheckResult {
   name: string;
@@ -14,14 +19,19 @@ interface DoctorCheckResult {
   hint?: string;
 }
 
+interface AgeKeyCheckResult extends DoctorCheckResult {
+  source: string | null;
+}
+
 interface DoctorJsonOutput {
   clef: { version: string; ok: boolean };
-  sops: { version: string | null; required: string; ok: boolean };
+  sops: { version: string | null; required: string; ok: boolean; source?: string; path?: string };
   git: { version: string | null; required: string; ok: boolean };
   manifest: { found: boolean; ok: boolean };
   ageKey: { source: string | null; recipients: number; ok: boolean };
   sopsYaml: { found: boolean; ok: boolean; fix?: string };
   scanner: { clefignoreFound: boolean; ok: boolean };
+  mergeDriver: { gitConfig: boolean; gitattributes: boolean; ok: boolean };
 }
 
 export function registerDoctorCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -39,7 +49,7 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
       "Attempt to auto-fix issues (runs clef init if .sops.yaml is the only failure)",
     )
     .action(async (options: { json?: boolean; fix?: boolean }) => {
-      const repoRoot = (program.opts().repo as string) || process.cwd();
+      const repoRoot = (program.opts().dir as string) || process.cwd();
       const clefVersion = program.version() ?? "unknown";
 
       const checks: DoctorCheckResult[] = [];
@@ -54,12 +64,18 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
 
       // 2. sops
       if (depStatus.sops) {
+        const sourceLabel =
+          depStatus.sops.source === "bundled"
+            ? " [bundled]"
+            : depStatus.sops.source === "env"
+              ? " [CLEF_SOPS_PATH]"
+              : " [system]";
         checks.push({
           name: "sops",
           ok: depStatus.sops.satisfied,
           detail: depStatus.sops.satisfied
-            ? `v${depStatus.sops.installed}    (required >= ${depStatus.sops.required})`
-            : `v${depStatus.sops.installed}    (required >= ${depStatus.sops.required})`,
+            ? `v${depStatus.sops.installed}${sourceLabel}    (required >= ${depStatus.sops.required})`
+            : `v${depStatus.sops.installed}${sourceLabel}    (required >= ${depStatus.sops.required})`,
           hint: depStatus.sops.satisfied ? undefined : depStatus.sops.installHint,
         });
       } else {
@@ -101,7 +117,7 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
       });
 
       // 6. age key
-      const ageKeyResult = checkAgeKey(repoRoot);
+      const ageKeyResult = await checkAgeKey(repoRoot, deps.runner);
       checks.push(ageKeyResult);
 
       // 7. .sops.yaml
@@ -142,6 +158,20 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
           : "run clef init or create manually — see https://docs.clef.sh/cli/scan#clefignore",
       });
 
+      // 9. merge driver
+      const git = new GitIntegration(deps.runner);
+      const mergeDriverStatus = await git.checkMergeDriver(repoRoot);
+      const mergeDriverOk = mergeDriverStatus.gitConfig && mergeDriverStatus.gitattributes;
+      const mergeDriverDetails: string[] = [];
+      if (!mergeDriverStatus.gitConfig) mergeDriverDetails.push("git config missing");
+      if (!mergeDriverStatus.gitattributes) mergeDriverDetails.push(".gitattributes missing");
+      checks.push({
+        name: "merge driver",
+        ok: mergeDriverOk,
+        detail: mergeDriverOk ? "SOPS merge driver configured" : mergeDriverDetails.join(", "),
+        hint: mergeDriverOk ? undefined : "run: clef hooks install",
+      });
+
       // --fix: if the only failure is .sops.yaml missing, run clef init
       if (options.fix) {
         const failures = checks.filter((c) => !c.ok);
@@ -178,6 +208,8 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
             version: depStatus.sops?.installed ?? null,
             required: REQUIREMENTS.sops,
             ok: depStatus.sops?.satisfied ?? false,
+            source: depStatus.sops?.source,
+            path: depStatus.sops?.resolvedPath,
           },
           git: {
             version: depStatus.git?.installed ?? null,
@@ -186,7 +218,7 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
           },
           manifest: { found: manifestFound, ok: manifestFound },
           ageKey: {
-            source: ageKeyResult.ok ? (process.env.SOPS_AGE_KEY ? "env" : "file") : null,
+            source: ageKeyResult.source,
             recipients: countAgeRecipients(sopsYamlPath),
             ok: ageKeyResult.ok,
           },
@@ -198,6 +230,11 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
           scanner: {
             clefignoreFound: checks.find((c) => c.name === "scanner")?.ok ?? false,
             ok: checks.find((c) => c.name === "scanner")?.ok ?? false,
+          },
+          mergeDriver: {
+            gitConfig: mergeDriverStatus.gitConfig,
+            gitattributes: mergeDriverStatus.gitattributes,
+            ok: mergeDriverOk,
           },
         };
 
@@ -235,60 +272,72 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
     });
 }
 
-function checkAgeKey(repoRoot: string): DoctorCheckResult {
-  // Check SOPS_AGE_KEY env var first
-  if (process.env.SOPS_AGE_KEY) {
-    return {
-      name: "age key",
-      ok: true,
-      detail: "loaded (via SOPS_AGE_KEY env var)",
-    };
-  }
+async function checkAgeKey(repoRoot: string, runner: SubprocessRunner): Promise<AgeKeyCheckResult> {
+  const credential = await resolveAgeCredential(repoRoot, runner);
 
-  // Check SOPS_AGE_KEY_FILE or default path
-  const defaultKeyPath = path.join(
-    process.env.HOME || process.env.USERPROFILE || "",
-    ".config",
-    "sops",
-    "age",
-    "keys.txt",
-  );
-  const sopsAgeKeyFile = process.env.SOPS_AGE_KEY_FILE || defaultKeyPath;
-
-  if (fs.existsSync(sopsAgeKeyFile)) {
-    return {
-      name: "age key",
-      ok: true,
-      detail: `loaded (from ${sopsAgeKeyFile})`,
-    };
-  }
-
-  // Check .clef/config.yaml age_key_file
-  const clefConfigPath = path.join(repoRoot, ".clef", "config.yaml");
-  if (fs.existsSync(clefConfigPath)) {
-    try {
-      const configContent = fs.readFileSync(clefConfigPath, "utf-8");
-      const config = YAML.parse(configContent);
-      if (config?.age_key_file) {
-        if (fs.existsSync(config.age_key_file)) {
-          return {
-            name: "age key",
-            ok: true,
-            detail: `loaded (from ${config.age_key_file})`,
-          };
-        }
-      }
-    } catch {
-      // Failed to parse config — fall through
+  if (!credential) {
+    const expected = getExpectedKeyStorage(repoRoot);
+    let hint: string;
+    if (expected === "keychain") {
+      hint =
+        "your key was stored in the OS keychain during init but is not available now — " +
+        "check that your keychain service is running (see https://docs.clef.sh/guide/key-storage)";
+    } else if (expected === "file") {
+      hint = "the key file configured in .clef/config.yaml is missing or unreadable";
+    } else {
+      hint = "run: clef init to auto-generate your age key";
     }
+    return {
+      name: "age key",
+      ok: false,
+      detail: "not configured",
+      hint,
+      source: null,
+    };
   }
 
-  return {
-    name: "age key",
-    ok: false,
-    detail: "not configured",
-    hint: "set SOPS_AGE_KEY_FILE or run: clef init to auto-generate your age key",
-  };
+  const label = getExpectedKeyLabel(repoRoot);
+  const labelSuffix = label ? `, label: ${label}` : "";
+
+  switch (credential.source) {
+    case "keychain":
+      return {
+        name: "age key",
+        ok: true,
+        detail: `loaded (from OS keychain${labelSuffix})`,
+        source: "keychain",
+      };
+    case "env-key":
+      return {
+        name: "age key",
+        ok: true,
+        detail: "loaded (via CLEF_AGE_KEY env var)",
+        source: "env",
+      };
+    case "env-file":
+      return {
+        name: "age key",
+        ok: true,
+        detail: `loaded (via CLEF_AGE_KEY_FILE: ${process.env.CLEF_AGE_KEY_FILE})`,
+        source: "env",
+      };
+    case "config-file":
+      if (!fs.existsSync(credential.path)) {
+        return {
+          name: "age key",
+          ok: false,
+          detail: `configured (${credential.path}) — file not found`,
+          hint: "run: clef init to regenerate your age key",
+          source: null,
+        };
+      }
+      return {
+        name: "age key",
+        ok: true,
+        detail: `loaded (from ${credential.path}${labelSuffix})`,
+        source: "file",
+      };
+  }
 }
 
 function countAgeRecipients(sopsYamlPath: string): number {

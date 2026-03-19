@@ -1,0 +1,10 @@
+{
+  "version": "3.9.4",
+  "checksums": {
+    "darwin-arm64": "51ee2c3ec2c4331cfe1c0c25168e1c4c8036900842700b9bb074dda92a6017f2",
+    "darwin-x64": "f48d73efc278326e54d0e6a056b285fd8f5f28549b19aff9b0fedbbdd846b20c",
+    "linux-x64": "5488e32bc471de7982ad895dd054bbab3ab91c417a118426134551e9626e4e85",
+    "linux-arm64": "16564c6b181d88505d9e0dfef62771894293d85cde5884d9b1a843859eee174b",
+    "win32-x64": "bee270926fc55b5b89ed9ce87fb2569a36c74e99d63e6392090b3d0f0c2775eb"
+  }
+}

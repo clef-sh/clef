@@ -10,9 +10,10 @@ Clef is a git-native secrets management tool built on Mozilla SOPS. It provides 
 
 npm workspaces with three packages:
 
-- **`packages/core`** — Core library (manifest parsing, matrix management, SOPS client, lint runner, schema validation, diff engine). Zero npm dependencies except `yaml`.
-- **`packages/cli`** — Commander.js CLI wrapping core. 12 commands: init, get, set, delete, diff, lint, rotate, hooks, exec, export, doctor, ui.
+- **`packages/core`** — Core library (manifest parsing, matrix management, SOPS client, sops binary resolver, lint runner, schema validation, diff engine, secret scanning, git integration, bulk ops, import/export, recipient management, pending metadata, age keygen, dependency checking). Production dependencies: `yaml`, `age-encryption`.
+- **`packages/cli`** — Commander.js CLI wrapping core. Commands: init, get, set, delete, diff, lint, rotate, hooks, exec, export, import, doctor, update, scan, recipients, ui, merge-driver, service, pack, drift, agent. Has `optionalDependencies` on `@clef-sh/sops-{platform}-{arch}` packages for bundled sops binary.
 - **`packages/ui`** — React + Vite + Express local web UI served at `127.0.0.1:7777`.
+- **`platforms/sops-{platform}-{arch}/`** — Platform-specific npm packages that each contain a single sops binary. Versioned by sops version (e.g. 3.9.4), not Clef version. Published separately via `publish-sops.yml` workflow.
 
 ## Commands
 
@@ -32,8 +33,13 @@ npm test -w packages/ui
 # Run a single test file
 npx jest --config packages/cli/jest.config.js packages/cli/src/commands/get.test.ts
 
-# Integration tests (requires sops + age binaries installed)
+# Integration tests (requires sops on PATH or bundled)
 npm run test:integration
+
+# Documentation
+npm run docs:dev     # Dev server (typedoc + vitepress)
+npm run docs:build   # Production build
+npm run docs:api     # Generate API docs only (typedoc)
 ```
 
 ## Architecture
@@ -47,7 +53,8 @@ npm run test:integration
 - **Manifest** (`clef.yaml`): version 1, declares namespaces, environments, file patterns, schemas
 - **Matrix**: namespace × environment grid; each cell maps to an encrypted SOPS file (default: `{namespace}/{environment}.enc.yaml`)
 - **ManifestParser** validates and parses YAML; **MatrixManager** resolves cells and scaffolds files
-- **SopsClient** wraps the `sops` binary — all encrypt/decrypt piped via stdin/stdout, never written to disk as plaintext
+- **SopsClient** wraps the `sops` binary — all encrypt/decrypt piped via stdin/stdout, never written to disk as plaintext. Uses `resolveSopsPath()` to locate the binary.
+- **SopsResolver** (`sops/resolver.ts`) — three-tier resolution: `CLEF_SOPS_PATH` env → bundled `@clef-sh/sops-{platform}-{arch}` package → system PATH fallback. Result is cached.
 - **LintRunner** validates matrix completeness, schema conformance, and SOPS file integrity
 
 ### CLI Commands
@@ -73,9 +80,19 @@ Split client (Vite/React) and server (Express). Server binds `127.0.0.1` only. V
 - TypeScript: ES2022 target, strict mode, commonjs modules
 - Conventional Commits: `type(scope): description` — types: feat, fix, docs, chore, refactor, test, ci
 
+## After Every Change
+
+Always run these two commands from the repo root before considering a task done:
+
+```bash
+npm run lint          # must pass with zero errors
+npm run test:coverage # must meet all coverage thresholds
+npm run format:check  # must pass with no formatting issues
+```
+
 ## Test Coverage Thresholds
 
-- **Core**: 90% branch, 100% function/line/statement
-- **CLI**: 85% branch, 100% function/line/statement
+- **Global** (core & CLI): 80% lines/functions/statements, 75% branches
+- **Tier 1 modules** (sops/client, pending/metadata, scanner/patterns, diff/engine, manifest/parser): 95% lines/functions, 90% branches
 - Unit tests fully mock `fs`, `SubprocessRunner`, and `OutputFormatter`
 - Integration tests (`integration/`) use real sops + git binaries with temp directories

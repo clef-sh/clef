@@ -38,7 +38,7 @@ const validManifestYaml = YAML.stringify({
 
 function makeProgram(runner: SubprocessRunner): Command {
   const program = new Command();
-  program.option("--repo <path>", "Repository root");
+  program.option("--dir <path>", "Path to a local Clef repository root");
   program.exitOverride();
   registerRotateCommand(program, { runner });
   return program;
@@ -145,7 +145,7 @@ describe("clef rotate", () => {
     ]);
 
     expect(mockFormatter.info).toHaveBeenCalledWith("Rotation cancelled.");
-    expect(mockExit).toHaveBeenCalledWith(0);
+    expect(mockExit).not.toHaveBeenCalled();
     expect(mockFormatter.success).not.toHaveBeenCalled();
     // No SOPS calls should be made after declining
     const sopsRotateCalls = (runner.run as jest.Mock).mock.calls.filter(

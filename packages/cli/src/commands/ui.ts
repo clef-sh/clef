@@ -1,8 +1,21 @@
+import * as path from "path";
 import { Command } from "commander";
 import { SubprocessRunner } from "@clef-sh/core";
-import { startServer, ServerHandle } from "@clef-sh/ui/dist/server";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
+import { resolveAgeCredential, prepareSopsClientArgs } from "../age-credential";
+
+interface ServerHandle {
+  url: string;
+  token: string;
+  stop: () => Promise<void>;
+  address: () => { address: string; port: number };
+}
+
+// When the CLI is distributed as a self-contained esbuild bundle, all code
+// lives in dist/index.js and __dirname resolves to that file's directory.
+// The build script copies UI client assets to dist/client/ alongside the bundle.
+const UI_CLIENT_DIR = path.resolve(__dirname, "client");
 
 export function registerUiCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -18,11 +31,29 @@ export function registerUiCommand(program: Command, deps: { runner: SubprocessRu
         return;
       }
 
-      const repoRoot = (program.opts().repo as string) || process.cwd();
+      const repoRoot = (program.opts().dir as string) || process.cwd();
+
+      // Resolve age credentials so the UI server can decrypt secrets
+      const credential = await resolveAgeCredential(repoRoot, deps.runner);
+      const { ageKeyFile, ageKey } = prepareSopsClientArgs(credential);
+
+      // Lazy-load @clef-sh/ui so the CLI doesn't fail at startup when the UI
+      // module hasn't been resolved yet for commands other than `clef ui`.
+      const uiModule = await import("@clef-sh/ui");
+      const { startServer } = uiModule as {
+        startServer: (
+          port: number,
+          repoRoot: string,
+          runner?: SubprocessRunner,
+          clientDir?: string,
+          ageKeyFile?: string,
+          ageKey?: string,
+        ) => Promise<ServerHandle>;
+      };
 
       let handle: ServerHandle;
       try {
-        handle = await startServer(port, repoRoot, deps.runner);
+        handle = await startServer(port, repoRoot, deps.runner, UI_CLIENT_DIR, ageKeyFile, ageKey);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
         formatter.error(`Failed to start UI server: ${message}`);
@@ -33,20 +64,19 @@ export function registerUiCommand(program: Command, deps: { runner: SubprocessRu
       const tokenUrl = `${handle.url}?token=${handle.token}`;
 
       formatter.print(`${sym("clef")}  Starting Clef UI...\n`);
-      formatter.print(`   ${sym("locked")}  Server   ${handle.url}`);
-      formatter.print(`   ${sym("copied")}  Token    ${handle.token}`);
+      formatter.print(`   ${sym("locked")}  URL   ${tokenUrl}`);
 
       if (options.open) {
         if (isHeadless()) {
           formatter.info(
-            `Browser auto-open skipped (no display detected). Open ${tokenUrl} manually.`,
+            `Browser auto-open skipped (no display detected). Open the URL above manually.`,
           );
         } else {
           formatter.print(`\n   Opening browser...`);
           try {
             await openBrowser(tokenUrl, deps.runner);
           } catch {
-            formatter.warn(`Could not open browser automatically. Visit ${tokenUrl} manually.`);
+            formatter.warn(`Could not open browser automatically. Visit the URL above manually.`);
           }
         }
       }

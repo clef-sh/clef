@@ -18,10 +18,12 @@ export { DiffEngine } from "./diff/engine";
 export { BulkOps } from "./bulk/ops";
 export { GitIntegration } from "./git/integration";
 export { SopsClient } from "./sops/client";
+export { resolveSopsPath, resetSopsResolution } from "./sops/resolver";
+export type { SopsResolution, SopsSource } from "./sops/resolver";
 export { LintRunner } from "./lint/runner";
 export { ConsumptionClient } from "./consumption/client";
 export { checkDependency, checkAll, assertSops, REQUIREMENTS } from "./dependencies/checker";
-export { generateAgeIdentity, formatAgeKeyFile } from "./age/keygen";
+export { generateAgeIdentity, deriveAgePublicKey, formatAgeKeyFile } from "./age/keygen";
 export type { AgeIdentity } from "./age/keygen";
 export {
   metadataPath,
@@ -42,3 +44,12 @@ export { RecipientManager } from "./recipients";
 export type { Recipient, RecipientsResult } from "./recipients";
 export { validateAgePublicKey, keyPreview } from "./recipients/validator";
 export type { AgeKeyValidation } from "./recipients/validator";
+export { DriftDetector } from "./drift/detector";
+export { ReportGenerator, ReportSanitizer } from "./report";
+export { SopsMergeDriver } from "./merge/driver";
+export type { MergeResult, MergeKey, MergeKeyStatus } from "./merge/driver";
+export { ServiceIdentityManager, PartialRotationError } from "./service-identity/manager";
+export { resolveIdentitySecrets } from "./artifact/resolve";
+export type { ResolvedSecrets } from "./artifact/resolve";
+export { ArtifactPacker } from "./artifact/packer";
+export type { PackedArtifact, PackConfig, PackResult } from "./artifact/types";

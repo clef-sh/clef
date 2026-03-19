@@ -1,6 +1,10 @@
 # Core Concepts
 
-Clef is built around a small set of concepts that, together, make secrets management structured, visible, and safe. This page explains the mental model.
+This page explains the mental model behind Clef.
+
+## Who Clef is for
+
+Clef is a secrets management tool **for developers** that supports ops and security workflows — not an ops or security tool that happens to have developer support. The distinction matters: every design decision starts from the developer's daily experience (editing secrets, reviewing PRs, debugging config) and works outward. Ops-oriented features like production isolation, drift detection, and CI integration exist because they make the developer workflow sustainable at scale, not as ends in themselves.
 
 ## The two-axis model
 
@@ -13,43 +17,46 @@ Every secret in a Clef-managed repository lives at the intersection of two axes:
 
 This produces a matrix. Each cell in the matrix is a single encrypted YAML file containing the key-value pairs for that namespace in that environment.
 
-```
-                 dev        staging     production
-  ┌─────────────┬──────────┬───────────┬────────────┐
-  │ database    │ 5 keys   │ 5 keys    │ 5 keys     │
-  │ payments    │ 3 keys   │ 3 keys    │ 4 keys     │
-  │ auth        │ 7 keys   │ 7 keys    │ 7 keys     │
-  └─────────────┴──────────┴───────────┴────────────┘
+```mermaid
+block-beta
+  columns 4
+  space dev["DEV"] stg["STAGING"] prod["PRODUCTION"]
+  db["database"] dbd["5 keys"] dbs["5 keys"] dbp["5 keys"]
+  pay["payments"] payd["3 keys"] pays["3 keys"] payp["4 keys"]
+  auth["auth"] authd["7 keys"] auths["7 keys"] authp["7 keys"]
 ```
 
-On disk, the matrix maps to a directory structure:
+On disk, the matrix maps to a directory structure inside a `secrets/` directory:
 
 ```
 your-repo/
-├── database/
-│   ├── dev.enc.yaml
-│   ├── staging.enc.yaml
-│   └── production.enc.yaml
-├── payments/
-│   ├── dev.enc.yaml
-│   ├── staging.enc.yaml
-│   └── production.enc.yaml
-└── auth/
-    ├── dev.enc.yaml
-    ├── staging.enc.yaml
-    └── production.enc.yaml
+├── src/
+├── clef.yaml
+└── secrets/
+    ├── database/
+    │   ├── dev.enc.yaml
+    │   ├── staging.enc.yaml
+    │   └── production.enc.yaml
+    ├── payments/
+    │   ├── dev.enc.yaml
+    │   ├── staging.enc.yaml
+    │   └── production.enc.yaml
+    └── auth/
+        ├── dev.enc.yaml
+        ├── staging.enc.yaml
+        └── production.enc.yaml
 ```
 
 The two-axis model makes two problems visible that are otherwise invisible with raw SOPS:
 
 1. **Missing cells** — a namespace/environment combination that should exist but does not. This means someone added a new environment but forgot to create files for it.
-2. **Key drift** — a cell with fewer keys than its siblings. This means a key was added to `dev` but never promoted to `staging` or `production`.
+2. **Key drift** — a key that exists in some environments but not others within the same namespace. For example, a key was added to `dev` but never promoted to `staging` or `production`. Clef compares the full set of keys across all environments in a namespace, not just the count.
 
 Both problems are caught by `clef lint` and visualised in the UI matrix view.
 
 ## The manifest
 
-The manifest is a file called `clef.yaml` at the root of your repository. It is the single source of truth for Clef's understanding of your project:
+The manifest is `clef.yaml` at the root of your repository — Clef's single source of truth:
 
 ```yaml
 version: 1
@@ -74,19 +81,13 @@ namespaces:
 
 sops:
   default_backend: age
-  age_key_file: .sops/keys.txt
 
-file_pattern: "{namespace}/{environment}.enc.yaml"
+file_pattern: "secrets/{namespace}/{environment}.enc.yaml"
 ```
 
-The manifest declares:
-
-- Which **environments** exist and whether any are protected (requiring confirmation before writes)
-- Which **namespaces** exist, with optional schema references and team ownership
-- The **SOPS configuration** — which encryption backend to use and where to find keys
-- The **file pattern** — how namespace and environment map to file paths on disk
-
-Clef reads this file at the start of every operation. The manifest is committed to git alongside your encrypted files, so every team member shares the same structure.
+::: tip age key location
+When using the age backend, each developer's key label and storage method are stored in `.clef/config.yaml` (gitignored) — not in the manifest. The private key lives in the OS keychain or at `~/.config/clef/keys/{label}/keys.txt`, always outside the repository.
+:::
 
 For a full field-by-field reference, see the [Manifest Reference](/guide/manifest).
 
@@ -125,159 +126,126 @@ For the full schema specification, see the [Schema Reference](/schemas/reference
 
 ## Git-native philosophy
 
-Clef treats git as the only persistence layer. There is no external database, no cloud sync service, and no server component. This means:
-
-- **Branching works.** Secrets changes live on branches just like code changes. You can review them in pull requests (the encrypted diff shows which keys changed even if the values are opaque).
-- **History is free.** Git log shows who changed a secret, when, and why. No separate audit trail is needed.
-- **Collaboration is pull-and-push.** Team members get secret changes by pulling the repository. There is no separate sync step.
-- **Backups are git remotes.** Pushing to GitHub, GitLab, or any git remote backs up your encrypted secrets automatically.
-
-The Clef UI surfaces git state throughout: the sidebar shows the current branch and uncommitted file count, the editor has a commit flow, and the lint view shows whether changes are staged.
+Clef treats git as the only persistence layer — no external database, cloud sync, or server. Secrets are version-controlled like any other config: history is in git log, changes propagate via pull, and backups are git remotes. The UI surfaces git state throughout: current branch, uncommitted file count, and commit flow.
 
 ## Protected environments
 
-Any environment marked `protected: true` in the manifest requires explicit confirmation before Clef writes to it. Production is the most common protected environment.
-
-In the CLI, writing to a protected environment triggers a confirmation prompt:
+Environments marked `protected: true` require explicit confirmation before Clef writes to them. The CLI prompts:
 
 ```
 This is a protected environment (production). Confirm? (y/N)
 ```
 
-In the UI, the editor shows a persistent red warning banner when the production tab is active. This makes editing production feel meaningfully different from editing dev — without blocking the workflow.
+The UI shows a persistent red warning banner on the production tab.
 
 ## The SOPS layer
 
-Clef never implements any cryptography. All encryption and decryption is performed by the `sops` binary running as a subprocess. Clef communicates with SOPS via stdin/stdout pipes:
-
-```
-              Clef (in memory)
-                    │
-        ┌───────────┼───────────┐
-        │           │           │
-        ▼           ▼           ▼
-   sops decrypt  sops encrypt  sops rotate
-   (stdout →     (stdin →      (in-place
-    memory)       stdout →      re-encrypt)
-                  write file)
-```
-
-Decrypted values exist only in memory. They are never written to temporary files, never logged, and never printed to stdout with labels or formatting (the `clef get` command outputs raw values for piping, but never logs them).
-
-This architecture means Clef inherits all of SOPS's backend support — age, AWS KMS, GCP KMS, and PGP — without having to implement any of it.
+Clef never implements cryptography. All encryption and decryption is delegated to the `sops` binary via stdin/stdout pipes. Decrypted values exist only in memory — never written to temporary files or logged. Clef inherits all SOPS backend support (age, AWS KMS, GCP KMS, PGP) without implementing any of it.
 
 ## Design decision: all namespaces are encrypted
 
-Clef does not support unencrypted namespaces. Every file in the namespace/environment matrix is encrypted by SOPS — there is no `encrypted: false` option on the namespace definition.
+Clef has no `encrypted: false` option. Every file in the matrix is encrypted by SOPS, without exception. A single rule is easier to audit and enforce than mixed-mode. Non-sensitive config belongs in a regular config file outside the Clef matrix.
 
-This is an intentional architectural constraint, not a missing feature. The reasons:
+## Repository structure
 
-1. **Security simplicity.** A single rule ("every file is encrypted") is easier to audit, enforce, and explain than "some files are encrypted and some aren't". Mixed-mode repos create a class of bugs where a namespace is accidentally left unencrypted.
-2. **Pre-commit hook reliability.** The hook checks for SOPS encryption markers. With mixed-mode, the hook would need to consult the manifest to decide whether a file should be encrypted — adding fragile coupling between the hook and the manifest parser.
-3. **SOPS overhead is negligible.** For non-sensitive configuration that doesn't need encryption, use a regular config file outside the Clef matrix. Clef manages secrets; plain config belongs elsewhere.
+Clef supports two approaches to organizing secrets. Choose based on your team size, compliance requirements, and security posture.
 
-If you have configuration values that are not secret, keep them in a non-Clef config file (e.g. `config/defaults.yaml`). Only values that must be encrypted belong in the Clef matrix.
+### Co-located secrets
 
-## Choosing a repository structure
-
-Clef supports two patterns for organising secrets alongside code. Both are first-class — choose the one that fits your team.
-
-### Pattern A — Co-located secrets
-
-Encrypted files live in the same repository as the application code:
+Secrets live in the same repository as the code that uses them, inside a `secrets/` directory. This is the simplest pattern and works well for many teams.
 
 ```
 my-app/
 ├── src/
 ├── package.json
 ├── clef.yaml
-├── database/
-│   ├── dev.enc.yaml
-│   ├── staging.enc.yaml
-│   └── production.enc.yaml
-└── auth/
-    ├── dev.enc.yaml
-    ├── staging.enc.yaml
-    └── production.enc.yaml
+└── secrets/
+    ├── database/
+    │   ├── dev.enc.yaml
+    │   ├── staging.enc.yaml
+    │   └── production.enc.yaml
+    └── auth/
+        ├── dev.enc.yaml
+        ├── staging.enc.yaml
+        └── production.enc.yaml
 ```
 
-**Pros:**
+**Why co-location works well:**
 
-- Secrets and code change together in the same PR — reviewers see the full picture
-- No separate checkout step in CI
-- Simple `clef init` in the project root — works immediately
-- Developers never need to think about which repo to look in
+- **Blast radius containment.** Each repo has its own age key. Compromising one repo's key does not expose any other repo's secrets.
+- **Built-in validation.** `clef lint` catches missing keys, schema violations, and environment gaps before they become production problems.
+- **Single checkout.** Code, config, and credentials are in one place. `git checkout <sha> && clef exec ... -- deploy.sh` deploys from one ref with no separate repo to coordinate.
+- **Atomic reviews.** Secrets and code change in the same PR.
+- **No sync step.** Developers get secret changes by pulling the repository.
 
-**Cons:**
+### Production isolation
 
-- Every developer who clones the repo gets the encrypted files, even if they cannot decrypt them
-- Access control is all-or-nothing at the repo level — anyone with repo access has the ciphertext
-- Multi-service teams end up with secrets for unrelated services in the same repo
-
-**Best for:** single-service repositories, small teams, and projects where all contributors should have access to all encrypted files.
-
-### Pattern B — Standalone secrets repository
-
-A dedicated repository contains only the manifest and encrypted files. Application repositories reference it at deploy time:
+For regulated or security-conscious organizations, production ciphertext can live in a **separate repository** accessible only to ops/SRE teams and production CI/CD. The dev repo holds `dev` and `staging` environments; the production repo holds only `production`.
 
 ```
-acme-secrets/                    my-app/
-├── clef.yaml            ├── src/
-├── database/                    ├── package.json
-│   ├── dev.enc.yaml             └── deploy.sh
-│   ├── staging.enc.yaml
-│   └── production.enc.yaml
-└── auth/
-    ├── dev.enc.yaml
-    └── production.enc.yaml
+# Dev repo (accessible to all engineers)
+my-app/
+├── src/
+├── clef.yaml          # environments: dev, staging
+└── secrets/
+    └── database/
+        ├── dev.enc.yaml
+        └── staging.enc.yaml
+
+# Production repo (restricted to ops)
+my-app-production/
+├── clef.yaml          # environments: production
+└── secrets/
+    └── database/
+        └── production.enc.yaml
 ```
 
-**Pros:**
+**Why production isolation matters:**
 
-- Secrets are audited, reviewed, and access-controlled independently of application code
-- A single secrets repo can serve multiple applications — no duplication
-- Developers who do not need secret access never see the ciphertext
-- Compliance teams can restrict the secrets repo without restricting the main codebase
+- **Least privilege.** Developers who need `dev` and `staging` secrets never see production ciphertext.
+- **Compliance.** SOC 2, PCI-DSS, and HIPAA frameworks may require separate storage and audit trails for production credentials.
+- **Defense in depth.** Even though SOPS values are encrypted, key names are plaintext. Splitting repos limits visibility of production key names.
 
-**Cons:**
+Use `clef drift` to keep key sets in sync across repos — it compares without decryption and works without sops installed. See [Production Isolation](/guide/production-isolation) for the full setup guide.
 
-- Requires a two-checkout CI workflow (see [CI/CD Integration](/guide/ci-cd))
-- Local development requires cloning a second repo or using `--repo` to point at it
-- Secret and code changes are in separate PRs — harder to review atomically
+### Why not a shared monorepo for all services
 
-**Best for:** multi-service organisations, regulated environments, and teams with strict separation between infrastructure/secrets and application code.
+The arguments against a single shared secrets repository (all services, all teams) remain strong regardless of which pattern you choose above:
 
-### Using `--repo` with Pattern B
+- **Single point of compromise.** One key exposes secrets for every service.
+- **Invisible drift.** Secret changes are decoupled from the code that consumes them.
+- **Unclear ownership.** Multiple teams sharing one repo means unclear review responsibility.
+- **Operational friction.** Every change requires coordinating across teams and repos.
 
-When secrets live in a separate repository, use the `--repo` flag to tell Clef where to find them:
+::: tip Access control
+By default, a recipient added with `clef recipients add` can decrypt all environments. Clef provides two ways to restrict access within a repo:
+
+- **Per-environment recipients** — scope recipients to specific environments with `clef recipients add <key> -e production`.
+- **Per-environment backends** — configure production to use a KMS backend (AWS KMS, GCP KMS) while dev/staging use age. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override).
+
+For a comparison of these approaches, see [age vs KMS](/guide/quick-start#age-vs-kms-choosing-an-encryption-backend).
+:::
+
+### Using `--dir` for other local repos
+
+The `--dir` flag points Clef at a different local directory instead of the current working directory:
 
 ```bash
-# Point any command at a different repo root
-clef --repo ../acme-secrets get database/production DB_URL
-clef --repo ../acme-secrets exec payments/production -- node server.js
-clef --repo /opt/secrets lint
+clef --dir ../other-project get database/production DB_URL
+clef --dir /opt/my-app lint
 ```
-
-`--repo` overrides the default repo detection (which uses the current working directory). It works with every Clef command.
 
 ## Pending values
 
-When you set up a new namespace, you often don't have real credentials yet. Clef solves this with **pending values** — cryptographically random placeholders that keep your encrypted files valid and your matrix complete while you wait for real secrets.
+When you set up a new namespace without real credentials yet, use **pending values** — cryptographically random placeholders that keep your encrypted files valid and matrix complete until real secrets are available.
 
 ```bash
-# Scaffold a key with a random placeholder
-clef set payments/staging STRIPE_SECRET_KEY --random
-
-# Later, replace with the real value
-clef set payments/staging STRIPE_SECRET_KEY sk_live_abc123
+clef set payments/staging STRIPE_SECRET_KEY --random  # scaffold
+clef set payments/staging STRIPE_SECRET_KEY sk_live_abc123  # replace later
 ```
 
-Pending state is tracked in `.clef-meta.yaml` sidecar files (plaintext, committed, containing only key names — never secret values). The UI, `clef lint`, and the matrix view all surface pending keys so nothing is forgotten.
-
-For the full pending workflow, see [Pending Values](/guide/pending-values).
+Pending state is tracked in `.clef-meta.yaml` sidecar files (plaintext, committed, key names only — never values). See [Pending Values](/guide/pending-values).
 
 ## Next steps
-
-Learn the full manifest specification and every configuration option available.
 
 [Next: Manifest Reference](/guide/manifest)

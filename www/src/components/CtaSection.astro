@@ -3,48 +3,72 @@
 
 <section id="cta" class="border-t border-clef-border bg-clef-panel py-20">
   <div class="mx-auto max-w-[1200px] px-6">
-    <div
-      class="relative overflow-hidden rounded-[10px] border border-clef-borderMid bg-clef-surface px-12 py-14 text-center sm:px-12"
-    >
-      <!-- Gradient accent line at top -->
+    <div class="grid gap-4 sm:grid-cols-2">
+
+      <!-- OSS track -->
       <div
-        class="absolute left-1/2 top-0 h-px w-80 -translate-x-1/2"
-        style="background: linear-gradient(90deg, transparent, #F0A500, transparent);"
+        class="relative overflow-hidden rounded-[10px] border border-clef-borderMid bg-clef-surface px-10 py-12"
       >
+        <div
+          class="absolute left-0 top-0 h-px w-48"
+          style="background: linear-gradient(90deg, #F0A500, transparent);"
+        ></div>
+        <div class="mb-2 font-mono text-[11px] font-medium uppercase tracking-widest text-clef-textMuted">
+          Open source &middot; MIT license
+        </div>
+        <h2
+          class="mb-3 text-[24px] font-bold tracking-tight text-clef-text"
+        >
+          Free to use, MIT licensed.
+        </h2>
+        <p class="mb-8 text-[14px] leading-relaxed text-clef-textSecondary">
+          Install the CLI, init your manifest, and have your first secret
+          encrypted in git in under five minutes. Bring your own KMS or start
+          with age for local development.
+        </p>
+        <a
+          href="https://docs.clef.sh/guide/quick-start"
+          class="inline-flex items-center gap-2 rounded-md border border-clef-accent bg-clef-accent px-6 py-2.5 text-[14px] font-semibold text-clef-bg transition-opacity hover:opacity-[0.88]"
+        >
+          Get Started
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
+          </svg>
+        </a>
       </div>
 
-      <h2
-        id="cta-heading"
-        class="mb-3.5 text-[32px] font-bold tracking-tight text-clef-text"
+      <!-- Clef Cloud track -->
+      <div
+        class="relative overflow-hidden rounded-[10px] border border-clef-accent/25 bg-clef-surface px-10 py-12"
       >
-        Ready to manage secrets the right way?
-      </h2>
-      <p
-        class="mx-auto mb-8 max-w-120 text-base leading-relaxed text-clef-textSecondary"
-      >
-        Stop decrypting files by hand. Clef gives your team a structured,
-        auditable workflow for secrets — backed by git and encrypted by SOPS.
-      </p>
-      <a
-        href="https://docs.clef.sh/guide/quick-start"
-        class="inline-flex items-center gap-2 rounded-md border border-clef-accent bg-clef-accent px-7 py-3 text-[15px] font-semibold text-clef-bg transition-opacity hover:opacity-[0.88]"
-      >
-        Get Started
-        <svg
-          width="15"
-          height="15"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          aria-hidden="true"
+        <div
+          class="absolute left-0 top-0 h-px w-48"
+          style="background: linear-gradient(90deg, #C9A84C, transparent);"
+        ></div>
+        <div class="mb-2 font-mono text-[11px] font-medium uppercase tracking-widest text-clef-accent">
+          Clef Cloud &middot; Early access
+        </div>
+        <h2
+          class="mb-3 text-[24px] font-bold tracking-tight text-clef-text"
         >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
-        </svg>
-      </a>
+          Team key management. Organization-wide policy.
+        </h2>
+        <p class="mb-8 text-[14px] leading-relaxed text-clef-textSecondary">
+          Central key onboarding, organization-wide policy, SSO, and governance
+          on top of Clef. Your secrets stay in your repo — we add the
+          management layer your team needs to scale.
+        </p>
+        <a
+          href="https://clef.sh/cloud"
+          class="inline-flex items-center gap-2 rounded-md border border-clef-accent px-6 py-2.5 text-[14px] font-semibold text-clef-accent no-underline transition-colors hover:bg-clef-accent hover:text-clef-bg"
+        >
+          Request early access
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
+          </svg>
+        </a>
+      </div>
+
     </div>
   </div>
 </section>

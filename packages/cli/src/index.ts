@@ -16,10 +16,17 @@ import { registerUpdateCommand } from "./commands/update";
 import { registerScanCommand } from "./commands/scan";
 import { registerImportCommand } from "./commands/import";
 import { registerRecipientsCommand } from "./commands/recipients";
+import { registerMergeDriverCommand } from "./commands/merge-driver";
+import { registerServiceCommand } from "./commands/service";
+import { registerPackCommand } from "./commands/pack";
+import { registerDriftCommand } from "./commands/drift";
+import { registerAgentCommand } from "./commands/agent";
+import { registerReportCommand } from "./commands/report";
 import { formatter } from "./output/formatter";
 import { setPlainMode, isPlainMode, symbols } from "./output/symbols";
+import pkg from "../package.json";
 
-const VERSION = "0.1.0";
+const VERSION = pkg.version as string;
 
 const program = new Command();
 const runner = new NodeSubprocessRunner();
@@ -27,12 +34,13 @@ const deps = { runner };
 
 program
   .name("clef")
-  .option("--repo <path>", "Path to the Clef repository root (overrides auto-detection from cwd)")
+  .option("--dir <path>", "Path to a local Clef repository root (default: current directory)")
   .option("--plain", "Plain output, no emoji or colour");
 
-// Apply --plain before any command runs
-program.hook("preAction", () => {
+// Resolve --plain before any command runs.
+program.hook("preAction", async () => {
   const opts = program.opts();
+
   if (opts.plain) {
     setPlainMode(true);
   }
@@ -81,6 +89,12 @@ registerDoctorCommand(program, deps);
 registerUpdateCommand(program, deps);
 registerScanCommand(program, deps);
 registerRecipientsCommand(program, deps);
+registerMergeDriverCommand(program, deps);
+registerServiceCommand(program, deps);
+registerPackCommand(program, deps);
+registerDriftCommand(program, deps);
+registerAgentCommand(program, deps);
+registerReportCommand(program, deps);
 
 program.parseAsync(process.argv).catch((err) => {
   formatter.error(err.message);

@@ -29,15 +29,16 @@ const mockExit = jest.spyOn(process, "exit").mockImplementation(() => undefined 
 
 function allGoodRunner(): SubprocessRunner {
   return {
-    run: jest.fn().mockImplementation(async (cmd: string) => {
-      switch (cmd) {
-        case "sops":
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
-        case "git":
-          return { stdout: "git version 2.43.0", stderr: "", exitCode: 0 };
-        default:
-          return { stdout: "", stderr: "", exitCode: 127 };
+    run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === "sops") return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+      if (cmd === "git" && args[0] === "config" && args[1] === "--get") {
+        return { stdout: "clef merge-driver %O %A %B", stderr: "", exitCode: 0 };
       }
+      if (cmd === "git") return { stdout: "git version 2.43.0", stderr: "", exitCode: 0 };
+      if (cmd === "cat") {
+        return { stdout: "*.enc.yaml merge=sops\n*.enc.json merge=sops", stderr: "", exitCode: 0 };
+      }
+      return { stdout: "", stderr: "", exitCode: 127 };
     }),
   };
 }
@@ -45,7 +46,7 @@ function allGoodRunner(): SubprocessRunner {
 function makeProgram(runner: SubprocessRunner): Command {
   const program = new Command();
   program.version("0.1.0");
-  program.option("--repo <path>", "Path to the Clef repository root");
+  program.option("--dir <path>", "Path to a local Clef repository root");
   program.exitOverride();
   registerDoctorCommand(program, { runner });
   return program;
@@ -54,9 +55,16 @@ function makeProgram(runner: SubprocessRunner): Command {
 describe("clef doctor", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    // Default: manifest and .sops.yaml exist, age key exists
+    // Default: manifest and .sops.yaml exist, age key exists via config-file
     mockFs.existsSync.mockReturnValue(true);
-    mockFs.readFileSync.mockReturnValue("version: 1\nsops:\n  default_backend: age\n");
+    mockFs.readFileSync.mockImplementation((p: unknown) => {
+      const pathStr = String(p);
+      if (pathStr.includes(".clef/config.yaml"))
+        return "age_key_file: /mock/keys.txt\nage_keychain_label: mock-label\n";
+      if (pathStr.includes(".gitattributes"))
+        return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n";
+      return "version: 1\nsops:\n  default_backend: age\n";
+    });
   });
 
   it("should exit 0 and print success when all checks pass", async () => {
@@ -124,17 +132,17 @@ describe("clef doctor", () => {
   });
 
   it("should exit 1 when age key is not configured", async () => {
-    // No SOPS_AGE_KEY env var
-    const origKey = process.env.SOPS_AGE_KEY;
-    const origKeyFile = process.env.SOPS_AGE_KEY_FILE;
-    delete process.env.SOPS_AGE_KEY;
-    delete process.env.SOPS_AGE_KEY_FILE;
+    // No CLEF_AGE_KEY env var
+    const origKey = process.env.CLEF_AGE_KEY;
+    const origKeyFile = process.env.CLEF_AGE_KEY_FILE;
+    delete process.env.CLEF_AGE_KEY;
+    delete process.env.CLEF_AGE_KEY_FILE;
 
-    // No key files exist
+    // No key files exist, no label in config
     mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
       const pathStr = String(p);
       if (pathStr.includes("keys.txt")) return false;
-      if (pathStr.includes("sops/age")) return false;
+      if (pathStr.includes(".clef/config.yaml")) return false;
       return true;
     });
 
@@ -149,8 +157,8 @@ describe("clef doctor", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
 
     // Restore
-    if (origKey !== undefined) process.env.SOPS_AGE_KEY = origKey;
-    if (origKeyFile !== undefined) process.env.SOPS_AGE_KEY_FILE = origKeyFile;
+    if (origKey !== undefined) process.env.CLEF_AGE_KEY = origKey;
+    if (origKeyFile !== undefined) process.env.CLEF_AGE_KEY_FILE = origKeyFile;
   });
 
   it("should output valid JSON with --json flag and count age recipients", async () => {
@@ -169,6 +177,9 @@ describe("clef doctor", () => {
     (mockFs.readFileSync as jest.Mock).mockImplementation((...args: any[]) => {
       const p = String(args[0]);
       if (p.includes(".sops.yaml")) return sopsYamlContent;
+      if (p.includes(".clef/config.yaml"))
+        return "age_key_file: /mock/keys.txt\nage_keychain_label: mock-label\n";
+      if (p.includes(".gitattributes")) return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n";
       return manifestContent;
     });
 
@@ -300,9 +311,9 @@ describe("clef doctor", () => {
     scaffoldSpy.mockRestore();
   });
 
-  it("should detect age key from SOPS_AGE_KEY env var", async () => {
-    const origKey = process.env.SOPS_AGE_KEY;
-    process.env.SOPS_AGE_KEY = "AGE-SECRET-KEY-1234";
+  it("should detect age key from CLEF_AGE_KEY env var", async () => {
+    const origKey = process.env.CLEF_AGE_KEY;
+    process.env.CLEF_AGE_KEY = "AGE-SECRET-KEY-1234";
 
     const runner = allGoodRunner();
     const program = makeProgram(runner);
@@ -310,27 +321,25 @@ describe("clef doctor", () => {
     await program.parseAsync(["node", "clef", "doctor"]);
 
     const printCalls = mockFormatter.print.mock.calls.map((c) => String(c[0]));
-    const keyLine = printCalls.find((l) => l.includes("age key") && l.includes("SOPS_AGE_KEY"));
+    const keyLine = printCalls.find((l) => l.includes("age key") && l.includes("CLEF_AGE_KEY"));
     expect(keyLine).toBeTruthy();
     expect(mockExit).toHaveBeenCalledWith(0);
 
     if (origKey === undefined) {
-      delete process.env.SOPS_AGE_KEY;
+      delete process.env.CLEF_AGE_KEY;
     } else {
-      process.env.SOPS_AGE_KEY = origKey;
+      process.env.CLEF_AGE_KEY = origKey;
     }
   });
 
   it("should detect age key from .clef/config.yaml", async () => {
-    const origKey = process.env.SOPS_AGE_KEY;
-    const origKeyFile = process.env.SOPS_AGE_KEY_FILE;
-    delete process.env.SOPS_AGE_KEY;
-    delete process.env.SOPS_AGE_KEY_FILE;
+    const origKey = process.env.CLEF_AGE_KEY;
+    const origKeyFile = process.env.CLEF_AGE_KEY_FILE;
+    delete process.env.CLEF_AGE_KEY;
+    delete process.env.CLEF_AGE_KEY_FILE;
 
     mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
       const s = String(p);
-      // Default age key path does not exist
-      if (s.includes(".config/sops/age/keys.txt")) return false;
       // .clef/config.yaml exists
       if (s.includes(".clef/config.yaml")) return true;
       // The key file referenced in config exists
@@ -339,7 +348,10 @@ describe("clef doctor", () => {
     });
     mockFs.readFileSync.mockImplementation((p: unknown) => {
       const pathStr = String(p);
-      if (pathStr.includes(".clef/config.yaml")) return "age_key_file: /custom/clef/keys.txt\n";
+      if (pathStr.includes(".clef/config.yaml"))
+        return "age_key_file: /custom/clef/keys.txt\nage_keychain_label: coral-tiger\n";
+      if (pathStr.includes(".gitattributes"))
+        return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n";
       return "version: 1\nsops:\n  default_backend: age\n";
     });
 
@@ -353,8 +365,37 @@ describe("clef doctor", () => {
     expect(keyLine).toBeTruthy();
     expect(mockExit).toHaveBeenCalledWith(0);
 
-    if (origKey !== undefined) process.env.SOPS_AGE_KEY = origKey;
-    if (origKeyFile !== undefined) process.env.SOPS_AGE_KEY_FILE = origKeyFile;
+    if (origKey !== undefined) process.env.CLEF_AGE_KEY = origKey;
+    if (origKeyFile !== undefined) process.env.CLEF_AGE_KEY_FILE = origKeyFile;
+  });
+
+  it("should include label in diagnostic output for file source", async () => {
+    const origKey = process.env.CLEF_AGE_KEY;
+    const origKeyFile = process.env.CLEF_AGE_KEY_FILE;
+    delete process.env.CLEF_AGE_KEY;
+    delete process.env.CLEF_AGE_KEY_FILE;
+
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readFileSync.mockImplementation((p: unknown) => {
+      const pathStr = String(p);
+      if (pathStr.includes(".clef/config.yaml"))
+        return "age_key_file: /custom/keys.txt\nage_keychain_label: coral-tiger\n";
+      return "version: 1\nsops:\n  default_backend: age\n";
+    });
+
+    const runner = allGoodRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "doctor"]);
+
+    const printCalls = mockFormatter.print.mock.calls.map((c) => String(c[0]));
+    const keyLine = printCalls.find(
+      (l) => l.includes("age key") && l.includes("label: coral-tiger"),
+    );
+    expect(keyLine).toBeTruthy();
+
+    if (origKey !== undefined) process.env.CLEF_AGE_KEY = origKey;
+    if (origKeyFile !== undefined) process.env.CLEF_AGE_KEY_FILE = origKeyFile;
   });
 
   it("should count zero recipients when .sops.yaml has no creation_rules", async () => {
@@ -409,9 +450,6 @@ describe("clef doctor", () => {
   });
 
   it("should return platform-specific install hints", async () => {
-    // This test covers getSopsInstallHint
-    // On darwin, it returns brew hints. On other platforms, URL hints.
-    // We test by having sops missing, which triggers the hint display.
     const runner: SubprocessRunner = {
       run: jest.fn().mockImplementation(async (cmd: string) => {
         if (cmd === "git") return { stdout: "git version 2.43.0", stderr: "", exitCode: 0 };
@@ -423,15 +461,14 @@ describe("clef doctor", () => {
     await program.parseAsync(["node", "clef", "doctor"]);
 
     const hintCalls = mockFormatter.hint.mock.calls.map((c) => String(c[0]));
-    // Should have hint line for sops
     const hintLines = hintCalls.filter((l) => l.includes("brew install") || l.includes("https://"));
     expect(hintLines.length).toBeGreaterThanOrEqual(1);
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
-  it("should report age key source as 'env' in JSON when SOPS_AGE_KEY is set", async () => {
-    const origKey = process.env.SOPS_AGE_KEY;
-    process.env.SOPS_AGE_KEY = "AGE-SECRET-KEY-1234";
+  it("should report age key source as 'env' in JSON when CLEF_AGE_KEY is set", async () => {
+    const origKey = process.env.CLEF_AGE_KEY;
+    process.env.CLEF_AGE_KEY = "AGE-SECRET-KEY-1234";
 
     const runner = allGoodRunner();
     const program = makeProgram(runner);
@@ -444,9 +481,9 @@ describe("clef doctor", () => {
     expect(parsed.ageKey.ok).toBe(true);
 
     if (origKey === undefined) {
-      delete process.env.SOPS_AGE_KEY;
+      delete process.env.CLEF_AGE_KEY;
     } else {
-      process.env.SOPS_AGE_KEY = origKey;
+      process.env.CLEF_AGE_KEY = origKey;
     }
   });
 
@@ -466,15 +503,21 @@ describe("clef doctor", () => {
 
     const hintCalls = mockFormatter.hint.mock.calls.map((c) => String(c[0]));
     // Should show URL-based hints instead of brew
-    const urlHints = hintCalls.filter((l) => l.includes("https://github.com/getsops/sops"));
-    expect(urlHints.length).toBeGreaterThanOrEqual(1);
+    expect(hintCalls.some((l) => l.includes("getsops/sops/releases"))).toBe(true);
 
     Object.defineProperty(process, "platform", { value: origPlatform, configurable: true });
   });
 
   it("should report age key source as 'file' in JSON when loaded from file", async () => {
-    const origKey = process.env.SOPS_AGE_KEY;
-    delete process.env.SOPS_AGE_KEY;
+    const origKey = process.env.CLEF_AGE_KEY;
+    delete process.env.CLEF_AGE_KEY;
+
+    mockFs.readFileSync.mockImplementation((p: unknown) => {
+      const pathStr = String(p);
+      if (pathStr.includes(".clef/config.yaml"))
+        return "age_key_file: /some/keys.txt\nage_keychain_label: test-label\n";
+      return "version: 1\nsops:\n  default_backend: age\n";
+    });
 
     const runner = allGoodRunner();
     const program = makeProgram(runner);
@@ -486,6 +529,6 @@ describe("clef doctor", () => {
     expect(parsed.ageKey.source).toBe("file");
     expect(parsed.ageKey.ok).toBe(true);
 
-    if (origKey !== undefined) process.env.SOPS_AGE_KEY = origKey;
+    if (origKey !== undefined) process.env.CLEF_AGE_KEY = origKey;
   });
 });

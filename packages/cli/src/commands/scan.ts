@@ -28,13 +28,9 @@ export function registerScanCommand(program: Command, deps: { runner: Subprocess
       "all",
     )
     .option("--json", "Output machine-readable JSON")
-    .option("--no-git", "Scan all files regardless of .gitignore")
     .action(
-      async (
-        paths: string[],
-        options: { staged?: boolean; severity?: string; json?: boolean; noGit?: boolean },
-      ) => {
-        const repoRoot = (program.opts().repo as string) || process.cwd();
+      async (paths: string[], options: { staged?: boolean; severity?: string; json?: boolean }) => {
+        const repoRoot = (program.opts().dir as string) || process.cwd();
 
         let manifest;
         try {
@@ -49,6 +45,12 @@ export function registerScanCommand(program: Command, deps: { runner: Subprocess
           } else {
             formatter.error((err as Error).message);
           }
+          process.exit(2);
+          return;
+        }
+
+        if (options.severity && options.severity !== "all" && options.severity !== "high") {
+          formatter.error(`Invalid severity '${options.severity}'. Must be 'all' or 'high'.`);
           process.exit(2);
           return;
         }
@@ -112,7 +114,7 @@ function formatScanOutput(result: ScanResult): void {
   for (const file of result.unencryptedMatrixFiles) {
     formatter.print(pc.red(`${sym("failure")} Unencrypted matrix file`));
     formatter.print(`  ${pc.white(file)} \u2014 missing ${sym("locked")}`);
-    const base = file.replace(/\.enc\.(yaml|json)$/, "").replace(/\//g, "/");
+    const base = file.replace(/\.enc\.(yaml|json)$/, "");
     formatter.hint(`clef encrypt ${base}`);
     formatter.print("");
   }

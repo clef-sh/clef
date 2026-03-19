@@ -4,13 +4,13 @@ import {
   BulkOps,
   ManifestParser,
   MatrixManager,
-  SopsClient,
   SopsMissingError,
   SopsVersionError,
   markResolved,
   SubprocessRunner,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
+import { createSopsClient } from "../age-credential";
 
 export function registerDeleteCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -28,11 +28,11 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
     .option("--all-envs", "Delete from all environments in the namespace")
     .action(async (target: string, key: string, options: { allEnvs?: boolean }) => {
       try {
-        const repoRoot = (program.opts().repo as string) || process.cwd();
+        const repoRoot = (program.opts().dir as string) || process.cwd();
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const sopsClient = new SopsClient(deps.runner);
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
 
         const matrixManager = new MatrixManager();
 
@@ -90,10 +90,11 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
           if (!(key in decrypted.values)) {
             formatter.error(`Key '${key}' not found in ${namespace}/${environment}.`);
             process.exit(1);
+            return;
           }
 
           delete decrypted.values[key];
-          await sopsClient.encrypt(filePath, decrypted.values, manifest);
+          await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
 
           // Clean up pending metadata if it exists
           try {

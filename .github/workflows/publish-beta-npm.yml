@@ -1,0 +1,125 @@
+# Manual beta → npm promotion workflow
+#
+# Promotes a specific beta version from GitHub Packages to npm under the
+# `beta` dist-tag, making it publicly installable via `npm install @clef-sh/cli@beta`.
+#
+# This is a deliberate manual gate: beta versions land on GitHub Packages
+# automatically, and a human promotes them to npm when ready for open testing.
+#
+# Authentication: GitHub Actions OIDC — no long-lived npm token required.
+
+name: Publish Beta to npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Beta version to publish (e.g. 0.1.0-beta.7)"
+        required: true
+        type: string
+      ref:
+        description: "Branch or tag to build from"
+        required: false
+        default: "staging"
+        type: string
+
+permissions:
+  contents: write # tag the promoted commit
+  id-token: write # provenance attestations
+
+jobs:
+  promote:
+    name: Promote ${{ inputs.version }} to npm
+    runs-on: ubuntu-latest
+    environment: beta-npm
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - name: Build all packages
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+      - name: Validate version input
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
+            echo "::error::Version must match the pattern X.Y.Z-beta.N (got: ${VERSION})"
+            exit 1
+          fi
+
+      - name: Publish @clef-sh/core
+        working-directory: packages/core
+        run: |
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+          npm publish --tag beta --access public
+        env:
+          NPM_CONFIG_PROVENANCE: "true"
+
+      - name: Publish @clef-sh/agent
+        working-directory: packages/agent
+        run: |
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+          npm publish --tag beta --access public
+        env:
+          NPM_CONFIG_PROVENANCE: "true"
+
+      - name: Publish @clef-sh/cli
+        working-directory: packages/cli
+        run: |
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+          npm publish --tag beta --access public
+        env:
+          NPM_CONFIG_PROVENANCE: "true"
+
+      # Tag the promoted commit so it's traceable from npm back to source
+      - name: Tag promoted commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "npm-beta/v${VERSION}" -m "Promoted ${VERSION} to npm @beta"
+          git push origin "npm-beta/v${VERSION}"
+
+      - name: Update GitHub pre-release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          # Edit existing pre-release if it exists, otherwise skip gracefully
+          if gh release view "v${VERSION}" &>/dev/null; then
+            gh release edit "v${VERSION}" \
+              --draft=false \
+              --prerelease \
+              --notes "Beta release. Published to npm.
+
+          \`\`\`
+          npm install @clef-sh/cli@beta
+          \`\`\`"
+          fi
+
+      - name: Publish summary
+        run: |
+          echo "## Beta promoted to npm" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Package | Version |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/core\` | \`${{ inputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/agent\` | \`${{ inputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/cli\` | \`${{ inputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Install: \`npm install @clef-sh/cli@beta\`" >> "$GITHUB_STEP_SUMMARY"

@@ -2,13 +2,13 @@ import * as path from "path";
 import { Command } from "commander";
 import {
   ManifestParser,
-  SopsClient,
   SopsMissingError,
   SopsVersionError,
   ConsumptionClient,
   SubprocessRunner,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
+import { createSopsClient } from "../age-credential";
 
 export function registerExportCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -51,7 +51,7 @@ export function registerExportCommand(program: Command, deps: { runner: Subproce
         }
 
         const [namespace, environment] = parseTarget(target);
-        const repoRoot = (program.opts().repo as string) || process.cwd();
+        const repoRoot = (program.opts().dir as string) || process.cwd();
 
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
@@ -63,7 +63,7 @@ export function registerExportCommand(program: Command, deps: { runner: Subproce
             .replace("{environment}", environment),
         );
 
-        const sopsClient = new SopsClient(deps.runner);
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
         const decrypted = await sopsClient.decrypt(filePath);
 
         const consumption = new ConsumptionClient();

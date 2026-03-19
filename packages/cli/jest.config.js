@@ -3,8 +3,12 @@ module.exports = {
   preset: "ts-jest",
   testEnvironment: "node",
   testMatch: ["<rootDir>/src/**/*.test.ts"],
+  setupFiles: ["<rootDir>/jest.setup.ts"],
   moduleNameMapper: {
-    "^@clef-sh/ui/dist/server$": "<rootDir>/src/__mocks__/ui-server.ts",
+    "^@clef-sh/core$": "<rootDir>/../core/src/index.ts",
+    "^@clef-sh/ui$": "<rootDir>/src/__mocks__/ui-server.ts",
+    "^@clef-sh/agent$": "<rootDir>/src/__mocks__/agent.ts",
+    "^age-encryption$": "<rootDir>/../core/src/__mocks__/age-encryption.ts",
   },
   collectCoverageFrom: [
     "<rootDir>/src/**/*.ts",

@@ -23,14 +23,13 @@ This command is essential for two scenarios:
 1. **Adding a team member.** When a new developer joins and generates an age key, their public key needs to be added to every file they should be able to decrypt.
 2. **Key compromise.** If a private key is leaked, rotate all affected files to a new key and revoke the old one.
 
-For protected environments, the `--confirm` flag is required.
+For protected environments, an interactive confirmation prompt is shown before proceeding.
 
 ## Flags
 
-| Flag        | Type      | Default | Description                                                                          |
-| ----------- | --------- | ------- | ------------------------------------------------------------------------------------ |
-| `--new-key` | `string`  | —       | **(Required)** The new age public key to add as a recipient                          |
-| `--confirm` | `boolean` | `false` | Required for protected environments. Confirms the intent to rotate a production key. |
+| Flag        | Type     | Default | Description                                                 |
+| ----------- | -------- | ------- | ----------------------------------------------------------- |
+| `--new-key` | `string` | —       | **(Required)** The new age public key to add as a recipient |
 
 ## Examples
 
@@ -41,13 +40,14 @@ A new developer runs `clef init` in a clone of the repository to generate their 
 ```bash
 # The new developer runs:
 clef init
-grep "public key" .clef/key.txt
+# Label: azure-hawk (shown during init, stored in .clef/config.yaml)
+grep "public key" ~/.config/clef/keys/azure-hawk/keys.txt
 # Output: # public key: age1abc123...
 
 # A team member with existing access runs:
 clef rotate payments/dev --new-key age1abc123def456
 clef rotate payments/staging --new-key age1abc123def456
-clef rotate payments/production --new-key age1abc123def456 --confirm
+clef rotate payments/production --new-key age1abc123def456
 ```
 
 ```
@@ -61,7 +61,7 @@ clef rotate payments/production --new-key age1abc123def456 --confirm
 When a key is compromised, rotate every file to exclude the old key. First, remove the compromised key from your `.sops.yaml` creation rules, then re-encrypt:
 
 ```bash
-clef rotate database/production --new-key age1newkey789 --confirm
+clef rotate database/production --new-key age1newkey789
 ```
 
 ```
@@ -72,14 +72,16 @@ clef rotate database/production --new-key age1newkey789 --confirm
 
 After rotation, the compromised key can still decrypt old git commits but not the current version of the file.
 
-### Protected environment without confirmation
+### Protected environment
+
+When the target environment is marked as `protected` in the manifest, Clef prompts for interactive confirmation before rotating:
 
 ```bash
 clef rotate database/production --new-key age1abc123
 ```
 
 ```
-✗ Environment 'production' is protected. Pass --confirm to proceed with key rotation.
+? production is a protected environment. Rotate key anyway? (y/N)
 ```
 
 ## Important notes

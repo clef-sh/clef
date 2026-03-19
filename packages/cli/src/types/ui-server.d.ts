@@ -1,4 +1,4 @@
-declare module "@clef-sh/ui/dist/server" {
+declare module "@clef-sh/ui" {
   import { SubprocessRunner } from "@clef-sh/core";
 
   export interface ServerHandle {

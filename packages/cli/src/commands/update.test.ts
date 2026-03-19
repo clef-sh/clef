@@ -61,7 +61,7 @@ const validManifestYaml = YAML.stringify({
 
 function makeProgram(runner: SubprocessRunner): Command {
   const program = new Command();
-  program.option("--repo <path>", "Repository root");
+  program.option("--dir <path>", "Path to a local Clef repository root");
   program.exitOverride();
   registerUpdateCommand(program, { runner });
   return program;
@@ -141,10 +141,10 @@ describe("clef update", () => {
   });
 
   it("should read ageKeyFile from .clef/config.yaml when no env vars set", async () => {
-    const origKey = process.env.SOPS_AGE_KEY;
-    const origKeyFile = process.env.SOPS_AGE_KEY_FILE;
-    delete process.env.SOPS_AGE_KEY;
-    delete process.env.SOPS_AGE_KEY_FILE;
+    const origKey = process.env.CLEF_AGE_KEY;
+    const origKeyFile = process.env.CLEF_AGE_KEY_FILE;
+    delete process.env.CLEF_AGE_KEY;
+    delete process.env.CLEF_AGE_KEY_FILE;
 
     const localConfig = YAML.stringify({ age_key_file: "/home/user/.config/clef/keys.txt" });
     mockFs.existsSync.mockImplementation((p) => {
@@ -165,50 +165,59 @@ describe("clef update", () => {
     expect(SopsClient as jest.Mock).toHaveBeenCalledWith(
       expect.anything(),
       "/home/user/.config/clef/keys.txt",
+      undefined,
     );
 
-    if (origKey !== undefined) process.env.SOPS_AGE_KEY = origKey;
-    if (origKeyFile !== undefined) process.env.SOPS_AGE_KEY_FILE = origKeyFile;
+    if (origKey !== undefined) process.env.CLEF_AGE_KEY = origKey;
+    if (origKeyFile !== undefined) process.env.CLEF_AGE_KEY_FILE = origKeyFile;
   });
 
-  it("should not read .clef/config.yaml when SOPS_AGE_KEY_FILE is set", async () => {
-    const origKeyFile = process.env.SOPS_AGE_KEY_FILE;
-    process.env.SOPS_AGE_KEY_FILE = "/from/env/keys.txt";
+  it("should pass CLEF_AGE_KEY_FILE to SopsClient when env var is set", async () => {
+    const origKeyFile = process.env.CLEF_AGE_KEY_FILE;
+    process.env.CLEF_AGE_KEY_FILE = "/from/env/keys.txt";
 
     mockResolveMatrix.mockReturnValue([]);
     const program = makeProgram(goodRunner());
 
     await program.parseAsync(["node", "clef", "update"]);
 
-    // SopsClient should be called with undefined ageKeyFile (env var used by sops directly)
-    expect(SopsClient as jest.Mock).toHaveBeenCalledWith(expect.anything(), undefined);
+    // SopsClient should be called with the file path from CLEF_AGE_KEY_FILE
+    expect(SopsClient as jest.Mock).toHaveBeenCalledWith(
+      expect.anything(),
+      "/from/env/keys.txt",
+      undefined,
+    );
 
     if (origKeyFile === undefined) {
-      delete process.env.SOPS_AGE_KEY_FILE;
+      delete process.env.CLEF_AGE_KEY_FILE;
     } else {
-      process.env.SOPS_AGE_KEY_FILE = origKeyFile;
+      process.env.CLEF_AGE_KEY_FILE = origKeyFile;
     }
   });
 
-  it("should not read .clef/config.yaml when SOPS_AGE_KEY is set", async () => {
-    const origKey = process.env.SOPS_AGE_KEY;
-    const origKeyFile = process.env.SOPS_AGE_KEY_FILE;
-    process.env.SOPS_AGE_KEY = "AGE-SECRET-KEY-INLINE";
-    delete process.env.SOPS_AGE_KEY_FILE;
+  it("should pass CLEF_AGE_KEY to SopsClient when env var is set", async () => {
+    const origKey = process.env.CLEF_AGE_KEY;
+    const origKeyFile = process.env.CLEF_AGE_KEY_FILE;
+    process.env.CLEF_AGE_KEY = "AGE-SECRET-KEY-INLINE";
+    delete process.env.CLEF_AGE_KEY_FILE;
 
     mockResolveMatrix.mockReturnValue([]);
     const program = makeProgram(goodRunner());
 
     await program.parseAsync(["node", "clef", "update"]);
 
-    expect(SopsClient as jest.Mock).toHaveBeenCalledWith(expect.anything(), undefined);
+    expect(SopsClient as jest.Mock).toHaveBeenCalledWith(
+      expect.anything(),
+      undefined,
+      "AGE-SECRET-KEY-INLINE",
+    );
 
     if (origKey === undefined) {
-      delete process.env.SOPS_AGE_KEY;
+      delete process.env.CLEF_AGE_KEY;
     } else {
-      process.env.SOPS_AGE_KEY = origKey;
+      process.env.CLEF_AGE_KEY = origKey;
     }
-    if (origKeyFile !== undefined) process.env.SOPS_AGE_KEY_FILE = origKeyFile;
+    if (origKeyFile !== undefined) process.env.CLEF_AGE_KEY_FILE = origKeyFile;
   });
 
   it("should handle parse error from ManifestParser and exit 1", async () => {
@@ -260,15 +269,15 @@ describe("clef update", () => {
 
     await program.parseAsync(["node", "clef", "update"]);
 
-    // SopsClient should be called with undefined ageKeyFile for non-age backend
-    expect(SopsClient as jest.Mock).toHaveBeenCalledWith(expect.anything(), undefined);
+    // SopsClient should be called with undefined ageKeyFile and ageKey for non-age backend
+    expect(SopsClient as jest.Mock).toHaveBeenCalledWith(expect.anything(), undefined, undefined);
   });
 
   it("should handle .clef/config.yaml parse error gracefully", async () => {
-    const origKey = process.env.SOPS_AGE_KEY;
-    const origKeyFile = process.env.SOPS_AGE_KEY_FILE;
-    delete process.env.SOPS_AGE_KEY;
-    delete process.env.SOPS_AGE_KEY_FILE;
+    const origKey = process.env.CLEF_AGE_KEY;
+    const origKeyFile = process.env.CLEF_AGE_KEY_FILE;
+    delete process.env.CLEF_AGE_KEY;
+    delete process.env.CLEF_AGE_KEY_FILE;
 
     mockFs.existsSync.mockImplementation((p) => {
       const s = String(p);
@@ -288,7 +297,7 @@ describe("clef update", () => {
 
     expect(mockExit).not.toHaveBeenCalledWith(1);
 
-    if (origKey !== undefined) process.env.SOPS_AGE_KEY = origKey;
-    if (origKeyFile !== undefined) process.env.SOPS_AGE_KEY_FILE = origKeyFile;
+    if (origKey !== undefined) process.env.CLEF_AGE_KEY = origKey;
+    if (origKeyFile !== undefined) process.env.CLEF_AGE_KEY_FILE = origKeyFile;
   });
 });

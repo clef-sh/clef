@@ -1,0 +1,26 @@
+{
+  "name": "@clef-sh/sops-win32-x64",
+  "version": "3.9.4",
+  "description": "Bundled sops binary for Windows x64",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "bin/sops.exe",
+  "files": [
+    "README.md",
+    "bin/sops.exe",
+    "LICENSE.sops"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clef-sh/clef"
+  },
+  "license": "MPL-2.0"
+}

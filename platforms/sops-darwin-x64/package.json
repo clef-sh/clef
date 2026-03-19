@@ -1,0 +1,26 @@
+{
+  "name": "@clef-sh/sops-darwin-x64",
+  "version": "3.9.4",
+  "description": "Bundled sops binary for macOS x64 (Intel)",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "bin/sops",
+  "files": [
+    "README.md",
+    "bin/sops",
+    "LICENSE.sops"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clef-sh/clef"
+  },
+  "license": "MPL-2.0"
+}

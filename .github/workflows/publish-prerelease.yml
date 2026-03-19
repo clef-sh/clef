@@ -1,0 +1,240 @@
+# Prerelease publish workflow
+#
+# dev     → alpha packages → GitHub Packages (restricted, internal only)
+# staging → beta packages  → GitHub Packages (public) + GitHub pre-release
+#
+# Version scheme: the prerelease base is the *next* semver computed by
+# analyzing commits since the last release tag, using the same bump rules
+# as .releaserc.json (breaking → minor, feat/fix/perf → patch).
+# The base is always derived from main's current version so branch divergence
+# does not corrupt the stamp.
+# e.g. main@0.1.5, feat commit in dev → alpha: 0.1.6-alpha.42
+#
+# IMPORTANT: versions are stamped into package.json BEFORE the build so that
+# esbuild bakes the correct version into the CLI bundle (clef --version).
+#
+# To promote a beta version to npm for public testing, trigger the
+# publish-beta-npm workflow manually.
+
+name: Publish Prerelease
+
+on:
+  push:
+    branches: [dev, staging]
+
+permissions:
+  contents: write # create GitHub releases on staging
+  packages: write # publish to GitHub Packages
+
+jobs:
+  publish:
+    name: Publish ${{ github.ref_name == 'dev' && 'Alpha' || 'Beta' }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'dev' && 'alpha' || 'beta' }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: "@clef-sh"
+
+      - run: npm ci
+
+      - name: Compute and stamp prerelease versions
+        id: ver
+        run: |
+          if [ "$GITHUB_REF_NAME" = "dev" ]; then
+            PRE="alpha"
+            DIST_TAG="alpha"
+          else
+            PRE="beta"
+            DIST_TAG="beta"
+          fi
+
+          # Snapshot each package's version from main as the stable baseline.
+          # For new packages not yet on main, fall back to the current branch version.
+          git show origin/main:packages/core/package.json  > /tmp/core-main.json
+          git show origin/main:packages/cli/package.json   > /tmp/cli-main.json
+          git show origin/main:packages/agent/package.json > /tmp/agent-main.json 2>/dev/null \
+            || cp packages/agent/package.json /tmp/agent-main.json
+          git show origin/main:packages/ui/package.json    > /tmp/ui-main.json 2>/dev/null \
+            || cp packages/ui/package.json /tmp/ui-main.json
+
+          # Compute the next semver for a package by replaying the same bump rules
+          # used in .releaserc.json against commits since the last release tag.
+          #
+          # Rules (matching .releaserc.json releaseRules):
+          #   breaking change (! suffix or BREAKING CHANGE footer) → minor bump
+          #   feat / fix / perf                                     → patch bump
+          #
+          # Falls back to a patch bump when there are no conventional commits,
+          # so the prerelease label always sits ahead of the last stable release.
+          #
+          # semantic-release-monorepo tags commits as: @clef-sh/<name>@<version>
+          next_version() {
+            local PKG_NAME="$1"  # e.g. @clef-sh/core
+            local PKG_DIR="$2"   # e.g. packages/core
+            local BASE="$3"      # e.g. 0.1.5 (stripped from main)
+
+            local LAST_TAG
+            LAST_TAG=$(git tag --list "${PKG_NAME}@*" --sort=-version:refname 2>/dev/null | head -1)
+            local FROM="${LAST_TAG:-$(git rev-list --max-parents=0 HEAD)}"
+
+            # Inspect commit subjects and bodies for breaking-change markers.
+            local MSGS
+            MSGS=$(git log "${FROM}..HEAD" --format="%s%n%b" -- "${PKG_DIR}/")
+
+            local BUMP="patch"
+            if echo "$MSGS" | grep -qE "^.+(\(.+\))?!:|^BREAKING CHANGE"; then
+              BUMP="minor"
+            fi
+
+            local MAJ MIN PAT
+            MAJ=$(echo "$BASE" | cut -d. -f1)
+            MIN=$(echo "$BASE" | cut -d. -f2)
+            PAT=$(echo "$BASE" | cut -d. -f3)
+
+            if [ "$BUMP" = "minor" ]; then
+              MIN=$((MIN + 1)); PAT=0
+            else
+              PAT=$((PAT + 1))
+            fi
+
+            echo "${MAJ}.${MIN}.${PAT}"
+          }
+
+          CORE_BASE=$(node -p "require('/tmp/core-main.json').version.replace(/-.*/, '')")
+          CLI_BASE=$(node -p "require('/tmp/cli-main.json').version.replace(/-.*/, '')")
+          AGENT_BASE=$(node -p "require('/tmp/agent-main.json').version.replace(/-.*/, '')")
+          UI_BASE=$(node -p "require('/tmp/ui-main.json').version.replace(/-.*/, '')")
+
+          CORE_NEXT=$(next_version  "@clef-sh/core"  "packages/core"  "$CORE_BASE")
+          CLI_NEXT=$(next_version   "@clef-sh/cli"   "packages/cli"   "$CLI_BASE")
+          AGENT_NEXT=$(next_version "@clef-sh/agent" "packages/agent" "$AGENT_BASE")
+          UI_NEXT=$(next_version    "@clef-sh/ui"    "packages/ui"    "$UI_BASE")
+
+          CORE_VER="${CORE_NEXT}-${PRE}.${{ github.run_number }}"
+          CLI_VER="${CLI_NEXT}-${PRE}.${{ github.run_number }}"
+          AGENT_VER="${AGENT_NEXT}-${PRE}.${{ github.run_number }}"
+          UI_VER="${UI_NEXT}-${PRE}.${{ github.run_number }}"
+
+          # Stamp package.json files NOW, before the build, so that esbuild
+          # bakes the correct version string into the CLI bundle. The CLI reads
+          # its version via `import pkg from "../package.json"` at compile time.
+          stamp() { node -e "
+            const fs = require('fs');
+            const p = JSON.parse(fs.readFileSync('$1/package.json', 'utf8'));
+            p.version = '$2';
+            fs.writeFileSync('$1/package.json', JSON.stringify(p, null, 2) + '\n');
+          "; }
+
+          stamp packages/core  "$CORE_VER"
+          stamp packages/cli   "$CLI_VER"
+          stamp packages/agent "$AGENT_VER"
+          stamp packages/ui    "$UI_VER"
+
+          echo "dist_tag=${DIST_TAG}"        >> "$GITHUB_OUTPUT"
+          echo "prerelease=${PRE}"           >> "$GITHUB_OUTPUT"
+          echo "core_version=${CORE_VER}"    >> "$GITHUB_OUTPUT"
+          echo "cli_version=${CLI_VER}"      >> "$GITHUB_OUTPUT"
+          echo "agent_version=${AGENT_VER}"  >> "$GITHUB_OUTPUT"
+          echo "ui_version=${UI_VER}"        >> "$GITHUB_OUTPUT"
+
+      - name: Build all packages
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+      # ── Alpha (dev → GitHub Packages, restricted/internal) ───────────────
+      - name: Publish @clef-sh/core (alpha)
+        if: github.ref_name == 'dev'
+        working-directory: packages/core
+        run: npm publish --tag alpha --access restricted --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/agent (alpha)
+        if: github.ref_name == 'dev'
+        working-directory: packages/agent
+        run: npm publish --tag alpha --access restricted --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/cli (alpha)
+        if: github.ref_name == 'dev'
+        working-directory: packages/cli
+        run: npm publish --tag alpha --access restricted --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/ui (alpha)
+        if: github.ref_name == 'dev'
+        working-directory: packages/ui
+        run: npm publish --tag alpha --access restricted --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Beta (staging → GitHub Packages, public) ─────────────────────────
+      - name: Publish @clef-sh/core (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/core
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/agent (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/agent
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/cli (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/cli
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/ui (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/ui
+        run: npm publish --tag beta --access restricted --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Beta: create a GitHub pre-release so the version surfaces in Releases
+      - name: Create GitHub pre-release (beta)
+        if: github.ref_name == 'staging'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CLI_VER="${{ steps.ver.outputs.cli_version }}"
+          gh release create "v${CLI_VER}" \
+            --draft \
+            --prerelease \
+            --title "v${CLI_VER} (beta)" \
+            --notes "Beta release. Available on GitHub Packages.
+
+          To promote to npm for public testing, trigger the **Publish Beta to npm** workflow."
+
+      - name: Publish summary
+        if: always()
+        run: |
+          echo "## Prerelease publish" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Package | Version |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/core\` | \`${{ steps.ver.outputs.core_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/agent\` | \`${{ steps.ver.outputs.agent_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/cli\` | \`${{ steps.ver.outputs.cli_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/ui\` | \`${{ steps.ver.outputs.ui_version }}\` (GitHub Packages only) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Registry:** GitHub Packages (\`npm.pkg.github.com\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Dist-tag:** \`${{ steps.ver.outputs.dist_tag }}\`" >> "$GITHUB_STEP_SUMMARY"

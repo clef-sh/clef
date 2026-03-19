@@ -13,6 +13,8 @@ describe("client/api module", () => {
     jest.resetModules();
     // Reset URL to a clean baseline
     window.history.replaceState({}, "", "/");
+    // Clear sessionStorage so token state is clean
+    sessionStorage.clear();
     // Get a fresh module
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     mod = require("./api") as typeof import("./api");
@@ -25,6 +27,7 @@ describe("client/api module", () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+    sessionStorage.clear();
   });
 
   describe("initToken()", () => {
@@ -53,6 +56,23 @@ describe("client/api module", () => {
       mod.initToken();
       expect(replaceSpy).toHaveBeenCalled();
       expect(window.location.search).not.toContain("token=");
+    });
+
+    it("should restore the token from sessionStorage on refresh (no URL token)", () => {
+      // Simulate a previous visit that saved the token
+      sessionStorage.setItem("clef_ui_token", "stored-token");
+      // URL has no token (simulates a browser refresh)
+      mod.initToken();
+      mod.apiFetch("/api/test");
+      const [, callInit] = (global.fetch as jest.Mock).mock.calls[0];
+      const headers = callInit.headers as Headers;
+      expect(headers.get("Authorization")).toBe("Bearer stored-token");
+    });
+
+    it("should persist the token to sessionStorage when extracted from URL", () => {
+      window.history.pushState({}, "", "/?token=abc123");
+      mod.initToken();
+      expect(sessionStorage.getItem("clef_ui_token")).toBe("abc123");
     });
   });
 

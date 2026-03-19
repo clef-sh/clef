@@ -3,13 +3,13 @@ import { spawn, ChildProcess } from "child_process";
 import { Command } from "commander";
 import {
   ManifestParser,
-  SopsClient,
   SopsMissingError,
   SopsVersionError,
   ConsumptionClient,
   SubprocessRunner,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
+import { createSopsClient } from "../age-credential";
 
 function collect(value: string, previous: string[]): string[] {
   return previous.concat([value]);
@@ -43,7 +43,8 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
         options: { only?: string; prefix?: string; override: boolean; also: string[] },
       ) => {
         try {
-          // Parse everything after -- as the child command
+          // Parse everything after -- as the child command.
+          // This relies on Commander.js preserving -- in process.argv unmodified.
           const dashIndex = process.argv.indexOf("--");
 
           if (dashIndex === -1) {
@@ -68,7 +69,7 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
           }
 
           const [namespace, environment] = parseTarget(target);
-          const repoRoot = (program.opts().repo as string) || process.cwd();
+          const repoRoot = (program.opts().dir as string) || process.cwd();
 
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
@@ -79,7 +80,7 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
             formatter.warn(`Executing in protected environment '${environment}'.`);
           }
 
-          const sopsClient = new SopsClient(deps.runner);
+          const sopsClient = await createSopsClient(repoRoot, deps.runner);
 
           // Decrypt primary target
           const primaryFilePath = path.join(
@@ -91,7 +92,7 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
           const primaryDecrypted = await sopsClient.decrypt(primaryFilePath);
 
           // Merge values: primary first, then --also targets in order (later overrides earlier)
-          let mergedValues = { ...primaryDecrypted.values };
+          const mergedValues = { ...primaryDecrypted.values };
 
           for (const alsoTarget of options.also) {
             try {
@@ -103,7 +104,15 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
                   .replace("{environment}", alsoEnv),
               );
               const alsoDecrypted = await sopsClient.decrypt(alsoFilePath);
-              mergedValues = { ...mergedValues, ...alsoDecrypted.values };
+              for (const key of Object.keys(alsoDecrypted.values)) {
+                if (key in mergedValues) {
+                  if (!options.override) continue;
+                  formatter.warn(
+                    `--also '${alsoTarget}' overrides key '${key}' from a previous source.`,
+                  );
+                }
+                mergedValues[key] = alsoDecrypted.values[key];
+              }
             } catch (err) {
               throw new Error(
                 `Failed to decrypt --also '${alsoTarget}': ${(err as Error).message}`,
@@ -183,14 +192,22 @@ function spawnChild(command: string, args: string[], env: Record<string, string>
       }
     });
 
-    // Forward signals to child with SIGKILL fallback
+    // Forward signals to child with SIGKILL fallback.
+    // On Windows, the child already receives CTRL_C_EVENT directly from the
+    // shared console group, so forwarding is a no-op — calling child.kill()
+    // would invoke TerminateProcess() and force-kill the child before it can
+    // run its own cleanup handlers.
     const sigtermHandler = () => {
+      if (process.platform === "win32") return;
       child.kill("SIGTERM");
       // Give child 5s to clean up, then force kill
       /* istanbul ignore next -- timer callback only fires if child hangs; not testable without real timers */
       setTimeout(() => child.kill("SIGKILL"), 5000).unref();
     };
-    const sigintHandler = () => child.kill("SIGINT");
+    const sigintHandler = () => {
+      if (process.platform === "win32") return;
+      child.kill("SIGINT");
+    };
 
     process.on("SIGTERM", sigtermHandler);
     process.on("SIGINT", sigintHandler);

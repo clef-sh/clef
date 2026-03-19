@@ -8,6 +8,7 @@ import {
   LintRunner,
   SchemaValidator,
   GitIntegration,
+  BulkOps,
   ScanRunner,
   SubprocessRunner,
   ClefManifest,
@@ -25,19 +26,23 @@ import type { ImportFormat } from "@clef-sh/core";
 export interface ApiDeps {
   runner: SubprocessRunner;
   repoRoot: string;
+  ageKeyFile?: string;
+  ageKey?: string;
+  sopsPath?: string;
 }
 
 export function createApiRouter(deps: ApiDeps): Router {
   const router = Router();
   const parser = new ManifestParser();
   const matrix = new MatrixManager();
-  const sops = new SopsClient(deps.runner);
+  const sops = new SopsClient(deps.runner, deps.ageKeyFile, deps.ageKey, deps.sopsPath);
   const diffEngine = new DiffEngine();
   const schemaValidator = new SchemaValidator();
   const lintRunner = new LintRunner(matrix, schemaValidator, sops);
   const git = new GitIntegration(deps.runner);
   const scanRunner = new ScanRunner(deps.runner);
-  const recipientManager = new RecipientManager(deps.runner, matrix);
+  const recipientManager = new RecipientManager(sops, matrix);
+  const bulkOps = new BulkOps();
 
   // In-session scan cache
   let lastScanResult: ScanResult | null = null;
@@ -80,222 +85,317 @@ export function createApiRouter(deps: ApiDeps): Router {
   });
 
   // GET /api/namespace/:ns/:env
-  router.get("/namespace/:ns/:env", async (req: Request, res: Response) => {
-    setNoCacheHeaders(res);
-    try {
-      const manifest = loadManifest();
-      const { ns, env } = req.params;
-
-      const nsExists = manifest.namespaces.some((n) => n.name === ns);
-      const envExists = manifest.environments.some((e) => e.name === env);
-
-      if (!nsExists || !envExists) {
-        res.status(404).json({
-          error: `Namespace '${ns}' or environment '${env}' not found in manifest.`,
-          code: "NOT_FOUND",
-        });
-        return;
-      }
-
-      const filePath = `${deps.repoRoot}/${manifest.file_pattern.replace("{namespace}", ns).replace("{environment}", env)}`;
-      const decrypted = await sops.decrypt(filePath);
-
-      // Read pending keys from metadata (plaintext sidecar)
-      let pending: string[] = [];
+  // FR-31 note: Decrypted values are held in V8 heap memory during the request lifecycle.
+  // JavaScript/V8 uses immutable strings — we cannot reliably zero them after use.
+  // This is a known limitation of garbage-collected runtimes.
+  router.get(
+    "/namespace/:ns/:env",
+    async (req: Request<{ ns: string; env: string }>, res: Response) => {
+      setNoCacheHeaders(res);
       try {
-        pending = await getPendingKeys(filePath);
-      } catch {
-        // Metadata unreadable — no pending info
-      }
+        const manifest = loadManifest();
+        const { ns, env } = req.params;
 
-      res.json({ ...decrypted, pending });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to decrypt namespace";
-      res.status(500).json({ error: message, code: "DECRYPT_ERROR" });
-    }
-  });
+        const nsExists = manifest.namespaces.some((n) => n.name === ns);
+        const envExists = manifest.environments.some((e) => e.name === env);
+
+        if (!nsExists || !envExists) {
+          res.status(404).json({
+            error: `Namespace '${ns}' or environment '${env}' not found in manifest.`,
+            code: "NOT_FOUND",
+          });
+          return;
+        }
+
+        const filePath = `${deps.repoRoot}/${manifest.file_pattern.replace("{namespace}", ns).replace("{environment}", env)}`;
+        const decrypted = await sops.decrypt(filePath);
+
+        // Read pending keys from metadata (plaintext sidecar)
+        let pending: string[] = [];
+        try {
+          pending = await getPendingKeys(filePath);
+        } catch {
+          // Metadata unreadable — no pending info
+        }
+
+        res.json({ ...decrypted, pending });
+      } catch {
+        res.status(500).json({ error: "Failed to decrypt namespace", code: "DECRYPT_ERROR" });
+      }
+    },
+  );
 
   // PUT /api/namespace/:ns/:env/:key
   // body: { value: string } — set a specific value
   // body: { random: true }  — generate random value server-side and mark pending
-  router.put("/namespace/:ns/:env/:key", async (req: Request, res: Response) => {
+  // Note: Unlike the CLI set command, the API rolls back on metadata failure
+  // to ensure callers always get a consistent state. See set.ts for the CLI
+  // approach which warns and continues. This asymmetry is intentional.
+  router.put(
+    "/namespace/:ns/:env/:key",
+    async (req: Request<{ ns: string; env: string; key: string }>, res: Response) => {
+      setNoCacheHeaders(res);
+      try {
+        const manifest = loadManifest();
+        const { ns, env, key } = req.params;
+        const { value, random, confirmed } = req.body as {
+          value?: string;
+          random?: boolean;
+          confirmed?: boolean;
+        };
+
+        if (!random && (value === undefined || value === null)) {
+          res.status(400).json({
+            error: "Request body must include 'value' or 'random: true'.",
+            code: "BAD_REQUEST",
+          });
+          return;
+        }
+
+        const nsExists = manifest.namespaces.some((n) => n.name === ns);
+        const envExists = manifest.environments.some((e) => e.name === env);
+
+        if (!nsExists || !envExists) {
+          res.status(404).json({
+            error: `Namespace '${ns}' or environment '${env}' not found in manifest.`,
+            code: "NOT_FOUND",
+          });
+          return;
+        }
+
+        if (matrix.isProtectedEnvironment(manifest, env) && !confirmed) {
+          res.status(409).json({
+            error: "Protected environment requires confirmation",
+            code: "PROTECTED_ENV",
+            protected: true,
+          });
+          return;
+        }
+
+        const filePath = `${deps.repoRoot}/${manifest.file_pattern.replace("{namespace}", ns).replace("{environment}", env)}`;
+        const decrypted = await sops.decrypt(filePath);
+
+        if (random) {
+          // Generate random value server-side and mark as pending
+          const randomValue = generateRandomValue();
+          const previousValue = decrypted.values[key];
+          decrypted.values[key] = randomValue;
+          await sops.encrypt(filePath, decrypted.values, manifest, env);
+
+          try {
+            await markPendingWithRetry(filePath, [key], "clef ui");
+          } catch {
+            // Both retry attempts failed — roll back the encrypt
+            try {
+              if (previousValue !== undefined) {
+                decrypted.values[key] = previousValue;
+              } else {
+                delete decrypted.values[key];
+              }
+              await sops.encrypt(filePath, decrypted.values, manifest, env);
+            } catch {
+              // Rollback also failed — return 500 with context
+              return res.status(500).json({
+                error: "Partial failure",
+                message:
+                  "Value was encrypted but pending state could not be recorded. " +
+                  "Rollback also failed. The key may have a random placeholder value. " +
+                  "Check the file manually.",
+                code: "PARTIAL_FAILURE",
+              });
+            }
+            return res.status(500).json({
+              error: "Pending state could not be recorded",
+              message: "The operation was rolled back. No changes were made.",
+              code: "PENDING_FAILURE",
+            });
+          }
+
+          res.json({ success: true, key, pending: true });
+        } else {
+          decrypted.values[key] = String(value);
+          await sops.encrypt(filePath, decrypted.values, manifest, env);
+
+          // Validate against schema if defined (B1)
+          const nsDef = manifest.namespaces.find((n) => n.name === ns);
+          if (nsDef?.schema) {
+            try {
+              const schema = schemaValidator.loadSchema(path.join(deps.repoRoot, nsDef.schema));
+              const result = schemaValidator.validate({ [key]: String(value) }, schema);
+              const violations = [...result.errors, ...result.warnings];
+              if (violations.length > 0) {
+                // Resolve pending state if the key was pending
+                try {
+                  await markResolved(filePath, [key]);
+                } catch {
+                  // Metadata update failed — non-fatal
+                }
+                return res.json({
+                  success: true,
+                  key,
+                  warnings: violations.map((v) => v.message),
+                });
+              }
+            } catch {
+              // Schema load failed — skip validation, not fatal
+            }
+          }
+
+          // Resolve pending state if the key was pending
+          try {
+            await markResolved(filePath, [key]);
+          } catch {
+            // Metadata update failed — non-fatal
+          }
+
+          res.json({ success: true, key });
+        }
+      } catch {
+        res.status(500).json({ error: "Failed to set value", code: "SET_ERROR" });
+      }
+    },
+  );
+
+  // DELETE /api/namespace/:ns/:env/:key
+  router.delete(
+    "/namespace/:ns/:env/:key",
+    async (req: Request<{ ns: string; env: string; key: string }>, res: Response) => {
+      setNoCacheHeaders(res);
+      try {
+        const manifest = loadManifest();
+        const { ns, env, key } = req.params;
+        const { confirmed } = (req.body ?? {}) as { confirmed?: boolean };
+
+        const nsExists = manifest.namespaces.some((n) => n.name === ns);
+        const envExists = manifest.environments.some((e) => e.name === env);
+
+        if (!nsExists || !envExists) {
+          res.status(404).json({
+            error: `Namespace '${ns}' or environment '${env}' not found in manifest.`,
+            code: "NOT_FOUND",
+          });
+          return;
+        }
+
+        if (matrix.isProtectedEnvironment(manifest, env) && !confirmed) {
+          res.status(409).json({
+            error: "Protected environment requires confirmation",
+            code: "PROTECTED_ENV",
+            protected: true,
+          });
+          return;
+        }
+
+        const filePath = `${deps.repoRoot}/${manifest.file_pattern.replace("{namespace}", ns).replace("{environment}", env)}`;
+        const decrypted = await sops.decrypt(filePath);
+
+        if (!(key in decrypted.values)) {
+          res.status(404).json({
+            error: `Key '${key}' not found in ${ns}/${env}.`,
+            code: "KEY_NOT_FOUND",
+          });
+          return;
+        }
+
+        delete decrypted.values[key];
+        await sops.encrypt(filePath, decrypted.values, manifest, env);
+
+        // Clean up pending metadata if it exists
+        try {
+          await markResolved(filePath, [key]);
+        } catch {
+          // Best effort — orphaned metadata is annoying but not dangerous
+        }
+
+        res.json({ success: true, key });
+      } catch {
+        res.status(500).json({ error: "Failed to delete key", code: "DELETE_ERROR" });
+      }
+    },
+  );
+
+  // POST /api/copy
+  // body: { key, fromNs, fromEnv, toNs, toEnv, confirmed? }
+  router.post("/copy", async (req: Request, res: Response) => {
     try {
       const manifest = loadManifest();
-      const { ns, env, key } = req.params;
-      const { value, random } = req.body as { value?: string; random?: boolean };
+      const { key, fromNs, fromEnv, toNs, toEnv, confirmed } = req.body as {
+        key: string;
+        fromNs: string;
+        fromEnv: string;
+        toNs: string;
+        toEnv: string;
+        confirmed?: boolean;
+      };
 
-      if (!random && (value === undefined || value === null)) {
+      if (!key || !fromNs || !fromEnv || !toNs || !toEnv) {
         res.status(400).json({
-          error: "Request body must include 'value' or 'random: true'.",
+          error: "Request body must include 'key', 'fromNs', 'fromEnv', 'toNs', 'toEnv'.",
           code: "BAD_REQUEST",
         });
         return;
       }
 
-      const nsExists = manifest.namespaces.some((n) => n.name === ns);
-      const envExists = manifest.environments.some((e) => e.name === env);
+      if (matrix.isProtectedEnvironment(manifest, toEnv) && !confirmed) {
+        res.status(409).json({
+          error: "Protected environment requires confirmation",
+          code: "PROTECTED_ENV",
+          protected: true,
+        });
+        return;
+      }
 
-      if (!nsExists || !envExists) {
+      const cells = matrix.resolveMatrix(manifest, deps.repoRoot);
+      const fromCell = cells.find((c) => c.namespace === fromNs && c.environment === fromEnv);
+      const toCell = cells.find((c) => c.namespace === toNs && c.environment === toEnv);
+
+      if (!fromCell || !toCell) {
         res.status(404).json({
-          error: `Namespace '${ns}' or environment '${env}' not found in manifest.`,
+          error: "Source or destination cell not found in matrix.",
           code: "NOT_FOUND",
         });
         return;
       }
 
-      const filePath = `${deps.repoRoot}/${manifest.file_pattern.replace("{namespace}", ns).replace("{environment}", env)}`;
-      const decrypted = await sops.decrypt(filePath);
-
-      if (random) {
-        // Generate random value server-side and mark as pending
-        const randomValue = generateRandomValue();
-        decrypted.values[key] = randomValue;
-        await sops.encrypt(filePath, decrypted.values, manifest);
-
-        try {
-          await markPendingWithRetry(filePath, [key], "clef ui");
-        } catch {
-          // Both retry attempts failed — roll back the encrypt
-          try {
-            delete decrypted.values[key];
-            await sops.encrypt(filePath, decrypted.values, manifest);
-          } catch {
-            // Rollback also failed — return 500 with context
-            return res.status(500).json({
-              error: "Partial failure",
-              message:
-                "Value was encrypted but pending state could not be recorded. " +
-                "Rollback also failed. The key may have a random placeholder value. " +
-                "Check the file manually.",
-              code: "PARTIAL_FAILURE",
-            });
-          }
-          return res.status(500).json({
-            error: "Pending state could not be recorded",
-            message: "The operation was rolled back. No changes were made.",
-            code: "PENDING_FAILURE",
-          });
-        }
-
-        res.json({ success: true, key, pending: true });
-      } else {
-        decrypted.values[key] = String(value);
-        await sops.encrypt(filePath, decrypted.values, manifest);
-
-        // Validate against schema if defined (B1)
-        const nsDef = manifest.namespaces.find((n) => n.name === ns);
-        if (nsDef?.schema) {
-          try {
-            const schema = schemaValidator.loadSchema(path.join(deps.repoRoot, nsDef.schema));
-            const result = schemaValidator.validate({ [key]: String(value) }, schema);
-            const violations = [...result.errors, ...result.warnings];
-            if (violations.length > 0) {
-              // Resolve pending state if the key was pending
-              try {
-                await markResolved(filePath, [key]);
-              } catch {
-                // Metadata update failed — non-fatal
-              }
-              return res.json({
-                success: true,
-                key,
-                warnings: violations.map((v) => v.message),
-              });
-            }
-          } catch {
-            // Schema load failed — skip validation, not fatal
-          }
-        }
-
-        // Resolve pending state if the key was pending
-        try {
-          await markResolved(filePath, [key]);
-        } catch {
-          // Metadata update failed — non-fatal
-        }
-
-        res.json({ success: true, key });
-      }
+      await bulkOps.copyValue(key, fromCell, toCell, sops, manifest);
+      res.json({ success: true, key, from: `${fromNs}/${fromEnv}`, to: `${toNs}/${toEnv}` });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to set value";
-      res.status(500).json({ error: message, code: "SET_ERROR" });
-    }
-  });
-
-  // DELETE /api/namespace/:ns/:env/:key
-  router.delete("/namespace/:ns/:env/:key", async (req: Request, res: Response) => {
-    try {
-      const manifest = loadManifest();
-      const { ns, env, key } = req.params;
-
-      const nsExists = manifest.namespaces.some((n) => n.name === ns);
-      const envExists = manifest.environments.some((e) => e.name === env);
-
-      if (!nsExists || !envExists) {
-        res.status(404).json({
-          error: `Namespace '${ns}' or environment '${env}' not found in manifest.`,
-          code: "NOT_FOUND",
-        });
-        return;
-      }
-
-      const filePath = `${deps.repoRoot}/${manifest.file_pattern.replace("{namespace}", ns).replace("{environment}", env)}`;
-      const decrypted = await sops.decrypt(filePath);
-
-      if (!(key in decrypted.values)) {
-        res.status(404).json({
-          error: `Key '${key}' not found in ${ns}/${env}.`,
-          code: "KEY_NOT_FOUND",
-        });
-        return;
-      }
-
-      delete decrypted.values[key];
-      await sops.encrypt(filePath, decrypted.values, manifest);
-
-      // Clean up pending metadata if it exists
-      try {
-        await markResolved(filePath, [key]);
-      } catch {
-        // Best effort — orphaned metadata is annoying but not dangerous
-      }
-
-      res.json({ success: true, key });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to delete key";
-      res.status(500).json({ error: message, code: "DELETE_ERROR" });
+      const message = err instanceof Error ? err.message : "Failed to copy value";
+      res.status(500).json({ error: message, code: "COPY_ERROR" });
     }
   });
 
   // GET /api/diff/:ns/:envA/:envB
-  router.get("/diff/:ns/:envA/:envB", async (req: Request, res: Response) => {
-    setNoCacheHeaders(res);
-    try {
-      const manifest = loadManifest();
-      const { ns, envA, envB } = req.params;
+  router.get(
+    "/diff/:ns/:envA/:envB",
+    async (req: Request<{ ns: string; envA: string; envB: string }>, res: Response) => {
+      setNoCacheHeaders(res);
+      try {
+        const manifest = loadManifest();
+        const { ns, envA, envB } = req.params;
 
-      const nsExists = manifest.namespaces.some((n) => n.name === ns);
-      const envAExists = manifest.environments.some((e) => e.name === envA);
-      const envBExists = manifest.environments.some((e) => e.name === envB);
+        const nsExists = manifest.namespaces.some((n) => n.name === ns);
+        const envAExists = manifest.environments.some((e) => e.name === envA);
+        const envBExists = manifest.environments.some((e) => e.name === envB);
 
-      if (!nsExists || !envAExists || !envBExists) {
-        res.status(404).json({
-          error: `Namespace '${ns}', environment '${envA}', or environment '${envB}' not found.`,
-          code: "NOT_FOUND",
-        });
-        return;
+        if (!nsExists || !envAExists || !envBExists) {
+          res.status(404).json({
+            error: `Namespace '${ns}', environment '${envA}', or environment '${envB}' not found.`,
+            code: "NOT_FOUND",
+          });
+          return;
+        }
+
+        const result = await diffEngine.diffFiles(ns, envA, envB, manifest, sops, deps.repoRoot);
+        res.json(result);
+      } catch {
+        res.status(500).json({ error: "Failed to compute diff", code: "DIFF_ERROR" });
       }
-
-      const result = await diffEngine.diffFiles(ns, envA, envB, manifest, sops, deps.repoRoot);
-      res.json(result);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to compute diff";
-      res.status(500).json({ error: message, code: "DIFF_ERROR" });
-    }
-  });
+    },
+  );
 
   // GET /api/lint/:namespace
-  router.get("/lint/:namespace", async (req: Request, res: Response) => {
+  router.get("/lint/:namespace", async (req: Request<{ namespace: string }>, res: Response) => {
     try {
       const manifest = loadManifest();
       const { namespace } = req.params;
@@ -405,32 +505,35 @@ export function createApiRouter(deps: ApiDeps): Router {
   });
 
   // GET /api/git/log/:ns/:env
-  router.get("/git/log/:ns/:env", async (req: Request, res: Response) => {
-    try {
-      const manifest = loadManifest();
-      const { ns, env } = req.params;
+  router.get(
+    "/git/log/:ns/:env",
+    async (req: Request<{ ns: string; env: string }>, res: Response) => {
+      try {
+        const manifest = loadManifest();
+        const { ns, env } = req.params;
 
-      const nsExists = manifest.namespaces.some((n) => n.name === ns);
-      const envExists = manifest.environments.some((e) => e.name === env);
+        const nsExists = manifest.namespaces.some((n) => n.name === ns);
+        const envExists = manifest.environments.some((e) => e.name === env);
 
-      if (!nsExists || !envExists) {
-        res.status(404).json({
-          error: `Namespace '${ns}' or environment '${env}' not found in manifest.`,
-          code: "NOT_FOUND",
-        });
-        return;
+        if (!nsExists || !envExists) {
+          res.status(404).json({
+            error: `Namespace '${ns}' or environment '${env}' not found in manifest.`,
+            code: "NOT_FOUND",
+          });
+          return;
+        }
+
+        const filePath = manifest.file_pattern
+          .replace("{namespace}", ns)
+          .replace("{environment}", env);
+        const log = await git.getLog(filePath, deps.repoRoot);
+        res.json({ log });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not get log";
+        res.status(500).json({ error: message, code: "GIT_LOG_ERROR" });
       }
-
-      const filePath = manifest.file_pattern
-        .replace("{namespace}", ns)
-        .replace("{environment}", env);
-      const log = await git.getLog(filePath, deps.repoRoot);
-      res.json({ log });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Could not get log";
-      res.status(500).json({ error: message, code: "GIT_LOG_ERROR" });
-    }
-  });
+    },
+  );
 
   // POST /api/scan
   router.post("/scan", async (req: Request, res: Response) => {
@@ -465,6 +568,15 @@ export function createApiRouter(deps: ApiDeps): Router {
           .json({ error: "Request body must include a 'file' string.", code: "BAD_REQUEST" });
         return;
       }
+      const resolved = path.resolve(deps.repoRoot, file);
+      if (!resolved.startsWith(deps.repoRoot + path.sep) && resolved !== deps.repoRoot) {
+        res.status(400).json({
+          error: "File path must be within the repository.",
+          code: "BAD_REQUEST",
+        });
+        return;
+      }
+
       const editor = process.env.EDITOR || (process.env.TERM_PROGRAM === "vscode" ? "code" : "");
       if (!editor) {
         res.status(500).json({
@@ -645,6 +757,14 @@ export function createApiRouter(deps: ApiDeps): Router {
       res.status(500).json({ error: message, code: "RECIPIENTS_REMOVE_ERROR" });
     }
   });
+
+  function dispose(): void {
+    lastScanResult = null;
+    lastScanAt = null;
+  }
+
+  // Attach dispose to the router for cleanup
+  (router as Router & { dispose: () => void }).dispose = dispose;
 
   return router;
 }

@@ -1,0 +1,105 @@
+# Build Single Executable Application (SEA) binaries for @clef-sh/agent
+# and attach them to the GitHub Release created by semantic-release.
+#
+# Triggered when a release is published. Fires for:
+#   @clef-sh/agent@X.Y.Z — stable release (semantic-release tag)
+#   vX.Y.Z-beta.N         — beta pre-release (publish-prerelease.yml tag)
+#
+# SEA embeds the host Node binary, so each platform/arch must build on a
+# native runner.
+
+name: Build SEA Binaries
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  # Only run for agent releases (tags like @clef-sh/agent@X.Y.Z)
+  check-tag:
+    name: Check Tag
+    runs-on: ubuntu-latest
+    outputs:
+      is_agent: ${{ steps.check.outputs.is_agent }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - id: check
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          if [[ "$TAG" =~ ^@clef-sh/agent@(.+)$ ]] || [[ "$TAG" =~ ^v(.+-beta\.[0-9]+)$ ]]; then
+            echo "is_agent=true" >> "$GITHUB_OUTPUT"
+            echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_agent=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: SEA (${{ matrix.label }})
+    needs: check-tag
+    if: needs.check-tag.outputs.is_agent == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x64
+            os: ubuntu-latest
+            binary: clef-agent
+            asset: clef-agent-linux-x64
+          - label: linux-arm64
+            os: ubuntu-24.04-arm
+            binary: clef-agent
+            asset: clef-agent-linux-arm64
+          - label: darwin-x64
+            os: macos-13
+            binary: clef-agent
+            asset: clef-agent-darwin-x64
+          - label: darwin-arm64
+            os: macos-latest
+            binary: clef-agent
+            asset: clef-agent-darwin-arm64
+          - label: windows-x64
+            os: windows-latest
+            binary: clef-agent.exe
+            asset: clef-agent-windows-x64.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build SEA binary
+        run: npm run build:sea -w packages/agent
+
+      - name: Rename binary for platform
+        shell: bash
+        run: mv "packages/agent/dist/${{ matrix.binary }}" "packages/agent/dist/${{ matrix.asset }}"
+
+      - name: Generate checksum
+        shell: bash
+        run: |
+          cd packages/agent/dist
+          if command -v sha256sum &> /dev/null; then
+            sha256sum "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          else
+            shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          fi
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "packages/agent/dist/${{ matrix.asset }}" \
+            "packages/agent/dist/${{ matrix.asset }}.sha256" \
+            --clobber

@@ -1,6 +1,6 @@
 # clef exec
 
-Run a command with decrypted secrets injected as environment variables. This is the recommended way to consume Clef secrets in CI/CD pipelines and local development — values stay in memory and are never written to disk.
+Run a command with decrypted secrets injected as environment variables. Values stay in memory and are never written to disk.
 
 ## Syntax
 
@@ -26,13 +26,11 @@ The `--` separator is **required**. Everything before `--` is parsed as Clef fla
 | `--no-override`     | boolean | `false` | Do not override environment variables that already exist in the current shell. Existing values take precedence.                                  |
 | `--also <target>`   | string  | —       | Also inject secrets from another namespace/environment. Can be specified multiple times. Later targets override earlier ones for duplicate keys. |
 
-> `--repo` is a global option. See [Global options](overview.md#global-options).
+> `--dir` is a global option. See [Global options](overview.md#global-options).
 
 ## Exit Codes
 
-The exit code of `clef exec` matches the child process exactly. If `node server.js` exits with code 0, `clef exec` exits with 0. If it exits with 42, `clef exec` exits with 42. This is critical for CI pipelines where exit codes determine pass/fail.
-
-If Clef itself fails (e.g. decryption error, missing manifest), it exits with code 1.
+Exit code matches the child process exactly — critical for CI pass/fail. If Clef itself fails (decryption error, missing manifest), it exits with code 1.
 
 ## Examples
 
@@ -42,7 +40,7 @@ If Clef itself fails (e.g. decryption error, missing manifest), it exits with co
 clef exec payments/production -- node server.js
 ```
 
-All keys from `payments/production` are available as `process.env.*` inside `server.js`.
+All keys from `payments/production` are available as `process.env.*` in `server.js`.
 
 ### Run a deploy script with production secrets
 
@@ -56,7 +54,7 @@ clef exec database/production -- ./deploy.sh
 clef exec payments/staging --only STRIPE_KEY,STRIPE_WEBHOOK -- node worker.js
 ```
 
-All `clef exec` flags must appear before the `--` separator.
+All flags must appear before `--`.
 
 ### Prefix all keys to avoid collisions
 
@@ -84,7 +82,7 @@ clef exec database/production \
   -- node server.js
 ```
 
-All three namespaces are decrypted and merged into one environment. Later `--also` targets override earlier ones for duplicate keys. Use `--no-override` to keep existing values instead.
+All three namespaces are decrypted and merged. Later `--also` targets override earlier ones for duplicate keys; use `--no-override` to keep existing values instead.
 
 ### Multi-namespace composition (chaining)
 
@@ -96,7 +94,7 @@ clef exec database/production -- \
   node server.js
 ```
 
-Each `clef exec` wraps the next, building up the environment. Later namespaces override earlier ones for duplicate keys. Use `--no-override` to reverse this precedence.
+Each `clef exec` wraps the next, building up the environment. Later namespaces override earlier for duplicates; use `--no-override` to reverse precedence.
 
 ## Security
 

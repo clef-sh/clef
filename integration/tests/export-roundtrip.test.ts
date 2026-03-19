@@ -9,22 +9,38 @@ let repo: TestRepo;
 
 beforeAll(async () => {
   checkSopsAvailable();
-  keys = await generateAgeKey();
-  repo = scaffoldTestRepo(keys);
+  try {
+    keys = await generateAgeKey();
+    repo = scaffoldTestRepo(keys);
+  } catch (err) {
+    // Clean up temp dirs on setup failure
+    if (keys?.tmpDir) {
+      try {
+        fs.rmSync(keys.tmpDir, { recursive: true, force: true });
+      } catch {
+        // Ignore
+      }
+    }
+    repo?.cleanup();
+    throw err;
+  }
 });
 
 afterAll(() => {
-  repo?.cleanup();
-  if (keys?.tmpDir) {
-    try {
-      fs.rmSync(keys.tmpDir, { recursive: true, force: true });
-    } catch {
-      // Ignore
+  try {
+    repo?.cleanup();
+  } finally {
+    if (keys?.tmpDir) {
+      try {
+        fs.rmSync(keys.tmpDir, { recursive: true, force: true });
+      } catch {
+        // Ignore
+      }
     }
   }
 });
 
-const clefBin = path.resolve(__dirname, "../../packages/cli/dist/index.js");
+const clefBin = path.resolve(__dirname, "../../packages/cli/dist/index.cjs");
 
 describe("clef export roundtrip", () => {
   it("should output export statements with correct values", () => {

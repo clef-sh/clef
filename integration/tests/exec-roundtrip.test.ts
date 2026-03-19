@@ -19,17 +19,20 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
-  repo?.cleanup();
-  if (keys?.tmpDir) {
-    try {
-      fs.rmSync(keys.tmpDir, { recursive: true, force: true });
-    } catch {
-      // Ignore
+  try {
+    repo?.cleanup();
+  } finally {
+    if (keys?.tmpDir) {
+      try {
+        fs.rmSync(keys.tmpDir, { recursive: true, force: true });
+      } catch {
+        // Ignore
+      }
     }
   }
 });
 
-const clefBin = path.resolve(__dirname, "../../packages/cli/dist/index.js");
+const clefBin = path.resolve(__dirname, "../../packages/cli/dist/index.cjs");
 
 describe("clef exec roundtrip", () => {
   it("should inject decrypted values into child process environment", () => {

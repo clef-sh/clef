@@ -1,12 +1,30 @@
 # CI/CD Integration
 
-`clef exec` is the recommended way to consume secrets in CI/CD pipelines. It decrypts values in memory, injects them as environment variables into your command, and exits with the same exit code as the child process — making it a drop-in wrapper for any deployment step.
+`clef exec` is the recommended way to consume secrets in CI/CD pipelines. It decrypts values in memory, injects them as environment variables, and passes through the child process exit code.
 
-This page covers the most common CI/CD patterns with Clef. Every example is production-ready.
+## Choosing a CI backend
 
-## The Recommended Pattern — age with SOPS_AGE_KEY
+Before picking a pattern, understand the security tradeoff between the two supported backends:
 
-The simplest CI setup uses an age private key stored as a CI secret. SOPS reads the key from the `SOPS_AGE_KEY` environment variable automatically — no key file needs to touch disk.
+|                              | age (private key)                                | AWS KMS / GCP KMS                         |
+| ---------------------------- | ------------------------------------------------ | ----------------------------------------- |
+| What the CI runner holds     | Long-lived private key + ciphertext              | Short-lived IAM token + ciphertext        |
+| Master key location          | In the CI secret store, injected into the runner | Stays inside the KMS HSM — never leaves   |
+| If the runner is compromised | Attacker gets a permanent key to all secrets     | Attacker gets a short-lived, scoped token |
+| Revocation                   | Re-encrypt all files with a new key              | Remove the IAM permission — instant       |
+| Audit log                    | None                                             | CloudTrail / Cloud Audit Logs             |
+
+age is the simplest option. KMS adds short-lived credentials and audit logging at the cost of cloud infrastructure. See [age vs KMS](/guide/quick-start#age-vs-kms-choosing-an-encryption-backend).
+
+---
+
+## age — Simple Setup
+
+Store the private key as a CI secret and pass it via `CLEF_AGE_KEY`. Clef passes it to SOPS automatically — no key file touches disk.
+
+::: warning Security tradeoff
+The age private key and ciphertext are both present in the runner simultaneously. A compromised runner exposes the key until rotation. Store `CLEF_AGE_KEY` in your CI provider's encrypted secrets store. See [age vs KMS](/guide/quick-start#age-vs-kms-choosing-an-encryption-backend).
+:::
 
 ### GitHub Actions
 
@@ -31,19 +49,11 @@ jobs:
 
       - name: Run deployment
         env:
-          SOPS_AGE_KEY: ${{ secrets.AGE_PRIVATE_KEY }}
-        run: clef exec payments/production -- ./deploy.sh
+          CLEF_AGE_KEY: ${{ secrets.AGE_PRIVATE_KEY }}
+        run: clef exec payments/staging -- ./deploy.sh
 ```
 
-**How it works:**
-
-1. The age private key is stored in GitHub's encrypted secret store (`AGE_PRIVATE_KEY`)
-2. GitHub Actions injects it into the runner's environment as `SOPS_AGE_KEY`
-3. SOPS reads `SOPS_AGE_KEY` automatically when decrypting — no key file needed
-4. `clef exec` decrypts the secrets in memory and passes them to `./deploy.sh`
-5. When `deploy.sh` finishes, the runner is destroyed along with all secrets
-
-The private key exists only in GitHub's secret store and in the runner's memory during the job. Nothing touches disk.
+The private key exists only in GitHub's secret store and in runner memory. Nothing touches disk.
 
 ### GitLab CI
 
@@ -53,12 +63,12 @@ deploy:
   script:
     - clef exec payments/production -- ./deploy.sh
   variables:
-    SOPS_AGE_KEY: $AGE_PRIVATE_KEY
+    CLEF_AGE_KEY: $AGE_PRIVATE_KEY
   only:
     - main
 ```
 
-Store `AGE_PRIVATE_KEY` as a masked, protected CI/CD variable in GitLab project settings.
+Store `AGE_PRIVATE_KEY` as a masked, protected CI/CD variable in GitLab settings.
 
 ### CircleCI
 
@@ -71,16 +81,16 @@ jobs:
       - checkout
       - run:
           name: Deploy
-          command: clef exec payments/production -- ./deploy.sh
           environment:
-            SOPS_AGE_KEY: $AGE_PRIVATE_KEY
+            CLEF_AGE_KEY: $AGE_PRIVATE_KEY
+          command: clef exec payments/production -- ./deploy.sh
 ```
 
-Store `AGE_PRIVATE_KEY` as a CircleCI project environment variable or context variable in your CircleCI project settings.
+Store `AGE_PRIVATE_KEY` as a CircleCI project or context variable. Set `CLEF_AGE_KEY` at the step level — job-level `environment` entries are literal strings, not expanded.
 
 ## AWS KMS — Zero-Secret Pattern
 
-The cleanest production setup. The CI runner's IAM role has `kms:Decrypt` permission on your SOPS KMS key. No secret needs to be stored or passed — identity-based access handles everything.
+The runner's IAM role has `kms:Decrypt` permission. No long-lived secret is stored or passed.
 
 ### GitHub Actions with OIDC
 
@@ -119,11 +129,11 @@ jobs:
 }
 ```
 
-This is the minimum permission needed. The role can decrypt SOPS files but cannot encrypt, delete keys, or perform any other KMS operation.
+This is the minimum permission needed.
 
 ## GCP KMS — Workload Identity Pattern
 
-Same zero-secret approach for GCP. The CI runner authenticates via Workload Identity Federation and uses its service account's KMS permissions.
+Same zero-secret approach. The runner authenticates via Workload Identity Federation.
 
 ### GitHub Actions with Workload Identity
 
@@ -148,75 +158,6 @@ jobs:
 
 The service account needs the `cloudkms.cryptoKeyVersions.useToDecrypt` permission on your KMS key.
 
-## Pattern B — Standalone Secrets Repository
-
-When secrets live in a separate repository from application code, CI must check out both repositories. Every CI system supports this via a second checkout step.
-
-### GitHub Actions — Two-Checkout
-
-```yaml
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Checkout secrets repo
-        uses: actions/checkout@v4
-        with:
-          repository: acme/secrets
-          path: .secrets
-          token: ${{ secrets.SECRETS_REPO_TOKEN }}
-
-      - name: Deploy with secrets
-        env:
-          SOPS_AGE_KEY: ${{ secrets.AGE_PRIVATE_KEY }}
-        run: clef --repo .secrets exec payments/production -- ./deploy.sh
-```
-
-The `--repo .secrets` flag tells Clef to look for `clef.yaml` and encrypted files in the `.secrets` directory instead of the working directory.
-
-### GitLab CI — Two-Checkout
-
-```yaml
-deploy:
-  stage: deploy
-  script:
-    - git clone https://oauth2:${SECRETS_TOKEN}@gitlab.com/acme/secrets.git .secrets
-    - clef --repo .secrets exec payments/production -- ./deploy.sh
-  variables:
-    SOPS_AGE_KEY: $AGE_PRIVATE_KEY
-  only:
-    - main
-```
-
-### Local Development with Pattern B
-
-For local development, clone the secrets repo alongside your application:
-
-```bash
-~/projects/
-├── my-app/          # application code
-└── acme-secrets/    # secrets repo
-```
-
-Then use `--repo` or a Makefile target:
-
-```makefile
-# Makefile
-SECRETS_REPO ?= ../acme-secrets
-
-.PHONY: dev
-dev:
-	clef --repo $(SECRETS_REPO) exec database/dev -- npm run dev
-
-.PHONY: lint-secrets
-lint-secrets:
-	clef --repo $(SECRETS_REPO) lint
-```
-
-Developers can override the secrets location: `make dev SECRETS_REPO=/path/to/secrets`.
-
 ## Multi-Namespace Exec
 
 When a service needs secrets from multiple namespaces, use the `--also` flag:
@@ -228,9 +169,7 @@ clef exec database/production \
   -- node server.js
 ```
 
-All three namespaces are decrypted and merged into a single environment. For duplicate keys, later `--also` targets override earlier ones and the primary target.
-
-Alternatively, chain `clef exec` calls (equivalent behaviour, but more verbose):
+All namespaces are merged into one environment. Later `--also` targets override earlier ones for duplicate keys. Alternatively, chain `clef exec` calls:
 
 ```bash
 clef exec database/production -- \
@@ -239,13 +178,11 @@ clef exec database/production -- \
   node server.js
 ```
 
-To keep earlier values when keys conflict, use `--no-override`:
+Use `--no-override` to keep earlier values when keys conflict — the primary target takes precedence:
 
 ```bash
 clef exec database/production --also auth/production --no-override -- node server.js
 ```
-
-Now `database/production` values take precedence for any keys that appear in both namespaces.
 
 ### Prefix to avoid collisions
 
@@ -255,11 +192,11 @@ clef exec database/production --prefix DB_ -- \
   node server.js
 ```
 
-This guarantees no collisions: database secrets are `DB_*` and auth secrets are `AUTH_*`.
+No collisions: database secrets become `DB_*` and auth secrets `AUTH_*`.
 
 ## Using `clef export` When Exec Is Not Possible
 
-Some CI systems do not support subprocess wrapping — they require environment variables to be set before the main script runs. For these cases, use `clef export`:
+For CI systems that require environment variables set before the main script runs:
 
 ```bash
 eval $(clef export payments/production --format env)
@@ -268,13 +205,9 @@ eval $(clef export payments/production --format env)
 
 ### Security caveat
 
-With `eval`, the decrypted values are briefly in the shell environment and visible to any process that reads `/proc/<pid>/environ` on Linux. `clef exec` does not have this exposure because it spawns the child process directly with the environment — no intermediate shell state.
-
-**Use `clef exec` whenever possible. Use `clef export` only as a fallback.**
+With `eval`, decrypted values are briefly in the shell environment and readable from `/proc/<pid>/environ`. `clef exec` avoids this by spawning the child process directly. **Use `clef exec` whenever possible.**
 
 ### Docker build args
-
-One case where `clef export` is genuinely useful is injecting secrets as build-time arguments:
 
 ```bash
 eval $(clef export app/production --format env)
@@ -284,12 +217,15 @@ docker build \
   -t myapp .
 ```
 
-Be cautious: build args are visible in the image's build history. Use multi-stage builds to avoid leaking secrets into the final image layer.
+Build args are visible in the image's build history. Use multi-stage builds to avoid leaking secrets into the final layer.
+
+## Service Identity Bundles
+
+For serverless workloads that cannot run `sops` at deploy time, use [Service Identity bundles](/guide/service-identities) instead of `clef exec`. Bundles embed age-encrypted secrets in a self-contained JS module — no git, no sops binary, no private keys in the deployment artifact. See the [Service Identities guide](/guide/service-identities) for a full walkthrough.
 
 ## Best Practices
 
-1. **Use `clef exec` over `clef export`** — subprocess injection is more secure than shell eval
-2. **Use KMS over age in production** — IAM-based access (AWS KMS, GCP KMS) eliminates the need to store and rotate a private key
-3. **Scope CI permissions narrowly** — IAM roles should have `kms:Decrypt` only, on specific keys only
-4. **Use `--only` to limit exposure** — inject only the keys your command actually needs
-5. **Test with `clef exec ... -- env`** — quick way to verify which variables are being injected
+1. **Use `clef exec` over `clef export`** — subprocess injection never exposes secrets in shell state
+2. **Scope CI permissions narrowly** — IAM roles should have `kms:Decrypt` only, on specific keys
+3. **Use `--only` to limit exposure** — inject only the keys your command needs
+4. **Test with `clef exec ... -- env`** — verify which variables are injected

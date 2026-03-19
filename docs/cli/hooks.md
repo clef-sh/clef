@@ -1,6 +1,6 @@
 # clef hooks
 
-Manage git hooks for Clef. Currently provides the `install` subcommand for setting up a pre-commit hook.
+Manage git hooks and the SOPS-aware merge driver for Clef.
 
 ## Syntax
 
@@ -10,9 +10,11 @@ clef hooks install
 
 ## Description
 
-`clef hooks install` writes a pre-commit hook to `.git/hooks/pre-commit` that runs `clef lint` before every commit. If the lint check finds errors, the commit is blocked with an actionable error message.
+`clef hooks install` writes a pre-commit hook to `.git/hooks/pre-commit` that performs two checks before every commit:
 
-The hook scans staged files for SOPS metadata markers. If a file in the secret matrix is staged without valid SOPS encryption headers, the commit is rejected. This prevents the most common SOPS mistake: accidentally committing a plaintext secrets file.
+1. **SOPS metadata validation** — Staged `*.enc.yaml` and `*.enc.json` files are checked for SOPS encryption headers (`"sops":` or `sops:`). If a file in the secret matrix is staged without valid SOPS metadata, the commit is rejected. This prevents the most common SOPS mistake: accidentally committing a plaintext secrets file.
+
+2. **Secret scanning** — If validation passes and `clef` is on PATH, the hook runs `clef scan --staged` to detect plaintext secrets in all staged files. If potential secrets are found, the commit is blocked with a summary of findings.
 
 If a pre-commit hook already exists, Clef asks for confirmation before overwriting it.
 
@@ -31,7 +33,10 @@ clef hooks install
 ```
 
 ```
-✓ Pre-commit hook installed at .git/hooks/pre-commit
+✓ Pre-commit hook installed
+   ◌  .git/hooks/pre-commit
+→  Hook checks SOPS metadata on staged .enc files and runs: clef scan --staged
+✓ SOPS merge driver configured
 ```
 
 ### Hook already exists (Clef)
@@ -60,32 +65,48 @@ A pre-commit hook already exists (not Clef). Overwrite? (y/N) n
 ℹ Aborted. You can manually add Clef checks to your existing hook.
 ```
 
-### Hook output on lint failure
+### Hook output on SOPS metadata failure
 
-When you attempt to commit with lint errors:
+When you attempt to commit an unencrypted file:
 
 ```bash
 git commit -m "update secrets"
 ```
 
 ```
-Clef pre-commit check...
-
-✗ 1 error(s)
-  ✗ [schema] payments/production.enc.yaml WEBHOOK_SECRET
-    Required key 'WEBHOOK_SECRET' is missing.
-    fix: clef set payments/production WEBHOOK_SECRET <value>
-
-Commit blocked — fix errors above and try again.
+ERROR: payments/production.enc.yaml appears to be missing SOPS metadata.
+       This file may contain unencrypted secrets.
+       Encrypt it with 'sops encrypt -i payments/production.enc.yaml' before committing.
 ```
+
+### Hook output on secret scan failure
+
+When `clef scan --staged` detects potential secrets:
+
+```bash
+git commit -m "add config"
+```
+
+```
+clef scan found potential secrets in staged files.
+Review the findings above before committing.
+To bypass (use with caution): git commit --no-verify
+```
+
+## SOPS merge driver
+
+`clef hooks install` also configures a SOPS-aware git merge driver, written to `.gitattributes` and `.git/config`, allowing git to merge encrypted files by decrypting, three-way merging, and re-encrypting automatically.
+
+See [Merge Conflicts](/guide/merge-conflicts) for a detailed explanation of the problem and how the driver resolves it.
 
 ## Notes
 
-- The hook is installed automatically during `clef init`. Use `clef hooks install` to reinstall it or set it up in an existing repository.
-- The hook runs `clef lint` which validates the entire repo, not just staged files. This ensures the commit does not introduce a broken state.
-- The hook does not block on warnings — only errors prevent a commit.
+- The hook and merge driver are installed automatically during `clef init`. Use `clef hooks install` to reinstall or set them up in an existing repo.
+- Only errors prevent a commit — warnings do not block.
+- `clef doctor` verifies that both the merge driver and pre-commit hook are configured correctly.
 
 ## Related commands
 
-- [`clef init`](/cli/init) — automatically installs the hook during initialisation
-- [`clef lint`](/cli/lint) — the validation command that the hook runs
+- [`clef init`](/cli/init) — automatically installs hooks and merge driver during initialisation
+- [`clef scan`](/cli/scan) — the scan command that the hook runs on staged files
+- [`clef doctor`](/cli/doctor) — checks that merge driver configuration is present

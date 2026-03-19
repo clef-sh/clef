@@ -10,9 +10,10 @@ clef doctor [options]
 
 ## Flags
 
-| Flag     | Type    | Default | Description                                   |
-| -------- | ------- | ------- | --------------------------------------------- |
-| `--json` | boolean | `false` | Output the full status as JSON for scripting. |
+| Flag     | Type    | Default | Description                                                                                  |
+| -------- | ------- | ------- | -------------------------------------------------------------------------------------------- |
+| `--json` | boolean | `false` | Output the full status as JSON for scripting.                                                |
+| `--fix`  | boolean | `false` | Attempt to auto-fix issues (generates `.sops.yaml` from manifest if it is the only failure). |
 
 ## Exit Codes
 
@@ -25,14 +26,16 @@ clef doctor [options]
 
 `clef doctor` runs the following checks in order:
 
-| Check          | What it verifies                                                                                                                                                       |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **clef**       | Prints the current Clef version                                                                                                                                        |
-| **sops**       | SOPS binary is installed and meets the minimum version requirement (>= 3.8.0)                                                                                          |
-| **git**        | git binary is installed and meets the minimum version requirement (>= 2.28.0)                                                                                          |
-| **manifest**   | `clef.yaml` exists in the current directory (or `--repo` directory)                                                                                                    |
-| **age key**    | Only checked when the manifest uses the age backend. An age key is available via `SOPS_AGE_KEY` env var, `SOPS_AGE_KEY_FILE`, or the manifest's `age_key_file` setting |
-| **.sops.yaml** | `.sops.yaml` exists (required for SOPS creation rules)                                                                                                                 |
+| Check            | What it verifies                                                                                                                                                        |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **clef**         | Prints the current Clef version                                                                                                                                         |
+| **sops**         | SOPS binary is installed and meets the minimum version requirement (>= 3.8.0)                                                                                           |
+| **git**          | git binary is installed and meets the minimum version requirement (>= 2.28.0)                                                                                           |
+| **manifest**     | `clef.yaml` exists in the current directory (or `--dir` directory)                                                                                                      |
+| **age key**      | Only checked when the manifest uses the age backend. An age key is available via `CLEF_AGE_KEY` env var, `CLEF_AGE_KEY_FILE`, or the path stored in `.clef/config.yaml` |
+| **.sops.yaml**   | `.sops.yaml` exists (required for SOPS creation rules)                                                                                                                  |
+| **scanner**      | `.clefignore` exists in the repository root (used by `clef scan` to exclude paths from secret scanning)                                                                 |
+| **merge driver** | SOPS merge driver is configured in `.git/config` and `.gitattributes` (see [Merge Conflicts](/guide/merge-conflicts))                                                   |
 
 ## Output Format
 
@@ -45,8 +48,10 @@ Clef environment check
 ✓ sops          v3.9.4    (required >= 3.8.0)
 ✓ git           v2.43.0   (required >= 2.28.0)
 ✓ manifest      clef.yaml found
-✓ age key       loaded (from .clef/key.txt)
+✓ age key       loaded (from OS keychain, label: coral-tiger)
 ✓ .sops.yaml    found
+✓ scanner       .clefignore found (3 rules)
+✓ merge driver  SOPS merge driver configured
 
 ✓ Everything looks good.
 ```
@@ -80,15 +85,16 @@ Returns a JSON object with all check results:
   "sops": { "version": "3.9.4", "required": "3.8.0", "ok": true },
   "git": { "version": "2.43.0", "required": "2.28.0", "ok": true },
   "manifest": { "found": true, "ok": true },
-  "ageKey": { "source": "file", "path": ".clef/key.txt", "ok": true },
-  "sopsYaml": { "found": true, "ok": true }
+  "ageKey": { "source": "file", "recipients": 2, "ok": true },
+  "sopsYaml": { "found": true, "ok": true },
+  "scanner": { "clefignoreFound": true, "ok": true }
 }
 ```
 
 ### Check a different repository
 
 ```bash
-clef --repo ../acme-secrets doctor
+clef --dir ../other-project doctor
 ```
 
 ## Related Commands

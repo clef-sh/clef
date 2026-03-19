@@ -77,7 +77,7 @@ function makeRunner(): SubprocessRunner {
 
 function makeProgram(runner: SubprocessRunner): Command {
   const program = new Command();
-  program.option("--repo <path>", "Path to the Clef repository root");
+  program.option("--dir <path>", "Path to a local Clef repository root");
   program.exitOverride();
   registerExportCommand(program, { runner });
   return program;
@@ -224,6 +224,9 @@ describe("clef export", () => {
     expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("/proc/<pid>/environ"));
     // Assert warning does NOT leak to stdout
     expect(mockFormatter.print).not.toHaveBeenCalledWith(expect.stringContaining("/proc"));
+    // Assert warning does NOT leak to the raw output channel
+    const rawCalls = mockFormatter.raw.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(rawCalls.join("")).not.toContain("/proc");
     // Output should still be correct
     expect(mockFormatter.raw).toHaveBeenCalled();
   });
@@ -241,16 +244,16 @@ describe("clef export", () => {
     expect(mockFormatter.raw).toHaveBeenCalled();
   });
 
-  // --repo flag test
+  // --dir flag test
 
-  it("should use --repo path instead of cwd for manifest lookup", async () => {
+  it("should use --dir path instead of cwd for manifest lookup", async () => {
     const runner = makeRunner();
     const program = makeProgram(runner);
 
     await program.parseAsync([
       "node",
       "clef",
-      "--repo",
+      "--dir",
       "/custom/secrets",
       "export",
       "payments/dev",

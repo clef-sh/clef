@@ -8,7 +8,24 @@ import {
   ValidationWarning,
 } from "../types";
 
+/**
+ * Loads namespace schemas and validates decrypted key/value maps against them.
+ *
+ * @example
+ * ```ts
+ * const validator = new SchemaValidator();
+ * const schema = validator.loadSchema("schemas/app.yaml");
+ * const result = validator.validate(decrypted.values, schema);
+ * ```
+ */
 export class SchemaValidator {
+  /**
+   * Read and parse a YAML schema file from disk.
+   *
+   * @param filePath - Path to the schema YAML file.
+   * @returns Parsed {@link NamespaceSchema}.
+   * @throws {@link SchemaLoadError} If the file cannot be read or contains invalid YAML.
+   */
   loadSchema(filePath: string): NamespaceSchema {
     let raw: string;
     try {
@@ -72,6 +89,13 @@ export class SchemaValidator {
     return { keys };
   }
 
+  /**
+   * Validate a set of decrypted values against a loaded namespace schema.
+   *
+   * @param values - Flat key/value map from a decrypted SOPS file.
+   * @param schema - Schema loaded via {@link loadSchema}.
+   * @returns {@link ValidationResult} with `valid: false` when any errors are present.
+   */
   validate(values: Record<string, string>, schema: NamespaceSchema): ValidationResult {
     const errors: ValidationError[] = [];
     const warnings: ValidationWarning[] = [];

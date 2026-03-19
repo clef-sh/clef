@@ -10,6 +10,13 @@ export interface ParsedImport {
   warnings: string[];
 }
 
+/**
+ * Auto-detect the format of a file from its extension, basename, and content heuristics.
+ *
+ * @param filePath - File path used for extension and basename detection.
+ * @param content - Raw file content used as a fallback heuristic.
+ * @returns Detected format (`"dotenv"`, `"json"`, or `"yaml"`).
+ */
 export function detectFormat(filePath: string, content: string): Exclude<ImportFormat, "auto"> {
   const base = path.basename(filePath);
   const ext = path.extname(filePath).toLowerCase();
@@ -58,6 +65,10 @@ export function detectFormat(filePath: string, content: string): Exclude<ImportF
   return "dotenv";
 }
 
+/**
+ * Parse dotenv-formatted content into flat key/value pairs.
+ * Supports `export KEY=VALUE`, inline comments, and both single- and double-quoted values.
+ */
 export function parseDotenv(content: string): ParsedImport {
   const pairs: Record<string, string> = {};
   const skipped: string[] = [];
@@ -110,6 +121,12 @@ export function parseDotenv(content: string): ParsedImport {
   return { pairs, format: "dotenv", skipped, warnings };
 }
 
+/**
+ * Parse a JSON object into flat string key/value pairs.
+ * Non-string values (numbers, booleans, nulls, arrays, objects) are skipped with warnings.
+ *
+ * @throws `Error` If the content is not valid JSON or the root is not an object.
+ */
 export function parseJson(content: string): ParsedImport {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let parsed: any;
@@ -155,6 +172,12 @@ export function parseJson(content: string): ParsedImport {
   return { pairs, format: "json", skipped, warnings };
 }
 
+/**
+ * Parse a YAML mapping into flat string key/value pairs.
+ * Non-string values are skipped with warnings.
+ *
+ * @throws `Error` If the content is not valid YAML or the root is not a mapping.
+ */
 export function parseYaml(content: string): ParsedImport {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let parsed: any;
@@ -200,6 +223,13 @@ export function parseYaml(content: string): ParsedImport {
   return { pairs, format: "yaml", skipped, warnings };
 }
 
+/**
+ * Parse content in the given format (or auto-detect) and return flat key/value pairs.
+ *
+ * @param content - Raw file content to parse.
+ * @param format - Explicit format, or `"auto"` to detect from `filePath` and content.
+ * @param filePath - File path used for format detection when `format` is `"auto"`.
+ */
 export function parse(content: string, format: ImportFormat, filePath?: string): ParsedImport {
   const resolved: Exclude<ImportFormat, "auto"> =
     format === "auto" ? detectFormat(filePath ?? "", content) : format;

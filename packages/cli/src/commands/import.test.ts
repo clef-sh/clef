@@ -69,7 +69,7 @@ function sopsRunner(): SubprocessRunner {
 
 function makeProgram(runner: SubprocessRunner): Command {
   const program = new Command();
-  program.option("--repo <path>", "Path to the Clef repository root");
+  program.option("--dir <path>", "Path to a local Clef repository root");
   program.exitOverride();
   registerImportCommand(program, { runner });
   return program;

@@ -91,7 +91,10 @@ function createApp(runner?: SubprocessRunner) {
 
   const app = express();
   app.use(express.json());
-  app.use("/api", createApiRouter({ runner: runner ?? makeRunner(), repoRoot: "/repo" }));
+  app.use(
+    "/api",
+    createApiRouter({ runner: runner ?? makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+  );
   return app;
 }
 
@@ -117,7 +120,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).get("/api/manifest");
       expect(res.status).toBe(500);
@@ -132,6 +138,11 @@ describe("API routes", () => {
       const res = await request(app).get("/api/matrix");
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
+      // Assert at least one cell has expected namespace/environment properties
+      if (res.body.length > 0) {
+        expect(res.body[0]).toHaveProperty("cell.namespace");
+        expect(res.body[0]).toHaveProperty("cell.environment");
+      }
     });
 
     it("should return 500 when manifest is missing", async () => {
@@ -140,7 +151,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).get("/api/matrix");
       expect(res.status).toBe(500);
@@ -235,9 +249,18 @@ describe("API routes", () => {
       // Verify sops.encrypt was called twice (once for set, once for rollback)
       const runCalls = (runner.run as jest.Mock).mock.calls;
       const encryptCalls = runCalls.filter(
-        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+        (c: [string, string[], Record<string, unknown>?]) =>
+          c[0] === "sops" && c[1][0] === "encrypt",
       );
       expect(encryptCalls.length).toBeGreaterThanOrEqual(2);
+
+      // Verify the rollback encrypt does NOT contain the new key
+      const rollbackCall = encryptCalls[1];
+      const rollbackStdin = (rollbackCall[2] as { stdin?: string })?.stdin ?? "";
+      expect(rollbackStdin).not.toContain("NEW_KEY");
+      // Verify original values are preserved
+      const parsed = YAML.parse(rollbackStdin);
+      expect(parsed).toEqual({ DB_HOST: "localhost", DB_PORT: "5432" });
     });
 
     it("should return 500 with partial failure when both pending and rollback fail", async () => {
@@ -281,6 +304,7 @@ describe("API routes", () => {
         .send({ random: true });
       expect(res.status).toBe(500);
       expect(res.body.error).toBe("Partial failure");
+      expect(res.body.code).toBe("PARTIAL_FAILURE");
     });
 
     it("should return 500 on encrypt error", async () => {
@@ -323,14 +347,18 @@ describe("API routes", () => {
             },
           });
         }
-        return "";
+        // Return valid SOPS metadata for encrypted files so parseMetadataFromFile succeeds
+        return sopsFileContent;
       });
       const { existsSync } = jest.requireMock("fs");
       existsSync.mockReturnValue(true);
 
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app)
         .put("/api/namespace/database/dev/DB_HOST")
@@ -339,6 +367,34 @@ describe("API routes", () => {
       expect(res.body.success).toBe(true);
       expect(res.body.warnings).toBeDefined();
       expect(res.body.warnings.length).toBeGreaterThan(0);
+    });
+
+    it("should set Cache-Control: no-store header on PUT response", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .put("/api/namespace/database/dev/DB_HOST")
+        .send({ value: "newhost" });
+      expect(res.status).toBe(200);
+      expect(res.headers["cache-control"]).toContain("no-store");
+    });
+
+    it("should return 409 when writing to protected environment without confirmation", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .put("/api/namespace/database/production/KEY")
+        .send({ value: "val" });
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("PROTECTED_ENV");
+      expect(res.body.protected).toBe(true);
+    });
+
+    it("should allow writing to protected environment with confirmed: true", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .put("/api/namespace/database/production/KEY")
+        .send({ value: "val", confirmed: true });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
     });
 
     it("should return no warnings when value passes schema", async () => {
@@ -381,6 +437,29 @@ describe("API routes", () => {
       const app = createApp(runner);
       const res = await request(app).delete("/api/namespace/database/dev/KEY");
       expect(res.status).toBe(500);
+    });
+
+    it("should set Cache-Control: no-store header on DELETE response", async () => {
+      const app = createApp();
+      const res = await request(app).delete("/api/namespace/database/dev/DB_HOST");
+      expect(res.status).toBe(200);
+      expect(res.headers["cache-control"]).toContain("no-store");
+    });
+
+    it("should return 409 when deleting from protected environment without confirmation", async () => {
+      const app = createApp();
+      const res = await request(app).delete("/api/namespace/database/production/DB_HOST");
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("PROTECTED_ENV");
+    });
+
+    it("should allow deleting from protected environment with confirmed: true", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .delete("/api/namespace/database/production/DB_HOST")
+        .send({ confirmed: true });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
     });
 
     it("should call markResolved after successful delete", async () => {
@@ -463,7 +542,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).get("/api/lint");
       expect(res.status).toBe(500);
@@ -486,7 +568,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).post("/api/lint/fix");
       expect(res.status).toBe(500);
@@ -614,7 +699,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).get("/api/lint/database");
       expect(res.status).toBe(500);
@@ -645,7 +733,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).post("/api/scan").send({});
       expect(res.status).toBe(500);
@@ -726,6 +817,15 @@ describe("API routes", () => {
       expect(res.body.code).toBe("NO_EDITOR");
     });
 
+    it("should return 400 when file path escapes repo root", async () => {
+      process.env.EDITOR = "nano";
+      delete process.env.TERM_PROGRAM;
+      const app = createApp();
+      const res = await request(app).post("/api/editor/open").send({ file: "../../../etc/passwd" });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+    });
+
     it("should return 500 when the runner throws", async () => {
       process.env.EDITOR = "nano";
       delete process.env.TERM_PROGRAM;
@@ -789,7 +889,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app)
         .post("/api/import/preview")
@@ -862,7 +965,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app)
         .post("/api/import/apply")
@@ -899,7 +1005,10 @@ describe("API routes", () => {
 
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).get("/api/recipients");
       expect(res.status).toBe(200);
@@ -915,7 +1024,10 @@ describe("API routes", () => {
       });
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).get("/api/recipients");
       expect(res.status).toBe(500);
@@ -976,7 +1088,10 @@ describe("API routes", () => {
 
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).post("/api/recipients/add").send({
         key: "age1wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",
@@ -1023,7 +1138,10 @@ describe("API routes", () => {
 
       const app = express();
       app.use(express.json());
-      app.use("/api", createApiRouter({ runner: makeRunner(), repoRoot: "/repo" }));
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
 
       const res = await request(app).post("/api/recipients/remove").send({ key: testKey });
       expect(res.status).toBe(200);
@@ -1111,6 +1229,221 @@ describe("API routes", () => {
       const res = await request(app).get("/api/git/log/database/dev");
       expect(res.status).toBe(500);
       expect(res.body.code).toBe("GIT_LOG_ERROR");
+    });
+  });
+
+  // POST /api/copy
+  describe("POST /api/copy", () => {
+    it("should copy a key from one cell to another", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/copy").send({
+        key: "DB_HOST",
+        fromNs: "database",
+        fromEnv: "dev",
+        toNs: "database",
+        toEnv: "dev",
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.key).toBe("DB_HOST");
+      expect(res.body.from).toBe("database/dev");
+      expect(res.body.to).toBe("database/dev");
+    });
+
+    it("should copy to a protected environment when confirmed: true", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/copy").send({
+        key: "DB_HOST",
+        fromNs: "database",
+        fromEnv: "dev",
+        toNs: "database",
+        toEnv: "production",
+        confirmed: true,
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+    });
+
+    it("should return 400 when any required field is missing", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/copy").send({
+        key: "DB_HOST",
+        fromNs: "database",
+        // fromEnv, toNs, toEnv absent
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+    });
+
+    it("should return 409 when copying to a protected environment without confirmation", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/copy").send({
+        key: "DB_HOST",
+        fromNs: "database",
+        fromEnv: "dev",
+        toNs: "database",
+        toEnv: "production",
+      });
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("PROTECTED_ENV");
+      expect(res.body.protected).toBe(true);
+    });
+
+    it("should return 404 when source cell is not in the matrix", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/copy").send({
+        key: "DB_HOST",
+        fromNs: "ghost",
+        fromEnv: "dev",
+        toNs: "database",
+        toEnv: "dev",
+      });
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe("NOT_FOUND");
+    });
+
+    it("should return 404 when destination cell is not in the matrix", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/copy").send({
+        key: "DB_HOST",
+        fromNs: "database",
+        fromEnv: "dev",
+        toNs: "database",
+        toEnv: "canary",
+      });
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe("NOT_FOUND");
+    });
+
+    it("should return 500 when sops fails during copy", async () => {
+      const runner = makeRunner({
+        "sops decrypt": { stdout: "", stderr: "mac mismatch", exitCode: 1 },
+      });
+      const app = createApp(runner);
+      const res = await request(app).post("/api/copy").send({
+        key: "DB_HOST",
+        fromNs: "database",
+        fromEnv: "dev",
+        toNs: "database",
+        toEnv: "dev",
+      });
+      expect(res.status).toBe(500);
+      expect(res.body.code).toBe("COPY_ERROR");
+    });
+  });
+
+  // Multi-step workflow: set value then commit
+  describe("workflow: set then commit", () => {
+    it("should set a value and then commit the encrypted file", async () => {
+      const runner = makeRunner({
+        "git status": {
+          stdout: "?? database/dev.enc.yaml\n?? database/dev.clef-meta.yaml\n",
+          stderr: "",
+          exitCode: 0,
+        },
+      });
+      const app = createApp(runner);
+
+      const setRes = await request(app)
+        .put("/api/namespace/database/dev/DB_PASSWORD")
+        .send({ value: "supersecret" });
+      expect(setRes.status).toBe(200);
+
+      const commitRes = await request(app)
+        .post("/api/git/commit")
+        .send({ message: "feat(database): add DB_PASSWORD" });
+      expect(commitRes.status).toBe(200);
+      expect(commitRes.body.hash).toBeDefined();
+    });
+
+    it("should return 500 on commit when git fails after a successful set", async () => {
+      const runner = makeRunner({
+        "git status": { stdout: "?? database/dev.enc.yaml\n", stderr: "", exitCode: 0 },
+        "git commit": { stdout: "", stderr: "fatal: not a git repo", exitCode: 128 },
+      });
+      const app = createApp(runner);
+
+      const setRes = await request(app)
+        .put("/api/namespace/database/dev/DB_PASSWORD")
+        .send({ value: "supersecret" });
+      expect(setRes.status).toBe(200);
+
+      const commitRes = await request(app).post("/api/git/commit").send({ message: "update" });
+      expect(commitRes.status).toBe(500);
+      expect(commitRes.body.code).toBe("GIT_ERROR");
+    });
+  });
+
+  // Multi-step workflow: import preview then apply
+  describe("workflow: import preview then apply", () => {
+    it("should preview keys and then apply the selected subset", async () => {
+      const app = createApp();
+      const content = "NEW_API_KEY=abc123\nDB_HOST=override";
+
+      const previewRes = await request(app)
+        .post("/api/import/preview")
+        .send({ target: "database/dev", content });
+      expect(previewRes.status).toBe(200);
+      expect(Array.isArray(previewRes.body.wouldImport)).toBe(true);
+
+      const applyRes = await request(app)
+        .post("/api/import/apply")
+        .send({ target: "database/dev", content, keys: ["NEW_API_KEY"] });
+      expect(applyRes.status).toBe(200);
+      expect(Array.isArray(applyRes.body.imported)).toBe(true);
+    });
+
+    it("should return 400 on apply when target was malformed", async () => {
+      const app = createApp();
+      await request(app)
+        .post("/api/import/preview")
+        .send({ target: "database/dev", content: "KEY=val" });
+
+      const applyRes = await request(app)
+        .post("/api/import/apply")
+        .send({ target: "bad", content: "KEY=val", keys: ["KEY"] });
+      expect(applyRes.status).toBe(400);
+      expect(applyRes.body.code).toBe("BAD_REQUEST");
+    });
+  });
+
+  // Multi-step workflow: scan then check cached status
+  describe("workflow: scan then check status", () => {
+    it("should return null status before scan, then populated status after", async () => {
+      const app = createApp();
+
+      const before = await request(app).get("/api/scan/status");
+      expect(before.status).toBe(200);
+      expect(before.body.lastRun).toBeNull();
+
+      await request(app).post("/api/scan").send({});
+
+      const after = await request(app).get("/api/scan/status");
+      expect(after.status).toBe(200);
+      expect(after.body.lastRun).not.toBeNull();
+      expect(after.body.lastRunAt).not.toBeNull();
+    });
+  });
+
+  // Scan with severity: "all" (gap in existing tests which only cover "high")
+  describe("POST /api/scan — severity: all", () => {
+    it("should accept severity: 'all' and return scan results", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/scan").send({ severity: "all" });
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.matches)).toBe(true);
+    });
+  });
+
+  // Pending key inclusion in GET namespace response
+  describe("GET /api/namespace/:ns/:env — pending keys", () => {
+    it("should include keys returned by getPendingKeys in the pending array", async () => {
+      const { getPendingKeys: mockGetPending } = jest.requireMock("@clef-sh/core");
+      mockGetPending.mockResolvedValueOnce(["DB_PASSWORD"]);
+      const app = createApp();
+      const res = await request(app).get("/api/namespace/database/dev");
+      expect(res.status).toBe(200);
+      expect(res.body.pending).toContain("DB_PASSWORD");
     });
   });
 });

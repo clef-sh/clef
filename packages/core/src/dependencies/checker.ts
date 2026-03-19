@@ -5,6 +5,7 @@ import {
   SopsVersionError,
   SubprocessRunner,
 } from "../types";
+import { resolveSopsPath } from "../sops/resolver";
 
 // Minimum versions — update .github/workflows/ci.yml when these change
 export const REQUIREMENTS = {
@@ -77,9 +78,14 @@ function getInstallHint(name: "sops" | "git"): string {
 export async function checkDependency(
   name: "sops" | "git",
   runner: SubprocessRunner,
+  commandOverride?: string,
 ): Promise<DependencyVersion | null> {
   try {
-    const result = await runner.run(name, ["--version"]);
+    // For sops, use the resolver to find the binary path (unless overridden)
+    const resolution = name === "sops" && !commandOverride ? resolveSopsPath() : undefined;
+    const command = commandOverride ?? (resolution ? resolution.path : name);
+
+    const result = await runner.run(command, ["--version"]);
 
     if (result.exitCode !== 0) {
       return null;
@@ -107,6 +113,8 @@ export async function checkDependency(
       required,
       satisfied: semverSatisfied(installed, required),
       installHint: getInstallHint(name),
+      source: resolution?.source,
+      resolvedPath: resolution?.path,
     };
   } catch {
     return null;
@@ -129,8 +137,8 @@ export async function checkAll(runner: SubprocessRunner): Promise<DependencyStat
  * Assert that sops is installed and meets the minimum version.
  * Throws SopsMissingError or SopsVersionError.
  */
-export async function assertSops(runner: SubprocessRunner): Promise<void> {
-  const dep = await checkDependency("sops", runner);
+export async function assertSops(runner: SubprocessRunner, command?: string): Promise<void> {
+  const dep = await checkDependency("sops", runner, command);
 
   if (!dep) {
     throw new SopsMissingError(getInstallHint("sops"));

@@ -1,6 +1,6 @@
 # clef get
 
-Retrieve and print a single decrypted secret value. The output is raw — no labels, no colour — so it can be piped safely into other commands.
+Retrieve and print a single decrypted secret value.
 
 ## Syntax
 
@@ -17,7 +17,7 @@ clef get <target> <key>
 
 ## Description
 
-`clef get` decrypts the specified namespace/environment file, extracts the value for the given key, and prints it to stdout followed by a newline. The output contains no formatting, no labels, and no colour codes, making it suitable for piping into other commands or assigning to shell variables.
+`clef get` decrypts the specified namespace/environment file, extracts the value for the given key, and prints it to stdout in a formatted key-value line. The output includes a key icon and arrow separator (e.g., `KEY  →  value`).
 
 If the key does not exist in the file, Clef prints an error listing the available keys and exits with code 1.
 
@@ -39,27 +39,7 @@ clef get payments/production STRIPE_SECRET_KEY
 ```
 
 ```
-sk_live_abc123xyz
-```
-
-### Pipe to clipboard
-
-```bash
-clef get payments/production STRIPE_SECRET_KEY | pbcopy
-```
-
-### Assign to a shell variable
-
-```bash
-export DB_URL=$(clef get database/staging DATABASE_URL)
-```
-
-### Use in a script
-
-```bash
-#!/bin/bash
-STRIPE_KEY=$(clef get payments/production STRIPE_SECRET_KEY)
-curl -H "Authorization: Bearer $STRIPE_KEY" https://api.stripe.com/v1/charges
+🔑  STRIPE_SECRET_KEY  →  sk_live_abc123xyz
 ```
 
 ### Key not found

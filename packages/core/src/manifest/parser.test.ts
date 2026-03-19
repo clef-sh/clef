@@ -274,6 +274,543 @@ describe("ManifestParser", () => {
       expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
       expect(() => parser.validate(manifest)).toThrow(/must be an object/);
     });
+
+    // Per-environment sops override tests
+    it("should accept per-env sops override with awskms backend", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: {
+              backend: "awskms",
+              aws_kms_arn: "arn:aws:kms:us-east-1:123:key/abc",
+            },
+          },
+          { name: "dev", description: "Dev" },
+        ],
+      };
+      const result = parser.validate(manifest);
+      expect(result.environments[0].sops).toEqual({
+        backend: "awskms",
+        aws_kms_arn: "arn:aws:kms:us-east-1:123:key/abc",
+      });
+      expect(result.environments[1].sops).toBeUndefined();
+    });
+
+    it("should accept per-env sops override with gcpkms backend", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: {
+              backend: "gcpkms",
+              gcp_kms_resource_id: "projects/test/locations/global/keyRings/test/cryptoKeys/key1",
+            },
+          },
+        ],
+      };
+      const result = parser.validate(manifest);
+      expect(result.environments[0].sops?.backend).toBe("gcpkms");
+      expect(result.environments[0].sops?.gcp_kms_resource_id).toContain("projects/test");
+    });
+
+    it("should accept per-env sops override with pgp backend", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: {
+              backend: "pgp",
+              pgp_fingerprint: "85D77543B3D624B63CEA9E6DBC17301B491B3F21",
+            },
+          },
+        ],
+      };
+      const result = parser.validate(manifest);
+      expect(result.environments[0].sops?.backend).toBe("pgp");
+      expect(result.environments[0].sops?.pgp_fingerprint).toBe(
+        "85D77543B3D624B63CEA9E6DBC17301B491B3F21",
+      );
+    });
+
+    it("should accept per-env sops override with age backend (no extra fields)", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "dev",
+            description: "Dev",
+            sops: { backend: "age" },
+          },
+        ],
+      };
+      const result = parser.validate(manifest);
+      expect(result.environments[0].sops).toEqual({ backend: "age" });
+    });
+
+    it("should reject per-env awskms backend missing aws_kms_arn", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: { backend: "awskms" },
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/missing 'aws_kms_arn'/);
+    });
+
+    it("should reject per-env gcpkms backend missing gcp_kms_resource_id", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: { backend: "gcpkms" },
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/missing 'gcp_kms_resource_id'/);
+    });
+
+    it("should reject per-env pgp backend missing pgp_fingerprint", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: { backend: "pgp" },
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/missing 'pgp_fingerprint'/);
+    });
+
+    it("should reject per-env sops with unknown backend value", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: { backend: "invalid" },
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/invalid sops backend/);
+    });
+
+    it("should reject per-env sops with missing backend field", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: { aws_kms_arn: "arn:aws:kms:us-east-1:123:key/abc" },
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/missing 'backend'/);
+    });
+
+    it("should reject duplicate environment names", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          { name: "dev", description: "Dev 1" },
+          { name: "staging", description: "Staging" },
+          { name: "dev", description: "Dev 2" },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/Duplicate environment name 'dev'/);
+    });
+
+    it("should reject duplicate namespace names", () => {
+      const manifest = {
+        ...validManifest(),
+        namespaces: [
+          { name: "database", description: "DB 1" },
+          { name: "auth", description: "Auth" },
+          { name: "database", description: "DB 2" },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/Duplicate namespace name 'database'/);
+    });
+
+    // Per-environment recipients tests
+    it("should accept per-env recipients as string array", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            recipients: ["age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"],
+          },
+          { name: "dev", description: "Dev" },
+        ],
+      };
+      const result = parser.validate(manifest);
+      expect(result.environments[0].recipients).toEqual([
+        "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
+      ]);
+      expect(result.environments[1].recipients).toBeUndefined();
+    });
+
+    it("should accept per-env recipients as object array", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            recipients: [
+              {
+                key: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
+                label: "Alice",
+              },
+            ],
+          },
+        ],
+      };
+      const result = parser.validate(manifest);
+      expect(result.environments[0].recipients).toEqual([
+        {
+          key: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
+          label: "Alice",
+        },
+      ]);
+    });
+
+    it("should accept empty recipients array (no-op)", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [{ name: "dev", description: "Dev", recipients: [] }],
+      };
+      const result = parser.validate(manifest);
+      expect(result.environments[0].recipients).toBeUndefined();
+    });
+
+    it("should reject non-array recipients field", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [{ name: "dev", description: "Dev", recipients: "not-an-array" }],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/must be an array/);
+    });
+
+    it("should reject invalid age key in string recipient", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [{ name: "dev", description: "Dev", recipients: ["not-a-valid-key"] }],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/recipient at index 0/);
+    });
+
+    it("should reject invalid age key in object recipient", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "dev",
+            description: "Dev",
+            recipients: [{ key: "not-valid", label: "Bad" }],
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/recipient at index 0/);
+    });
+
+    it("should reject recipient object without key field", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "dev",
+            description: "Dev",
+            recipients: [{ label: "Missing key" }],
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/must have a 'key' string/);
+    });
+
+    it("should reject non-string/non-object recipient entry", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [{ name: "dev", description: "Dev", recipients: [42] }],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/must be a string or object/);
+    });
+
+    it("should reject per-env recipients with non-age backend", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: {
+              backend: "awskms",
+              aws_kms_arn: "arn:aws:kms:us-east-1:123:key/abc",
+            },
+            recipients: ["age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"],
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/only supported with the 'age' backend/);
+    });
+
+    it("should reject per-env recipients when global backend is non-age and no env override", () => {
+      const manifest = {
+        ...validManifest(),
+        sops: { default_backend: "awskms", aws_kms_arn: "arn:aws:kms:us-east-1:123:key/abc" },
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            recipients: ["age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"],
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/only supported with the 'age' backend/);
+    });
+
+    it("should reject non-object per-env sops field", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: "age",
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/invalid 'sops' field/);
+    });
+
+    describe("service_identities validation", () => {
+      const testRecipient = "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p";
+
+      it("should accept a valid service identity", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              description: "API gateway",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        const result = parser.validate(manifest);
+        expect(result.service_identities).toHaveLength(1);
+        expect(result.service_identities![0].name).toBe("api-gw");
+      });
+
+      it("should reject service identity missing name", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              description: "No name",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/name/);
+      });
+
+      it("should reject service identity missing description", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/description/);
+      });
+
+      it("should reject service identity with empty namespaces array", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              description: "API gateway",
+              namespaces: [],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/namespaces/);
+      });
+
+      it("should reject service identity referencing unknown namespace", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              description: "API gateway",
+              namespaces: ["nonexistent"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/nonexistent/);
+      });
+
+      it("should reject service identity missing environments object", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              description: "API gateway",
+              namespaces: ["database"],
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/environments/);
+      });
+
+      it("should reject service identity missing an environment entry", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              description: "API gateway",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                // staging and production missing
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/staging/);
+      });
+
+      it("should reject service identity with invalid recipient key", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              description: "API gateway",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: "not-a-valid-key" },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/age public key/);
+      });
+
+      it("should reject duplicate service identity names", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              description: "First",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+            {
+              name: "api-gw",
+              description: "Duplicate",
+              namespaces: ["auth"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/Duplicate.*api-gw/);
+      });
+
+      it("should reject non-array service_identities", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: "not-an-array",
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/must be an array/);
+      });
+    });
   });
 
   describe("watch", () => {

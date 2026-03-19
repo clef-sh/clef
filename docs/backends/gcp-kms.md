@@ -45,7 +45,42 @@ projects/my-project/locations/global/keyRings/clef-keyring/cryptoKeys/clef-secre
 
 ## Manifest configuration
 
-In your `clef.yaml`:
+### Per-environment override (recommended)
+
+The most common pattern is age for dev/staging and GCP KMS for production:
+
+```yaml
+version: 1
+
+environments:
+  - name: dev
+    description: Local development
+  - name: staging
+    description: Staging environment
+  - name: production
+    description: Production environment
+    protected: true
+    sops:
+      backend: gcpkms
+      gcp_kms_resource_id: "projects/my-project/locations/global/keyRings/clef-keyring/cryptoKeys/clef-secrets-key"
+
+namespaces:
+  - name: database
+    description: Database credentials
+  - name: payments
+    description: Payment provider secrets
+
+sops:
+  default_backend: age
+
+file_pattern: "secrets/{namespace}/{environment}.enc.yaml"
+```
+
+Dev and staging use the global default (age); production uses GCP KMS. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override) for details.
+
+### All environments with KMS
+
+To use GCP KMS for all environments:
 
 ```yaml
 version: 1
@@ -69,16 +104,12 @@ sops:
   default_backend: gcpkms
   gcp_kms_resource_id: "projects/my-project/locations/global/keyRings/clef-keyring/cryptoKeys/clef-secrets-key"
 
-file_pattern: "{namespace}/{environment}.enc.yaml"
+file_pattern: "secrets/{namespace}/{environment}.enc.yaml"
 ```
 
 ## IAM permissions
 
-The service account or user running Clef needs the following IAM roles on the KMS key:
-
-- `roles/cloudkms.cryptoKeyEncrypterDecrypter` — for encrypting and decrypting
-
-Grant the role:
+The service account or user running Clef needs `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the KMS key:
 
 ```bash
 gcloud kms keys add-iam-policy-binding clef-secrets-key \

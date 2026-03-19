@@ -5,7 +5,7 @@
   class="border-t border-clef-border py-20"
   aria-labelledby="features-heading"
 >
-  <div class="mx-auto max-w-[1200px] px-6">
+  <div class="mx-auto max-w-300 px-6">
     <!-- Section header -->
     <div class="mb-10">
       <div
@@ -20,8 +20,8 @@
         Why Clef?
       </h2>
       <p class="text-[15px] leading-relaxed text-clef-textSecondary">
-        Everything your team needs to manage encrypted secrets — without leaving
-        the repo.
+        A CLI, a local web UI, and schema validation — built to
+        manage encrypted secrets without leaving the repo.
       </p>
     </div>
 
@@ -47,9 +47,9 @@
           Git-native
         </div>
         <p class="text-[13px] leading-relaxed text-clef-textSecondary">
-          Every secret lives in your repo as an encrypted file. No external
-          state, no database, no server to run. Version history comes free via
-          git.
+          Encrypted secrets under version control, managed with the same tools
+          you use to track code changes. No external state, no database, no
+          server to run.
         </p>
       </div>
 
@@ -72,9 +72,9 @@
           Namespace &times; Environment Matrix
         </div>
         <p class="text-[13px] leading-relaxed text-clef-textSecondary">
-          Organise secrets by service and deployment stage. Instantly see key
-          drift between dev, staging, and production in a single colour-coded
-          grid.
+          Organise secrets by service and deployment stage. See which keys
+          exist in dev, staging, and production at a glance in a single
+          colour-coded grid.
         </p>
       </div>
 
@@ -121,12 +121,13 @@
           <path d="M7 11V7a5 5 0 0 1 10 0v4" />
         </svg>
         <div class="mb-2 text-base font-semibold text-clef-text">
-          Works with Your KMS
+          Your KMS Is Your Security Layer
         </div>
         <p class="text-[13px] leading-relaxed text-clef-textSecondary">
-          Supports age, AWS KMS, GCP KMS, and PGP out of the box. The SOPS
-          binary handles all encryption — Clef never touches your keys
-          directly.
+          Pair Clef with AWS KMS or GCP KMS and your existing IAM policies
+          become your access control layer. CloudTrail and Cloud Audit Logs capture every decryption
+          event. OIDC federation means CI never stores a long-lived credential. Production-grade
+          security — from infrastructure you already operate.
         </p>
       </div>
 
@@ -170,13 +171,41 @@
             stroke-linejoin="round"></path>
         </svg>
         <div class="mb-2 text-base font-semibold text-clef-text">
-          Lint &amp; Drift Detection
+          Lint &amp; Validation
         </div>
         <p class="text-[13px] leading-relaxed text-clef-textSecondary">
           Automated checks for missing keys, schema violations, and
-          cross-environment drift. Run in CI to enforce policy or locally to
-          catch issues early.
+          cross-environment consistency. Run locally to catch issues early
+          or add to CI for your team.
         </p>
+      </div>
+    </div>
+
+    <!-- Clef Cloud banner -->
+    <div class="mt-4 overflow-hidden rounded-[10px] border border-clef-accent/20 bg-clef-panel">
+      <div class="flex flex-col items-start justify-between gap-6 px-8 py-7 sm:flex-row sm:items-center">
+        <div>
+          <div class="mb-1 font-mono text-[11px] font-medium uppercase tracking-widest text-clef-accent">
+            Coming soon
+          </div>
+          <div class="mb-1.5 text-base font-semibold text-clef-text">
+            Clef Cloud — team and enterprise management
+          </div>
+          <p class="max-w-prose text-[13px] leading-relaxed text-clef-textSecondary">
+            Central key onboarding, organization-wide policy enforcement, and team management
+            for Clef at scale. Your secrets stay in your git repo, encrypted by your KMS.
+            We add the collaboration and governance layer on top.
+          </p>
+        </div>
+        <a
+          href="https://clef.sh/cloud"
+          class="inline-flex shrink-0 items-center gap-2 rounded-md border border-clef-accent px-5 py-2.5 text-sm font-semibold text-clef-accent no-underline transition-colors hover:bg-clef-accent hover:text-clef-bg"
+        >
+          Request early access
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
+          </svg>
+        </a>
       </div>
     </div>
   </div>

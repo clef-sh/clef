@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as YAML from "yaml";
 import { RecipientManager } from "./index";
-import { ClefManifest, SubprocessResult } from "../types";
+import { ClefManifest, EncryptionBackend } from "../types";
 
 jest.mock("fs");
 
@@ -43,13 +43,17 @@ function makeManifestYaml(recipients: unknown[] = []): string {
   });
 }
 
-function makeRunner(impl?: (cmd: string, args: string[]) => Promise<SubprocessResult>) {
-  const defaultImpl = async (): Promise<SubprocessResult> => ({
-    stdout: "",
-    stderr: "",
-    exitCode: 0,
-  });
-  return { run: jest.fn(impl ?? defaultImpl) };
+function makeEncryption(overrides?: Partial<EncryptionBackend>): EncryptionBackend {
+  return {
+    decrypt: jest.fn(),
+    encrypt: jest.fn(),
+    reEncrypt: jest.fn(),
+    addRecipient: jest.fn().mockResolvedValue(undefined),
+    removeRecipient: jest.fn().mockResolvedValue(undefined),
+    validateEncryption: jest.fn(),
+    getMetadata: jest.fn(),
+    ...overrides,
+  };
 }
 
 function makeMatrixManager(existingFiles: string[] = []) {
@@ -78,10 +82,10 @@ describe("RecipientManager", () => {
 
   describe("list", () => {
     it("reads recipients from manifest YAML", async () => {
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const mm = makeMatrixManager();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       mockReadFileSync.mockReturnValue(makeManifestYaml([{ key: validKey1, label: "Alice" }]));
 
@@ -97,10 +101,10 @@ describe("RecipientManager", () => {
     });
 
     it("handles plain string recipient form", async () => {
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const mm = makeMatrixManager();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       mockReadFileSync.mockReturnValue(makeManifestYaml([validKey1]));
 
@@ -115,10 +119,10 @@ describe("RecipientManager", () => {
     });
 
     it("handles mixed string and object forms", async () => {
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const mm = makeMatrixManager();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       mockReadFileSync.mockReturnValue(
         makeManifestYaml([validKey1, { key: validKey2, label: "Bob" }]),
@@ -134,10 +138,10 @@ describe("RecipientManager", () => {
     });
 
     it("returns empty array when no recipients section", async () => {
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const mm = makeMatrixManager();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       mockReadFileSync.mockReturnValue(
         YAML.stringify({
@@ -152,10 +156,10 @@ describe("RecipientManager", () => {
     });
 
     it("returns empty array when no age section", async () => {
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const mm = makeMatrixManager();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       mockReadFileSync.mockReturnValue(
         YAML.stringify({
@@ -172,10 +176,10 @@ describe("RecipientManager", () => {
 
   describe("add", () => {
     it("validates key before adding", async () => {
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const mm = makeMatrixManager();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       await expect(manager.add("not-a-valid-key", undefined, manifest, repoRoot)).rejects.toThrow(
         "must start with 'age1'",
@@ -183,10 +187,10 @@ describe("RecipientManager", () => {
     });
 
     it("rejects duplicate key", async () => {
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const mm = makeMatrixManager();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       mockReadFileSync.mockReturnValue(makeManifestYaml([validKey1]));
 
@@ -196,19 +200,15 @@ describe("RecipientManager", () => {
     });
 
     it("updates clef.yaml and re-encrypts all existing files", async () => {
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const existingFiles = [
         "/repo/database/staging.enc.yaml",
         "/repo/database/production.enc.yaml",
       ];
       const mm = makeMatrixManager(existingFiles);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
-      // First read: initial manifest (for add checks)
-      // Second read: manifest backup
-      // Then file backups for each existing file
-      // Then final manifest read
       let readCallCount = 0;
       mockReadFileSync.mockImplementation(() => {
         readCallCount++;
@@ -233,32 +233,26 @@ describe("RecipientManager", () => {
       expect(result.failedFiles).toHaveLength(0);
       expect(result.warnings).toHaveLength(0);
 
-      // Check that sops rotate was called for each file
-      expect(runner.run).toHaveBeenCalledTimes(2);
-      expect(runner.run).toHaveBeenCalledWith("sops", [
-        "rotate",
-        "-i",
-        "--add-age",
-        validKey1,
+      // Check that addRecipient was called for each file
+      expect(encryption.addRecipient).toHaveBeenCalledTimes(2);
+      expect(encryption.addRecipient).toHaveBeenCalledWith(
         "/repo/database/staging.enc.yaml",
-      ]);
-      expect(runner.run).toHaveBeenCalledWith("sops", [
-        "rotate",
-        "-i",
-        "--add-age",
         validKey1,
+      );
+      expect(encryption.addRecipient).toHaveBeenCalledWith(
         "/repo/database/production.enc.yaml",
-      ]);
+        validKey1,
+      );
 
       // Check that manifest was written
       expect(mockWriteFileSync).toHaveBeenCalled();
     });
 
     it("adds key as plain string when no label", async () => {
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const mm = makeMatrixManager([]);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       mockReadFileSync.mockImplementation(() => makeManifestYaml([]));
 
@@ -277,10 +271,10 @@ describe("RecipientManager", () => {
     });
 
     it("adds key as object when label provided", async () => {
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const mm = makeMatrixManager([]);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       mockReadFileSync.mockImplementation(() => makeManifestYaml([]));
 
@@ -301,18 +295,18 @@ describe("RecipientManager", () => {
       ];
       const mm = makeMatrixManager(existingFiles);
 
-      let sopsCallCount = 0;
-      const runner = makeRunner(async () => {
-        sopsCallCount++;
-        if (sopsCallCount === 1) {
-          return { stdout: "", stderr: "", exitCode: 0 };
-        }
-        // Second file fails
-        return { stdout: "", stderr: "sops error", exitCode: 1 };
+      let addCallCount = 0;
+      const encryption = makeEncryption({
+        addRecipient: jest.fn().mockImplementation(async () => {
+          addCallCount++;
+          if (addCallCount === 2) {
+            throw new Error("re-encryption failed");
+          }
+        }),
       });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       const originalManifest = makeManifestYaml([]);
       const encryptedContent1 = "original-encrypted-staging";
@@ -358,10 +352,10 @@ describe("RecipientManager", () => {
     });
 
     it("trims key whitespace before validation", async () => {
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const mm = makeMatrixManager([]);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       mockReadFileSync.mockImplementation(() => makeManifestYaml([]));
 
@@ -371,10 +365,10 @@ describe("RecipientManager", () => {
     });
 
     it("creates sops.age.recipients structure when missing", async () => {
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const mm = makeMatrixManager([]);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       mockReadFileSync.mockImplementation(() =>
         YAML.stringify({
@@ -398,10 +392,10 @@ describe("RecipientManager", () => {
 
   describe("remove", () => {
     it("throws when key not found", async () => {
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const mm = makeMatrixManager();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       mockReadFileSync.mockReturnValue(makeManifestYaml([validKey1]));
 
@@ -415,10 +409,10 @@ describe("RecipientManager", () => {
         "/repo/database/staging.enc.yaml",
         "/repo/database/production.enc.yaml",
       ];
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const mm = makeMatrixManager(existingFiles);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       let readCallCount = 0;
       mockReadFileSync.mockImplementation(() => {
@@ -443,21 +437,15 @@ describe("RecipientManager", () => {
         "Re-encryption removes future access, not past access. Rotate secret values to complete revocation.",
       );
 
-      // Check that sops rotate --rm-age was called
-      expect(runner.run).toHaveBeenCalledWith("sops", [
-        "rotate",
-        "-i",
-        "--rm-age",
-        validKey1,
+      // Check that removeRecipient was called for each file
+      expect(encryption.removeRecipient).toHaveBeenCalledWith(
         "/repo/database/staging.enc.yaml",
-      ]);
-      expect(runner.run).toHaveBeenCalledWith("sops", [
-        "rotate",
-        "-i",
-        "--rm-age",
         validKey1,
+      );
+      expect(encryption.removeRecipient).toHaveBeenCalledWith(
         "/repo/database/production.enc.yaml",
-      ]);
+        validKey1,
+      );
     });
 
     it("rolls back on re-encryption failure", async () => {
@@ -466,18 +454,19 @@ describe("RecipientManager", () => {
         "/repo/database/production.enc.yaml",
       ];
 
-      let sopsCallCount = 0;
-      const runner = makeRunner(async () => {
-        sopsCallCount++;
-        if (sopsCallCount === 1) {
-          return { stdout: "", stderr: "", exitCode: 0 };
-        }
-        return { stdout: "", stderr: "sops error", exitCode: 1 };
+      let removeCallCount = 0;
+      const encryption = makeEncryption({
+        removeRecipient: jest.fn().mockImplementation(async () => {
+          removeCallCount++;
+          if (removeCallCount === 2) {
+            throw new Error("re-encryption failed");
+          }
+        }),
       });
 
       const mm = makeMatrixManager(existingFiles);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       const originalManifest = makeManifestYaml([validKey1, validKey2]);
       const encryptedContent1 = "original-encrypted-staging";
@@ -520,10 +509,10 @@ describe("RecipientManager", () => {
     });
 
     it("rotation warning is always present even on success", async () => {
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const mm = makeMatrixManager([]);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       let readCallCount = 0;
       mockReadFileSync.mockImplementation(() => {
@@ -542,10 +531,10 @@ describe("RecipientManager", () => {
     });
 
     it("removes object-form recipient correctly", async () => {
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const mm = makeMatrixManager([]);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       let readCallCount = 0;
       mockReadFileSync.mockImplementation(() => {
@@ -563,10 +552,10 @@ describe("RecipientManager", () => {
     });
 
     it("skips re-encryption for non-existing files", async () => {
-      const runner = makeRunner();
+      const encryption = makeEncryption();
       const mm = makeMatrixManager([]); // no existing files
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const manager = new RecipientManager(runner as any, mm as any);
+      const manager = new RecipientManager(encryption, mm as any);
 
       let readCallCount = 0;
       mockReadFileSync.mockImplementation(() => {
@@ -579,8 +568,232 @@ describe("RecipientManager", () => {
 
       const result = await manager.remove(validKey1, manifest, repoRoot);
 
-      expect(runner.run).not.toHaveBeenCalled();
+      expect(encryption.removeRecipient).not.toHaveBeenCalled();
       expect(result.reEncryptedFiles).toHaveLength(0);
+    });
+  });
+
+  describe("environment-scoped operations", () => {
+    function makeManifestYamlWithEnvRecipients(
+      globalRecipients: unknown[] = [],
+      envRecipients: Record<string, unknown[]> = {},
+    ): string {
+      return YAML.stringify({
+        version: 1,
+        environments: [
+          {
+            name: "staging",
+            description: "Staging",
+            ...(envRecipients.staging ? { recipients: envRecipients.staging } : {}),
+          },
+          {
+            name: "production",
+            description: "Production",
+            ...(envRecipients.production ? { recipients: envRecipients.production } : {}),
+          },
+        ],
+        namespaces: [{ name: "database", description: "Database" }],
+        sops: {
+          default_backend: "age",
+          age: {
+            recipients: globalRecipients,
+          },
+        },
+        file_pattern: "{namespace}/{environment}.enc.yaml",
+      });
+    }
+
+    describe("list with environment", () => {
+      it("returns per-env recipients when environment specified", async () => {
+        const encryption = makeEncryption();
+        const mm = makeMatrixManager();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const manager = new RecipientManager(encryption, mm as any);
+
+        mockReadFileSync.mockReturnValue(
+          makeManifestYamlWithEnvRecipients([], {
+            production: [{ key: validKey1, label: "Prod Key" }],
+          }),
+        );
+
+        const result = await manager.list(manifest, repoRoot, "production");
+        expect(result).toHaveLength(1);
+        expect(result[0].key).toBe(validKey1);
+        expect(result[0].label).toBe("Prod Key");
+      });
+
+      it("returns empty array when environment has no recipients", async () => {
+        const encryption = makeEncryption();
+        const mm = makeMatrixManager();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const manager = new RecipientManager(encryption, mm as any);
+
+        mockReadFileSync.mockReturnValue(makeManifestYamlWithEnvRecipients([validKey1]));
+
+        const result = await manager.list(manifest, repoRoot, "staging");
+        expect(result).toEqual([]);
+      });
+
+      it("throws when environment does not exist", async () => {
+        const encryption = makeEncryption();
+        const mm = makeMatrixManager();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const manager = new RecipientManager(encryption, mm as any);
+
+        await expect(manager.list(manifest, repoRoot, "nonexistent")).rejects.toThrow(
+          "not found in manifest",
+        );
+      });
+    });
+
+    describe("add with environment", () => {
+      it("adds recipient to environment's recipients array", async () => {
+        const encryption = makeEncryption();
+        const existingFiles = ["/repo/database/production.enc.yaml"];
+        const mm = makeMatrixManager(existingFiles);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const manager = new RecipientManager(encryption, mm as any);
+
+        let readCallCount = 0;
+        mockReadFileSync.mockImplementation(() => {
+          readCallCount++;
+          if (readCallCount <= 2) {
+            return makeManifestYamlWithEnvRecipients([]);
+          }
+          if (readCallCount <= 3) {
+            return "encrypted-file-content";
+          }
+          return makeManifestYamlWithEnvRecipients([], {
+            production: [validKey1],
+          });
+        });
+
+        const result = await manager.add(validKey1, undefined, manifest, repoRoot, "production");
+
+        expect(result.added!.key).toBe(validKey1);
+        // Only production file should be re-encrypted
+        expect(result.reEncryptedFiles).toHaveLength(1);
+        expect(result.reEncryptedFiles[0]).toContain("production");
+        expect(encryption.addRecipient).toHaveBeenCalledTimes(1);
+      });
+
+      it("only re-encrypts files for the target environment", async () => {
+        const encryption = makeEncryption();
+        const existingFiles = [
+          "/repo/database/staging.enc.yaml",
+          "/repo/database/production.enc.yaml",
+        ];
+        const mm = makeMatrixManager(existingFiles);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const manager = new RecipientManager(encryption, mm as any);
+
+        let readCallCount = 0;
+        mockReadFileSync.mockImplementation(() => {
+          readCallCount++;
+          if (readCallCount <= 2) {
+            return makeManifestYamlWithEnvRecipients([]);
+          }
+          if (readCallCount <= 3) {
+            return "encrypted-file-content";
+          }
+          return makeManifestYamlWithEnvRecipients([], {
+            staging: [validKey1],
+          });
+        });
+
+        const result = await manager.add(validKey1, undefined, manifest, repoRoot, "staging");
+
+        // Only staging file should be re-encrypted, not production
+        expect(result.reEncryptedFiles).toHaveLength(1);
+        expect(result.reEncryptedFiles[0]).toContain("staging");
+      });
+
+      it("throws when environment does not exist in manifest", async () => {
+        const encryption = makeEncryption();
+        const mm = makeMatrixManager();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const manager = new RecipientManager(encryption, mm as any);
+
+        await expect(
+          manager.add(validKey1, undefined, manifest, repoRoot, "nonexistent"),
+        ).rejects.toThrow("not found in manifest");
+      });
+    });
+
+    describe("remove with environment", () => {
+      it("removes recipient from environment's recipients array", async () => {
+        const encryption = makeEncryption();
+        const existingFiles = ["/repo/database/production.enc.yaml"];
+        const mm = makeMatrixManager(existingFiles);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const manager = new RecipientManager(encryption, mm as any);
+
+        let readCallCount = 0;
+        mockReadFileSync.mockImplementation(() => {
+          readCallCount++;
+          if (readCallCount <= 2) {
+            return makeManifestYamlWithEnvRecipients([], {
+              production: [validKey1],
+            });
+          }
+          if (readCallCount <= 3) {
+            return "encrypted-file-content";
+          }
+          return makeManifestYamlWithEnvRecipients([], {
+            production: [],
+          });
+        });
+
+        const result = await manager.remove(validKey1, manifest, repoRoot, "production");
+
+        expect(result.removed!.key).toBe(validKey1);
+        expect(result.reEncryptedFiles).toHaveLength(1);
+        expect(result.reEncryptedFiles[0]).toContain("production");
+      });
+
+      it("only re-encrypts files for the target environment", async () => {
+        const encryption = makeEncryption();
+        const existingFiles = [
+          "/repo/database/staging.enc.yaml",
+          "/repo/database/production.enc.yaml",
+        ];
+        const mm = makeMatrixManager(existingFiles);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const manager = new RecipientManager(encryption, mm as any);
+
+        let readCallCount = 0;
+        mockReadFileSync.mockImplementation(() => {
+          readCallCount++;
+          if (readCallCount <= 2) {
+            return makeManifestYamlWithEnvRecipients([], {
+              production: [validKey1],
+            });
+          }
+          if (readCallCount <= 3) {
+            return "encrypted-file-content";
+          }
+          return makeManifestYamlWithEnvRecipients([], {
+            production: [],
+          });
+        });
+
+        const result = await manager.remove(validKey1, manifest, repoRoot, "production");
+
+        expect(encryption.removeRecipient).toHaveBeenCalledTimes(1);
+        expect(result.reEncryptedFiles).toHaveLength(1);
+        expect(result.reEncryptedFiles[0]).toContain("production");
+      });
+
+      it("throws when environment does not exist", async () => {
+        const encryption = makeEncryption();
+        const mm = makeMatrixManager();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const manager = new RecipientManager(encryption, mm as any);
+
+        await expect(manager.remove(validKey1, manifest, repoRoot, "nonexistent")).rejects.toThrow(
+          "not found in manifest",
+        );
+      });
     });
   });
 });

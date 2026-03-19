@@ -1,0 +1,10 @@
+{
+  "main": "dist/index.cjs",
+  "output": "dist/sea-prep.blob",
+  "disableExperimentalSEAWarning": true,
+  "useCodeCache": false,
+  "assets": {
+    "client/assets/index-CQWjNNwN.js": "dist/client/assets/index-CQWjNNwN.js",
+    "client/index.html": "dist/client/index.html"
+  }
+}

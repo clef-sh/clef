@@ -10,49 +10,120 @@
  * Coverage threshold: 95% lines/functions, 90% branches.
  * See docs/contributing/testing.md for the rationale.
  */
+import * as fs from "fs";
+import * as net from "net";
+import { randomBytes } from "crypto";
 import * as YAML from "yaml";
 import {
   ClefManifest,
   DecryptedFile,
+  EncryptionBackend,
   SopsDecryptionError,
   SopsEncryptionError,
   SopsKeyNotFoundError,
   SopsMetadata,
   SubprocessRunner,
+  resolveBackendConfig,
 } from "../types";
 import { assertSops } from "../dependencies/checker";
+import { deriveAgePublicKey } from "../age/keygen";
+import { resolveSopsPath } from "./resolver";
 
 function formatFromPath(filePath: string): "yaml" | "json" {
   return filePath.endsWith(".json") ? "json" : "yaml";
 }
 
-export class SopsClient {
+/**
+ * On Windows, /dev/stdin does not exist. Create a named pipe that sops can open
+ * as its input file, feed the content through it, and return the pipe path.
+ * The returned cleanup function closes the server once sops is done reading.
+ *
+ * Go's os.Open / CreateFile can open \\.\pipe\... paths directly, so sops
+ * reads from the pipe exactly as it would from a regular file.
+ */
+function openWindowsInputPipe(content: string): Promise<{ inputArg: string; cleanup: () => void }> {
+  const pipeName = `\\\\.\\pipe\\clef-sops-${randomBytes(8).toString("hex")}`;
+
+  return new Promise((resolve, reject) => {
+    const server = net.createServer((socket) => {
+      socket.end(content);
+    });
+    server.maxConnections = 1;
+    server.on("error", reject);
+    server.listen(pipeName, () => {
+      resolve({
+        inputArg: pipeName,
+        cleanup: () => server.close(),
+      });
+    });
+  });
+}
+
+/**
+ * Wraps the `sops` binary for encryption, decryption, re-encryption, and metadata extraction.
+ * All decrypt/encrypt operations are piped via stdin/stdout — plaintext never touches disk.
+ *
+ * @example
+ * ```ts
+ * const client = new SopsClient(runner, "/home/user/.age/key.txt");
+ * const decrypted = await client.decrypt("secrets/production.enc.yaml");
+ * ```
+ */
+export class SopsClient implements EncryptionBackend {
+  private readonly sopsCommand: string;
+
+  /**
+   * @param runner - Subprocess runner used to invoke the `sops` binary.
+   * @param ageKeyFile - Optional path to an age private key file. Passed as
+   *   `SOPS_AGE_KEY_FILE` to the subprocess environment.
+   * @param ageKey - Optional inline age private key. Passed as `SOPS_AGE_KEY`
+   *   to the subprocess environment.
+   * @param sopsPath - Optional explicit path to the sops binary. When omitted,
+   *   resolved automatically via {@link resolveSopsPath}.
+   */
   constructor(
     private readonly runner: SubprocessRunner,
     private readonly ageKeyFile?: string,
-  ) {}
-
-  private buildSopsEnv(): Record<string, string> | undefined {
-    if (process.env.SOPS_AGE_KEY || process.env.SOPS_AGE_KEY_FILE) {
-      return undefined;
-    }
-    if (this.ageKeyFile) {
-      return { SOPS_AGE_KEY_FILE: this.ageKeyFile };
-    }
-    return undefined;
+    private readonly ageKey?: string,
+    sopsPath?: string,
+  ) {
+    this.sopsCommand = sopsPath ?? resolveSopsPath().path;
   }
 
+  private buildSopsEnv(): Record<string, string> | undefined {
+    const env: Record<string, string> = {};
+    if (this.ageKey) {
+      env.SOPS_AGE_KEY = this.ageKey;
+    }
+    if (this.ageKeyFile) {
+      env.SOPS_AGE_KEY_FILE = this.ageKeyFile;
+    }
+    return Object.keys(env).length > 0 ? env : undefined;
+  }
+
+  /**
+   * Decrypt a SOPS-encrypted file and return its values and metadata.
+   *
+   * @param filePath - Path to the `.enc.yaml` or `.enc.json` file.
+   * @returns {@link DecryptedFile} with plaintext values in memory only.
+   * @throws {@link SopsKeyNotFoundError} If no matching decryption key is available.
+   * @throws {@link SopsDecryptionError} On any other decryption failure.
+   */
   async decrypt(filePath: string): Promise<DecryptedFile> {
-    await assertSops(this.runner);
+    await assertSops(this.runner, this.sopsCommand);
     const fmt = formatFromPath(filePath);
     const env = this.buildSopsEnv();
-    const result = await this.runner.run("sops", ["decrypt", "--output-type", fmt, filePath], {
-      ...(env ? { env } : {}),
-    });
+    const result = await this.runner.run(
+      this.sopsCommand,
+      ["decrypt", "--output-type", fmt, filePath],
+      {
+        ...(env ? { env } : {}),
+      },
+    );
 
     if (result.exitCode !== 0) {
-      const stderr = result.stderr.toLowerCase();
-      if (stderr.includes("could not find") || stderr.includes("no key")) {
+      const errorType = await this.classifyDecryptError(filePath);
+      if (errorType === "key-not-found") {
         throw new SopsKeyNotFoundError(
           `No decryption key found for '${filePath}'. ${result.stderr.trim()}`,
         );
@@ -83,34 +154,68 @@ export class SopsClient {
     return { values, metadata };
   }
 
+  /**
+   * Encrypt a key/value map and write it to an encrypted SOPS file.
+   *
+   * @param filePath - Destination path for the encrypted file.
+   * @param values - Flat key/value map to encrypt.
+   * @param manifest - Manifest used to determine the encryption backend and key configuration.
+   * @param environment - Optional environment name. When provided, per-env backend overrides
+   *   are resolved from the manifest. When omitted, the global `sops.default_backend` is used.
+   * @throws {@link SopsEncryptionError} On encryption or write failure.
+   */
   async encrypt(
     filePath: string,
     values: Record<string, string>,
     manifest: ClefManifest,
+    environment?: string,
   ): Promise<void> {
-    await assertSops(this.runner);
+    await assertSops(this.runner, this.sopsCommand);
     const fmt = formatFromPath(filePath);
     const content = fmt === "json" ? JSON.stringify(values, null, 2) : YAML.stringify(values);
-    const args = this.buildEncryptArgs(filePath, manifest);
+    const args = this.buildEncryptArgs(filePath, manifest, environment);
     const env = this.buildSopsEnv();
 
-    const result = await this.runner.run(
-      "sops",
-      [
-        "encrypt",
-        ...args,
-        "--input-type",
-        fmt,
-        "--output-type",
-        fmt,
-        "--filename-override",
-        filePath,
-      ],
-      {
-        stdin: content,
-        ...(env ? { env } : {}),
-      },
-    );
+    // sops requires an explicit input path — it does not read from stdin implicitly.
+    // On Unix we pass /dev/stdin (a special file backed by the process's stdin pipe).
+    // On Windows /dev/stdin does not exist, so we create a named pipe, feed content
+    // through it, and pass the pipe path as the input file instead.
+    let inputArg: string;
+    let pipeCleanup: (() => void) | undefined;
+
+    if (process.platform === "win32") {
+      const pipe = await openWindowsInputPipe(content);
+      inputArg = pipe.inputArg;
+      pipeCleanup = pipe.cleanup;
+    } else {
+      inputArg = "/dev/stdin";
+    }
+
+    let result;
+    try {
+      result = await this.runner.run(
+        this.sopsCommand,
+        [
+          "encrypt",
+          ...args,
+          "--input-type",
+          fmt,
+          "--output-type",
+          fmt,
+          "--filename-override",
+          filePath,
+          inputArg,
+        ],
+        {
+          // stdin is still piped on Unix (/dev/stdin reads from it);
+          // on Windows the named pipe server feeds content directly.
+          ...(process.platform !== "win32" ? { stdin: content } : {}),
+          ...(env ? { env } : {}),
+        },
+      );
+    } finally {
+      pipeCleanup?.();
+    }
 
     if (result.exitCode !== 0) {
       throw new SopsEncryptionError(
@@ -119,22 +224,31 @@ export class SopsClient {
       );
     }
 
-    // Write the encrypted output to the file
-    const writeResult = await this.runner.run("tee", [filePath], {
-      stdin: result.stdout,
-    });
-
-    if (writeResult.exitCode !== 0) {
+    // Write the encrypted output to the file (using fs directly — tee is not available on Windows)
+    try {
+      fs.writeFileSync(filePath, result.stdout);
+    } catch {
       throw new SopsEncryptionError(`Failed to write encrypted data to '${filePath}'.`, filePath);
     }
   }
 
+  /**
+   * Rotate encryption by adding a new age recipient key to an existing SOPS file.
+   *
+   * @param filePath - Path to the encrypted file to re-encrypt.
+   * @param newKey - New age public key to add as a recipient.
+   * @throws {@link SopsEncryptionError} On failure.
+   */
   async reEncrypt(filePath: string, newKey: string): Promise<void> {
-    await assertSops(this.runner);
+    await assertSops(this.runner, this.sopsCommand);
     const env = this.buildSopsEnv();
-    const result = await this.runner.run("sops", ["rotate", "-i", "--add-age", newKey, filePath], {
-      ...(env ? { env } : {}),
-    });
+    const result = await this.runner.run(
+      this.sopsCommand,
+      ["rotate", "-i", "--add-age", newKey, filePath],
+      {
+        ...(env ? { env } : {}),
+      },
+    );
 
     if (result.exitCode !== 0) {
       throw new SopsEncryptionError(
@@ -144,8 +258,66 @@ export class SopsClient {
     }
   }
 
+  /**
+   * Add an age recipient to an existing SOPS file.
+   *
+   * @param filePath - Path to the encrypted file.
+   * @param key - age public key to add as a recipient.
+   * @throws {@link SopsEncryptionError} On failure.
+   */
+  async addRecipient(filePath: string, key: string): Promise<void> {
+    await assertSops(this.runner, this.sopsCommand);
+    const env = this.buildSopsEnv();
+    const result = await this.runner.run(
+      this.sopsCommand,
+      ["rotate", "-i", "--add-age", key, filePath],
+      {
+        ...(env ? { env } : {}),
+      },
+    );
+
+    if (result.exitCode !== 0) {
+      throw new SopsEncryptionError(
+        `Failed to add recipient to '${filePath}': ${result.stderr.trim()}`,
+        filePath,
+      );
+    }
+  }
+
+  /**
+   * Remove an age recipient from an existing SOPS file.
+   *
+   * @param filePath - Path to the encrypted file.
+   * @param key - age public key to remove.
+   * @throws {@link SopsEncryptionError} On failure.
+   */
+  async removeRecipient(filePath: string, key: string): Promise<void> {
+    await assertSops(this.runner, this.sopsCommand);
+    const env = this.buildSopsEnv();
+    const result = await this.runner.run(
+      this.sopsCommand,
+      ["rotate", "-i", "--rm-age", key, filePath],
+      {
+        ...(env ? { env } : {}),
+      },
+    );
+
+    if (result.exitCode !== 0) {
+      throw new SopsEncryptionError(
+        `Failed to remove recipient from '${filePath}': ${result.stderr.trim()}`,
+        filePath,
+      );
+    }
+  }
+
+  /**
+   * Check whether a file contains valid SOPS encryption metadata.
+   *
+   * @param filePath - Path to the file to check.
+   * @returns `true` if valid SOPS metadata is present; `false` otherwise. Never throws.
+   */
   async validateEncryption(filePath: string): Promise<boolean> {
-    await assertSops(this.runner);
+    await assertSops(this.runner, this.sopsCommand);
     try {
       await this.getMetadata(filePath);
       return true;
@@ -154,10 +326,18 @@ export class SopsClient {
     }
   }
 
+  /**
+   * Extract SOPS metadata (backend, recipients, last-modified timestamp) from an encrypted file
+   * without decrypting its values.
+   *
+   * @param filePath - Path to the encrypted file.
+   * @returns {@link SopsMetadata} parsed from the file's `sops:` block.
+   * @throws {@link SopsDecryptionError} If the file cannot be read or parsed.
+   */
   async getMetadata(filePath: string): Promise<SopsMetadata> {
-    await assertSops(this.runner);
+    await assertSops(this.runner, this.sopsCommand);
     const env = this.buildSopsEnv();
-    const result = await this.runner.run("sops", ["filestatus", filePath], {
+    const result = await this.runner.run(this.sopsCommand, ["filestatus", filePath], {
       ...(env ? { env } : {}),
     });
 
@@ -170,10 +350,57 @@ export class SopsClient {
     return this.parseMetadataFromFile(filePath);
   }
 
-  private async parseMetadataFromFile(filePath: string): Promise<SopsMetadata> {
-    const catResult = await this.runner.run("cat", [filePath]);
+  /**
+   * Determine whether a decrypt failure is caused by a missing/mismatched key (vs. some other
+   * SOPS error) without relying on stderr message text.
+   *
+   * For age backends: reads the file's recipient list and checks whether any of the configured
+   * private keys derive to a matching public key. For non-age backends (pgp, kms) we cannot
+   * perform an equivalent check, so those always return "other".
+   */
+  private async classifyDecryptError(filePath: string): Promise<"key-not-found" | "other"> {
+    let metadata: SopsMetadata;
+    try {
+      metadata = this.parseMetadataFromFile(filePath);
+    } catch {
+      return "other";
+    }
 
-    if (catResult.exitCode !== 0) {
+    if (metadata.backend !== "age") return "other";
+
+    // No age key configured at all
+    if (!this.ageKey && !this.ageKeyFile) return "key-not-found";
+
+    // Obtain the private key material from the constructor params
+    let keyContent: string;
+    try {
+      keyContent = this.ageKey ?? fs.readFileSync(this.ageKeyFile!, "utf-8");
+    } catch {
+      return "key-not-found";
+    }
+
+    // Key files may contain multiple AGE-SECRET-KEY-1... lines (plus comments/blank lines)
+    const privateKeys = keyContent
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("AGE-SECRET-KEY-"));
+
+    if (privateKeys.length === 0) return "key-not-found";
+
+    try {
+      const publicKeys = await Promise.all(privateKeys.map((k) => deriveAgePublicKey(k)));
+      const recipients = new Set(metadata.recipients);
+      return publicKeys.some((pk) => recipients.has(pk)) ? "other" : "key-not-found";
+    } catch {
+      return "other";
+    }
+  }
+
+  private parseMetadataFromFile(filePath: string): SopsMetadata {
+    let content: string;
+    try {
+      content = fs.readFileSync(filePath, "utf-8");
+    } catch {
       throw new SopsDecryptionError(
         `Could not read file '${filePath}' to extract SOPS metadata.`,
         filePath,
@@ -182,7 +409,7 @@ export class SopsClient {
 
     let parsed: Record<string, unknown>;
     try {
-      parsed = YAML.parse(catResult.stdout);
+      parsed = YAML.parse(content);
     } catch {
       throw new SopsDecryptionError(
         `File '${filePath}' is not valid YAML. Cannot extract SOPS metadata.`,
@@ -238,26 +465,39 @@ export class SopsClient {
     }
   }
 
-  private buildEncryptArgs(filePath: string, manifest: ClefManifest): string[] {
+  private buildEncryptArgs(
+    filePath: string,
+    manifest: ClefManifest,
+    environment?: string,
+  ): string[] {
     const args: string[] = [];
 
-    switch (manifest.sops.default_backend) {
+    const config = environment
+      ? resolveBackendConfig(manifest, environment)
+      : {
+          backend: manifest.sops.default_backend,
+          aws_kms_arn: manifest.sops.aws_kms_arn,
+          gcp_kms_resource_id: manifest.sops.gcp_kms_resource_id,
+          pgp_fingerprint: manifest.sops.pgp_fingerprint,
+        };
+
+    switch (config.backend) {
       case "age":
         // Key injection is handled via buildSopsEnv() — no extra args needed here
         break;
       case "awskms":
-        if (manifest.sops.aws_kms_arn) {
-          args.push("--kms", manifest.sops.aws_kms_arn);
+        if (config.aws_kms_arn) {
+          args.push("--kms", config.aws_kms_arn);
         }
         break;
       case "gcpkms":
-        if (manifest.sops.gcp_kms_resource_id) {
-          args.push("--gcp-kms", manifest.sops.gcp_kms_resource_id);
+        if (config.gcp_kms_resource_id) {
+          args.push("--gcp-kms", config.gcp_kms_resource_id);
         }
         break;
       case "pgp":
-        if (manifest.sops.pgp_fingerprint) {
-          args.push("--pgp", manifest.sops.pgp_fingerprint);
+        if (config.pgp_fingerprint) {
+          args.push("--pgp", config.pgp_fingerprint);
         }
         break;
     }

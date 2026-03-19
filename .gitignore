@@ -5,6 +5,13 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Astro / Wrangler generated files
+www/.astro/
+www/.wrangler/
+
+# Generated API docs (typedoc output, rebuilt by docs:api)
+docs/api/
+
 # Coverage
 coverage/
 .nyc_output/
@@ -42,3 +49,13 @@ npm-debug.log*
 # committed — they track pending secret state.
 # Do NOT add *.clef-meta.yaml here.
 .development
+
+platforms/*/bin/sops
+
+# Blackbox test runs
+.blackbox-runs/
+
+cache
+
+test-results/
+playwright-report/
