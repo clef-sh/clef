@@ -19,26 +19,61 @@
 name: Publish Prerelease
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
+  push:
     branches: [dev, staging]
 
 permissions:
   contents: write # create GitHub releases on staging
   packages: write # publish to GitHub Packages
+  actions: read # query CI workflow status
 
 jobs:
-  publish:
-    name: Publish ${{ github.event.workflow_run.head_branch == 'dev' && 'Alpha' || 'Beta' }}
+  # Gate: wait for the CI workflow (including the full E2E matrix) to pass
+  # before publishing. This replaces workflow_run which only works when the
+  # workflow file is on the default branch.
+  wait-for-ci:
+    name: Wait for CI
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success'
-    environment: ${{ github.event.workflow_run.head_branch == 'dev' && 'alpha' || 'beta' }}
+    steps:
+      - name: Wait for CI workflow to succeed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Waiting for CI workflow on $GITHUB_SHA ..."
+          for i in $(seq 1 90); do
+            RUN=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow ci.yml \
+              --commit "$GITHUB_SHA" \
+              --json databaseId,conclusion,status \
+              --jq '.[0]')
+
+            STATUS=$(echo "$RUN" | jq -r '.status // "not_found"')
+            CONCLUSION=$(echo "$RUN" | jq -r '.conclusion // "pending"')
+
+            if [ "$CONCLUSION" = "success" ]; then
+              echo "CI passed ✓"
+              exit 0
+            elif [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "cancelled" ]; then
+              echo "::error::CI $CONCLUSION — aborting publish"
+              exit 1
+            fi
+
+            echo "CI status=$STATUS conclusion=$CONCLUSION — waiting (attempt $i/90)..."
+            sleep 20
+          done
+          echo "::error::Timed out waiting for CI after 30 minutes"
+          exit 1
+
+  publish:
+    name: Publish ${{ github.ref_name == 'dev' && 'Alpha' || 'Beta' }}
+    needs: wait-for-ci
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'dev' && 'alpha' || 'beta' }}
 
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
       - uses: actions/setup-node@v6
@@ -52,10 +87,8 @@ jobs:
 
       - name: Compute and stamp prerelease versions
         id: ver
-        env:
-          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          if [ "$HEAD_BRANCH" = "dev" ]; then
+          if [ "$GITHUB_REF_NAME" = "dev" ]; then
             PRE="alpha"
             DIST_TAG="alpha"
           else
@@ -160,28 +193,28 @@ jobs:
 
       # ── Alpha (dev → GitHub Packages, restricted/internal) ───────────────
       - name: Publish @clef-sh/core (alpha)
-        if: github.event.workflow_run.head_branch == 'dev'
+        if: github.ref_name == 'dev'
         working-directory: packages/core
         run: npm publish --tag alpha --access restricted --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/agent (alpha)
-        if: github.event.workflow_run.head_branch == 'dev'
+        if: github.ref_name == 'dev'
         working-directory: packages/agent
         run: npm publish --tag alpha --access restricted --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/cli (alpha)
-        if: github.event.workflow_run.head_branch == 'dev'
+        if: github.ref_name == 'dev'
         working-directory: packages/cli
         run: npm publish --tag alpha --access restricted --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/ui (alpha)
-        if: github.event.workflow_run.head_branch == 'dev'
+        if: github.ref_name == 'dev'
         working-directory: packages/ui
         run: npm publish --tag alpha --access restricted --no-provenance
         env:
@@ -189,28 +222,28 @@ jobs:
 
       # ── Beta (staging → GitHub Packages, public) ─────────────────────────
       - name: Publish @clef-sh/core (beta)
-        if: github.event.workflow_run.head_branch == 'staging'
+        if: github.ref_name == 'staging'
         working-directory: packages/core
         run: npm publish --tag beta --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/agent (beta)
-        if: github.event.workflow_run.head_branch == 'staging'
+        if: github.ref_name == 'staging'
         working-directory: packages/agent
         run: npm publish --tag beta --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/cli (beta)
-        if: github.event.workflow_run.head_branch == 'staging'
+        if: github.ref_name == 'staging'
         working-directory: packages/cli
         run: npm publish --tag beta --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/ui (beta)
-        if: github.event.workflow_run.head_branch == 'staging'
+        if: github.ref_name == 'staging'
         working-directory: packages/ui
         run: npm publish --tag beta --access restricted --no-provenance
         env:
@@ -218,7 +251,7 @@ jobs:
 
       # Beta: create a GitHub pre-release so the version surfaces in Releases
       - name: Create GitHub pre-release (beta)
-        if: github.event.workflow_run.head_branch == 'staging'
+        if: github.ref_name == 'staging'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
