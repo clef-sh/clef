@@ -38,6 +38,7 @@
           <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-clef-accent"
           ></span>
           Secrets management for engineering teams
+          <span class="ml-1 rounded border border-clef-accent/30 bg-clef-accent/10 px-1.5 py-0.5 text-[10px] text-clef-accent">PUBLIC BETA</span>
         </div>
 
         <!-- Heading -->
@@ -61,6 +62,7 @@
           <div class="install-tabs" role="tablist">
             <button class="install-tab active" role="tab" aria-selected="true" data-os="unix">macOS / Linux</button>
             <button class="install-tab" role="tab" aria-selected="false" data-os="windows">Windows</button>
+            <button class="install-tab" role="tab" aria-selected="false" data-os="npm">npm</button>
           </div>
           <div class="install-pill" data-os-panel="unix">
             <span class="install-prefix">$</span>
@@ -73,6 +75,13 @@
             <span class="install-prefix">&gt;</span>
             <span class="install-cmd">irm https://clef.sh/install.ps1 | iex</span>
             <button class="install-copy" aria-label="Copy install command" data-cmd="irm https://clef.sh/install.ps1 | iex">
+              copy
+            </button>
+          </div>
+          <div class="install-pill" data-os-panel="npm" style="display:none">
+            <span class="install-prefix">$</span>
+            <span class="install-cmd">npm install -g @clef-sh/cli@beta</span>
+            <button class="install-copy" aria-label="Copy install command" data-cmd="npm install -g @clef-sh/cli@beta">
               copy
             </button>
           </div>

@@ -87,7 +87,7 @@ detect_platform() {
     mingw*|msys*|cygwin*|windows*)
       fatal "Use the PowerShell installer on Windows:
        irm https://clef.sh/install.ps1 | iex
-       Or install via npm: npm install -g @clef-sh/cli"
+       Or install via npm: npm install -g @clef-sh/cli@beta"
       ;;
     *)
       fatal "Unsupported operating system: $OS"
