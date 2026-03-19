@@ -257,6 +257,7 @@ jobs:
         run: |
           CLI_VER="${{ steps.ver.outputs.cli_version }}"
           gh release create "v${CLI_VER}" \
+            --target "$GITHUB_SHA" \
             --draft \
             --prerelease \
             --title "v${CLI_VER} (beta)" \
