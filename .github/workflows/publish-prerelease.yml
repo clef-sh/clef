@@ -23,9 +23,13 @@ on:
     branches: [dev, staging]
 
 permissions:
-  contents: write # create GitHub releases on staging
+  contents: write # create GitHub releases on staging + commit version stamps
   packages: write # publish to GitHub Packages
   actions: read # query CI workflow status
+
+concurrency:
+  group: prerelease-${{ github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   # Gate: wait for the CI workflow (including the full E2E matrix) to pass
@@ -75,6 +79,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.ref_name }}
 
       - uses: actions/setup-node@v6
         with:
@@ -264,6 +269,29 @@ jobs:
             --notes "Beta release. Available on GitHub Packages.
 
           To promote to npm for public testing, trigger the **Publish Beta to npm** workflow."
+
+      - name: Commit version stamps back to ${{ github.ref_name }}
+        run: |
+          if git diff --quiet packages/*/package.json; then
+            echo "No version changes to commit"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            packages/core/package.json \
+            packages/cli/package.json \
+            packages/agent/package.json \
+            packages/ui/package.json
+
+          PRE="${{ steps.ver.outputs.prerelease }}"
+          CLI_VER="${{ steps.ver.outputs.cli_version }}"
+          git commit -m "chore(release): stamp ${PRE} versions (${CLI_VER}) [skip ci]"
+
+          git pull --rebase origin "${{ github.ref_name }}"
+          git push origin "${{ github.ref_name }}"
 
       - name: Publish summary
         if: always()
