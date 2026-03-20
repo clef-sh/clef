@@ -82,20 +82,19 @@ export function registerUiCommand(program: Command, deps: { runner: SubprocessRu
       }
       formatter.print(`   Press Ctrl+C to stop.`);
 
-      // Graceful shutdown
+      // Graceful shutdown — use `once` so repeated Ctrl+C doesn't leak listeners
       await new Promise<void>((resolve) => {
+        let stopping = false;
         const shutdown = async () => {
+          if (stopping) return;
+          stopping = true;
           formatter.print("\nShutting down...");
           await handle.stop();
           resolve();
         };
 
-        process.on("SIGINT", () => {
-          shutdown();
-        });
-        process.on("SIGTERM", () => {
-          shutdown();
-        });
+        process.once("SIGINT", shutdown);
+        process.once("SIGTERM", shutdown);
       });
     });
 }

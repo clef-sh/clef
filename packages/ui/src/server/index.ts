@@ -20,7 +20,7 @@ export interface ServerHandle {
 // module still exists but isSea() returns false.  Wrap in try/catch for Node 18.
 interface SeaModule {
   isSea(): boolean;
-  getAsset(key: string, encoding: "buffer"): ArrayBuffer;
+  getAsset(key: string): ArrayBuffer;
 }
 
 function getSea(): SeaModule | null {
@@ -62,7 +62,7 @@ function mountSeaStaticRoutes(
 ): void {
   const serveAsset = (key: string, res: Response, next: NextFunction): void => {
     try {
-      const buf = Buffer.from(sea.getAsset(key, "buffer"));
+      const buf = Buffer.from(sea.getAsset(key));
       res.setHeader("Content-Type", mimeFor(key));
       res.setHeader("Content-Length", buf.length);
       res.end(buf);
@@ -152,21 +152,30 @@ export async function startServer(
   //     don't support the assets API) gracefully fall back to dist/client/ on
   //     disk rather than returning 404 for every static request.
   const sea = getSea();
-  if (sea?.isSea()) {
-    mountSeaStaticRoutes(app, sea, staticLimiter);
+  const isSeaBinary = !!sea?.isSea();
+
+  // Expose runtime info so E2E tests can verify SEA asset serving is active.
+  // Mounted outside /api to avoid auth — this is read-only, no secrets exposed.
+  app.get("/_runtime", (_req: Request, res: Response) => {
+    res.json({ sea: isSeaBinary });
+  });
+
+  if (isSeaBinary) {
+    mountSeaStaticRoutes(app, sea!, staticLimiter);
   }
 
-  // When the CLI bundles this code with esbuild, all modules land in a single
-  // dist/index.js, so __dirname resolves to that file's directory.  The caller
-  // passes an explicit clientDir (dist/client/) to handle that case.
-  // In standalone/dev use, the default path relative to this file works.
-  const resolvedClientDir = clientDir ?? path.resolve(__dirname, "../client");
-  app.use(staticLimiter, express.static(resolvedClientDir));
+  // Disk fallback — only when NOT running as a SEA binary (dev, test,
+  // npm-linked installs).  SEA binaries serve everything from the embedded
+  // blob via mountSeaStaticRoutes above; the disk path doesn't exist.
+  if (!isSeaBinary) {
+    const resolvedClientDir = clientDir ?? path.resolve(__dirname, "../client");
+    app.use(staticLimiter, express.static(resolvedClientDir));
 
-  // SPA fallback — serve index.html for non-API routes
-  app.get("/{*splat}", staticLimiter, (_req, res) => {
-    res.sendFile(path.join(resolvedClientDir, "index.html"));
-  });
+    // SPA fallback — serve index.html for non-API routes
+    app.get("/{*splat}", staticLimiter, (_req, res) => {
+      res.sendFile(path.join(resolvedClientDir, "index.html"));
+    });
+  }
 
   const url = `http://127.0.0.1:${port}`;
 
