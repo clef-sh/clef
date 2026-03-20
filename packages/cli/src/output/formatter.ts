@@ -126,14 +126,9 @@ export const formatter = {
 
   async secretPrompt(prompt: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stderr,
-      });
-
       process.stderr.write(color(pc.cyan, `${prompt}: `));
 
-      // Attempt to disable echo if terminal
+      // Enable raw mode to suppress echo on TTY terminals
       if (process.stdin.isTTY) {
         process.stdin.setRawMode(true);
       }
@@ -147,7 +142,6 @@ export const formatter = {
           }
           process.stdin.removeListener("data", onData);
           process.stderr.write("\n");
-          rl.close();
           resolve(value);
         } else if (char === "\u0003") {
           // Ctrl+C
@@ -155,7 +149,6 @@ export const formatter = {
             process.stdin.setRawMode(false);
           }
           process.stdin.removeListener("data", onData);
-          rl.close();
           reject(new Error("User cancelled input"));
         } else if (char === "\u007f" || char === "\b") {
           // Backspace
