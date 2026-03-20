@@ -2,6 +2,10 @@
 # to npm independently, each versioned by its own commits.
 # @clef-sh/ui is also semver'd here but publishes to GitHub Packages only (never npm).
 #
+# Triggers automatically when the CI workflow passes on main, or manually via
+# workflow_dispatch. semantic-release commits version bumps back with [skip ci],
+# so CI does not re-run and no release loop occurs.
+#
 # Release order: core → agent → cli → ui.
 # If core publishes a new version, cli's @clef-sh/core devDependency is bumped
 # automatically, creating a commit that triggers cli's own semantic-release.
@@ -14,6 +18,10 @@ name: Release
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: write
@@ -22,15 +30,24 @@ permissions:
   issues: write
   pull-requests: write
 
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Semantic Release
     runs-on: ubuntu-latest
-    environment: prod
+    # For workflow_run: only proceed if CI succeeded.
+    # For workflow_dispatch: always proceed (no workflow_run context).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: main
           persist-credentials: false
 
       - uses: actions/setup-node@v6
