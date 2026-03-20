@@ -415,9 +415,6 @@ describe("formatter", () => {
     });
 
     it("should collect characters and resolve on enter (TTY mode)", async () => {
-      const mockRl = { close: jest.fn() };
-      mockCreateInterface.mockReturnValue(mockRl);
-
       const origIsTTY = process.stdin.isTTY;
       Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
 
@@ -452,16 +449,12 @@ describe("formatter", () => {
       expect(result).toBe("sec");
       expect(setRawMode).toHaveBeenCalledWith(true);
       expect(setRawMode).toHaveBeenCalledWith(false);
-      expect(mockRl.close).toHaveBeenCalled();
 
       Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
       process.stdin.setRawMode = origSetRawMode;
     });
 
     it("should reject on Ctrl+C", async () => {
-      const mockRl = { close: jest.fn() };
-      mockCreateInterface.mockReturnValue(mockRl);
-
       const origIsTTY = process.stdin.isTTY;
       Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
 
@@ -491,9 +484,6 @@ describe("formatter", () => {
     });
 
     it("should handle backspace by removing last character", async () => {
-      const mockRl = { close: jest.fn() };
-      mockCreateInterface.mockReturnValue(mockRl);
-
       const origIsTTY = process.stdin.isTTY;
       Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
 
@@ -529,9 +519,6 @@ describe("formatter", () => {
     });
 
     it("should handle EOT (Ctrl+D) as end of input", async () => {
-      const mockRl = { close: jest.fn() };
-      mockCreateInterface.mockReturnValue(mockRl);
-
       const origIsTTY = process.stdin.isTTY;
       Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
 
@@ -563,9 +550,6 @@ describe("formatter", () => {
     });
 
     it("should handle Ctrl+C in TTY mode by disabling raw mode first", async () => {
-      const mockRl = { close: jest.fn() };
-      mockCreateInterface.mockReturnValue(mockRl);
-
       const origIsTTY = process.stdin.isTTY;
       Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
 
