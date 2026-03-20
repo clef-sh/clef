@@ -33,6 +33,7 @@ jobs:
       build_cli: ${{ steps.check.outputs.build_cli }}
       build_agent: ${{ steps.check.outputs.build_agent }}
       tag: ${{ steps.check.outputs.tag }}
+      version: ${{ steps.check.outputs.version }}
     steps:
       - id: check
         run: |
@@ -40,20 +41,25 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           BUILD_CLI=false
           BUILD_AGENT=false
+          VERSION=""
           # Beta tags build both CLI and agent
-          if [[ "$TAG" =~ ^v.+-beta\.[0-9]+$ ]]; then
+          if [[ "$TAG" =~ ^v(.+-beta\.[0-9]+)$ ]]; then
             BUILD_CLI=true
             BUILD_AGENT=true
+            VERSION="${BASH_REMATCH[1]}"
           fi
           # Stable tags build only the matching package
-          if [[ "$TAG" =~ ^@clef-sh/cli@ ]]; then
+          if [[ "$TAG" =~ ^@clef-sh/cli@(.+)$ ]]; then
             BUILD_CLI=true
+            VERSION="${BASH_REMATCH[1]}"
           fi
-          if [[ "$TAG" =~ ^@clef-sh/agent@ ]]; then
+          if [[ "$TAG" =~ ^@clef-sh/agent@(.+)$ ]]; then
             BUILD_AGENT=true
+            VERSION="${BASH_REMATCH[1]}"
           fi
           echo "build_cli=$BUILD_CLI" >> "$GITHUB_OUTPUT"
           echo "build_agent=$BUILD_AGENT" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
   build-cli:
     name: CLI (${{ matrix.label }})
@@ -96,12 +102,29 @@ jobs:
 
       - run: npm ci
 
+      - name: Stamp version
+        if: needs.check-tag.outputs.version != ''
+        shell: bash
+        run: |
+          VER="${{ needs.check-tag.outputs.version }}"
+          for pkg in packages/core packages/cli packages/agent packages/ui; do
+            node -e "
+              const fs = require('fs');
+              const p = JSON.parse(fs.readFileSync('$pkg/package.json','utf8'));
+              p.version = '$VER';
+              fs.writeFileSync('$pkg/package.json', JSON.stringify(p, null, 2) + '\n');
+            "
+          done
+          echo "Stamped version $VER"
+
       - name: Build packages
+        shell: bash
         run: |
           npm run build -w packages/core
           npm run build -w packages/ui
 
       - name: Build SEA binary
+        shell: bash
         run: npm run build:sea -w packages/cli
 
       - name: Rename binary for platform
@@ -169,10 +192,27 @@ jobs:
 
       - run: npm ci
 
+      - name: Stamp version
+        if: needs.check-tag.outputs.version != ''
+        shell: bash
+        run: |
+          VER="${{ needs.check-tag.outputs.version }}"
+          for pkg in packages/core packages/agent; do
+            node -e "
+              const fs = require('fs');
+              const p = JSON.parse(fs.readFileSync('$pkg/package.json','utf8'));
+              p.version = '$VER';
+              fs.writeFileSync('$pkg/package.json', JSON.stringify(p, null, 2) + '\n');
+            "
+          done
+          echo "Stamped version $VER"
+
       - name: Build packages
+        shell: bash
         run: npm run build -w packages/core
 
       - name: Build SEA binary
+        shell: bash
         run: npm run build:sea -w packages/agent
 
       - name: Rename binary for platform
