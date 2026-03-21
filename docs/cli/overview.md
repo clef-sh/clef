@@ -15,12 +15,13 @@ The CLI is built on [commander.js](https://github.com/tj/commander.js) and follo
 
 ### Reading & writing secrets
 
-| Command                      | Description                                   | Arguments & flags                                                                                               |
-| ---------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| [`clef get`](/cli/get)       | Retrieve a single decrypted value (pipe-safe) | `<target> <key>`                                                                                                |
-| [`clef set`](/cli/set)       | Set a secret value (prompts for hidden input) | `<target> <key> [value]`, `--random`                                                                            |
-| [`clef delete`](/cli/delete) | Remove a key from an encrypted file           | `<target> <key>`, `--all-envs`                                                                                  |
-| [`clef import`](/cli/import) | Bulk-import from `.env`, JSON, or YAML        | `<target> [source]`, `--format <fmt>`, `--prefix <str>`, `--keys <keys>`, `--overwrite`, `--dry-run`, `--stdin` |
+| Command                        | Description                                   | Arguments & flags                                                                                               |
+| ------------------------------ | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| [`clef get`](/cli/get)         | Retrieve a single decrypted value (pipe-safe) | `<target> <key>`                                                                                                |
+| [`clef set`](/cli/set)         | Set a secret value (prompts for hidden input) | `<target> <key> [value]`, `--random`                                                                            |
+| [`clef compare`](/cli/compare) | Compare a stored secret with a supplied value | `<target> <key> [value]`                                                                                        |
+| [`clef delete`](/cli/delete)   | Remove a key from an encrypted file           | `<target> <key>`, `--all-envs`                                                                                  |
+| [`clef import`](/cli/import)   | Bulk-import from `.env`, JSON, or YAML        | `<target> [source]`, `--format <fmt>`, `--prefix <str>`, `--keys <keys>`, `--overwrite`, `--dry-run`, `--stdin` |
 
 ### Validation & visibility
 
@@ -32,12 +33,15 @@ The CLI is built on [commander.js](https://github.com/tj/commander.js) and follo
 
 ### Key & recipient management
 
-| Command                                     | Description                         | Arguments & flags                     |
-| ------------------------------------------- | ----------------------------------- | ------------------------------------- |
-| [`clef rotate`](/cli/rotate)                | Re-encrypt with a new recipient key | `<target>`, `--new-key <key>`         |
-| [`clef recipients list`](/cli/recipients)   | List current recipients             | `-e <env>`                            |
-| [`clef recipients add`](/cli/recipients)    | Add an age recipient                | `<key>`, `--label <name>`, `-e <env>` |
-| [`clef recipients remove`](/cli/recipients) | Remove an age recipient             | `<key>`, `-e <env>`                   |
+| Command                                      | Description                                | Arguments & flags                     |
+| -------------------------------------------- | ------------------------------------------ | ------------------------------------- |
+| [`clef rotate`](/cli/rotate)                 | Re-encrypt with a new recipient key        | `<target>`, `--new-key <key>`         |
+| [`clef recipients list`](/cli/recipients)    | List current recipients                    | `-e <env>`                            |
+| [`clef recipients add`](/cli/recipients)     | Add an age recipient to an environment     | `<key>`, `--label <name>`, `-e <env>` |
+| [`clef recipients remove`](/cli/recipients)  | Remove an age recipient                    | `<key>`, `-e <env>`                   |
+| [`clef recipients request`](/cli/recipients) | Request access (publishes your public key) | `--label <name>`, `-e <env>`          |
+| [`clef recipients pending`](/cli/recipients) | List pending access requests               | —                                     |
+| [`clef recipients approve`](/cli/recipients) | Approve a pending request                  | `<identifier>`, `-e <env>`            |
 
 ### Consumption & deployment
 

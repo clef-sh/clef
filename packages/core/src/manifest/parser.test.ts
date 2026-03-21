@@ -616,6 +616,40 @@ describe("ManifestParser", () => {
       expect(() => parser.validate(manifest)).toThrow(/invalid 'sops' field/);
     });
 
+    describe("cloud section validation", () => {
+      it("should accept a valid cloud section", () => {
+        const manifest = {
+          ...validManifest(),
+          cloud: { integrationId: "int_abc123" },
+        };
+        const result = parser.validate(manifest);
+        expect(result.cloud).toEqual({ integrationId: "int_abc123" });
+      });
+
+      it("should accept manifest without cloud section", () => {
+        const result = parser.validate(validManifest());
+        expect(result.cloud).toBeUndefined();
+      });
+
+      it("should reject cloud with missing integrationId", () => {
+        const manifest = { ...validManifest(), cloud: {} };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/integrationId/);
+      });
+
+      it("should reject cloud with non-string integrationId", () => {
+        const manifest = { ...validManifest(), cloud: { integrationId: 123 } };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/integrationId/);
+      });
+
+      it("should reject non-object cloud field", () => {
+        const manifest = { ...validManifest(), cloud: "not-an-object" };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/must be an object/);
+      });
+    });
+
     describe("service_identities validation", () => {
       const testRecipient = "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p";
 

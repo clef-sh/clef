@@ -119,6 +119,50 @@ export async function createSopsClient(
   return new SopsClient(runner, ageKeyFile, ageKey);
 }
 
+const AGE_SECRET_KEY_RE = /^(AGE-SECRET-KEY-\S+)/m;
+
+/**
+ * Resolve the raw age private key string from the best available source.
+ * Used by `clef recipients request` to derive the public key.
+ */
+export async function resolveAgePrivateKey(
+  repoRoot: string,
+  runner: SubprocessRunner,
+): Promise<string | null> {
+  const credential = await resolveAgeCredential(repoRoot, runner);
+  if (!credential) return null;
+
+  switch (credential.source) {
+    case "keychain":
+      return credential.privateKey;
+    case "env-key": {
+      const envKey = process.env.CLEF_AGE_KEY ?? "";
+      const match = envKey.match(AGE_SECRET_KEY_RE);
+      return match ? match[1] : envKey.trim() || null;
+    }
+    case "env-file": {
+      const filePath = process.env.CLEF_AGE_KEY_FILE;
+      if (!filePath) return null;
+      try {
+        const content = fs.readFileSync(filePath, "utf-8");
+        const match = content.match(AGE_SECRET_KEY_RE);
+        return match ? match[1] : null;
+      } catch {
+        return null;
+      }
+    }
+    case "config-file": {
+      try {
+        const content = fs.readFileSync(credential.path, "utf-8");
+        const match = content.match(AGE_SECRET_KEY_RE);
+        return match ? match[1] : null;
+      } catch {
+        return null;
+      }
+    }
+  }
+}
+
 /** Read and parse .clef/config.yaml, returning null on any failure. */
 function readLocalConfig(repoRoot: string): ClefLocalConfig | null {
   const clefConfigPath = path.join(repoRoot, CLEF_DIR, CLEF_CONFIG_FILENAME);
