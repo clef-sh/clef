@@ -3,6 +3,7 @@ import { NodeSubprocessRunner } from "./subprocess";
 import { registerInitCommand } from "./commands/init";
 import { registerGetCommand } from "./commands/get";
 import { registerSetCommand } from "./commands/set";
+import { registerCompareCommand } from "./commands/compare";
 import { registerDeleteCommand } from "./commands/delete";
 import { registerDiffCommand } from "./commands/diff";
 import { registerLintCommand } from "./commands/lint";
@@ -76,6 +77,7 @@ program.on("option:version", () => {
 registerInitCommand(program, deps);
 registerGetCommand(program, deps);
 registerSetCommand(program, deps);
+registerCompareCommand(program, deps);
 registerDeleteCommand(program, deps);
 registerDiffCommand(program, deps);
 registerLintCommand(program, deps);

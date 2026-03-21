@@ -14,6 +14,7 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import {
   ClefManifest,
+  ClefCloudConfig,
   ClefEnvironment,
   ManifestValidationError,
   ServiceIdentityDefinition,
@@ -34,6 +35,7 @@ const VALID_TOP_LEVEL_KEYS = [
   "sops",
   "file_pattern",
   "service_identities",
+  "cloud",
 ];
 const ENV_NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
 const FILE_PATTERN_REQUIRED_TOKENS = ["{namespace}", "{environment}"];
@@ -536,6 +538,22 @@ export class ManifestParser {
       }
     }
 
+    // cloud (optional)
+    let cloud: ClefCloudConfig | undefined;
+    if (obj.cloud !== undefined) {
+      if (typeof obj.cloud !== "object" || obj.cloud === null || Array.isArray(obj.cloud)) {
+        throw new ManifestValidationError("Field 'cloud' must be an object.", "cloud");
+      }
+      const cloudObj = obj.cloud as Record<string, unknown>;
+      if (typeof cloudObj.integrationId !== "string" || cloudObj.integrationId.length === 0) {
+        throw new ManifestValidationError(
+          "Field 'cloud.integrationId' is required and must be a non-empty string.",
+          "cloud",
+        );
+      }
+      cloud = { integrationId: cloudObj.integrationId };
+    }
+
     return {
       version: 1,
       environments,
@@ -543,6 +561,7 @@ export class ManifestParser {
       sops: sopsConfig,
       file_pattern: obj.file_pattern,
       ...(serviceIdentities ? { service_identities: serviceIdentities } : {}),
+      ...(cloud ? { cloud } : {}),
     };
   }
 

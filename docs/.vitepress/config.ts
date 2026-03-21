@@ -82,6 +82,7 @@ export default withMermaid({
             { text: "clef update", link: "/cli/update" },
             { text: "clef get", link: "/cli/get" },
             { text: "clef set", link: "/cli/set" },
+            { text: "clef compare", link: "/cli/compare" },
             { text: "clef delete", link: "/cli/delete" },
             { text: "clef diff", link: "/cli/diff" },
             { text: "clef lint", link: "/cli/lint" },

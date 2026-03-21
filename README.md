@@ -104,11 +104,12 @@ clef ui
 | `clef update`       | Scaffold missing matrix cells after adding namespaces or environments to `clef.yaml` |
 | `clef get`          | Retrieve a single decrypted value                                                    |
 | `clef set`          | Set a secret value (supports hidden input and random generation)                     |
+| `clef compare`      | Compare a stored secret with a supplied value without exposing either                |
 | `clef delete`       | Delete a key from an encrypted file (`--all-envs` for bulk)                          |
 | `clef diff`         | Compare secrets between two environments                                             |
 | `clef lint`         | Validate matrix completeness, schema compliance, and SOPS integrity                  |
 | `clef rotate`       | Rotate encryption keys for a namespace/environment                                   |
-| `clef recipients`   | Manage age recipients — list, add, or remove keys that can decrypt the repo          |
+| `clef recipients`   | Manage age recipients — list, add, remove, request, and approve access               |
 | `clef hooks`        | Install the pre-commit hook                                                          |
 | `clef exec`         | Run a command with decrypted secrets as environment variables                        |
 | `clef export`       | Print decrypted secrets as shell export statements                                   |
@@ -117,7 +118,8 @@ clef ui
 | `clef doctor`       | Check for required dependencies and configuration                                    |
 | `clef merge-driver` | SOPS-aware three-way merge driver for encrypted files                                |
 | `clef service`      | Manage service identities for serverless/machine workloads                           |
-| `clef bundle`       | Generate runtime JS bundles encrypted to a service identity                          |
+| `clef pack`         | Pack an encrypted artifact for a service identity                                    |
+| `clef drift`        | Detect secrets drift across repositories                                             |
 | `clef ui`           | Launch the local web UI                                                              |
 
 ## Web UI
