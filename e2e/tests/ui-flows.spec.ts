@@ -19,11 +19,13 @@ import { startClefUI, type ServerInfo } from "../setup/server";
 
 // Shared fixtures — server is expensive; start once and share across all tests.
 let keys: AgeKeyPair;
+let secondKeys: AgeKeyPair; // Second key pair for recipient add tests
 let repo: TestRepo;
 let server: ServerInfo;
 
 test.beforeAll(async () => {
   keys = await generateAgeKey();
+  secondKeys = await generateAgeKey();
   repo = scaffoldTestRepo(keys);
   server = await startClefUI(repo.dir, keys.keyFilePath);
 });
@@ -31,11 +33,13 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   if (server) await server.stop();
   if (repo) repo.cleanup();
-  if (keys?.tmpDir) {
-    try {
-      fs.rmSync(keys.tmpDir, { recursive: true, force: true });
-    } catch {
-      // Best effort
+  for (const k of [keys, secondKeys]) {
+    if (k?.tmpDir) {
+      try {
+        fs.rmSync(k.tmpDir, { recursive: true, force: true });
+      } catch {
+        // Best effort
+      }
     }
   }
 });
@@ -482,6 +486,126 @@ test.describe("clef recipients → RecipientsScreen: manage age encryption keys"
     await page.getByTestId("add-key-input").fill("not-an-age-key");
     await page.getByTestId("add-key-input").blur();
     await expect(page.getByText("Valid age public key")).not.toBeVisible();
+  });
+
+  test("[positive] 'Add and re-encrypt' button is disabled until key is validated", async ({
+    page,
+  }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-recipients").click();
+    await page.getByRole("button", { name: "+ Add recipient" }).click();
+    // Before entering a key, the button should be disabled
+    await expect(page.getByRole("button", { name: "Add and re-encrypt" })).toBeDisabled();
+    // Enter an invalid key — button should remain disabled
+    await page.getByTestId("add-key-input").fill("not-valid");
+    await page.getByTestId("add-key-input").blur();
+    // Wait for validation debounce
+    await page.waitForTimeout(500);
+    await expect(page.getByRole("button", { name: "Add and re-encrypt" })).toBeDisabled();
+  });
+
+  test("[positive] cancel button on add form dismisses without adding", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-recipients").click();
+    await page.getByRole("button", { name: "+ Add recipient" }).click();
+    await expect(page.getByTestId("add-form")).toBeVisible();
+    await page.getByTestId("add-key-input").fill(secondKeys.publicKey);
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByTestId("add-form")).not.toBeVisible();
+    // The + Add recipient button should reappear
+    await expect(page.getByRole("button", { name: "+ Add recipient" })).toBeVisible();
+  });
+
+  test("[positive] adding a valid recipient with label shows it in the list after re-encryption", async ({
+    page,
+  }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-recipients").click();
+    await expect(page.getByText(/Recipients \(/)).toBeVisible({ timeout: 10_000 });
+
+    // Count current recipients
+    const initialRows = await page.getByTestId("recipient-row").count();
+
+    await page.getByRole("button", { name: "+ Add recipient" }).click();
+    await page.getByTestId("add-key-input").fill(secondKeys.publicKey);
+    await page.getByTestId("add-key-input").blur();
+    await expect(page.getByText("Valid age public key")).toBeVisible({ timeout: 5_000 });
+
+    // Fill optional label
+    await page.getByTestId("add-label-input").fill("e2e-test-recipient");
+
+    // Submit — re-encryption takes a few seconds
+    const addPromise = page.waitForResponse(
+      (r) => r.url().includes("/api/recipients/add") && r.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Add and re-encrypt" }).click();
+    const addRes = await addPromise;
+    expect(addRes.status()).toBe(200);
+
+    // Form should disappear and the new recipient should appear
+    await expect(page.getByTestId("add-form")).not.toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("e2e-test-recipient")).toBeVisible({ timeout: 10_000 });
+
+    // Recipient count should have increased
+    const finalRows = await page.getByTestId("recipient-row").count();
+    expect(finalRows).toBe(initialRows + 1);
+  });
+
+  test("[positive] re-encryption warning shows correct file count", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-recipients").click();
+    await page.getByRole("button", { name: "+ Add recipient" }).click();
+    // The warning should mention the number of encrypted files
+    await expect(page.getByText(/re-encrypt \d+ file/)).toBeVisible();
+  });
+});
+
+// ── clef recipients → RecipientsScreen: full key add + remove workflow ───────
+
+test.describe("clef recipients → RecipientsScreen: remove workflow", () => {
+  test("[positive] Remove button is visible for each recipient row", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-recipients").click();
+    await expect(page.getByText(/Recipients \(/)).toBeVisible({ timeout: 10_000 });
+    const rows = page.getByTestId("recipient-row");
+    const count = await rows.count();
+    expect(count).toBeGreaterThan(0);
+    // Each row should have a Remove button
+    for (let i = 0; i < count; i++) {
+      await expect(rows.nth(i).getByRole("button", { name: "Remove" })).toBeVisible();
+    }
+  });
+
+  test("[positive] clicking Remove shows the revocation warning dialog", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-recipients").click();
+    await expect(page.getByText(/Recipients \(/)).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId("recipient-row").first().getByRole("button", { name: "Remove" }).click();
+    await expect(page.getByTestId("remove-dialog")).toBeVisible();
+    await expect(page.getByText("Remove recipient")).toBeVisible();
+    await expect(page.getByTestId("acknowledge-checkbox")).toBeVisible();
+  });
+
+  test("[negative] Continue button is disabled until warning is acknowledged", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-recipients").click();
+    await expect(page.getByText(/Recipients \(/)).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId("recipient-row").first().getByRole("button", { name: "Remove" }).click();
+    await expect(page.getByTestId("remove-dialog")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue" })).toBeDisabled();
+  });
+
+  test("[negative] Cancel in remove dialog dismisses without removing", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-recipients").click();
+    await expect(page.getByText(/Recipients \(/)).toBeVisible({ timeout: 10_000 });
+    const initialCount = await page.getByTestId("recipient-row").count();
+    await page.getByTestId("recipient-row").first().getByRole("button", { name: "Remove" }).click();
+    await expect(page.getByTestId("remove-dialog")).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByTestId("remove-dialog")).not.toBeVisible();
+    // Recipient count should be unchanged
+    expect(await page.getByTestId("recipient-row").count()).toBe(initialCount);
   });
 });
 
