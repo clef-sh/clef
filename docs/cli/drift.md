@@ -22,10 +22,11 @@ Each key is checked across all environments in both repos. If a key exists in so
 
 ## Flags
 
-| Flag                 | Type      | Default | Description                                         |
-| -------------------- | --------- | ------- | --------------------------------------------------- |
-| `--json`             | `boolean` | `false` | Output the raw `DriftResult` as JSON for CI parsing |
-| `--namespace <name>` | `string`  | all     | Scope comparison to specific namespace(s)           |
+| Flag                 | Type      | Default | Description                                                                                              |
+| -------------------- | --------- | ------- | -------------------------------------------------------------------------------------------------------- |
+| `--json`             | `boolean` | `false` | Output the raw `DriftResult` as JSON for CI parsing                                                      |
+| `--push`             | `boolean` | `false` | Push results as OTLP to `CLEF_TELEMETRY_URL`. See [Telemetry — CLI `--push`](/guide/telemetry#cli-push). |
+| `--namespace <name>` | `string`  | all     | Scope comparison to specific namespace(s)                                                                |
 
 ## Exit codes
 

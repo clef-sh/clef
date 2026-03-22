@@ -76,8 +76,11 @@ describe("LambdaExtension", () => {
     const now = Date.now();
     jest
       .spyOn(Date, "now")
-      .mockReturnValueOnce(now) // initial
-      .mockReturnValueOnce(now + 60_000); // 60s later
+      .mockReturnValueOnce(now) // constructor startedAt
+      .mockReturnValueOnce(now) // initial lastRefresh
+      .mockReturnValueOnce(now + 60_000) // elapsed check on INVOKE
+      .mockReturnValueOnce(now + 60_000) // lastRefresh update after refresh
+      .mockReturnValueOnce(now + 60_000); // shutdown uptimeSeconds
 
     mockFetch
       .mockResolvedValueOnce({
@@ -173,8 +176,10 @@ describe("LambdaExtension", () => {
     const now = Date.now();
     jest
       .spyOn(Date, "now")
-      .mockReturnValueOnce(now)
-      .mockReturnValueOnce(now + 60_000);
+      .mockReturnValueOnce(now) // constructor startedAt
+      .mockReturnValueOnce(now) // initial lastRefresh
+      .mockReturnValueOnce(now + 60_000) // elapsed check on INVOKE
+      .mockReturnValueOnce(now + 60_000); // shutdown uptimeSeconds
 
     mockPoller.fetchAndDecrypt
       .mockResolvedValueOnce(undefined) // initial OK

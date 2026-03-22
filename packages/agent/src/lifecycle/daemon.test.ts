@@ -1,5 +1,5 @@
 import { Daemon } from "./daemon";
-import { ArtifactPoller } from "@clef-sh/runtime";
+import { ArtifactPoller, TelemetryEmitter } from "@clef-sh/runtime";
 import { AgentServerHandle } from "../server";
 
 describe("Daemon", () => {
@@ -73,8 +73,10 @@ describe("Daemon", () => {
 
     // Simulate SIGTERM
     for (const handler of signalHandlers["SIGTERM"] || []) {
-      await handler();
+      handler();
     }
+
+    await daemon.waitForShutdown();
 
     expect(mockPoller.stop).toHaveBeenCalled();
     expect(mockServer.stop).toHaveBeenCalled();
@@ -116,5 +118,34 @@ describe("Daemon", () => {
 
     // stop should only be called once
     expect(mockServer.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("should emit agent.stopped and flush on shutdown", async () => {
+    const telemetry = {
+      agentStopped: jest.fn(),
+      stopAsync: jest.fn().mockResolvedValue(undefined),
+    } as unknown as TelemetryEmitter;
+
+    const daemon = new Daemon({
+      poller: mockPoller as unknown as ArtifactPoller,
+      server: mockServer,
+      telemetry,
+    });
+
+    await daemon.start();
+
+    // Simulate SIGTERM
+    for (const handler of signalHandlers["SIGTERM"] || []) {
+      handler();
+    }
+
+    await daemon.waitForShutdown();
+
+    expect(telemetry.agentStopped).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "signal",
+      }),
+    );
+    expect(telemetry.stopAsync).toHaveBeenCalled();
   });
 });

@@ -232,6 +232,8 @@ All configuration via environment variables (universal for containers and Lambda
 | `CLEF_AGENT_AGE_KEY`         | —              | Inline age private key (optional for KMS envelope)         |
 | `CLEF_AGENT_AGE_KEY_FILE`    | —              | Path to age key file (optional for KMS envelope)           |
 | `CLEF_AGENT_TOKEN`           | auto-generated | Bearer token for API auth                                  |
+| `CLEF_AGENT_TELEMETRY_URL`   | —              | OTLP endpoint for [telemetry](/guide/telemetry)            |
+| `CLEF_AGENT_ID`              | auto-generated | Unique agent instance ID (UUID)                            |
 
 ::: info Age key is optional for KMS envelope artifacts
 KMS envelope artifacts are self-describing — the runtime calls KMS Decrypt to unwrap the ephemeral key. No `CLEF_AGENT_AGE_KEY` or `CLEF_AGENT_AGE_KEY_FILE` is needed.
@@ -510,5 +512,7 @@ The agent picks up the new artifact on the next poll and resumes serving.
 - [`clef pack`](/cli/pack) — CLI reference for the pack command
 - [`clef revoke`](/cli/revoke) — emergency revocation reference
 - [`clef-agent`](/cli/agent) — standalone agent reference
+- [Telemetry](/guide/telemetry) — OTLP event emission for observability and governance
+- [Dynamic Secrets](/guide/dynamic-secrets) — using the agent with dynamic credential endpoints
 - [Service Identities](/guide/service-identities) — creating identities and packing artifacts
 - [CI/CD Integration](/guide/ci-cd) — pipeline setup

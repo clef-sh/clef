@@ -3,6 +3,7 @@ import { ArtifactPoller } from "./poller";
 import { SecretsCache } from "./secrets-cache";
 import { ArtifactSource } from "./sources/types";
 import { DiskCache } from "./disk-cache";
+import { TelemetryEmitter } from "./telemetry";
 
 jest.mock(
   "age-encryption",
@@ -608,6 +609,148 @@ describe("ArtifactPoller", () => {
       await expect(poller.fetchAndDecrypt()).rejects.toThrow(
         "api-gateway/production at 2026-03-22T14:30:00.000Z",
       );
+    });
+  });
+
+  describe("telemetry", () => {
+    let telemetry: {
+      artifactRefreshed: jest.Mock;
+      fetchFailed: jest.Mock;
+      artifactRevoked: jest.Mock;
+      artifactExpired: jest.Mock;
+      cacheExpired: jest.Mock;
+    };
+
+    beforeEach(() => {
+      telemetry = {
+        artifactRefreshed: jest.fn(),
+        fetchFailed: jest.fn(),
+        artifactRevoked: jest.fn(),
+        artifactExpired: jest.fn(),
+        cacheExpired: jest.fn(),
+      };
+    });
+
+    it("should emit artifact.refreshed on successful cache swap", async () => {
+      const source = mockSource(makeArtifact({ revision: "rev-tel" }));
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        telemetry: telemetry as unknown as TelemetryEmitter,
+      });
+
+      await poller.fetchAndDecrypt();
+
+      expect(telemetry.artifactRefreshed).toHaveBeenCalledWith({
+        revision: "rev-tel",
+        keyCount: 2,
+        kmsEnvelope: false,
+      });
+    });
+
+    it("should emit fetch.failed when source throws", async () => {
+      const source: ArtifactSource = {
+        fetch: jest.fn().mockRejectedValue(new Error("network error")),
+        describe: () => "mock",
+      };
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        telemetry: telemetry as unknown as TelemetryEmitter,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("network error");
+
+      expect(telemetry.fetchFailed).toHaveBeenCalledWith({
+        error: "network error",
+        diskCacheAvailable: false,
+      });
+    });
+
+    it("should emit artifact.revoked when artifact has revokedAt", async () => {
+      const raw = JSON.stringify({
+        version: 1,
+        identity: "api-gateway",
+        environment: "production",
+        revokedAt: "2026-03-22T14:30:00.000Z",
+      });
+      const source = mockSource(raw);
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        telemetry: telemetry as unknown as TelemetryEmitter,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("Artifact revoked");
+
+      expect(telemetry.artifactRevoked).toHaveBeenCalledWith({
+        revokedAt: "2026-03-22T14:30:00.000Z",
+      });
+    });
+
+    it("should emit artifact.expired when artifact is past expiresAt", async () => {
+      const expiredArtifact = makeArtifact({ revision: "exp-rev" });
+      const parsed = JSON.parse(expiredArtifact);
+      parsed.expiresAt = new Date(Date.now() - 60_000).toISOString();
+      const source = mockSource(JSON.stringify(parsed));
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        telemetry: telemetry as unknown as TelemetryEmitter,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("Artifact expired at");
+
+      expect(telemetry.artifactExpired).toHaveBeenCalledWith({
+        expiresAt: parsed.expiresAt,
+      });
+    });
+
+    it("should emit cache.expired when cache TTL exceeded", async () => {
+      const source: ArtifactSource = {
+        fetch: jest
+          .fn()
+          .mockResolvedValueOnce({ raw: makeArtifact({ revision: "rev1" }) })
+          .mockRejectedValueOnce(new Error("network error")),
+        describe: () => "mock",
+      };
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        cacheTtl: 10,
+        telemetry: telemetry as unknown as TelemetryEmitter,
+      });
+
+      await poller.fetchAndDecrypt();
+      jest.advanceTimersByTime(15_000);
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("cache expired");
+
+      expect(telemetry.cacheExpired).toHaveBeenCalledWith({
+        cacheTtlSeconds: 10,
+        diskCachePurged: false,
+      });
+    });
+
+    it("should not throw when telemetry is not configured", async () => {
+      const source = mockSource(makeArtifact({ revision: "no-tel" }));
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+      });
+
+      await poller.fetchAndDecrypt();
+      expect(telemetry.artifactRefreshed).not.toHaveBeenCalled();
     });
   });
 

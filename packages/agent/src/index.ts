@@ -9,13 +9,16 @@ export type {
   VcsFileResult,
   ArtifactSource,
   ArtifactFetchResult,
+  TelemetryOptions,
+  TelemetryEvent,
 } from "@clef-sh/runtime";
+export { TelemetryEmitter } from "@clef-sh/runtime";
 
 // Agent-specific exports
 export { startAgentServer } from "./server";
 export type { AgentServerHandle, AgentServerOptions } from "./server";
 export { resolveConfig, ConfigError } from "./config";
-export type { AgentConfig } from "./config";
+export type { AgentConfig, TelemetryConfig } from "./config";
 export { healthHandler, readyHandler } from "./health";
 export { Daemon } from "./lifecycle/daemon";
 export type { DaemonOptions } from "./lifecycle/daemon";

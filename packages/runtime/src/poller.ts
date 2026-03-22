@@ -4,6 +4,7 @@ import { AgeDecryptor } from "./decrypt";
 import { ArtifactSource } from "./sources/types";
 import { DiskCache } from "./disk-cache";
 import { createKmsProvider } from "./kms";
+import { TelemetryEmitter } from "./telemetry";
 
 /** KMS envelope metadata for artifacts using KMS envelope encryption. */
 export interface ArtifactKmsEnvelope {
@@ -45,6 +46,8 @@ export interface PollerOptions {
   onError?: (err: Error) => void;
   /** Max seconds the cache may be served without a successful refresh. */
   cacheTtl?: number;
+  /** Optional telemetry emitter for event reporting. */
+  telemetry?: TelemetryEmitter;
 }
 
 /**
@@ -61,9 +64,19 @@ export class ArtifactPoller {
   private lastExpiresAt: string | null = null;
   private readonly decryptor = new AgeDecryptor();
   private readonly options: PollerOptions;
+  private telemetryOverride?: TelemetryEmitter;
 
   constructor(options: PollerOptions) {
     this.options = options;
+  }
+
+  /** Set or replace the telemetry emitter (e.g. after resolving token from secrets). */
+  setTelemetry(emitter: TelemetryEmitter): void {
+    this.telemetryOverride = emitter;
+  }
+
+  private get telemetry(): TelemetryEmitter | undefined {
+    return this.telemetryOverride ?? this.options.telemetry;
   }
 
   /** Fetch, validate, decrypt, and cache the artifact. */
@@ -82,6 +95,11 @@ export class ArtifactPoller {
       // Write to disk cache on successful fetch
       this.options.diskCache?.write(raw, contentHash);
     } catch (err) {
+      this.telemetry?.fetchFailed({
+        error: err instanceof Error ? err.message : String(err),
+        diskCacheAvailable: !!this.options.diskCache?.read(),
+      });
+
       const ttl = this.options.cacheTtl;
       // Attempt disk cache fallback
       if (this.options.diskCache) {
@@ -93,6 +111,10 @@ export class ArtifactPoller {
             if (fetchedAt && (Date.now() - new Date(fetchedAt).getTime()) / 1000 > ttl) {
               this.options.cache.wipe();
               this.options.diskCache.purge();
+              this.telemetry?.cacheExpired({
+                cacheTtlSeconds: ttl,
+                diskCachePurged: true,
+              });
               throw new Error("Secrets cache expired: no successful refresh within TTL");
             }
           }
@@ -104,6 +126,10 @@ export class ArtifactPoller {
           // No disk cache content — check in-memory TTL
           if (ttl !== undefined && this.options.cache.isExpired(ttl)) {
             this.options.cache.wipe();
+            this.telemetry?.cacheExpired({
+              cacheTtlSeconds: ttl,
+              diskCachePurged: false,
+            });
             throw new Error("Secrets cache expired: no successful refresh within TTL");
           }
           throw err;
@@ -112,6 +138,10 @@ export class ArtifactPoller {
         // No disk cache configured — check in-memory TTL
         if (ttl !== undefined && this.options.cache.isExpired(ttl)) {
           this.options.cache.wipe();
+          this.telemetry?.cacheExpired({
+            cacheTtlSeconds: ttl,
+            diskCachePurged: false,
+          });
           throw new Error("Secrets cache expired: no successful refresh within TTL");
         }
         throw err;
@@ -126,6 +156,9 @@ export class ArtifactPoller {
       this.options.diskCache?.purge();
       this.lastRevision = null;
       this.lastContentHash = null;
+      this.telemetry?.artifactRevoked({
+        revokedAt: String(parsed.revokedAt),
+      });
       throw new Error(
         `Artifact revoked: ${parsed.identity}/${parsed.environment} at ${parsed.revokedAt}`,
       );
@@ -137,6 +170,7 @@ export class ArtifactPoller {
     if (artifact.expiresAt && Date.now() > new Date(artifact.expiresAt).getTime()) {
       this.options.cache.wipe();
       this.options.diskCache?.purge();
+      this.telemetry?.artifactExpired({ expiresAt: artifact.expiresAt });
       throw new Error(`Artifact expired at ${artifact.expiresAt}`);
     }
 
@@ -186,6 +220,11 @@ export class ArtifactPoller {
     this.lastContentHash = contentHash ?? null;
     this.lastExpiresAt = artifact.expiresAt ?? null;
     this.options.onRefresh?.(artifact.revision);
+    this.telemetry?.artifactRefreshed({
+      revision: artifact.revision,
+      keyCount: artifact.keys.length,
+      kmsEnvelope: !!artifact.envelope,
+    });
   }
 
   /** Start the polling loop. Performs an initial fetch immediately. */

@@ -5,6 +5,20 @@ export { AgeDecryptor } from "./decrypt";
 export { ArtifactPoller } from "./poller";
 export type { PollerOptions, ArtifactEnvelope } from "./poller";
 
+// Telemetry
+export { TelemetryEmitter } from "./telemetry";
+export type {
+  TelemetryOptions,
+  TelemetryEvent,
+  AgentStartedEvent,
+  AgentStoppedEvent,
+  ArtifactRefreshedEvent,
+  ArtifactRevokedEvent,
+  ArtifactExpiredEvent,
+  FetchFailedEvent,
+  CacheExpiredEvent,
+} from "./telemetry";
+
 // VCS
 export type { VcsProvider, VcsProviderConfig, VcsFileResult } from "./vcs/types";
 export { GitHubProvider } from "./vcs/github";
@@ -33,6 +47,7 @@ import { VcsArtifactSource } from "./sources/vcs";
 import { HttpArtifactSource } from "./sources/http";
 import { FileArtifactSource } from "./sources/file";
 import { ArtifactSource } from "./sources/types";
+import { TelemetryEmitter } from "./telemetry";
 
 /**
  * Configuration for {@link ClefRuntime}.
@@ -69,6 +84,9 @@ export interface RuntimeConfig {
   cachePath?: string;
   /** Max seconds the runtime serves secrets without a successful refresh. */
   cacheTtl?: number;
+
+  /** Optional telemetry emitter for event reporting. */
+  telemetry?: TelemetryEmitter;
 }
 
 /**
@@ -110,6 +128,7 @@ export class ClefRuntime {
       cache: this.cache,
       diskCache,
       cacheTtl: config.cacheTtl,
+      telemetry: config.telemetry,
     });
   }
 

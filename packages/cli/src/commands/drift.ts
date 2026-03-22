@@ -4,6 +4,8 @@ import { Command } from "commander";
 import { DriftDetector, DriftResult, SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
+import { driftResultToOtlp, pushOtlp, resolveTelemetryConfig } from "../output/otlp";
+import { version as cliVersion } from "../../package.json";
 
 export function registerDriftCommand(program: Command, _deps: { runner: SubprocessRunner }): void {
   program
@@ -18,27 +20,45 @@ export function registerDriftCommand(program: Command, _deps: { runner: Subproce
         "  1  Drift found",
     )
     .option("--json", "Output raw DriftResult JSON for CI parsing")
+    .option("--push", "Push results as OTLP to CLEF_TELEMETRY_URL")
     .option("--namespace <name...>", "Scope to specific namespace(s)")
-    .action(async (remotePath: string, options: { json?: boolean; namespace?: string[] }) => {
-      try {
-        const localRoot = (program.opts().dir as string) || process.cwd();
-        const remoteRoot = path.resolve(localRoot, remotePath);
+    .action(
+      async (
+        remotePath: string,
+        options: { json?: boolean; push?: boolean; namespace?: string[] },
+      ) => {
+        try {
+          const localRoot = (program.opts().dir as string) || process.cwd();
+          const remoteRoot = path.resolve(localRoot, remotePath);
 
-        const detector = new DriftDetector();
-        const result = detector.detect(localRoot, remoteRoot, options.namespace);
+          const detector = new DriftDetector();
+          const result = detector.detect(localRoot, remoteRoot, options.namespace);
 
-        if (options.json) {
-          formatter.raw(JSON.stringify(result, null, 2) + "\n");
+          if (options.push) {
+            const config = resolveTelemetryConfig();
+            if (!config) {
+              formatter.error("--push requires CLEF_TELEMETRY_URL to be set.");
+              process.exit(1);
+              return;
+            }
+            const payload = driftResultToOtlp(result, cliVersion);
+            await pushOtlp(payload, config);
+            formatter.success("Drift results pushed to telemetry endpoint.");
+          }
+
+          if (options.json) {
+            formatter.raw(JSON.stringify(result, null, 2) + "\n");
+            process.exit(result.issues.length > 0 ? 1 : 0);
+          }
+
+          formatDriftOutput(result);
           process.exit(result.issues.length > 0 ? 1 : 0);
+        } catch (err) {
+          formatter.error((err as Error).message);
+          process.exit(1);
         }
-
-        formatDriftOutput(result);
-        process.exit(result.issues.length > 0 ? 1 : 0);
-      } catch (err) {
-        formatter.error((err as Error).message);
-        process.exit(1);
-      }
-    });
+      },
+    );
 }
 
 function formatDriftOutput(result: DriftResult): void {

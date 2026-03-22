@@ -15,10 +15,13 @@ import {
   HttpArtifactSource,
   FileArtifactSource,
   DiskCache,
+  TelemetryEmitter,
 } from "@clef-sh/runtime";
 import type { ArtifactSource } from "@clef-sh/runtime";
 import { startAgentServer } from "./server";
 import { Daemon } from "./lifecycle/daemon";
+
+import { version as agentVersion } from "../package.json";
 
 async function main(): Promise<void> {
   const config = resolveConfig();
@@ -69,6 +72,37 @@ async function main(): Promise<void> {
 
   await poller.fetchAndDecrypt();
 
+  // Telemetry setup — after first fetch so the auth token can be read from packed secrets
+  let telemetry: TelemetryEmitter | undefined;
+
+  if (config.telemetry) {
+    // Resolve auth headers from packed secrets
+    const headers: Record<string, string> = {};
+    const headersRaw = cache.get("CLEF_TELEMETRY_HEADERS");
+    const tokenRaw = cache.get("CLEF_TELEMETRY_TOKEN");
+    if (headersRaw) {
+      // Comma-separated key=value pairs (OTEL convention)
+      for (const pair of headersRaw.split(",")) {
+        const eq = pair.indexOf("=");
+        if (eq > 0) headers[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim();
+      }
+    } else if (tokenRaw) {
+      headers["Authorization"] = `Bearer ${tokenRaw}`;
+    }
+
+    const sourceType = config.vcs ? "vcs" : config.source?.startsWith("http") ? "http" : "file";
+    telemetry = new TelemetryEmitter({
+      url: config.telemetry.url,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
+      version: agentVersion,
+      agentId: config.agentId,
+      identity: config.vcs?.identity ?? "unknown",
+      environment: config.vcs?.environment ?? "unknown",
+      sourceType,
+    });
+    poller.setTelemetry(telemetry);
+  }
+
   const server = await startAgentServer({
     port: config.port,
     token: config.token,
@@ -79,9 +113,11 @@ async function main(): Promise<void> {
   const daemon = new Daemon({
     poller,
     server,
+    telemetry,
     onLog: (msg) => console.log(`[clef-agent] ${msg}`),
   });
 
+  telemetry?.agentStarted({ version: agentVersion });
   console.log(`[clef-agent] token: ${config.token.slice(0, 8)}...`);
   await daemon.start();
 }

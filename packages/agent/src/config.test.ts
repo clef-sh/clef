@@ -86,6 +86,36 @@ describe("resolveConfig", () => {
     expect(config2.token).toHaveLength(64);
   });
 
+  it("should auto-generate agentId when not set", () => {
+    const config = resolveConfig(baseEnv);
+    expect(config.agentId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+  });
+
+  it("should use custom agentId", () => {
+    const config = resolveConfig({ ...baseEnv, CLEF_AGENT_ID: "my-agent-001" });
+    expect(config.agentId).toBe("my-agent-001");
+  });
+
+  describe("telemetry configuration", () => {
+    it("should resolve telemetry when URL is set", () => {
+      const config = resolveConfig({
+        ...baseEnv,
+        CLEF_AGENT_TELEMETRY_URL: "https://telemetry.example.com/v1/events",
+      });
+
+      expect(config.telemetry).toEqual({
+        url: "https://telemetry.example.com/v1/events",
+      });
+    });
+
+    it("should have no telemetry when URL is not set", () => {
+      const config = resolveConfig(baseEnv);
+      expect(config.telemetry).toBeUndefined();
+    });
+  });
+
   describe("VCS configuration", () => {
     const vcsEnv = {
       CLEF_AGENT_VCS_PROVIDER: "github",

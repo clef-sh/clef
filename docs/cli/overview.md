@@ -25,11 +25,13 @@ The CLI is built on [commander.js](https://github.com/tj/commander.js) and follo
 
 ### Validation & visibility
 
-| Command                  | Description                                           | Arguments & flags                                                            |
-| ------------------------ | ----------------------------------------------------- | ---------------------------------------------------------------------------- |
-| [`clef lint`](/cli/lint) | Full repo health check — matrix, schemas, drift, SOPS | `--fix`, `--json`                                                            |
-| [`clef diff`](/cli/diff) | Compare secrets between two environments              | `<namespace> <env-a> <env-b>`, `--show-identical`, `--show-values`, `--json` |
-| [`clef scan`](/cli/scan) | Scan repo for leaked plaintext secrets                | `[paths...]`, `--staged`, `--severity <level>`, `--json`                     |
+| Command                      | Description                                           | Arguments & flags                                                                 |
+| ---------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------- |
+| [`clef lint`](/cli/lint)     | Full repo health check — matrix, schemas, drift, SOPS | `--fix`, `--json`, `--push`                                                       |
+| [`clef diff`](/cli/diff)     | Compare secrets between two environments              | `<namespace> <env-a> <env-b>`, `--show-identical`, `--show-values`, `--json`      |
+| [`clef scan`](/cli/scan)     | Scan repo for leaked plaintext secrets                | `[paths...]`, `--staged`, `--severity <level>`, `--json`                          |
+| [`clef drift`](/cli/drift)   | Detect drift between manifest and encrypted files     | `--json`, `--push`                                                                |
+| [`clef report`](/cli/report) | Generate a metadata report for the repository         | `--json`, `--push`, `--at <sha>`, `--since <sha>`, `--namespace`, `--environment` |
 
 ### Key & recipient management
 
@@ -58,14 +60,16 @@ The CLI is built on [commander.js](https://github.com/tj/commander.js) and follo
 | [`clef service list`](/cli/service)   | List all service identities                          | —                                              |
 | [`clef service show`](/cli/service)   | Show details of a service identity                   | `<name>`                                       |
 | [`clef service rotate`](/cli/service) | Rotate keys for a service identity                   | `<name>`, `-e <env>`                           |
-| [`clef pack`](/cli/pack)              | Pack an encrypted artifact for a service identity    | `<identity> <env>`, `-o <path>`                |
+| [`clef pack`](/cli/pack)              | Pack an encrypted artifact for a service identity    | `<identity> <env>`, `-o <path>`, `--ttl <sec>` |
+| [`clef revoke`](/cli/revoke)          | Revoke a packed artifact (emergency brake)           | `<identity> <env>`                             |
 
 ### Interface & integration
 
-| Command                                  | Description                                            | Flags                        |
-| ---------------------------------------- | ------------------------------------------------------ | ---------------------------- |
-| [`clef ui`](/cli/ui)                     | Start the local web UI                                 | `--port <port>`, `--no-open` |
-| [`clef merge-driver`](/cli/merge-driver) | Git merge driver for encrypted files (auto-configured) | —                            |
+| Command                                  | Description                                            | Flags                          |
+| ---------------------------------------- | ------------------------------------------------------ | ------------------------------ |
+| [`clef ui`](/cli/ui)                     | Start the local web UI                                 | `--port <port>`, `--no-open`   |
+| [`clef merge-driver`](/cli/merge-driver) | Git merge driver for encrypted files (auto-configured) | —                              |
+| [`clef agent`](/cli/agent)               | Start the runtime secrets agent sidecar                | See [agent docs](/guide/agent) |
 
 ## Global options
 

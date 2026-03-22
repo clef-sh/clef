@@ -1,4 +1,4 @@
-import { randomBytes } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 
 /** VCS provider configuration for fetching artifacts from git. */
 export interface VcsConfig {
@@ -9,6 +9,12 @@ export interface VcsConfig {
   environment: string;
   ref?: string;
   apiUrl?: string;
+}
+
+/** Telemetry configuration resolved from environment. */
+export interface TelemetryConfig {
+  /** Endpoint URL for telemetry delivery. */
+  url: string;
 }
 
 /** Resolved agent configuration. */
@@ -29,6 +35,10 @@ export interface AgentConfig {
   ageKeyFile?: string;
   /** Bearer token for API authentication. Auto-generated if not set. */
   token: string;
+  /** Unique agent instance ID. Auto-generated if not set. */
+  agentId: string;
+  /** Telemetry configuration. Present when CLEF_AGENT_TELEMETRY_URL is set. Token is read from packed secrets (CLEF_TELEMETRY_TOKEN key). */
+  telemetry?: TelemetryConfig;
 }
 
 /** Errors describing missing or invalid configuration. */
@@ -58,6 +68,8 @@ export class ConfigError extends Error {
  * | CLEF_AGENT_AGE_KEY             | —              | Inline age private key               |
  * | CLEF_AGENT_AGE_KEY_FILE        | —              | Path to age key file                 |
  * | CLEF_AGENT_TOKEN               | auto-generated | Bearer token for API auth            |
+ * | CLEF_AGENT_ID                  | auto-generated | Unique agent instance ID             |
+ * | CLEF_AGENT_TELEMETRY_URL       | —              | Telemetry endpoint URL               |
  */
 export function resolveConfig(env: Record<string, string | undefined> = process.env): AgentConfig {
   const source = env.CLEF_AGENT_SOURCE;
@@ -129,5 +141,11 @@ export function resolveConfig(env: Record<string, string | undefined> = process.
 
   const token = env.CLEF_AGENT_TOKEN ?? randomBytes(32).toString("hex");
 
-  return { source, vcs, cachePath, port, cacheTtl, ageKey, ageKeyFile, token };
+  const agentId = env.CLEF_AGENT_ID ?? randomUUID();
+
+  // Telemetry: URL enables telemetry; auth token is read from packed secrets (CLEF_TELEMETRY_TOKEN)
+  const telemetryUrl = env.CLEF_AGENT_TELEMETRY_URL;
+  const telemetry: TelemetryConfig | undefined = telemetryUrl ? { url: telemetryUrl } : undefined;
+
+  return { source, vcs, cachePath, port, cacheTtl, ageKey, ageKeyFile, token, agentId, telemetry };
 }
