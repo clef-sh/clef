@@ -5,6 +5,7 @@ import {
   resolveTelemetryConfig,
   pushOtlp,
   parseHeaders,
+  fetchCheckpoint,
 } from "./otlp";
 import type { LintResult, DriftResult, ClefReport } from "@clef-sh/core";
 
@@ -413,6 +414,77 @@ describe("OTLP serializers", () => {
       await expect(
         pushOtlp("{}", { url: "https://otel.example.com/v1/logs", headers: {} }),
       ).rejects.toThrow("Telemetry push failed: 401 Unauthorized");
+    });
+  });
+
+  describe("fetchCheckpoint", () => {
+    const originalFetch = global.fetch;
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    it("should derive checkpoint URL from telemetry URL", async () => {
+      const mockFetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({ lastCommitSha: "abc123", lastTimestamp: "2026-03-22T12:00:00Z" }),
+      });
+      global.fetch = mockFetch;
+
+      await fetchCheckpoint({
+        url: "https://otel.example.com/v1/logs",
+        headers: { Authorization: "Bearer tok" },
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith("https://otel.example.com/v1/checkpoint", {
+        method: "GET",
+        headers: { Authorization: "Bearer tok" },
+      });
+    });
+
+    it("should return checkpoint data on 200", async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({ lastCommitSha: "abc123", lastTimestamp: "2026-03-22T12:00:00Z" }),
+      });
+
+      const result = await fetchCheckpoint({
+        url: "https://otel.example.com/v1/logs",
+        headers: {},
+      });
+
+      expect(result).toEqual({
+        lastCommitSha: "abc123",
+        lastTimestamp: "2026-03-22T12:00:00Z",
+      });
+    });
+
+    it("should return null checkpoint on 404", async () => {
+      global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 404 });
+
+      const result = await fetchCheckpoint({
+        url: "https://otel.example.com/v1/logs",
+        headers: {},
+      });
+
+      expect(result).toEqual({ lastCommitSha: null, lastTimestamp: null });
+    });
+
+    it("should throw on non-404 error", async () => {
+      global.fetch = jest
+        .fn()
+        .mockResolvedValue({ ok: false, status: 401, statusText: "Unauthorized" });
+
+      await expect(
+        fetchCheckpoint({
+          url: "https://otel.example.com/v1/logs",
+          headers: {},
+        }),
+      ).rejects.toThrow("Checkpoint fetch failed: 401 Unauthorized");
     });
   });
 });

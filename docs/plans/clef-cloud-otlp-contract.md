@@ -51,7 +51,9 @@ This document defines the complete contract: every event type, every attribute, 
 
 ---
 
-## Endpoint
+## Endpoints
+
+### `POST /v1/logs` — OTLP ingestion
 
 ```
 POST /v1/logs
@@ -64,6 +66,34 @@ Authorization: <configurable via headers>
 **Error codes:** `401` (bad auth), `413` (batch too large), `429` (rate limited), `500`/`503` (server error).
 
 The endpoint MUST accept the OTLP JSON encoding as specified in the [OTLP/HTTP spec](https://opentelemetry.io/docs/specs/otlp/#otlphttp). Protobuf encoding is not required.
+
+### `GET /v1/checkpoint` — report gap-fill
+
+```
+GET /v1/checkpoint
+Authorization: <same headers as POST /v1/logs>
+```
+
+**Response `200`:**
+
+```json
+{ "lastCommitSha": "abc123...", "lastTimestamp": "2026-03-22T12:00:00Z" }
+```
+
+**Response `404`:** No reports received yet for this integration.
+
+```json
+{ "lastCommitSha": null, "lastTimestamp": null }
+```
+
+The API key resolves to an integration on the backend — no query parameters needed. The checkpoint is updated whenever the backend ingests a `clef.report.summary` event with a `clef.repo.commit` resource attribute.
+
+**Used by:** `clef report --push` to determine which commits need gap-filling. The CLI flow:
+
+1. `GET /v1/checkpoint` → get last known commit
+2. If `null` → push HEAD report only (first push)
+3. If same as HEAD → "already up to date"
+4. If different → `git log lastCommitSha..HEAD`, generate + push range
 
 ---
 

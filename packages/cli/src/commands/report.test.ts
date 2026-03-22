@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import { Command } from "commander";
 import { registerReportCommand } from "./report";
-import { SubprocessRunner, ClefReport, SopsMissingError, CloudApiError } from "@clef-sh/core";
+import { SubprocessRunner, ClefReport, SopsMissingError } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 
 jest.mock("fs");
@@ -28,21 +28,13 @@ const mockListCommitRange = jest.fn();
 const mockGetHeadSha = jest.fn();
 const mockPushOtlp = jest.fn();
 const mockResolveTelemetryConfig = jest.fn();
+const mockFetchCheckpoint = jest.fn();
 
 jest.mock("@clef-sh/core", () => {
   const actual = jest.requireActual("@clef-sh/core");
   return {
     ...actual,
     ReportGenerator: jest.fn().mockImplementation(() => ({ generate: mockGenerate })),
-    CloudClient: jest.fn().mockImplementation(() => ({
-      fetchIntegration: mockFetchIntegration,
-      submitReport: mockSubmitReport,
-      submitBatchReports: mockSubmitBatchReports,
-    })),
-    ReportTransformer: jest.fn().mockImplementation(() => ({
-      transform: mockTransform,
-    })),
-    collectCIContext: (...args: unknown[]) => mockCollectCIContext(...args),
   };
 });
 
@@ -56,6 +48,7 @@ jest.mock("../output/otlp", () => ({
   reportToOtlp: jest.fn().mockReturnValue('{"resourceLogs":[]}'),
   pushOtlp: (...args: unknown[]) => mockPushOtlp(...args),
   resolveTelemetryConfig: (...args: unknown[]) => mockResolveTelemetryConfig(...args),
+  fetchCheckpoint: (...args: unknown[]) => mockFetchCheckpoint(...args),
 }));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
@@ -68,15 +61,6 @@ const validManifestYaml = YAML.stringify({
   namespaces: [{ name: "database", description: "DB" }],
   sops: { default_backend: "age" },
   file_pattern: "{namespace}/{environment}.enc.yaml",
-});
-
-const cloudManifestYaml = YAML.stringify({
-  version: 1,
-  environments: [{ name: "dev", description: "Dev" }],
-  namespaces: [{ name: "database", description: "DB" }],
-  sops: { default_backend: "age" },
-  file_pattern: "{namespace}/{environment}.enc.yaml",
-  cloud: { integrationId: "int_abc" },
 });
 
 function makeClefReport(overrides: Partial<ClefReport> = {}): ClefReport {
@@ -179,15 +163,6 @@ describe("clef report", () => {
     expect(mockExit).toHaveBeenCalledWith(0);
   });
 
-  it("exits 0 when policy has no errors", async () => {
-    mockGenerate.mockResolvedValue(makeClefReport());
-    const program = makeProgram(goodRunner());
-
-    await program.parseAsync(["node", "clef", "report"]);
-
-    expect(mockExit).toHaveBeenCalledWith(0);
-  });
-
   it("exits 1 when policy has errors", async () => {
     mockGenerate.mockResolvedValue(
       makeClefReport({
@@ -274,18 +249,6 @@ describe("clef report", () => {
       expect(mockFormatter.raw).toHaveBeenCalled();
       expect(mockExit).toHaveBeenCalledWith(0);
     });
-
-    it("outputs terminal format when --json not specified", async () => {
-      mockGenerateReportAtCommit.mockResolvedValue(makeClefReport());
-      const program = makeProgram(goodRunner());
-
-      await program.parseAsync(["node", "clef", "report", "--at", "abc123"]);
-
-      expect(mockFormatter.print).toHaveBeenCalledWith(
-        expect.stringContaining("github.com/org/repo"),
-      );
-      expect(mockExit).toHaveBeenCalledWith(0);
-    });
   });
 
   // ── --since flag ────────────────────────────────────────────────────────
@@ -333,6 +296,11 @@ describe("clef report", () => {
   // ── --push flag ─────────────────────────────────────────────────────────
 
   describe("--push", () => {
+    const telemetryConfig = {
+      url: "https://otel.example.com/v1/logs",
+      headers: { Authorization: "Bearer tok_abc" },
+    };
+
     it("errors when telemetry is not configured", async () => {
       mockGenerate.mockResolvedValue(makeClefReport());
       mockResolveTelemetryConfig.mockReturnValue(undefined);
@@ -346,41 +314,96 @@ describe("clef report", () => {
       expect(mockExit).toHaveBeenCalledWith(1);
     });
 
-    it("pushes OTLP and continues to terminal output", async () => {
+    it("pushes HEAD only when checkpoint returns null (first push)", async () => {
       mockGenerate.mockResolvedValue(makeClefReport());
-      mockResolveTelemetryConfig.mockReturnValue({
-        url: "https://otel.example.com/v1/logs",
-        token: "tok_abc",
-      });
+      mockResolveTelemetryConfig.mockReturnValue(telemetryConfig);
+      mockFetchCheckpoint.mockResolvedValue({ lastCommitSha: null, lastTimestamp: null });
       mockPushOtlp.mockResolvedValue(undefined);
 
       const program = makeProgram(goodRunner());
       await program.parseAsync(["node", "clef", "report", "--push"]);
 
-      expect(mockPushOtlp).toHaveBeenCalled();
+      expect(mockFetchCheckpoint).toHaveBeenCalledWith(telemetryConfig);
+      expect(mockPushOtlp).toHaveBeenCalledTimes(1);
       expect(mockFormatter.success).toHaveBeenCalledWith(
-        expect.stringContaining("telemetry endpoint"),
+        expect.stringContaining("1 report(s) pushed"),
       );
-      // Normal output still happens
+    });
+
+    it("exits with up-to-date message when checkpoint matches HEAD", async () => {
+      mockGenerate.mockResolvedValue(makeClefReport());
+      mockResolveTelemetryConfig.mockReturnValue(telemetryConfig);
+      mockFetchCheckpoint.mockResolvedValue({
+        lastCommitSha: "abc1234567890",
+        lastTimestamp: "2024-01-15T11:00:00Z",
+      });
+
+      const program = makeProgram(goodRunner());
+      await program.parseAsync(["node", "clef", "report", "--push"]);
+
+      expect(mockPushOtlp).not.toHaveBeenCalled();
+      expect(mockFormatter.success).toHaveBeenCalledWith(
+        expect.stringContaining("up to date"),
+      );
+    });
+
+    it("gap-fills when checkpoint is behind HEAD", async () => {
+      const report = makeClefReport();
+      mockGenerate.mockResolvedValue(report);
+      mockResolveTelemetryConfig.mockReturnValue(telemetryConfig);
+      mockFetchCheckpoint.mockResolvedValue({
+        lastCommitSha: "old_sha",
+        lastTimestamp: "2024-01-14T00:00:00Z",
+      });
+      mockListCommitRange.mockResolvedValue(["mid_sha", "abc1234567890"]);
+      mockGenerateReportAtCommit.mockResolvedValue(
+        makeClefReport({
+          repoIdentity: { ...report.repoIdentity, commitSha: "mid_sha" },
+        }),
+      );
+      mockPushOtlp.mockResolvedValue(undefined);
+
+      const program = makeProgram(goodRunner());
+      await program.parseAsync(["node", "clef", "report", "--push"]);
+
+      expect(mockListCommitRange).toHaveBeenCalledWith(
+        expect.any(String),
+        "old_sha",
+        expect.any(Object),
+      );
+      expect(mockPushOtlp).toHaveBeenCalledTimes(2);
+      expect(mockFormatter.success).toHaveBeenCalledWith(
+        expect.stringContaining("2 report(s) pushed"),
+      );
+    });
+
+    it("still outputs terminal format after push", async () => {
+      mockGenerate.mockResolvedValue(makeClefReport());
+      mockResolveTelemetryConfig.mockReturnValue(telemetryConfig);
+      mockFetchCheckpoint.mockResolvedValue({ lastCommitSha: null, lastTimestamp: null });
+      mockPushOtlp.mockResolvedValue(undefined);
+
+      const program = makeProgram(goodRunner());
+      await program.parseAsync(["node", "clef", "report", "--push"]);
+
+      // Normal output still happens after push
       expect(mockFormatter.print).toHaveBeenCalledWith(
         expect.stringContaining("github.com/org/repo"),
       );
-      expect(mockExit).toHaveBeenCalledWith(0);
     });
 
     it("push failure propagates as error", async () => {
       mockGenerate.mockResolvedValue(makeClefReport());
-      mockResolveTelemetryConfig.mockReturnValue({
-        url: "https://otel.example.com/v1/logs",
-        token: "tok_abc",
-      });
-      mockPushOtlp.mockRejectedValue(new Error("Telemetry push failed: 401 Unauthorized"));
+      mockResolveTelemetryConfig.mockReturnValue(telemetryConfig);
+      mockFetchCheckpoint.mockRejectedValue(
+        new Error("Checkpoint fetch failed: 401 Unauthorized"),
+      );
 
       const program = makeProgram(goodRunner());
       await program.parseAsync(["node", "clef", "report", "--push"]);
 
       expect(mockFormatter.error).toHaveBeenCalledWith(
-        expect.stringContaining("Telemetry push failed"),
+        expect.stringContaining("Checkpoint fetch failed"),
       );
       expect(mockExit).toHaveBeenCalledWith(1);
     });

@@ -287,3 +287,33 @@ export async function pushOtlp(payload: string, config: TelemetryPushConfig): Pr
     throw new Error(`Telemetry push failed: ${res.status} ${res.statusText}`);
   }
 }
+
+// ── Checkpoint ───────────────────────────────────────────────────────────────
+
+/** Response from the checkpoint endpoint. */
+export interface Checkpoint {
+  lastCommitSha: string | null;
+  lastTimestamp: string | null;
+}
+
+/**
+ * Fetch the last known commit SHA from the telemetry backend.
+ *
+ * The API key resolves to an integration on the backend — no repo param needed.
+ * The checkpoint URL is derived from the telemetry URL by replacing `/v1/logs`
+ * with `/v1/checkpoint`.
+ */
+export async function fetchCheckpoint(config: TelemetryPushConfig): Promise<Checkpoint> {
+  const checkpointUrl = config.url.replace(/\/v1\/logs$/, "/v1/checkpoint");
+  const res = await fetch(checkpointUrl, {
+    method: "GET",
+    headers: config.headers,
+  });
+  if (res.status === 404) {
+    return { lastCommitSha: null, lastTimestamp: null };
+  }
+  if (!res.ok) {
+    throw new Error(`Checkpoint fetch failed: ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as Checkpoint;
+}

@@ -1,26 +1,24 @@
-import * as path from "path";
 import pc from "picocolors";
 import { Command } from "commander";
 import {
   ClefReport,
-  CloudApiError,
-  CloudApiReport,
-  CloudClient,
-  ManifestParser,
   MatrixManager,
   ReportGenerator,
-  ReportTransformer,
   SchemaValidator,
   SopsMissingError,
   SopsVersionError,
   SubprocessRunner,
-  collectCIContext,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
 import { generateReportAtCommit, getHeadSha, listCommitRange } from "../report/historical";
-import { reportToOtlp, pushOtlp, resolveTelemetryConfig } from "../output/otlp";
+import {
+  reportToOtlp,
+  pushOtlp,
+  resolveTelemetryConfig,
+  fetchCheckpoint,
+} from "../output/otlp";
 import { version as cliVersion } from "../../package.json";
 
 export function registerReportCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -35,7 +33,7 @@ export function registerReportCommand(program: Command, deps: { runner: Subproce
         "  1  Errors found",
     )
     .option("--json", "Output full report as JSON")
-    .option("--push", "Push report as OTLP to CLEF_TELEMETRY_URL")
+    .option("--push", "Push report as OTLP to CLEF_TELEMETRY_URL (with automatic gap-fill)")
     .option("--at <sha>", "Generate report at a specific commit")
     .option("--since <sha>", "Generate reports for all commits since <sha>")
     .option("--namespace <name...>", "Filter to namespace(s)")
@@ -60,12 +58,12 @@ export function registerReportCommand(program: Command, deps: { runner: Subproce
               cliVersion,
               deps.runner,
             );
-            await maybePush(report, cliVersion, options.push);
+            await maybePush(report, options.push);
             outputReport(report, options);
             return;
           }
 
-          // ── Generate HEAD report (used by default, --since) ─────────────
+          // ── Generate HEAD report (used by default, --push, --since) ─────
           const sopsClient = await createSopsClient(repoRoot, deps.runner);
           const matrixManager = new MatrixManager();
           const schemaValidator = new SchemaValidator();
@@ -81,6 +79,13 @@ export function registerReportCommand(program: Command, deps: { runner: Subproce
             environmentFilter: options.environment,
           });
 
+          // ── --push: checkpoint + gap-fill + push ──────────────────────
+          if (options.push) {
+            await pushWithGapFill(repoRoot, headReport, deps.runner);
+            outputReport(headReport, options);
+            return;
+          }
+
           // ── --since <sha>: range of reports ─────────────────────────────
           if (options.since) {
             const commits = await listCommitRange(repoRoot, options.since, deps.runner);
@@ -91,12 +96,11 @@ export function registerReportCommand(program: Command, deps: { runner: Subproce
               if (sha === headSha) {
                 reports.push(headReport);
               } else {
-                reports.push(await generateReportAtCommit(repoRoot, sha, cliVersion, deps.runner));
+                reports.push(
+                  await generateReportAtCommit(repoRoot, sha, cliVersion, deps.runner),
+                );
               }
             }
-
-            // Push the HEAD report as OTLP (summary of latest state)
-            await maybePush(headReport, cliVersion, options.push);
 
             if (options.json) {
               formatter.raw(JSON.stringify(reports, null, 2) + "\n");
@@ -116,15 +120,8 @@ export function registerReportCommand(program: Command, deps: { runner: Subproce
           }
 
           // ── Default: output single report ───────────────────────────────
-          await maybePush(headReport, cliVersion, options.push);
           outputReport(headReport, options);
         } catch (err) {
-          if (err instanceof CloudApiError) {
-            formatter.error(err.message);
-            if (err.fix) formatter.hint(err.fix);
-            process.exit(1);
-            return;
-          }
           if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
             formatter.formatDependencyError(err);
             process.exit(1);
@@ -137,8 +134,65 @@ export function registerReportCommand(program: Command, deps: { runner: Subproce
     );
 }
 
-/** Push report as OTLP if --push is set and telemetry is configured. */
-async function maybePush(report: ClefReport, cliVersion: string, push?: boolean): Promise<void> {
+/**
+ * Push reports with automatic gap-fill.
+ *
+ * 1. Resolve telemetry config
+ * 2. Fetch checkpoint (last known commit for this repo)
+ * 3. If no checkpoint → push HEAD only
+ * 4. If checkpoint === HEAD → already up to date
+ * 5. Otherwise → generate reports for all commits since checkpoint, push each
+ */
+async function pushWithGapFill(
+  repoRoot: string,
+  headReport: ClefReport,
+  runner: SubprocessRunner,
+): Promise<void> {
+  const config = resolveTelemetryConfig();
+  if (!config) {
+    formatter.error("--push requires CLEF_TELEMETRY_URL to be set.");
+    process.exit(1);
+    return;
+  }
+
+  const headSha = headReport.repoIdentity.commitSha;
+
+  // 1. Fetch checkpoint (API key resolves to integration on the backend)
+  const checkpoint = await fetchCheckpoint(config);
+
+  // 2. Determine what to push
+  let reports: ClefReport[];
+
+  if (checkpoint.lastCommitSha === null) {
+    // First report ever — push HEAD only
+    reports = [headReport];
+  } else if (checkpoint.lastCommitSha === headSha) {
+    formatter.success("Already up to date — no new commits to report.");
+    return;
+  } else {
+    // Gap-fill: generate reports for all commits since checkpoint
+    const commits = await listCommitRange(repoRoot, checkpoint.lastCommitSha, runner);
+    reports = [];
+    for (const sha of commits) {
+      if (sha === headSha) {
+        reports.push(headReport);
+      } else {
+        reports.push(await generateReportAtCommit(repoRoot, sha, cliVersion, runner));
+      }
+    }
+  }
+
+  // 3. Push each report as OTLP
+  for (const report of reports) {
+    const payload = reportToOtlp(report, cliVersion);
+    await pushOtlp(payload, config);
+  }
+
+  formatter.success(`${reports.length} report(s) pushed to telemetry endpoint.`);
+}
+
+/** Push a single report as OTLP (for --at). */
+async function maybePush(report: ClefReport, push?: boolean): Promise<void> {
   if (!push) return;
 
   const config = resolveTelemetryConfig();
