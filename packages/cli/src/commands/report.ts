@@ -13,12 +13,7 @@ import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
 import { generateReportAtCommit, getHeadSha, listCommitRange } from "../report/historical";
-import {
-  reportToOtlp,
-  pushOtlp,
-  resolveTelemetryConfig,
-  fetchCheckpoint,
-} from "../output/otlp";
+import { reportToOtlp, pushOtlp, resolveTelemetryConfig, fetchCheckpoint } from "../output/otlp";
 import { version as cliVersion } from "../../package.json";
 
 export function registerReportCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -96,9 +91,7 @@ export function registerReportCommand(program: Command, deps: { runner: Subproce
               if (sha === headSha) {
                 reports.push(headReport);
               } else {
-                reports.push(
-                  await generateReportAtCommit(repoRoot, sha, cliVersion, deps.runner),
-                );
+                reports.push(await generateReportAtCommit(repoRoot, sha, cliVersion, deps.runner));
               }
             }
 

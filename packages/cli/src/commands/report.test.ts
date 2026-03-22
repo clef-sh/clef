@@ -342,9 +342,7 @@ describe("clef report", () => {
       await program.parseAsync(["node", "clef", "report", "--push"]);
 
       expect(mockPushOtlp).not.toHaveBeenCalled();
-      expect(mockFormatter.success).toHaveBeenCalledWith(
-        expect.stringContaining("up to date"),
-      );
+      expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("up to date"));
     });
 
     it("gap-fills when checkpoint is behind HEAD", async () => {
@@ -395,9 +393,7 @@ describe("clef report", () => {
     it("push failure propagates as error", async () => {
       mockGenerate.mockResolvedValue(makeClefReport());
       mockResolveTelemetryConfig.mockReturnValue(telemetryConfig);
-      mockFetchCheckpoint.mockRejectedValue(
-        new Error("Checkpoint fetch failed: 401 Unauthorized"),
-      );
+      mockFetchCheckpoint.mockRejectedValue(new Error("Checkpoint fetch failed: 401 Unauthorized"));
 
       const program = makeProgram(goodRunner());
       await program.parseAsync(["node", "clef", "report", "--push"]);
