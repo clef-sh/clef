@@ -40,6 +40,6 @@ export class AgeDecryptor {
       }
       return lines[0].trim();
     }
-    throw new Error("No age key available. Set CLEF_AGENT_AGE_KEY or CLEF_AGENT_AGE_KEY_FILE.");
+    throw new Error("No age key available. Set CLEF_AGE_KEY or CLEF_AGE_KEY_FILE.");
   }
 }

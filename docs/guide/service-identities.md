@@ -19,27 +19,51 @@ If your workload has access to git and `sops`, you can continue using [`clef exe
 
 ```mermaid
 flowchart LR
-  subgraph ci["CI Pipeline"]
-    pack["clef pack\napi-gateway production"]
-    upload["aws s3 cp / gsutil cp\n→ HTTP-accessible store"]
+  subgraph ci["CI"]
+    pack["clef pack"]
+    commit["git push"]
   end
-  subgraph runtime["Runtime (Container / Lambda)"]
-    agent["clef agent\npolls source URL"]
-    app["Application\nGET /v1/secrets/KEY"]
+  subgraph runtime["Runtime"]
+    agent["Agent / Runtime"]
+    app["Application"]
   end
-  kms["Secrets Manager or KMS\n(private key at runtime)"]
+  kms["KMS\n(private key)"]
 
-  pack -->|"1. decrypt SOPS files\n2. age-encrypt to recipient\n3. write artifact.json"| upload
-  upload -->|"HTTP URL"| agent
-  agent -->|"fetch → decrypt → cache"| app
-  kms -->|"provide private key"| agent
+  pack -->|"re-encrypt"| commit
+  commit -->|"VCS API"| agent
+  agent -->|"plaintext"| app
+  kms -->|"private key"| agent
 ```
 
 1. **`clef service create`** generates an age key pair per environment, registers the public keys as SOPS recipients on scoped files, and prints the private keys once
 2. The operator stores each private key in the environment's secret manager (e.g. AWS Secrets Manager) — or wraps it with a cloud KMS key
 3. **`clef pack`** decrypts scoped SOPS files, age-encrypts all values as a single blob to the environment's public key, and writes a JSON artifact
-4. **CI uploads** the artifact to any HTTP-accessible store (S3, GCS, Azure Blob, etc.)
-5. **The Clef Agent** fetches the artifact, decrypts in memory with the private key, and serves secrets via localhost HTTP
+4. **CI commits** the artifact to `.clef/packed/{identity}/{environment}.age` in git
+5. At runtime, the **agent** or **`@clef-sh/runtime`** fetches the artifact via the VCS provider API, decrypts in memory with the private key, and serves secrets
+
+### Two separate key pairs
+
+The security model relies on a clean separation between two independent key pairs:
+
+| Key pair                  | Held by               | Purpose                                              |
+| ------------------------- | --------------------- | ---------------------------------------------------- |
+| **Team / deploy keys**    | Developers and CI     | Decrypt SOPS files (the repo's encrypted secrets)    |
+| **Service identity keys** | Runtime workload only | Decrypt packed artifacts scoped to a single identity |
+
+The flow through both key pairs:
+
+```
+SOPS files (encrypted to team age keys)
+    ↓  CI decrypts with deploy key
+Plaintext secrets (in memory, never on disk)
+    ↓  clef pack re-encrypts to service identity's PUBLIC key
+Packed artifact (ciphertext only, committed to git)
+    ↓  Agent fetches via VCS API
+    ↓  Decrypts with service identity's PRIVATE key
+Plaintext secrets (in memory, served via localhost)
+```
+
+This separation means the CI runner can pack artifacts for any service identity without ever holding that identity's private key. And the service identity can only decrypt the namespaces it was scoped to, not the entire repo.
 
 ## Manifest schema
 
@@ -191,16 +215,7 @@ clef pack api-gateway production \
   --output ./artifact.json
 ```
 
-The `pack` command decrypts all scoped SOPS files, age-encrypts the merged values as a single blob to the identity's public key, and writes a JSON artifact. Upload the artifact to an HTTP-accessible store for the agent to consume.
-
-```bash
-# Upload with your CI tools (Clef has zero cloud SDK dependencies)
-aws s3 cp ./artifact.json s3://my-bucket/clef/api-gateway/production.json
-```
-
-::: warning Do not commit artifacts
-The generated file contains encrypted secrets. Add the output path to `.gitignore`. Generate artifacts in CI and upload them to your secrets store.
-:::
+The `pack` command decrypts all scoped SOPS files, age-encrypts the merged values as a single blob to the identity's public key, and writes a JSON artifact. Commit the artifact to `.clef/packed/` in your repository so the agent can fetch it via the VCS API at runtime.
 
 ## AWS Lambda walkthrough
 
@@ -245,17 +260,17 @@ Grant your Lambda execution role permission to read this secret:
 }
 ```
 
-### 4. Pack and upload in CI
+### 4. Pack and commit in CI
 
 ```yaml
-# .github/workflows/deploy.yml
-name: Deploy
+# .github/workflows/pack.yml
+name: Pack Secrets
 on:
   push:
     branches: [main]
 
 jobs:
-  deploy:
+  pack:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -272,46 +287,50 @@ jobs:
           CLEF_AGE_KEY: ${{ secrets.CLEF_DEPLOY_KEY }}
         run: |
           npx @clef-sh/cli pack api-lambda production \
-            --output ./artifact.json
+            --output .clef/packed/api-lambda/production.age
 
-      - name: Upload to S3
+      - name: Commit packed artifact
         run: |
-          aws s3 cp ./artifact.json \
-            s3://my-bucket/clef/api-lambda/production.json
-
-      - name: Deploy to Lambda
-        run: |
-          cd dist
-          zip -r function.zip index.mjs
-          aws lambda update-function-code \
-            --function-name api-handler \
-            --zip-file fileb://function.zip
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .clef/packed/
+          git commit -m "chore: pack api-lambda/production" || echo "No changes"
+          git push
 ```
 
 ::: info Why does the CI runner need a deploy key?
 The `clef pack` command must decrypt SOPS files to re-encrypt them for the service identity. The CI runner needs a key that can decrypt the `api` namespace in the `production` environment — this is the same `CLEF_AGE_KEY` you would use for `clef exec`. The service identity's own private key is not used during packing.
 :::
 
-### 5. Configure the agent as a Lambda Extension
+### 5. Use `@clef-sh/runtime` in your Lambda handler
 
-The Clef Agent runs as a sidecar or Lambda Extension, fetching the artifact and serving secrets via localhost HTTP:
+Import `@clef-sh/runtime` directly — no sidecar, no Extension, no extra process. The runtime fetches the packed artifact from GitHub on cold start and caches it in memory:
+
+```bash
+npm install @clef-sh/runtime
+```
 
 ```javascript
 // index.mjs
-const AGENT_URL = "http://127.0.0.1:7779";
-const TOKEN = process.env.CLEF_AGENT_TOKEN;
+import { init } from "@clef-sh/runtime";
 
-async function getSecret(key) {
-  const res = await fetch(`${AGENT_URL}/v1/secrets/${key}`, {
-    headers: { Authorization: `Bearer ${TOKEN}` },
-  });
-  const { value } = await res.json();
-  return value;
-}
+let runtime;
 
 export async function handler(event) {
-  const dbUrl = await getSecret("DATABASE_URL");
-  const apiKey = await getSecret("STRIPE_KEY");
+  if (!runtime) {
+    runtime = await init({
+      provider: "github",
+      repo: "org/secrets",
+      identity: "api-lambda",
+      environment: "production",
+      token: process.env.CLEF_VCS_TOKEN,
+      ageKey: process.env.CLEF_AGE_KEY,
+      cachePath: "/tmp/.clef-cache",
+    });
+  }
+
+  const dbUrl = runtime.get("DATABASE_URL");
+  const apiKey = runtime.get("STRIPE_KEY");
 
   return {
     statusCode: 200,
@@ -319,6 +338,8 @@ export async function handler(event) {
   };
 }
 ```
+
+Set `CLEF_VCS_TOKEN` and `CLEF_AGE_KEY` as Lambda environment variables (encrypted via AWS console or SSM). The `cachePath` enables disk fallback so subsequent warm invocations survive transient GitHub API failures.
 
 ## Drift detection
 

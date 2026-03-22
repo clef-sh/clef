@@ -1,4 +1,4 @@
-import { ArtifactPoller } from "../poller";
+import { ArtifactPoller } from "@clef-sh/runtime";
 import { AgentServerHandle } from "../server";
 
 /** Event types returned by the Lambda Extensions API. */

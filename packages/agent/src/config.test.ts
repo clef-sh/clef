@@ -6,7 +6,7 @@ describe("resolveConfig", () => {
     CLEF_AGENT_AGE_KEY: "AGE-SECRET-KEY-1TESTKEY",
   };
 
-  it("should resolve with minimal required env vars", () => {
+  it("should resolve with minimal required env vars (source)", () => {
     const config = resolveConfig(baseEnv);
 
     expect(config.source).toBe("https://bucket.s3.amazonaws.com/artifact.json");
@@ -14,6 +14,7 @@ describe("resolveConfig", () => {
     expect(config.pollInterval).toBe(30);
     expect(config.ageKey).toBe("AGE-SECRET-KEY-1TESTKEY");
     expect(config.token).toBeTruthy();
+    expect(config.vcs).toBeUndefined();
   });
 
   it("should use custom port", () => {
@@ -40,9 +41,11 @@ describe("resolveConfig", () => {
     expect(config.ageKey).toBeUndefined();
   });
 
-  it("should throw ConfigError when CLEF_AGENT_SOURCE is missing", () => {
+  it("should throw ConfigError when neither source nor VCS is set", () => {
     expect(() => resolveConfig({ CLEF_AGENT_AGE_KEY: "key" })).toThrow(ConfigError);
-    expect(() => resolveConfig({ CLEF_AGENT_AGE_KEY: "key" })).toThrow("CLEF_AGENT_SOURCE");
+    expect(() => resolveConfig({ CLEF_AGENT_AGE_KEY: "key" })).toThrow(
+      "Either CLEF_AGENT_SOURCE or VCS configuration",
+    );
   });
 
   it("should throw ConfigError when neither age key is set", () => {
@@ -76,5 +79,107 @@ describe("resolveConfig", () => {
     // Each call generates a new random token
     expect(config1.token).toHaveLength(64); // 32 bytes hex
     expect(config2.token).toHaveLength(64);
+  });
+
+  describe("VCS configuration", () => {
+    const vcsEnv = {
+      CLEF_AGENT_VCS_PROVIDER: "github",
+      CLEF_AGENT_VCS_REPO: "org/secrets",
+      CLEF_AGENT_VCS_TOKEN: "ghp_test123",
+      CLEF_AGENT_VCS_IDENTITY: "api-gateway",
+      CLEF_AGENT_VCS_ENVIRONMENT: "production",
+      CLEF_AGENT_AGE_KEY: "AGE-SECRET-KEY-1TESTKEY",
+    };
+
+    it("should resolve VCS config from env vars", () => {
+      const config = resolveConfig(vcsEnv);
+
+      expect(config.vcs).toEqual({
+        provider: "github",
+        repo: "org/secrets",
+        token: "ghp_test123",
+        identity: "api-gateway",
+        environment: "production",
+        ref: undefined,
+        apiUrl: undefined,
+      });
+      expect(config.source).toBeUndefined();
+    });
+
+    it("should include optional VCS fields", () => {
+      const config = resolveConfig({
+        ...vcsEnv,
+        CLEF_AGENT_VCS_REF: "v1.0.0",
+        CLEF_AGENT_VCS_API_URL: "https://github.corp.com/api/v3",
+      });
+
+      expect(config.vcs?.ref).toBe("v1.0.0");
+      expect(config.vcs?.apiUrl).toBe("https://github.corp.com/api/v3");
+    });
+
+    it("should resolve cachePath", () => {
+      const config = resolveConfig({
+        ...vcsEnv,
+        CLEF_AGENT_CACHE_PATH: "/var/cache/clef",
+      });
+
+      expect(config.cachePath).toBe("/var/cache/clef");
+    });
+
+    it("should allow both source and VCS to coexist", () => {
+      const config = resolveConfig({
+        ...vcsEnv,
+        CLEF_AGENT_SOURCE: "https://fallback.example.com/a.json",
+      });
+
+      expect(config.source).toBe("https://fallback.example.com/a.json");
+      expect(config.vcs).toBeDefined();
+    });
+
+    it("should throw when partial VCS config is provided", () => {
+      expect(() =>
+        resolveConfig({
+          CLEF_AGENT_VCS_PROVIDER: "github",
+          CLEF_AGENT_AGE_KEY: "AGE-SECRET-KEY-1TESTKEY",
+        }),
+      ).toThrow(ConfigError);
+      expect(() =>
+        resolveConfig({
+          CLEF_AGENT_VCS_PROVIDER: "github",
+          CLEF_AGENT_AGE_KEY: "AGE-SECRET-KEY-1TESTKEY",
+        }),
+      ).toThrow("CLEF_AGENT_VCS_REPO");
+    });
+
+    it("should throw for invalid VCS provider", () => {
+      expect(() =>
+        resolveConfig({
+          ...vcsEnv,
+          CLEF_AGENT_VCS_PROVIDER: "svn",
+        }),
+      ).toThrow(ConfigError);
+      expect(() =>
+        resolveConfig({
+          ...vcsEnv,
+          CLEF_AGENT_VCS_PROVIDER: "svn",
+        }),
+      ).toThrow("Invalid CLEF_AGENT_VCS_PROVIDER");
+    });
+
+    it("should accept gitlab as VCS provider", () => {
+      const config = resolveConfig({
+        ...vcsEnv,
+        CLEF_AGENT_VCS_PROVIDER: "gitlab",
+      });
+      expect(config.vcs?.provider).toBe("gitlab");
+    });
+
+    it("should accept bitbucket as VCS provider", () => {
+      const config = resolveConfig({
+        ...vcsEnv,
+        CLEF_AGENT_VCS_PROVIDER: "bitbucket",
+      });
+      expect(config.vcs?.provider).toBe("bitbucket");
+    });
   });
 });

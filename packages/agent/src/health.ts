@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { SecretsCache } from "./cache";
+import { SecretsCache } from "@clef-sh/runtime";
 
 /** Create health endpoint handler (unauthenticated). */
 export function healthHandler(cache: SecretsCache) {

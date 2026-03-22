@@ -2,7 +2,7 @@ import { timingSafeEqual } from "crypto";
 import express, { Request, Response, NextFunction } from "express";
 import { Server } from "http";
 import type { AddressInfo } from "net";
-import { SecretsCache } from "./cache";
+import { SecretsCache } from "@clef-sh/runtime";
 import { healthHandler, readyHandler } from "./health";
 
 export interface AgentServerHandle {

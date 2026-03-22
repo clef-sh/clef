@@ -1,7 +1,17 @@
-export { SecretsCache } from "./cache";
-export { AgeDecryptor } from "./decryptor";
-export { ArtifactPoller } from "./poller";
-export type { PollerOptions } from "./poller";
+// Re-export core modules from @clef-sh/runtime
+export { SecretsCache, AgeDecryptor, ArtifactPoller, ClefRuntime, init } from "@clef-sh/runtime";
+export type {
+  PollerOptions,
+  ArtifactEnvelope,
+  RuntimeConfig,
+  VcsProvider,
+  VcsProviderConfig,
+  VcsFileResult,
+  ArtifactSource,
+  ArtifactFetchResult,
+} from "@clef-sh/runtime";
+
+// Agent-specific exports
 export { startAgentServer } from "./server";
 export type { AgentServerHandle, AgentServerOptions } from "./server";
 export { resolveConfig, ConfigError } from "./config";

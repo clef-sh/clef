@@ -17,24 +17,24 @@ If redeploy-on-change is acceptable, [`clef exec`](/cli/exec) or [`clef export`]
 
 ```mermaid
 flowchart LR
-  subgraph ci["CI Pipeline"]
-    pack["clef pack\napi-gateway production"]
-    upload["aws s3 cp / gsutil cp\n→ HTTP-accessible store"]
+  subgraph ci["CI"]
+    pack["clef pack"]
+    commit["git push"]
   end
-  subgraph runtime["Runtime (Container / Lambda)"]
-    agent["clef agent\npolls source URL"]
-    app["Application\nGET /v1/secrets/KEY"]
+  subgraph runtime["Runtime"]
+    agent["Agent / Runtime"]
+    app["Application"]
   end
 
-  pack -->|"1. decrypt SOPS files\n2. age-encrypt to recipient\n3. write artifact.json"| upload
-  upload -->|"HTTP URL"| agent
-  agent -->|"fetch → decrypt → cache"| app
+  pack -->|"re-encrypt"| commit
+  commit -->|"VCS API"| agent
+  agent -->|"plaintext"| app
 ```
 
-1. **`clef pack`** decrypts scoped SOPS files, age-encrypts the merged values to the service identity's public key, and writes a JSON artifact
-2. **CI uploads** the artifact to any HTTP-accessible store (S3, GCS, Azure Blob, etc.) using existing cloud tools
-3. **`clef agent`** fetches the artifact from the URL, decrypts in memory, and serves secrets via a localhost HTTP API
-4. The agent **polls** the source URL at a configurable interval, detecting new revisions and performing atomic cache swaps
+1. **`clef pack`** decrypts scoped SOPS files with the deploy key, re-encrypts to the service identity's public key, and writes a JSON artifact
+2. **CI commits** the artifact to `.clef/packed/{identity}/{environment}.age` in git
+3. At runtime, the **agent** (or `@clef-sh/runtime` imported directly) fetches the artifact via the VCS provider API (GitHub, GitLab, or Bitbucket), decrypts with the service identity's private key, and serves secrets via localhost
+4. The agent **polls** the VCS API at a configurable interval, detecting new revisions and performing atomic cache swaps
 
 ## Artifact format
 
@@ -57,17 +57,13 @@ The artifact is a JSON envelope — language-agnostic and forward-compatible:
 
 ```bash
 # Generate the artifact locally
-clef pack api-gateway production --output ./artifact.json
-
-# Upload with your CI tools (Clef has zero cloud SDK dependencies)
-aws s3 cp ./artifact.json s3://my-bucket/clef/api-gateway/production.json
-# or: gsutil cp, az storage blob upload, scp, etc.
+clef pack api-gateway production --output .clef/packed/api-gateway/production.age
 ```
 
 ### CI workflow example
 
 ```yaml
-# .github/workflows/deploy.yml
+# .github/workflows/pack.yml
 name: Pack Secrets
 on:
   push:
@@ -90,23 +86,18 @@ jobs:
           CLEF_AGE_KEY: ${{ secrets.CLEF_DEPLOY_KEY }}
         run: |
           npx @clef-sh/cli pack api-gateway production \
-            --output ./artifact.json
+            --output .clef/packed/api-gateway/production.age
 
-      - name: Upload to S3
+      - name: Commit packed artifact
         run: |
-          aws s3 cp ./artifact.json \
-            s3://my-bucket/clef/api-gateway/production.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .clef/packed/
+          git commit -m "chore: pack api-gateway/production" || echo "No changes"
+          git push
 ```
 
 ## Installing the agent
-
-### npm
-
-```bash
-npm install -g @clef-sh/cli
-```
-
-The `clef agent` command is included in the CLI package.
 
 ### Standalone binary
 
@@ -142,39 +133,59 @@ sudo mv clef-agent-linux-arm64 /usr/local/bin/clef-agent
 
 SHA256 checksums (`.sha256` files) are available alongside each binary on the release.
 
-## Starting the agent
+### npm
 
 ```bash
-clef agent start \
-  --source https://my-bucket.s3.amazonaws.com/clef/api-gateway/production.json \
-  --port 7779
+npm install @clef-sh/agent
 ```
 
-Or via environment variables:
+Run via `npx @clef-sh/agent` or use the `clef-agent` binary from `node_modules/.bin`.
+
+## Starting the agent
+
+### VCS source (recommended)
 
 ```bash
-export CLEF_AGENT_SOURCE=https://my-bucket.s3.amazonaws.com/clef/api-gateway/production.json
+export CLEF_AGENT_VCS_PROVIDER=github
+export CLEF_AGENT_VCS_REPO=org/secrets
+export CLEF_AGENT_VCS_TOKEN=ghp_...
+export CLEF_AGENT_VCS_IDENTITY=api-gateway
+export CLEF_AGENT_VCS_ENVIRONMENT=production
 export CLEF_AGENT_AGE_KEY=AGE-SECRET-KEY-1...
-export CLEF_AGENT_PORT=7779
 export CLEF_AGENT_POLL_INTERVAL=30
 
-clef agent start
+clef-agent
+```
+
+### Local file (development)
+
+```bash
+export CLEF_AGENT_SOURCE=./artifact.json
+export CLEF_AGENT_AGE_KEY=AGE-SECRET-KEY-1...
+
+clef-agent
 ```
 
 ### Configuration
 
 All configuration via environment variables (universal for containers and Lambda):
 
-| Variable                   | Default        | Description                             |
-| -------------------------- | -------------- | --------------------------------------- |
-| `CLEF_AGENT_SOURCE`        | (required)     | HTTP URL or local file path to artifact |
-| `CLEF_AGENT_PORT`          | `7779`         | HTTP API port                           |
-| `CLEF_AGENT_POLL_INTERVAL` | `30`           | Seconds between polls                   |
-| `CLEF_AGENT_AGE_KEY`       | —              | Inline age private key                  |
-| `CLEF_AGENT_AGE_KEY_FILE`  | —              | Path to age key file                    |
-| `CLEF_AGENT_TOKEN`         | auto-generated | Bearer token for API auth               |
-
-CLI flags (`--source`, `--port`, `--poll-interval`) override the corresponding env vars.
+| Variable                     | Default        | Description                                       |
+| ---------------------------- | -------------- | ------------------------------------------------- |
+| `CLEF_AGENT_VCS_PROVIDER`    | —              | VCS provider (`github`, `gitlab`, or `bitbucket`) |
+| `CLEF_AGENT_VCS_REPO`        | —              | Repository (`owner/repo`)                         |
+| `CLEF_AGENT_VCS_TOKEN`       | —              | VCS authentication token                          |
+| `CLEF_AGENT_VCS_IDENTITY`    | —              | Service identity name                             |
+| `CLEF_AGENT_VCS_ENVIRONMENT` | —              | Target environment                                |
+| `CLEF_AGENT_VCS_REF`         | default branch | Git ref (branch/tag/sha)                          |
+| `CLEF_AGENT_VCS_API_URL`     | —              | Custom API URL (self-hosted instances)            |
+| `CLEF_AGENT_SOURCE`          | —              | HTTP URL or local file path (alternative to VCS)  |
+| `CLEF_AGENT_CACHE_PATH`      | —              | Disk cache path for VCS failure fallback          |
+| `CLEF_AGENT_PORT`            | `7779`         | HTTP API port                                     |
+| `CLEF_AGENT_POLL_INTERVAL`   | `30`           | Seconds between polls                             |
+| `CLEF_AGENT_AGE_KEY`         | —              | Inline age private key                            |
+| `CLEF_AGENT_AGE_KEY_FILE`    | —              | Path to age key file                              |
+| `CLEF_AGENT_TOKEN`           | auto-generated | Bearer token for API auth                         |
 
 ## HTTP API
 
@@ -217,6 +228,54 @@ async function getSecret(key) {
 const dbUrl = await getSecret("DB_URL");
 ```
 
+## Direct import (Node.js) {#direct-import-nodejs}
+
+For Node.js applications, you can skip the sidecar entirely and import `@clef-sh/runtime` directly:
+
+```bash
+npm install @clef-sh/runtime
+```
+
+```javascript
+import { init } from "@clef-sh/runtime";
+
+const runtime = await init({
+  provider: "github",
+  repo: "org/secrets",
+  identity: "api-gateway",
+  environment: "production",
+  token: process.env.CLEF_VCS_TOKEN,
+  ageKey: process.env.CLEF_AGE_KEY,
+});
+
+const dbUrl = runtime.get("DB_URL");
+```
+
+For long-running services with background polling:
+
+```javascript
+import { ClefRuntime } from "@clef-sh/runtime";
+
+const runtime = new ClefRuntime({
+  provider: "github",
+  repo: "org/secrets",
+  identity: "api-gateway",
+  environment: "production",
+  token: process.env.CLEF_VCS_TOKEN,
+  ageKey: process.env.CLEF_AGE_KEY,
+  pollInterval: 60,
+  cachePath: "/var/cache/clef",
+});
+
+await runtime.start();
+runtime.startPolling();
+
+// Secrets auto-refresh every 60s
+app.get("/health", (req, res) => {
+  res.json({ ready: runtime.ready });
+});
+```
+
 ## Deployment models
 
 ### Kubernetes / ECS sidecar
@@ -243,8 +302,19 @@ spec:
         - name: clef-agent
           image: clef-agent:latest
           env:
-            - name: CLEF_AGENT_SOURCE
-              value: https://my-bucket.s3.amazonaws.com/clef/api-gateway/production.json
+            - name: CLEF_AGENT_VCS_PROVIDER
+              value: github
+            - name: CLEF_AGENT_VCS_REPO
+              value: org/secrets
+            - name: CLEF_AGENT_VCS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: clef-agent
+                  key: vcs-token
+            - name: CLEF_AGENT_VCS_IDENTITY
+              value: api-gateway
+            - name: CLEF_AGENT_VCS_ENVIRONMENT
+              value: production
             - name: CLEF_AGENT_AGE_KEY
               valueFrom:
                 secretKeyRef:
@@ -276,15 +346,17 @@ The Lambda Extension registers with the Extensions API and refreshes secrets whe
 
 ```bash
 # Fetch from a local artifact file
-clef agent start --source ./artifact.json --port 7779
+CLEF_AGENT_SOURCE=./artifact.json \
+CLEF_AGENT_AGE_KEY=AGE-SECRET-KEY-1... \
+  clef-agent
 ```
 
 ## Secret rotation without redeploy
 
 ```
 Developer: clef set payments/prod STRIPE_KEY new_value → commit → push
-CI:        clef pack → artifact.json → aws s3 cp → S3
-Runtime:   agent polls URL → detects new revision → fetches → decrypts
+CI:        clef pack → commit to .clef/packed/ → push
+Runtime:   agent polls VCS API → detects new revision → fetches → decrypts
 App:       GET /v1/secrets/STRIPE_KEY → returns new value
 ```
 
@@ -293,13 +365,13 @@ App:       GET /v1/secrets/STRIPE_KEY → returns new value
 ```
 Developer: clef service rotate api-gateway -e production → new key pair
            Update private key in KMS/secrets manager
-CI:        clef pack → new artifact encrypted to new public key → S3
+CI:        clef pack → new artifact encrypted to new public key → commit → push
 Runtime:   agent fetches new artifact + uses new private key → seamless
 ```
 
 ## See also
 
 - [`clef pack`](/cli/pack) — CLI reference for the pack command
-- [`clef agent`](/cli/agent) — CLI reference for the agent command
+- [`clef-agent`](/cli/agent) — standalone agent reference
 - [Service Identities](/guide/service-identities) — creating identities and packing artifacts
 - [CI/CD Integration](/guide/ci-cd) — pipeline setup

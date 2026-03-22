@@ -6,9 +6,17 @@
  * cache, server, and daemon, then starts the daemon lifecycle.
  */
 import { resolveConfig, ConfigError } from "./config";
-import { AgeDecryptor } from "./decryptor";
-import { SecretsCache } from "./cache";
-import { ArtifactPoller } from "./poller";
+import {
+  SecretsCache,
+  AgeDecryptor,
+  ArtifactPoller,
+  createVcsProvider,
+  VcsArtifactSource,
+  HttpArtifactSource,
+  FileArtifactSource,
+  DiskCache,
+} from "@clef-sh/runtime";
+import type { ArtifactSource } from "@clef-sh/runtime";
 import { startAgentServer } from "./server";
 import { Daemon } from "./lifecycle/daemon";
 
@@ -18,12 +26,38 @@ async function main(): Promise<void> {
   const decryptor = new AgeDecryptor();
   const privateKey = decryptor.resolveKey(config.ageKey, config.ageKeyFile);
 
+  // Construct artifact source
+  let source: ArtifactSource;
+  if (config.vcs) {
+    const provider = createVcsProvider({
+      provider: config.vcs.provider,
+      repo: config.vcs.repo,
+      token: config.vcs.token,
+      ref: config.vcs.ref,
+      apiUrl: config.vcs.apiUrl,
+    });
+    source = new VcsArtifactSource(provider, config.vcs.identity, config.vcs.environment);
+  } else if (config.source) {
+    source =
+      config.source.startsWith("http://") || config.source.startsWith("https://")
+        ? new HttpArtifactSource(config.source)
+        : new FileArtifactSource(config.source);
+  } else {
+    throw new ConfigError("No artifact source configured.");
+  }
+
+  const diskCache =
+    config.cachePath && config.vcs
+      ? new DiskCache(config.cachePath, config.vcs.identity, config.vcs.environment)
+      : undefined;
+
   const cache = new SecretsCache();
   const poller = new ArtifactPoller({
-    source: config.source,
+    source,
     privateKey,
     cache,
     pollInterval: config.pollInterval,
+    diskCache,
     onError: (err) => console.error(`[clef-agent] poll error: ${err.message}`),
   });
 

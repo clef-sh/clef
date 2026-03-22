@@ -1,6 +1,6 @@
 import * as http from "http";
 import { startAgentServer, AgentServerHandle } from "./server";
-import { SecretsCache } from "./cache";
+import { SecretsCache } from "@clef-sh/runtime";
 import type { AddressInfo } from "net";
 
 let handle: AgentServerHandle;

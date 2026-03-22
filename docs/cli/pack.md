@@ -1,6 +1,6 @@
 # clef pack
 
-Pack an encrypted artifact for a service identity. The artifact is a JSON envelope with age-encrypted secrets that can be fetched by the Clef agent at runtime.
+Pack an encrypted artifact for a service identity. The artifact is a JSON envelope with age-encrypted secrets that can be fetched by the Clef agent or runtime at deploy time.
 
 ## Synopsis
 
@@ -12,7 +12,7 @@ clef pack <identity> <environment> -o <path>
 
 `clef pack` decrypts scoped SOPS files, age-encrypts the merged values as a single blob to the service identity's per-environment public key, and writes a JSON artifact to a local file.
 
-The artifact is language-agnostic — it can be consumed by the [Clef Agent](/guide/agent) running as a sidecar, Lambda Extension, or standalone process. Upload the artifact to any HTTP-accessible store (S3, GCS, etc.) using your existing CI tools.
+The artifact is language-agnostic — it can be consumed by the [Clef Agent](/guide/agent) running as a sidecar, Lambda Extension, or standalone process, or by [`@clef-sh/runtime`](/guide/agent#direct-import-nodejs) imported directly into a Node.js application.
 
 See [Service Identities](/guide/service-identities) for the full guide.
 
@@ -46,13 +46,6 @@ clef pack api-gateway production \
   --output ./artifact.json
 ```
 
-### Upload to S3
-
-```bash
-clef pack api-gateway production -o ./artifact.json
-aws s3 cp ./artifact.json s3://my-bucket/clef/api-gateway/production.json
-```
-
 ### Pack in CI
 
 ```yaml
@@ -65,10 +58,6 @@ aws s3 cp ./artifact.json s3://my-bucket/clef/api-gateway/production.json
       --output ./artifact.json
 ```
 
-::: warning Do not commit artifacts
-The generated file contains encrypted secrets. Add the output path to `.gitignore`. Generate artifacts in CI and upload them to your secrets store.
-:::
-
 ::: info CI requires a deploy key
 `clef pack` decrypts SOPS files before re-encrypting for the service identity. The CI runner needs a key that can decrypt the scoped namespaces — the same `CLEF_AGE_KEY` used with `clef exec`. The service identity's own private key is not used during packing.
 :::
@@ -76,6 +65,5 @@ The generated file contains encrypted secrets. Add the output path to `.gitignor
 ## Related commands
 
 - [`clef service`](service.md) — manage service identities
-- [`clef agent`](agent.md) — runtime secrets sidecar
 - [`clef exec`](exec.md) — run a command with secrets injected (alternative for dev)
 - [`clef export`](export.md) — print secrets as shell export statements

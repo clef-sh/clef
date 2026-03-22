@@ -1,10 +1,11 @@
-import * as fs from "fs";
 import * as crypto from "crypto";
-import { SecretsCache } from "./cache";
-import { AgeDecryptor } from "./decryptor";
+import { SecretsCache } from "./secrets-cache";
+import { AgeDecryptor } from "./decrypt";
+import { ArtifactSource } from "./sources/types";
+import { DiskCache } from "./disk-cache";
 
 /** Shape of a packed artifact JSON envelope. */
-interface ArtifactEnvelope {
+export interface ArtifactEnvelope {
   version: number;
   identity: string;
   environment: string;
@@ -16,14 +17,18 @@ interface ArtifactEnvelope {
 }
 
 export interface PollerOptions {
-  /** HTTP URL or local file path to the artifact. */
-  source: string;
+  /** Artifact source strategy. */
+  source: ArtifactSource;
   /** Age private key string. */
   privateKey: string;
   /** Secrets cache to swap on new revisions. */
   cache: SecretsCache;
   /** Seconds between polls. */
   pollInterval: number;
+  /** Optional disk cache for fallback. */
+  diskCache?: DiskCache;
+  /** Optional callback on successful refresh. */
+  onRefresh?: (revision: string) => void;
   /** Optional error callback for logging. */
   onError?: (err: Error) => void;
 }
@@ -34,6 +39,7 @@ export interface PollerOptions {
  */
 export class ArtifactPoller {
   private timer: ReturnType<typeof setInterval> | null = null;
+  private lastContentHash: string | null = null;
   private lastRevision: string | null = null;
   private readonly decryptor = new AgeDecryptor();
   private readonly options: PollerOptions;
@@ -44,7 +50,36 @@ export class ArtifactPoller {
 
   /** Fetch, validate, decrypt, and cache the artifact. */
   async fetchAndDecrypt(): Promise<void> {
-    const raw = await this.fetchArtifact();
+    let raw: string;
+    let contentHash: string | undefined;
+
+    try {
+      const result = await this.options.source.fetch();
+      raw = result.raw;
+      contentHash = result.contentHash;
+
+      // Content-hash short-circuit: skip parse+decrypt if unchanged
+      if (contentHash && contentHash === this.lastContentHash) return;
+
+      // Write to disk cache on successful fetch
+      this.options.diskCache?.write(raw, contentHash);
+    } catch (err) {
+      // Attempt disk cache fallback
+      if (this.options.diskCache) {
+        const cached = this.options.diskCache.read();
+        if (cached) {
+          raw = cached;
+          contentHash = this.options.diskCache.getCachedSha();
+          // If the cached hash matches, still skip
+          if (contentHash && contentHash === this.lastContentHash) return;
+        } else {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
+    }
+
     const artifact = this.parseAndValidate(raw);
 
     // Skip if revision unchanged
@@ -65,6 +100,8 @@ export class ArtifactPoller {
     // Atomic swap
     this.options.cache.swap(values, artifact.keys, artifact.revision);
     this.lastRevision = artifact.revision;
+    this.lastContentHash = contentHash ?? null;
+    this.options.onRefresh?.(artifact.revision);
   }
 
   /** Start the polling loop. Performs an initial fetch immediately. */
@@ -94,23 +131,8 @@ export class ArtifactPoller {
     return this.timer !== null;
   }
 
-  private async fetchArtifact(): Promise<string> {
-    const { source } = this.options;
-
-    if (source.startsWith("http://") || source.startsWith("https://")) {
-      const response = await fetch(source);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch artifact from ${source}: ${response.status}`);
-      }
-      return response.text();
-    }
-
-    // Local file
-    return fs.readFileSync(source, "utf-8");
-  }
-
   private parseAndValidate(raw: string): ArtifactEnvelope {
-    const artifact: ArtifactEnvelope = JSON.parse(raw);
+    const artifact: ArtifactEnvelope = JSON.parse(raw) as ArtifactEnvelope;
 
     if (artifact.version !== 1) {
       throw new Error(`Unsupported artifact version: ${artifact.version}`);

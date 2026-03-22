@@ -64,6 +64,14 @@ jobs:
         env:
           NPM_CONFIG_PROVENANCE: "true"
 
+      - name: Publish @clef-sh/runtime
+        working-directory: packages/runtime
+        run: |
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+          npm publish --tag beta --access public
+        env:
+          NPM_CONFIG_PROVENANCE: "true"
+
       - name: Publish @clef-sh/agent
         working-directory: packages/agent
         run: |
@@ -114,6 +122,7 @@ jobs:
           echo "| Package | Version |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/core\` | \`${{ inputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/runtime\` | \`${{ inputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/agent\` | \`${{ inputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/cli\` | \`${{ inputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"

@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import { AgeDecryptor } from "./decryptor";
+import { AgeDecryptor } from "./decrypt";
 
 jest.mock("fs");
 jest.mock(

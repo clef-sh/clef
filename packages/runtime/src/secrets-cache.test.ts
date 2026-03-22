@@ -1,4 +1,4 @@
-import { SecretsCache } from "./cache";
+import { SecretsCache } from "./secrets-cache";
 
 describe("SecretsCache", () => {
   let cache: SecretsCache;

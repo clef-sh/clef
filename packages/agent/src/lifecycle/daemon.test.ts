@@ -1,5 +1,5 @@
 import { Daemon } from "./daemon";
-import { ArtifactPoller } from "../poller";
+import { ArtifactPoller } from "@clef-sh/runtime";
 import { AgentServerHandle } from "../server";
 
 describe("Daemon", () => {
