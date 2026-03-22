@@ -136,7 +136,7 @@ export async function handler(event) {
 
 ### IAM setup
 
-**Lambda execution role** — needs `sts:AssumeRole` on the target role:
+**Lambda execution role** — needs `sts:AssumeRole` on the target role (and `kms:Encrypt` for KMS envelope):
 
 ```json
 {
@@ -146,6 +146,14 @@ export async function handler(event) {
       "Effect": "Allow",
       "Action": "sts:AssumeRole",
       "Resource": "arn:aws:iam::123456789012:role/clef-target-role"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "kms:Encrypt",
+      "Resource": "arn:aws:kms:us-east-1:123456789012:key/your-kms-key-id",
+      "Condition": {
+        "StringEquals": { "kms:EncryptionAlgorithm": "SYMMETRIC_DEFAULT" }
+      }
     }
   ]
 }
@@ -177,14 +185,110 @@ export async function handler(event) {
 
 Point the agent at the Lambda function URL:
 
-```bash
+::: code-group
+
+```bash [KMS envelope (recommended)]
+# No age key needed — the agent calls KMS Decrypt using its IAM role
+export CLEF_AGENT_SOURCE=https://abc123.lambda-url.us-east-1.on.aws/
+
+clef-agent
+```
+
+```bash [Age-only]
 export CLEF_AGENT_SOURCE=https://abc123.lambda-url.us-east-1.on.aws/
 export CLEF_AGENT_AGE_KEY=AGE-SECRET-KEY-1...
 
 clef-agent
 ```
 
+:::
+
+With KMS envelope, the artifact is self-describing — the `envelope` field tells the agent which KMS key to use. The agent's IAM role needs `kms:Decrypt` on that key and nothing else. No static private key to manage, rotate, or leak.
+
 The agent fetches the URL, receives a 1-hour STS credential, and auto-refreshes at ~48 minutes. Your application reads `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` from the agent's `/v1/secrets` endpoint — always fresh, never stored on disk.
+
+### KMS envelope variant
+
+To produce KMS envelope artifacts from your Lambda (eliminating the need for `CLEF_AGENT_AGE_KEY`), generate an ephemeral age key pair per request and wrap the private key with KMS:
+
+```javascript
+// index.mjs — KMS envelope variant
+import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
+import { KMSClient, EncryptCommand } from "@aws-sdk/client-kms";
+import { Encrypter } from "age-encryption";
+import { generateIdentity, identityToRecipient } from "age-encryption";
+import { createHash } from "node:crypto";
+
+const sts = new STSClient({});
+const kms = new KMSClient({});
+
+const IDENTITY = process.env.CLEF_IDENTITY;
+const ENVIRONMENT = process.env.CLEF_ENVIRONMENT;
+const TARGET_ROLE_ARN = process.env.TARGET_ROLE_ARN;
+const KMS_KEY_ID = process.env.KMS_KEY_ID; // e.g. arn:aws:kms:us-east-1:123:key/...
+const TTL_SECONDS = parseInt(process.env.TTL_SECONDS || "3600", 10);
+
+export async function handler(event) {
+  // 1. Mint temporary credentials
+  const { Credentials } = await sts.send(
+    new AssumeRoleCommand({
+      RoleArn: TARGET_ROLE_ARN,
+      RoleSessionName: `clef-${IDENTITY}-${Date.now()}`,
+      DurationSeconds: TTL_SECONDS,
+    }),
+  );
+
+  const payload = JSON.stringify({
+    AWS_ACCESS_KEY_ID: Credentials.AccessKeyId,
+    AWS_SECRET_ACCESS_KEY: Credentials.SecretAccessKey,
+    AWS_SESSION_TOKEN: Credentials.SessionToken,
+  });
+
+  // 2. Generate ephemeral age key pair
+  const ephemeralPrivateKey = await generateIdentity();
+  const ephemeralPublicKey = await identityToRecipient(ephemeralPrivateKey);
+
+  // 3. Encrypt payload with ephemeral public key
+  const encrypter = new Encrypter();
+  encrypter.addRecipient(ephemeralPublicKey);
+  const ciphertext = await encrypter.encrypt(payload);
+
+  // 4. Wrap ephemeral private key with KMS
+  const { CiphertextBlob } = await kms.send(
+    new EncryptCommand({
+      KeyId: KMS_KEY_ID,
+      Plaintext: Buffer.from(ephemeralPrivateKey),
+    }),
+  );
+  const wrappedKey = Buffer.from(CiphertextBlob).toString("base64");
+
+  // 5. Build envelope with KMS metadata
+  const now = new Date();
+  return {
+    statusCode: 200,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      version: 1,
+      identity: IDENTITY,
+      environment: ENVIRONMENT,
+      packedAt: now.toISOString(),
+      revision: String(now.getTime()),
+      ciphertextHash: createHash("sha256").update(ciphertext).digest("hex"),
+      ciphertext,
+      keys: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"],
+      expiresAt: new Date(now.getTime() + TTL_SECONDS * 1000).toISOString(),
+      envelope: {
+        provider: "aws",
+        keyId: KMS_KEY_ID,
+        wrappedKey,
+        algorithm: "SYMMETRIC_DEFAULT",
+      },
+    }),
+  };
+}
+```
+
+The agent receives the `envelope` field, calls `kms:Decrypt` to unwrap the ephemeral private key, decrypts the ciphertext, and serves the secrets. The ephemeral key pair is unique per request — there is no long-lived private key to compromise.
 
 ## Example: RDS IAM auth token
 
@@ -360,8 +464,28 @@ An unauthenticated function URL means anyone who discovers the URL can mint cred
 Each service identity should assume a scoped IAM role at runtime. This role should have the minimum permissions needed:
 
 - `lambda:InvokeFunctionUrl` on the specific dynamic secret Lambda
-- `kms:Decrypt` if using KMS envelope artifacts
+- `kms:Decrypt` on the KMS key used in the `envelope` (KMS envelope artifacts only)
 - No other permissions
+
+For KMS envelope, the agent's role policy looks like:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "lambda:InvokeFunctionUrl",
+      "Resource": "arn:aws:lambda:us-east-1:123456789012:function:clef-sts-minter"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "arn:aws:kms:us-east-1:123456789012:key/your-kms-key-id"
+    }
+  ]
+}
+```
 
 ### Audit trail
 
