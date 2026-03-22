@@ -21,8 +21,6 @@ export interface AgentConfig {
   cachePath?: string;
   /** Port for the HTTP API server. */
   port: number;
-  /** Seconds between artifact polls. */
-  pollInterval: number;
   /** Max seconds the agent serves secrets without a successful refresh. */
   cacheTtl: number;
   /** Inline age private key. */
@@ -56,7 +54,6 @@ export class ConfigError extends Error {
  * | CLEF_AGENT_VCS_API_URL         | —              | Custom VCS API base URL              |
  * | CLEF_AGENT_CACHE_PATH          | —              | Disk cache path for fallback         |
  * | CLEF_AGENT_PORT                | 7779           | HTTP API port                        |
- * | CLEF_AGENT_POLL_INTERVAL       | 30             | Seconds between polls                |
  * | CLEF_AGENT_CACHE_TTL           | 300            | Max seconds to serve without refresh |
  * | CLEF_AGENT_AGE_KEY             | —              | Inline age private key               |
  * | CLEF_AGENT_AGE_KEY_FILE        | —              | Path to age key file                 |
@@ -118,19 +115,11 @@ export function resolveConfig(env: Record<string, string | undefined> = process.
     );
   }
 
-  const intervalStr = env.CLEF_AGENT_POLL_INTERVAL ?? "30";
-  const pollInterval = parseInt(intervalStr, 10);
-  if (isNaN(pollInterval) || pollInterval < 1) {
-    throw new ConfigError(
-      `Invalid CLEF_AGENT_POLL_INTERVAL '${intervalStr}'. Must be a positive integer.`,
-    );
-  }
-
   const cacheTtlStr = env.CLEF_AGENT_CACHE_TTL ?? "300";
   const cacheTtl = parseInt(cacheTtlStr, 10);
-  if (isNaN(cacheTtl) || cacheTtl < 1) {
+  if (isNaN(cacheTtl) || cacheTtl < 30) {
     throw new ConfigError(
-      `Invalid CLEF_AGENT_CACHE_TTL '${cacheTtlStr}'. Must be a positive integer.`,
+      `Invalid CLEF_AGENT_CACHE_TTL '${cacheTtlStr}'. Must be an integer >= 30.`,
     );
   }
 
@@ -140,5 +129,5 @@ export function resolveConfig(env: Record<string, string | undefined> = process.
 
   const token = env.CLEF_AGENT_TOKEN ?? randomBytes(32).toString("hex");
 
-  return { source, vcs, cachePath, port, pollInterval, cacheTtl, ageKey, ageKeyFile, token };
+  return { source, vcs, cachePath, port, cacheTtl, ageKey, ageKeyFile, token };
 }

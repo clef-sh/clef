@@ -1031,8 +1031,8 @@ Check:
   config
 - `start()` performs initial fetch+decrypt before returning —
   `get()` is not callable before `start()` completes
-- `startPolling()` does nothing when `pollInterval` is 0
-- `stopPolling()` clears the interval timer
+- `startPolling()` schedules adaptive polling (80% of `expiresAt` or `cacheTtl / 10`)
+- `stopPolling()` clears the scheduled timer
 - `init()` convenience function returns a ready runtime —
   `runtime.ready` is `true` after `init()` resolves
 - Content-hash short-circuit: when the VCS SHA is unchanged,
@@ -1341,7 +1341,7 @@ Check:
   `CLEF_AGENT_VCS_ENVIRONMENT`, `CLEF_AGENT_VCS_REF`,
   `CLEF_AGENT_VCS_API_URL`, `CLEF_AGENT_CACHE_PATH`,
   `CLEF_AGENT_SOURCE`, `CLEF_AGENT_PORT`,
-  `CLEF_AGENT_POLL_INTERVAL`, `CLEF_AGENT_AGE_KEY`,
+  `CLEF_AGENT_CACHE_TTL`, `CLEF_AGENT_AGE_KEY`,
   `CLEF_AGENT_AGE_KEY_FILE`, `CLEF_AGENT_TOKEN`
 - `docs/guide/agent.md` exists covering: concept, env var
   reference, deployment workflow, `@clef-sh/runtime` direct

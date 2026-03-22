@@ -167,7 +167,7 @@ describe("ClefRuntime", () => {
       const runtime = new ClefRuntime({
         source: "https://example.com/a.json",
         ageKey: "AGE-SECRET-KEY-1TEST",
-        pollInterval: 60,
+        cacheTtl: 300,
       });
 
       expect(runtime.getPoller()).toBeDefined();

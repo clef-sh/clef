@@ -4,7 +4,7 @@ import { AgentServerHandle } from "../server";
 
 describe("Daemon", () => {
   let mockPoller: jest.Mocked<
-    Pick<ArtifactPoller, "start" | "startInterval" | "stop" | "isRunning">
+    Pick<ArtifactPoller, "start" | "startPolling" | "stop" | "isRunning">
   >;
   let mockServer: jest.Mocked<AgentServerHandle>;
   let signalHandlers: Record<string, (() => void)[]>;
@@ -15,7 +15,7 @@ describe("Daemon", () => {
 
     mockPoller = {
       start: jest.fn().mockResolvedValue(undefined),
-      startInterval: jest.fn(),
+      startPolling: jest.fn(),
       stop: jest.fn(),
       isRunning: jest.fn().mockReturnValue(true),
     };
@@ -54,7 +54,7 @@ describe("Daemon", () => {
 
     await daemon.start();
 
-    expect(mockPoller.startInterval).toHaveBeenCalled();
+    expect(mockPoller.startPolling).toHaveBeenCalled();
     expect(signalHandlers["SIGTERM"]).toBeDefined();
     expect(signalHandlers["SIGINT"]).toBeDefined();
     expect(onLog).toHaveBeenCalledWith(expect.stringContaining("127.0.0.1:7779"));

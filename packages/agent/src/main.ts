@@ -62,7 +62,6 @@ async function main(): Promise<void> {
     source,
     privateKey,
     cache,
-    pollInterval: config.pollInterval,
     diskCache,
     cacheTtl: config.cacheTtl,
     onError: (err) => console.error(`[clef-agent] poll error: ${err.message}`),

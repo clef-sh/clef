@@ -52,8 +52,8 @@ export class Daemon {
     });
 
     onLog?.(`Agent server listening at ${server.url}`);
-    // main.ts already calls fetchAndDecrypt() — only start the polling interval.
-    poller.startInterval();
+    // main.ts already calls fetchAndDecrypt() — only start the polling schedule.
+    poller.startPolling();
     onLog?.("Agent ready. Polling for updates.");
   }
 

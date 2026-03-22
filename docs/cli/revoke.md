@@ -12,7 +12,7 @@ clef revoke <identity> <environment>
 
 `clef revoke` is the emergency brake for secrets access. It overwrites the packed artifact file (`.clef/packed/{identity}/{environment}.age.json`) with a minimal JSON marker containing a `revokedAt` timestamp. When the agent fetches this marker on its next poll, it wipes its in-memory and disk caches and returns 503 on all secrets endpoints.
 
-Revocation takes effect within one poll interval (default 30 seconds, configurable down to 1 second via `CLEF_AGENT_POLL_INTERVAL`).
+Revocation takes effect within one poll cycle. The agent polls at `CLEF_AGENT_CACHE_TTL / 10` (default: every 30 seconds with a 300-second TTL).
 
 To restore service after revocation, rotate your secrets and run `clef pack` to produce a new artifact. The agent will pick up the new artifact on the next poll and resume serving.
 
@@ -101,7 +101,7 @@ aws s3 cp .clef/packed/api-gateway/production.age.json \
 | **Total (manual)**                | **~1-2 min** |
 | **Total (automated via CI)**      | **~10-30s**  |
 
-With `CLEF_AGENT_POLL_INTERVAL=5` and automated CI, revocation takes effect in under 15 seconds.
+With `CLEF_AGENT_CACHE_TTL=30` (polls every 3 seconds) and automated CI, revocation takes effect in under 15 seconds.
 
 ## How it works
 

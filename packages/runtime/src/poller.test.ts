@@ -94,7 +94,6 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
       });
 
       await poller.fetchAndDecrypt();
@@ -115,7 +114,6 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
       });
 
       await poller.fetchAndDecrypt();
@@ -136,7 +134,6 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
       });
 
       await poller.fetchAndDecrypt();
@@ -158,7 +155,6 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
       });
 
       await poller.fetchAndDecrypt();
@@ -179,7 +175,6 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
       });
 
       await expect(poller.fetchAndDecrypt()).rejects.toThrow("integrity check failed");
@@ -192,7 +187,6 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
       });
 
       await expect(poller.fetchAndDecrypt()).rejects.toThrow("Unsupported artifact version");
@@ -204,7 +198,6 @@ describe("ArtifactPoller", () => {
       const poller = new ArtifactPoller({
         source,
         cache,
-        pollInterval: 30,
       });
 
       await expect(poller.fetchAndDecrypt()).rejects.toThrow("requires an age private key");
@@ -228,7 +221,6 @@ describe("ArtifactPoller", () => {
       const poller = new ArtifactPoller({
         source,
         cache,
-        pollInterval: 30,
       });
 
       await poller.fetchAndDecrypt();
@@ -262,7 +254,6 @@ describe("ArtifactPoller", () => {
       const poller = new ArtifactPoller({
         source,
         cache,
-        pollInterval: 30,
       });
 
       await expect(poller.fetchAndDecrypt()).rejects.toThrow("incomplete envelope fields");
@@ -276,7 +267,7 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
+
         onRefresh,
       });
 
@@ -299,7 +290,7 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
+
         diskCache,
       });
 
@@ -323,7 +314,7 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
+
         diskCache,
       });
 
@@ -342,7 +333,6 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
       });
 
       await expect(poller.fetchAndDecrypt()).rejects.toThrow("network error");
@@ -365,7 +355,7 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
+
         diskCache,
       });
 
@@ -388,7 +378,7 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
+
         cacheTtl: 10,
       });
 
@@ -415,7 +405,7 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
+
         cacheTtl: 300,
       });
 
@@ -444,7 +434,7 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
+
         diskCache,
         cacheTtl: 300,
       });
@@ -472,7 +462,7 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
+
         diskCache,
         cacheTtl: 300,
       });
@@ -503,7 +493,7 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
+
         diskCache,
         cacheTtl: 10,
       });
@@ -530,7 +520,6 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
       });
 
       await expect(poller.fetchAndDecrypt()).rejects.toThrow("Artifact expired at");
@@ -547,7 +536,6 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
       });
 
       await poller.fetchAndDecrypt();
@@ -561,7 +549,6 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
       });
 
       await poller.fetchAndDecrypt();
@@ -589,7 +576,6 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
       });
 
       await expect(poller.fetchAndDecrypt()).rejects.toThrow("Artifact revoked");
@@ -603,7 +589,6 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
       });
 
       await poller.fetchAndDecrypt();
@@ -618,7 +603,6 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
       });
 
       await expect(poller.fetchAndDecrypt()).rejects.toThrow(
@@ -635,7 +619,6 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 30,
       });
 
       await poller.start();
@@ -660,13 +643,13 @@ describe("ArtifactPoller", () => {
         source,
         privateKey: "AGE-SECRET-KEY-1TEST",
         cache,
-        pollInterval: 10,
+        cacheTtl: 100, // poll derived: 100/10 = 10s
         onError,
       });
 
       await poller.start();
 
-      // Advance to trigger interval
+      // Advance to trigger the scheduled poll (cacheTtl/10 = 10s)
       jest.advanceTimersByTime(10_000);
       // Wait for the async callback to settle
       await Promise.resolve();

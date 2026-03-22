@@ -65,8 +65,6 @@ export interface RuntimeConfig {
   /** Path to an age key file. */
   ageKeyFile?: string;
 
-  /** Polling interval in seconds. 0 = no polling (default: 0). */
-  pollInterval?: number;
   /** Disk cache directory. Enables fallback to the last fetched artifact on VCS failure. */
   cachePath?: string;
   /** Max seconds the runtime serves secrets without a successful refresh. */
@@ -110,7 +108,6 @@ export class ClefRuntime {
       source,
       privateKey,
       cache: this.cache,
-      pollInterval: config.pollInterval ?? 0,
       diskCache,
       cacheTtl: config.cacheTtl,
     });
@@ -121,12 +118,9 @@ export class ClefRuntime {
     await this.poller.fetchAndDecrypt();
   }
 
-  /** Start background polling (if pollInterval > 0 in config). */
+  /** Start background polling. Schedule is derived from artifact expiresAt or cacheTtl. */
   startPolling(): void {
-    if ((this.config.pollInterval ?? 0) > 0) {
-      // start() already did the initial fetch — only start the interval timer.
-      this.poller.startInterval();
-    }
+    this.poller.startPolling();
   }
 
   /** Stop background polling. */

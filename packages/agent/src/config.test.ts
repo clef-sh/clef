@@ -11,7 +11,6 @@ describe("resolveConfig", () => {
 
     expect(config.source).toBe("https://bucket.s3.amazonaws.com/artifact.json");
     expect(config.port).toBe(7779);
-    expect(config.pollInterval).toBe(30);
     expect(config.cacheTtl).toBe(300);
     expect(config.ageKey).toBe("AGE-SECRET-KEY-1TESTKEY");
     expect(config.token).toBeTruthy();
@@ -21,11 +20,6 @@ describe("resolveConfig", () => {
   it("should use custom port", () => {
     const config = resolveConfig({ ...baseEnv, CLEF_AGENT_PORT: "8080" });
     expect(config.port).toBe(8080);
-  });
-
-  it("should use custom poll interval", () => {
-    const config = resolveConfig({ ...baseEnv, CLEF_AGENT_POLL_INTERVAL: "60" });
-    expect(config.pollInterval).toBe(60);
   });
 
   it("should use custom token", () => {
@@ -62,16 +56,6 @@ describe("resolveConfig", () => {
     expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_PORT: "99999" })).toThrow(ConfigError);
   });
 
-  it("should throw ConfigError for invalid poll interval", () => {
-    expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_POLL_INTERVAL: "abc" })).toThrow(
-      ConfigError,
-    );
-    expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_POLL_INTERVAL: "0" })).toThrow(ConfigError);
-    expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_POLL_INTERVAL: "-5" })).toThrow(
-      ConfigError,
-    );
-  });
-
   it("should use custom cache TTL", () => {
     const config = resolveConfig({ ...baseEnv, CLEF_AGENT_CACHE_TTL: "60" });
     expect(config.cacheTtl).toBe(60);
@@ -85,7 +69,13 @@ describe("resolveConfig", () => {
   it("should throw ConfigError for invalid cache TTL", () => {
     expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_CACHE_TTL: "abc" })).toThrow(ConfigError);
     expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_CACHE_TTL: "0" })).toThrow(ConfigError);
+    expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_CACHE_TTL: "29" })).toThrow(ConfigError);
     expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_CACHE_TTL: "-5" })).toThrow(ConfigError);
+  });
+
+  it("should accept cache TTL of 30 (minimum)", () => {
+    const config = resolveConfig({ ...baseEnv, CLEF_AGENT_CACHE_TTL: "30" });
+    expect(config.cacheTtl).toBe(30);
   });
 
   it("should auto-generate token when not set", () => {

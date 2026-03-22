@@ -30,23 +30,22 @@ See [Runtime Agent](/guide/agent) for the full guide, including Kubernetes and L
 
 ## Environment variables
 
-| Variable                     | Default        | Description                                               |
-| ---------------------------- | -------------- | --------------------------------------------------------- |
-| `CLEF_AGENT_VCS_PROVIDER`    | —              | VCS provider (`github`, `gitlab`, or `bitbucket`)         |
-| `CLEF_AGENT_VCS_REPO`        | —              | Repository (`owner/repo`)                                 |
-| `CLEF_AGENT_VCS_TOKEN`       | —              | VCS authentication token                                  |
-| `CLEF_AGENT_VCS_IDENTITY`    | —              | Service identity name                                     |
-| `CLEF_AGENT_VCS_ENVIRONMENT` | —              | Target environment                                        |
-| `CLEF_AGENT_VCS_REF`         | default branch | Git ref (branch/tag/sha)                                  |
-| `CLEF_AGENT_VCS_API_URL`     | —              | Custom API URL (self-hosted instances)                    |
-| `CLEF_AGENT_SOURCE`          | —              | HTTP URL or local file path (alternative to VCS)          |
-| `CLEF_AGENT_CACHE_PATH`      | —              | Disk cache path for VCS failure fallback (VCS mode only)  |
-| `CLEF_AGENT_PORT`            | `7779`         | HTTP API port                                             |
-| `CLEF_AGENT_POLL_INTERVAL`   | `30`           | Seconds between polls                                     |
-| `CLEF_AGENT_CACHE_TTL`       | `300`          | Max seconds to serve secrets without a successful refresh |
-| `CLEF_AGENT_AGE_KEY`         | —              | Inline age private key (optional for KMS envelope)        |
-| `CLEF_AGENT_AGE_KEY_FILE`    | —              | Path to age key file (optional for KMS envelope)          |
-| `CLEF_AGENT_TOKEN`           | auto-generated | Bearer token for API auth                                 |
+| Variable                     | Default        | Description                                                        |
+| ---------------------------- | -------------- | ------------------------------------------------------------------ |
+| `CLEF_AGENT_VCS_PROVIDER`    | —              | VCS provider (`github`, `gitlab`, or `bitbucket`)                  |
+| `CLEF_AGENT_VCS_REPO`        | —              | Repository (`owner/repo`)                                          |
+| `CLEF_AGENT_VCS_TOKEN`       | —              | VCS authentication token                                           |
+| `CLEF_AGENT_VCS_IDENTITY`    | —              | Service identity name                                              |
+| `CLEF_AGENT_VCS_ENVIRONMENT` | —              | Target environment                                                 |
+| `CLEF_AGENT_VCS_REF`         | default branch | Git ref (branch/tag/sha)                                           |
+| `CLEF_AGENT_VCS_API_URL`     | —              | Custom API URL (self-hosted instances)                             |
+| `CLEF_AGENT_SOURCE`          | —              | HTTP URL or local file path (alternative to VCS)                   |
+| `CLEF_AGENT_CACHE_PATH`      | —              | Disk cache path for VCS failure fallback (VCS mode only)           |
+| `CLEF_AGENT_PORT`            | `7779`         | HTTP API port                                                      |
+| `CLEF_AGENT_CACHE_TTL`       | `300`          | Max seconds to serve secrets without a successful refresh (min 30) |
+| `CLEF_AGENT_AGE_KEY`         | —              | Inline age private key (optional for KMS envelope)                 |
+| `CLEF_AGENT_AGE_KEY_FILE`    | —              | Path to age key file (optional for KMS envelope)                   |
+| `CLEF_AGENT_TOKEN`           | auto-generated | Bearer token for API auth                                          |
 
 Either VCS config (`VCS_PROVIDER`, `VCS_REPO`, `VCS_TOKEN`, `VCS_IDENTITY`, `VCS_ENVIRONMENT`) **or** `SOURCE` is required.
 

@@ -37,8 +37,6 @@ export interface PollerOptions {
   privateKey?: string;
   /** Secrets cache to swap on new revisions. */
   cache: SecretsCache;
-  /** Seconds between polls. */
-  pollInterval: number;
   /** Optional disk cache for fallback. */
   diskCache?: DiskCache;
   /** Optional callback on successful refresh. */
@@ -53,10 +51,14 @@ export interface PollerOptions {
  * Periodically fetches a published artifact, decrypts it, and swaps the
  * secrets cache when a new revision is detected.
  */
+/** Minimum poll interval in milliseconds (floor for all scheduling). */
+const MIN_POLL_MS = 5_000;
+
 export class ArtifactPoller {
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private timer: ReturnType<typeof setTimeout> | null = null;
   private lastContentHash: string | null = null;
   private lastRevision: string | null = null;
+  private lastExpiresAt: string | null = null;
   private readonly decryptor = new AgeDecryptor();
   private readonly options: PollerOptions;
 
@@ -182,6 +184,7 @@ export class ArtifactPoller {
     this.options.cache.swap(values, artifact.keys, artifact.revision);
     this.lastRevision = artifact.revision;
     this.lastContentHash = contentHash ?? null;
+    this.lastExpiresAt = artifact.expiresAt ?? null;
     this.options.onRefresh?.(artifact.revision);
   }
 
@@ -189,25 +192,19 @@ export class ArtifactPoller {
   async start(): Promise<void> {
     // Initial fetch — fail fast if source is unreachable
     await this.fetchAndDecrypt();
-    this.startInterval();
+    this.scheduleNext();
   }
 
-  /** Start only the polling interval timer (no initial fetch). */
-  startInterval(): void {
+  /** Start only the polling schedule (no initial fetch). */
+  startPolling(): void {
     if (this.timer) return;
-    this.timer = setInterval(async () => {
-      try {
-        await this.fetchAndDecrypt();
-      } catch (err) {
-        this.options.onError?.(err instanceof Error ? err : new Error(String(err)));
-      }
-    }, this.options.pollInterval * 1000);
+    this.scheduleNext();
   }
 
   /** Stop the polling loop. */
   stop(): void {
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = null;
     }
   }
@@ -215,6 +212,39 @@ export class ArtifactPoller {
   /** Whether the poller is currently running. */
   isRunning(): boolean {
     return this.timer !== null;
+  }
+
+  /** Compute the next poll delay and schedule a fetch. */
+  private scheduleNext(): void {
+    const delayMs = this.computeNextPollMs();
+    this.timer = setTimeout(async () => {
+      this.timer = null;
+      try {
+        await this.fetchAndDecrypt();
+      } catch (err) {
+        this.options.onError?.(err instanceof Error ? err : new Error(String(err)));
+      }
+      this.scheduleNext();
+    }, delayMs);
+  }
+
+  /** Compute ms until next poll: 80% of expiresAt remaining, or cacheTtl / 10 fallback. */
+  private computeNextPollMs(): number {
+    // If the artifact has an expiresAt, refresh at 80% of remaining time
+    if (this.lastExpiresAt) {
+      const msRemaining = new Date(this.lastExpiresAt).getTime() - Date.now();
+      if (msRemaining > 0) {
+        return Math.max(msRemaining * 0.8, MIN_POLL_MS);
+      }
+      // Already expired — poll immediately (with floor)
+      return MIN_POLL_MS;
+    }
+    // Fallback: derive from cacheTtl (default 30s if no TTL configured)
+    const ttl = this.options.cacheTtl;
+    if (ttl !== undefined) {
+      return Math.max((ttl / 10) * 1000, MIN_POLL_MS);
+    }
+    return 30_000;
   }
 
   private parseAndValidate(raw: string): ArtifactEnvelope {
