@@ -232,8 +232,9 @@ async function handleSecondDevOnboarding(
   formatter.success(`Key label: ${label}`);
 
   formatter.section("Next steps:");
-  formatter.hint("clef update  — scaffold new environments");
-  formatter.hint("clef lint    — check repo health");
+  formatter.hint("clef recipients request  \u2014 request access to encrypted secrets");
+  formatter.hint("clef update  \u2014 scaffold new environments");
+  formatter.hint("clef lint    \u2014 check repo health");
 }
 
 async function handleFullSetup(

@@ -2,8 +2,17 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import { Command } from "commander";
 import { registerRecipientsCommand } from "./recipients";
-import { SubprocessRunner, RecipientManager } from "@clef-sh/core";
+import {
+  SubprocessRunner,
+  RecipientManager,
+  deriveAgePublicKey,
+  loadRequests,
+  upsertRequest,
+  removeAccessRequest,
+  findRequest,
+} from "@clef-sh/core";
 import { formatter } from "../output/formatter";
+import { resolveAgePrivateKey } from "../age-credential";
 
 jest.mock("fs");
 jest.mock("readline", () => ({
@@ -33,6 +42,19 @@ jest.mock("@clef-sh/core", () => {
         warnings: [],
       }),
     })),
+    deriveAgePublicKey: jest.fn().mockResolvedValue("age1fakepublickeyfromtest12345678"),
+    loadRequests: jest.fn().mockReturnValue([]),
+    upsertRequest: jest.fn(),
+    removeAccessRequest: jest.fn(),
+    findRequest: jest.fn().mockReturnValue(null),
+    REQUESTS_FILENAME: ".clef-requests.yaml",
+  };
+});
+jest.mock("../age-credential", () => {
+  const actual = jest.requireActual("../age-credential");
+  return {
+    ...actual,
+    resolveAgePrivateKey: jest.fn().mockResolvedValue("AGE-SECRET-KEY-FAKE"),
   };
 });
 jest.mock("../output/formatter", () => ({
@@ -169,10 +191,20 @@ describe("clef recipients", () => {
       (mockFormatter.confirm as jest.Mock).mockResolvedValueOnce(true);
       const program = makeProgram();
 
-      await program.parseAsync(["node", "clef", "recipients", "add", validKey, "--label", "Alice"]);
+      await program.parseAsync([
+        "node",
+        "clef",
+        "recipients",
+        "add",
+        validKey,
+        "--label",
+        "Alice",
+        "-e",
+        "dev",
+      ]);
 
       expect(mockFormatter.print).toHaveBeenCalledWith(
-        expect.stringContaining("Add recipient to this repository?"),
+        expect.stringContaining("Add recipient for environment 'dev'?"),
       );
       expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("Label:  Alice"));
       expect(mockFormatter.confirm).toHaveBeenCalledWith("Proceed?");
@@ -181,7 +213,15 @@ describe("clef recipients", () => {
     it("should reject invalid key format before confirmation (exit 2)", async () => {
       const program = makeProgram();
 
-      await program.parseAsync(["node", "clef", "recipients", "add", "not-a-valid-key"]);
+      await program.parseAsync([
+        "node",
+        "clef",
+        "recipients",
+        "add",
+        "not-a-valid-key",
+        "-e",
+        "dev",
+      ]);
 
       expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("age1"));
       expect(mockExit).toHaveBeenCalledWith(2);
@@ -194,7 +234,7 @@ describe("clef recipients", () => {
       });
       const program = makeProgram();
 
-      await program.parseAsync(["node", "clef", "recipients", "add", validKey]);
+      await program.parseAsync(["node", "clef", "recipients", "add", validKey, "-e", "dev"]);
 
       expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("already present"));
       expect(mockExit).toHaveBeenCalledWith(2);
@@ -215,7 +255,7 @@ describe("clef recipients", () => {
       (mockFormatter.confirm as jest.Mock).mockResolvedValue(true);
       const program = makeProgram();
 
-      await program.parseAsync(["node", "clef", "recipients", "add", validKey]);
+      await program.parseAsync(["node", "clef", "recipients", "add", validKey, "-e", "dev"]);
 
       expect(mockFormatter.print).toHaveBeenCalledWith(
         expect.stringContaining("Re-encrypting matrix..."),
@@ -242,14 +282,24 @@ describe("clef recipients", () => {
       (mockFormatter.confirm as jest.Mock).mockResolvedValueOnce(true);
       const program = makeProgram();
 
-      await program.parseAsync(["node", "clef", "recipients", "add", validKey, "--label", "Alice"]);
+      await program.parseAsync([
+        "node",
+        "clef",
+        "recipients",
+        "add",
+        validKey,
+        "--label",
+        "Alice",
+        "-e",
+        "dev",
+      ]);
 
       expect(mockFormatter.success).toHaveBeenCalledWith(
         expect.stringContaining("1 files re-encrypted"),
       );
       expect(mockFormatter.hint).toHaveBeenCalledWith(
         expect.stringContaining(
-          'git add clef.yaml && git add -A && git commit -m "add recipient: Alice"',
+          'git add clef.yaml && git add -A && git commit -m "add recipient: Alice [dev]"',
         ),
       );
     });
@@ -268,7 +318,7 @@ describe("clef recipients", () => {
       (mockFormatter.confirm as jest.Mock).mockResolvedValueOnce(true);
       const program = makeProgram();
 
-      await program.parseAsync(["node", "clef", "recipients", "add", validKey]);
+      await program.parseAsync(["node", "clef", "recipients", "add", validKey, "-e", "dev"]);
 
       expect(mockFormatter.print).toHaveBeenCalledWith(
         expect.stringContaining("\u2717 Re-encryption failed"),
@@ -281,6 +331,292 @@ describe("clef recipients", () => {
         expect.stringContaining("No changes were applied"),
       );
       expect(mockExit).toHaveBeenCalledWith(1);
+    });
+  });
+
+  describe("request", () => {
+    it("should write request and show commit hint", async () => {
+      const program = makeProgram();
+
+      await program.parseAsync(["node", "clef", "recipients", "request", "--label", "Alice"]);
+
+      expect(resolveAgePrivateKey).toHaveBeenCalled();
+      expect(deriveAgePublicKey).toHaveBeenCalledWith("AGE-SECRET-KEY-FAKE");
+      expect(upsertRequest).toHaveBeenCalledWith(
+        expect.any(String),
+        "age1fakepublickeyfromtest12345678",
+        "Alice",
+        undefined,
+      );
+      expect(mockFormatter.success).toHaveBeenCalledWith(
+        expect.stringContaining("Access requested as 'Alice'"),
+      );
+      expect(mockFormatter.hint).toHaveBeenCalledWith(
+        expect.stringContaining(".clef-requests.yaml"),
+      );
+    });
+
+    it("should error when no age key found", async () => {
+      (resolveAgePrivateKey as jest.Mock).mockResolvedValueOnce(null);
+      const program = makeProgram();
+
+      await program.parseAsync(["node", "clef", "recipients", "request", "--label", "Alice"]);
+
+      expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("No age key found"));
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+
+    it("should error when already a recipient", async () => {
+      mockRecipientManager({
+        list: jest
+          .fn()
+          .mockResolvedValue([
+            { key: "age1fakepublickeyfromtest12345678", preview: "age1…12345678" },
+          ]),
+      });
+      const program = makeProgram();
+
+      await program.parseAsync(["node", "clef", "recipients", "request", "--label", "Alice"]);
+
+      expect(mockFormatter.info).toHaveBeenCalledWith("You are already a recipient.");
+    });
+
+    it("should fall back to git config user.name for label", async () => {
+      mockRecipientManager();
+      const runner: SubprocessRunner = {
+        run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
+          if (cmd === "git" && args[0] === "config" && args[1] === "user.name") {
+            return { stdout: "Git User\n", stderr: "", exitCode: 0 };
+          }
+          return { stdout: "", stderr: "", exitCode: 0 };
+        }),
+      };
+      const program = makeProgram(runner);
+
+      await program.parseAsync(["node", "clef", "recipients", "request"]);
+
+      expect(upsertRequest).toHaveBeenCalledWith(
+        expect.any(String),
+        "age1fakepublickeyfromtest12345678",
+        "Git User",
+        undefined,
+      );
+    });
+
+    it("should error when label is empty", async () => {
+      mockRecipientManager();
+      const runner: SubprocessRunner = {
+        run: jest.fn().mockImplementation(async () => {
+          return { stdout: "", stderr: "", exitCode: 0 };
+        }),
+      };
+      const program = makeProgram(runner);
+
+      await program.parseAsync(["node", "clef", "recipients", "request"]);
+
+      expect(mockFormatter.error).toHaveBeenCalledWith(
+        expect.stringContaining("Could not determine a label"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(2);
+    });
+
+    it("should pass environment option", async () => {
+      mockRecipientManager();
+      const program = makeProgram();
+
+      await program.parseAsync([
+        "node",
+        "clef",
+        "recipients",
+        "request",
+        "--label",
+        "Alice",
+        "-e",
+        "staging",
+      ]);
+
+      expect(upsertRequest).toHaveBeenCalledWith(
+        expect.any(String),
+        "age1fakepublickeyfromtest12345678",
+        "Alice",
+        "staging",
+      );
+      expect(mockFormatter.success).toHaveBeenCalledWith(
+        expect.stringContaining("for environment 'staging'"),
+      );
+    });
+
+    it("should reject invalid environment", async () => {
+      const program = makeProgram();
+
+      await program.parseAsync([
+        "node",
+        "clef",
+        "recipients",
+        "request",
+        "--label",
+        "Alice",
+        "-e",
+        "nonexistent",
+      ]);
+
+      expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("not found"));
+      expect(mockExit).toHaveBeenCalledWith(2);
+    });
+  });
+
+  describe("pending", () => {
+    it("should show no requests message when empty", async () => {
+      (loadRequests as jest.Mock).mockReturnValue([]);
+      const program = makeProgram();
+
+      await program.parseAsync(["node", "clef", "recipients", "pending"]);
+
+      expect(mockFormatter.info).toHaveBeenCalledWith("No pending access requests.");
+    });
+
+    it("should list pending requests", async () => {
+      (loadRequests as jest.Mock).mockReturnValue([
+        {
+          key: "age1qqnv7zhqs7fqmnqf8kfr33n32tyxdsacrpwlsnt0yeqyqvc2jmyqsyjssv",
+          label: "Alice",
+          requestedAt: new Date(),
+          environment: "staging",
+        },
+        {
+          key: "age1deadgyu9nk64as3xhfmz05u94lef3nym6hvqntrrmyzpq28pjxdqs5gfng",
+          label: "Bob",
+          requestedAt: new Date(Date.now() - 3 * 86400000),
+        },
+      ]);
+      const program = makeProgram();
+
+      await program.parseAsync(["node", "clef", "recipients", "pending"]);
+
+      expect(mockFormatter.print).toHaveBeenCalledWith(
+        expect.stringContaining("2 pending requests"),
+      );
+      expect(mockFormatter.recipientItem).toHaveBeenCalledWith(
+        "Alice [staging]",
+        expect.stringContaining("today"),
+      );
+      expect(mockFormatter.recipientItem).toHaveBeenCalledWith(
+        "Bob",
+        expect.stringContaining("3d ago"),
+      );
+      expect(mockFormatter.hint).toHaveBeenCalledWith(
+        expect.stringContaining("clef recipients approve"),
+      );
+    });
+  });
+
+  describe("approve", () => {
+    const validKey = "age1qqnv7zhqs7fqmnqf8kfr33n32tyxdsacrpwlsnt0yeqyqvc2jmyqsyjssv";
+
+    it("should approve a pending request with -e flag", async () => {
+      (findRequest as jest.Mock).mockReturnValue({
+        key: validKey,
+        label: "Alice",
+        requestedAt: new Date(),
+      });
+      mockRecipientManager({
+        list: jest.fn().mockResolvedValue([]),
+        add: jest.fn().mockResolvedValue({
+          added: { key: validKey, preview: "age1…jmyqsyjssv" },
+          recipients: [],
+          reEncryptedFiles: ["/repo/database/dev.enc.yaml"],
+          failedFiles: [],
+          warnings: [],
+        }),
+      });
+      (mockFormatter.confirm as jest.Mock).mockResolvedValueOnce(true);
+      const program = makeProgram();
+
+      await program.parseAsync(["node", "clef", "recipients", "approve", "Alice", "-e", "dev"]);
+
+      expect(findRequest).toHaveBeenCalledWith(expect.any(String), "Alice");
+      expect(mockFormatter.success).toHaveBeenCalledWith(
+        expect.stringContaining("1 files re-encrypted"),
+      );
+      expect(removeAccessRequest).toHaveBeenCalledWith(expect.any(String), "Alice");
+      expect(mockFormatter.hint).toHaveBeenCalledWith(
+        expect.stringContaining(".clef-requests.yaml"),
+      );
+    });
+
+    it("should error when request has no environment and -e not provided", async () => {
+      (findRequest as jest.Mock).mockReturnValue({
+        key: validKey,
+        label: "Alice",
+        requestedAt: new Date(),
+        // no environment
+      });
+      const program = makeProgram();
+
+      await program.parseAsync(["node", "clef", "recipients", "approve", "Alice"]);
+
+      expect(mockFormatter.error).toHaveBeenCalledWith(
+        expect.stringContaining("An environment is required"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(2);
+    });
+
+    it("should error when no matching request", async () => {
+      (findRequest as jest.Mock).mockReturnValue(null);
+      const program = makeProgram();
+
+      await program.parseAsync(["node", "clef", "recipients", "approve", "Nobody"]);
+
+      expect(mockFormatter.error).toHaveBeenCalledWith(
+        expect.stringContaining("No pending request matching"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(2);
+    });
+
+    it("should use environment from request", async () => {
+      (findRequest as jest.Mock).mockReturnValue({
+        key: validKey,
+        label: "Alice",
+        requestedAt: new Date(),
+        environment: "staging",
+      });
+      mockRecipientManager({
+        list: jest.fn().mockResolvedValue([]),
+        add: jest.fn().mockResolvedValue({
+          added: { key: validKey, preview: "age1…jmyqsyjssv" },
+          recipients: [],
+          reEncryptedFiles: ["/repo/database/staging.enc.yaml"],
+          failedFiles: [],
+          warnings: [],
+        }),
+      });
+      (mockFormatter.confirm as jest.Mock).mockResolvedValueOnce(true);
+      const program = makeProgram();
+
+      await program.parseAsync(["node", "clef", "recipients", "approve", "Alice"]);
+
+      expect(mockFormatter.print).toHaveBeenCalledWith(
+        expect.stringContaining("for environment 'staging'"),
+      );
+    });
+
+    it("should not remove request when user declines", async () => {
+      (findRequest as jest.Mock).mockReturnValue({
+        key: validKey,
+        label: "Alice",
+        requestedAt: new Date(),
+        environment: "dev",
+      });
+      mockRecipientManager({
+        list: jest.fn().mockResolvedValue([]),
+      });
+      (mockFormatter.confirm as jest.Mock).mockResolvedValueOnce(false);
+      const program = makeProgram();
+
+      await program.parseAsync(["node", "clef", "recipients", "approve", "Alice"]);
+
+      expect(mockFormatter.info).toHaveBeenCalledWith("Aborted.");
+      expect(removeAccessRequest).not.toHaveBeenCalled();
     });
   });
 
