@@ -3,7 +3,9 @@ import { ArtifactPoller } from "@clef-sh/runtime";
 import { AgentServerHandle } from "../server";
 
 describe("Daemon", () => {
-  let mockPoller: jest.Mocked<Pick<ArtifactPoller, "start" | "stop" | "isRunning">>;
+  let mockPoller: jest.Mocked<
+    Pick<ArtifactPoller, "start" | "startInterval" | "stop" | "isRunning">
+  >;
   let mockServer: jest.Mocked<AgentServerHandle>;
   let signalHandlers: Record<string, (() => void)[]>;
 
@@ -13,6 +15,7 @@ describe("Daemon", () => {
 
     mockPoller = {
       start: jest.fn().mockResolvedValue(undefined),
+      startInterval: jest.fn(),
       stop: jest.fn(),
       isRunning: jest.fn().mockReturnValue(true),
     };
@@ -51,7 +54,7 @@ describe("Daemon", () => {
 
     await daemon.start();
 
-    expect(mockPoller.start).toHaveBeenCalled();
+    expect(mockPoller.startInterval).toHaveBeenCalled();
     expect(signalHandlers["SIGTERM"]).toBeDefined();
     expect(signalHandlers["SIGINT"]).toBeDefined();
     expect(onLog).toHaveBeenCalledWith(expect.stringContaining("127.0.0.1:7779"));

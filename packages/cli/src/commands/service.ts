@@ -128,7 +128,6 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
               formatter.print(`    ${privateKey}\n`);
             }
             for (const k of Object.keys(result.privateKeys)) result.privateKeys[k] = "";
-            result.privateKeys = {};
           }
 
           // Report KMS environments

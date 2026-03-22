@@ -48,7 +48,6 @@ export function registerUpdateCommand(program: Command, deps: { runner: Subproce
 
         if (missing.length === 0) {
           formatter.success("Matrix is up to date.");
-          process.exit(0);
           return;
         }
 

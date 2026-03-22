@@ -252,11 +252,11 @@ clef service create backend-api \
   --description "Backend API server"
 ```
 
-Keys from multi-namespace artifacts are prefixed with the namespace to avoid collisions:
+Keys from multi-namespace artifacts are prefixed with the namespace (using `__` as the separator) to avoid collisions:
 
 ```
-api/STRIPE_KEY
-database/DB_HOST
+api__STRIPE_KEY
+database__DB_HOST
 ```
 
 Single-namespace identities use bare keys:
@@ -342,7 +342,7 @@ jobs:
           CLEF_AGE_KEY: ${{ secrets.CLEF_DEPLOY_KEY }}
         run: |
           npx @clef-sh/cli pack api-gateway production \
-            --output .clef/packed/api-gateway/production.age
+            --output .clef/packed/api-gateway/production.age.json
 
       - name: Commit packed artifact
         run: |

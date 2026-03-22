@@ -218,20 +218,20 @@ main() {
     # Verify sops checksum against the official getsops checksums file
     # (mirrors the approach used in publish-sops.yml)
     if command -v curl >/dev/null 2>&1; then
-      curl -fsSL -o "$TMPDIR/sops.checksums.txt" "$SOPS_CHECKSUMS_URL" 2>/dev/null || true
+      curl -fsSL -o "$TMPDIR/sops.checksums.txt" "$SOPS_CHECKSUMS_URL" 2>/dev/null || \
+        fatal "Failed to download sops checksums file. Cannot verify integrity."
     elif command -v wget >/dev/null 2>&1; then
-      wget -qO "$TMPDIR/sops.checksums.txt" "$SOPS_CHECKSUMS_URL" 2>/dev/null || true
-    fi
-    if [ -s "$TMPDIR/sops.checksums.txt" ]; then
-      SOPS_EXPECTED_HASH=$(grep "  ${SOPS_ASSET}$" "$TMPDIR/sops.checksums.txt" | awk '{print $1}')
-      if [ -n "$SOPS_EXPECTED_HASH" ]; then
-        verify_checksum "$TMPDIR/sops" "$SOPS_EXPECTED_HASH"
-        success "sops checksum verified"
-      else
-        warn "No checksum entry for ${SOPS_ASSET} — skipping sops verification"
-      fi
+      wget -qO "$TMPDIR/sops.checksums.txt" "$SOPS_CHECKSUMS_URL" 2>/dev/null || \
+        fatal "Failed to download sops checksums file. Cannot verify integrity."
     else
-      warn "Could not download sops checksums — skipping sops verification"
+      fatal "No download tool available (curl or wget required) to fetch sops checksums."
+    fi
+    SOPS_EXPECTED_HASH=$(grep "  ${SOPS_ASSET}$" "$TMPDIR/sops.checksums.txt" | awk '{print $1}')
+    if [ -n "$SOPS_EXPECTED_HASH" ]; then
+      verify_checksum "$TMPDIR/sops" "$SOPS_EXPECTED_HASH"
+      success "sops checksum verified"
+    else
+      fatal "No checksum entry for ${SOPS_ASSET} in checksums file. Cannot verify integrity."
     fi
 
     success "Downloaded sops"

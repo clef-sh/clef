@@ -219,9 +219,9 @@ docker build \
 
 Build args are visible in the image's build history. Use multi-stage builds to avoid leaking secrets into the final layer.
 
-## Service Identity Bundles
+## Packed Artifacts + Runtime Agent
 
-For serverless workloads that cannot run `sops` at deploy time, use [Service Identity bundles](/guide/service-identities) instead of `clef exec`. Bundles embed age-encrypted secrets in a self-contained JS module — no git, no sops binary, no private keys in the deployment artifact. See the [Service Identities guide](/guide/service-identities) for a full walkthrough.
+For serverless workloads that cannot run `sops` at deploy time, use [`clef pack`](/cli/pack) to create an encrypted artifact and the [runtime agent](/guide/agent) to serve secrets at runtime — instead of `clef exec`. Packed artifacts contain age-encrypted secrets in a JSON envelope — no git, no sops binary, no private keys in the deployment artifact. See the [Service Identities guide](/guide/service-identities) and [Agent guide](/guide/agent) for a full walkthrough.
 
 ## Best Practices
 

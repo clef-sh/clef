@@ -121,8 +121,16 @@ export class ServiceIdentityManager {
       environments,
     });
     const tmpCreate = path.join(os.tmpdir(), `clef-manifest-${process.pid}-${Date.now()}.tmp`);
-    fs.writeFileSync(tmpCreate, YAML.stringify(doc), "utf-8");
-    fs.renameSync(tmpCreate, manifestPath);
+    try {
+      fs.writeFileSync(tmpCreate, YAML.stringify(doc), "utf-8");
+      fs.renameSync(tmpCreate, manifestPath);
+    } finally {
+      try {
+        fs.unlinkSync(tmpCreate);
+      } catch {
+        // Already renamed or never written — ignore
+      }
+    }
 
     return { identity: definition, privateKeys };
   }
@@ -163,8 +171,13 @@ export class ServiceIdentityManager {
 
       try {
         await this.encryption.addRecipient(cell.filePath, envConfig.recipient);
-      } catch {
-        // File may already have this recipient — continue
+      } catch (err) {
+        // SOPS exits non-zero for duplicate recipients — safe to ignore.
+        // Re-throw genuine I/O or corruption errors.
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes("already")) {
+          throw err;
+        }
       }
     }
   }
@@ -257,8 +270,16 @@ export class ServiceIdentityManager {
     }
 
     const tmpRotate = path.join(os.tmpdir(), `clef-manifest-${process.pid}-${Date.now()}.tmp`);
-    fs.writeFileSync(tmpRotate, YAML.stringify(doc), "utf-8");
-    fs.renameSync(tmpRotate, manifestPath);
+    try {
+      fs.writeFileSync(tmpRotate, YAML.stringify(doc), "utf-8");
+      fs.renameSync(tmpRotate, manifestPath);
+    } finally {
+      try {
+        fs.unlinkSync(tmpRotate);
+      } catch {
+        // Already renamed or never written — ignore
+      }
+    }
     return newPrivateKeys;
   }
 

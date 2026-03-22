@@ -21,6 +21,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build --workspace=packages/core
+      - run: npm run build --workspace=packages/runtime
+      - run: npm run build --workspace=packages/agent
       - run: npm run build --workspace=packages/ui
       - name: Test with coverage
         run: npm run test:coverage --workspaces --if-present
