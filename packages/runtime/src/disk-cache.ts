@@ -18,17 +18,23 @@ export class DiskCache {
 
   constructor(cachePath: string, identity: string, environment: string) {
     const dir = path.join(cachePath, identity);
-    this.artifactPath = path.join(dir, `${environment}.age`);
+    this.artifactPath = path.join(dir, `${environment}.age.json`);
     this.metaPath = path.join(dir, `${environment}.meta`);
   }
 
-  /** Write an artifact and optional metadata to disk. */
+  /** Write an artifact and optional metadata to disk (atomic via tmp+rename). */
   write(raw: string, sha?: string): void {
     const dir = path.dirname(this.artifactPath);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(this.artifactPath, raw, "utf-8");
+
+    const tmpArtifact = `${this.artifactPath}.tmp.${process.pid}`;
+    fs.writeFileSync(tmpArtifact, raw, "utf-8");
+    fs.renameSync(tmpArtifact, this.artifactPath);
+
     const meta: DiskCacheMeta = { sha, fetchedAt: new Date().toISOString() };
-    fs.writeFileSync(this.metaPath, JSON.stringify(meta), "utf-8");
+    const tmpMeta = `${this.metaPath}.tmp.${process.pid}`;
+    fs.writeFileSync(tmpMeta, JSON.stringify(meta), "utf-8");
+    fs.renameSync(tmpMeta, this.metaPath);
   }
 
   /** Read the cached artifact. Returns null if no cache file exists. */
@@ -48,6 +54,31 @@ export class DiskCache {
       return meta.sha;
     } catch {
       return undefined;
+    }
+  }
+
+  /** Get the fetchedAt timestamp from metadata, if available. */
+  getFetchedAt(): string | undefined {
+    try {
+      const raw = fs.readFileSync(this.metaPath, "utf-8");
+      const meta: DiskCacheMeta = JSON.parse(raw) as DiskCacheMeta;
+      return meta.fetchedAt;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Remove cached artifact and metadata files. */
+  purge(): void {
+    try {
+      fs.unlinkSync(this.artifactPath);
+    } catch {
+      // ENOENT is fine
+    }
+    try {
+      fs.unlinkSync(this.metaPath);
+    } catch {
+      // ENOENT is fine
     }
   }
 }

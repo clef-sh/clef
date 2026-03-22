@@ -12,6 +12,7 @@ describe("resolveConfig", () => {
     expect(config.source).toBe("https://bucket.s3.amazonaws.com/artifact.json");
     expect(config.port).toBe(7779);
     expect(config.pollInterval).toBe(30);
+    expect(config.cacheTtl).toBe(300);
     expect(config.ageKey).toBe("AGE-SECRET-KEY-1TESTKEY");
     expect(config.token).toBeTruthy();
     expect(config.vcs).toBeUndefined();
@@ -69,6 +70,22 @@ describe("resolveConfig", () => {
     expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_POLL_INTERVAL: "-5" })).toThrow(
       ConfigError,
     );
+  });
+
+  it("should use custom cache TTL", () => {
+    const config = resolveConfig({ ...baseEnv, CLEF_AGENT_CACHE_TTL: "60" });
+    expect(config.cacheTtl).toBe(60);
+  });
+
+  it("should default cache TTL to 300", () => {
+    const config = resolveConfig(baseEnv);
+    expect(config.cacheTtl).toBe(300);
+  });
+
+  it("should throw ConfigError for invalid cache TTL", () => {
+    expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_CACHE_TTL: "abc" })).toThrow(ConfigError);
+    expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_CACHE_TTL: "0" })).toThrow(ConfigError);
+    expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_CACHE_TTL: "-5" })).toThrow(ConfigError);
   });
 
   it("should auto-generate token when not set", () => {

@@ -68,4 +68,71 @@ describe("SecretsCache", () => {
     expect(cache.getRevision()).toBe("rev2");
     expect(cache.getKeys()).toEqual(["NEW"]);
   });
+
+  describe("isExpired", () => {
+    it("should return false when snapshot is null (not loaded)", () => {
+      expect(cache.isExpired(300)).toBe(false);
+    });
+
+    it("should return false when cache is fresh", () => {
+      cache.swap({ K: "v" }, ["K"], "rev1");
+      expect(cache.isExpired(300)).toBe(false);
+    });
+
+    it("should return true when cache exceeds TTL", () => {
+      const now = Date.now();
+      jest.spyOn(Date, "now").mockReturnValueOnce(now - 400_000); // swap 400s ago
+      cache.swap({ K: "v" }, ["K"], "rev1");
+      jest.spyOn(Date, "now").mockReturnValue(now);
+      expect(cache.isExpired(300)).toBe(true);
+    });
+
+    it("should return false when cache is exactly at TTL boundary", () => {
+      const now = Date.now();
+      jest.spyOn(Date, "now").mockReturnValueOnce(now - 300_000); // swap exactly 300s ago
+      cache.swap({ K: "v" }, ["K"], "rev1");
+      jest.spyOn(Date, "now").mockReturnValue(now);
+      // 300_000 / 1000 = 300, which is NOT > 300
+      expect(cache.isExpired(300)).toBe(false);
+    });
+  });
+
+  describe("wipe", () => {
+    it("should reset cache to not ready", () => {
+      cache.swap({ K: "v" }, ["K"], "rev1");
+      expect(cache.isReady()).toBe(true);
+
+      cache.wipe();
+      expect(cache.isReady()).toBe(false);
+      expect(cache.getAll()).toBeNull();
+      expect(cache.getRevision()).toBeNull();
+    });
+  });
+
+  describe("getSwappedAt", () => {
+    it("should return null when not loaded", () => {
+      expect(cache.getSwappedAt()).toBeNull();
+    });
+
+    it("should return timestamp after swap", () => {
+      const before = Date.now();
+      cache.swap({ K: "v" }, ["K"], "rev1");
+      const after = Date.now();
+
+      const swappedAt = cache.getSwappedAt();
+      expect(swappedAt).toBeGreaterThanOrEqual(before);
+      expect(swappedAt).toBeLessThanOrEqual(after);
+    });
+
+    it("should update on subsequent swaps", () => {
+      const now = Date.now();
+      jest.spyOn(Date, "now").mockReturnValueOnce(now);
+      cache.swap({ K: "v" }, ["K"], "rev1");
+      expect(cache.getSwappedAt()).toBe(now);
+
+      jest.spyOn(Date, "now").mockReturnValueOnce(now + 5000);
+      cache.swap({ K: "v2" }, ["K"], "rev2");
+      expect(cache.getSwappedAt()).toBe(now + 5000);
+    });
+  });
 });

@@ -69,6 +69,8 @@ export interface RuntimeConfig {
   pollInterval?: number;
   /** Disk cache directory. Enables fallback to the last fetched artifact on VCS failure. */
   cachePath?: string;
+  /** Max seconds the runtime serves secrets without a successful refresh. */
+  cacheTtl?: number;
 }
 
 /**
@@ -110,6 +112,7 @@ export class ClefRuntime {
       cache: this.cache,
       pollInterval: config.pollInterval ?? 0,
       diskCache,
+      cacheTtl: config.cacheTtl,
     });
   }
 
@@ -121,12 +124,8 @@ export class ClefRuntime {
   /** Start background polling (if pollInterval > 0 in config). */
   startPolling(): void {
     if ((this.config.pollInterval ?? 0) > 0) {
-      // Poller.start() does initial fetch + starts interval.
-      // Since start() already did initial fetch, we just start the interval directly.
-      this.poller.start().catch(() => {
-        // start() does fetchAndDecrypt first, but cache is already loaded.
-        // Errors during polling are handled by the poller's onError callback.
-      });
+      // start() already did the initial fetch — only start the interval timer.
+      this.poller.startInterval();
     }
   }
 
@@ -177,15 +176,32 @@ export class ClefRuntime {
 
   private resolveSource(config: RuntimeConfig): ArtifactSource {
     // VCS source
-    if (config.provider && config.repo && config.token && config.identity && config.environment) {
+    const vcsFields = {
+      provider: config.provider,
+      repo: config.repo,
+      token: config.token,
+      identity: config.identity,
+      environment: config.environment,
+    };
+    const presentVcs = Object.entries(vcsFields).filter(([, v]) => !!v);
+    const missingVcs = Object.entries(vcsFields).filter(([, v]) => !v);
+
+    if (presentVcs.length > 0 && missingVcs.length > 0) {
+      const missing = missingVcs.map(([k]) => k).join(", ");
+      throw new Error(
+        `Partial VCS config detected. Missing: ${missing}. Provide all VCS fields (provider, repo, token, identity, environment) or use a source URL/path instead.`,
+      );
+    }
+
+    if (presentVcs.length === Object.keys(vcsFields).length) {
       const provider = createVcsProvider({
-        provider: config.provider,
-        repo: config.repo,
-        token: config.token,
+        provider: config.provider!,
+        repo: config.repo!,
+        token: config.token!,
         ref: config.ref,
         apiUrl: config.apiUrl,
       });
-      return new VcsArtifactSource(provider, config.identity, config.environment);
+      return new VcsArtifactSource(provider, config.identity!, config.environment!);
     }
 
     // HTTP or file source

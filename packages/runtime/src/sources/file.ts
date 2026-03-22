@@ -5,8 +5,8 @@ import { ArtifactSource, ArtifactFetchResult } from "./types";
 export class FileArtifactSource implements ArtifactSource {
   private readonly path: string;
 
-  constructor(path: string) {
-    this.path = path;
+  constructor(filePath: string) {
+    this.path = filePath;
   }
 
   async fetch(): Promise<ArtifactFetchResult> {

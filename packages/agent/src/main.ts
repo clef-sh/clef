@@ -64,6 +64,7 @@ async function main(): Promise<void> {
     cache,
     pollInterval: config.pollInterval,
     diskCache,
+    cacheTtl: config.cacheTtl,
     onError: (err) => console.error(`[clef-agent] poll error: ${err.message}`),
   });
 
@@ -73,6 +74,7 @@ async function main(): Promise<void> {
     port: config.port,
     token: config.token,
     cache,
+    cacheTtl: config.cacheTtl,
   });
 
   const daemon = new Daemon({

@@ -27,10 +27,11 @@ See [Service Identities](/guide/service-identities) for the full guide.
 
 ## Flags
 
-| Flag                  | Type   | Required | Default | Description                       |
-| --------------------- | ------ | -------- | ------- | --------------------------------- |
-| `-o, --output <path>` | string | Yes      | —       | Output file path for the artifact |
-| `--dir <path>`        | string | No       | cwd     | Override repository root          |
+| Flag                  | Type   | Required | Default | Description                                    |
+| --------------------- | ------ | -------- | ------- | ---------------------------------------------- |
+| `-o, --output <path>` | string | Yes      | —       | Output file path for the artifact              |
+| `--ttl <seconds>`     | number | No       | —       | Artifact TTL — embeds an `expiresAt` timestamp |
+| `--dir <path>`        | string | No       | cwd     | Override repository root                       |
 
 ## Exit codes
 
@@ -59,7 +60,7 @@ Commit the artifact to the repo. The runtime fetches it via the VCS API:
     CLEF_AGE_KEY: ${{ secrets.CLEF_DEPLOY_KEY }}
   run: |
     npx @clef-sh/cli pack api-gateway production \
-      --output .clef/packed/api-gateway/production.age
+      --output .clef/packed/api-gateway/production.age.json
     git add .clef/packed/
     git commit -m "chore: pack api-gateway/production" || echo "No changes"
     git push
@@ -85,8 +86,19 @@ Upload to an object store. The runtime fetches via HTTPS — no VCS token needed
 `clef pack` decrypts SOPS files before re-encrypting for the service identity. The CI runner needs a key that can decrypt the scoped namespaces — the same `CLEF_AGE_KEY` used with `clef exec`. The service identity's own private key is not used during packing.
 :::
 
+### Pack with a TTL
+
+Embed an expiry in the artifact. The agent rejects the artifact after the TTL expires:
+
+```bash
+clef pack api-gateway production \
+  --output ./artifact.json \
+  --ttl 3600  # expires in 1 hour
+```
+
 ## Related commands
 
+- [`clef revoke`](revoke.md) — emergency revocation of a packed artifact
 - [`clef service`](service.md) — manage service identities
 - [`clef exec`](exec.md) — run a command with secrets injected (alternative for dev)
 - [`clef export`](export.md) — print secrets as shell export statements

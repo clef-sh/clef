@@ -23,6 +23,8 @@ export interface AgentConfig {
   port: number;
   /** Seconds between artifact polls. */
   pollInterval: number;
+  /** Max seconds the agent serves secrets without a successful refresh. */
+  cacheTtl: number;
   /** Inline age private key. */
   ageKey?: string;
   /** Path to age key file. */
@@ -55,6 +57,7 @@ export class ConfigError extends Error {
  * | CLEF_AGENT_CACHE_PATH          | —              | Disk cache path for fallback         |
  * | CLEF_AGENT_PORT                | 7779           | HTTP API port                        |
  * | CLEF_AGENT_POLL_INTERVAL       | 30             | Seconds between polls                |
+ * | CLEF_AGENT_CACHE_TTL           | 300            | Max seconds to serve without refresh |
  * | CLEF_AGENT_AGE_KEY             | —              | Inline age private key               |
  * | CLEF_AGENT_AGE_KEY_FILE        | —              | Path to age key file                 |
  * | CLEF_AGENT_TOKEN               | auto-generated | Bearer token for API auth            |
@@ -123,11 +126,19 @@ export function resolveConfig(env: Record<string, string | undefined> = process.
     );
   }
 
+  const cacheTtlStr = env.CLEF_AGENT_CACHE_TTL ?? "300";
+  const cacheTtl = parseInt(cacheTtlStr, 10);
+  if (isNaN(cacheTtl) || cacheTtl < 1) {
+    throw new ConfigError(
+      `Invalid CLEF_AGENT_CACHE_TTL '${cacheTtlStr}'. Must be a positive integer.`,
+    );
+  }
+
   const ageKey = env.CLEF_AGENT_AGE_KEY;
   const ageKeyFile = env.CLEF_AGENT_AGE_KEY_FILE;
   // Age key is optional — KMS envelope artifacts don't need one
 
   const token = env.CLEF_AGENT_TOKEN ?? randomBytes(32).toString("hex");
 
-  return { source, vcs, cachePath, port, pollInterval, ageKey, ageKeyFile, token };
+  return { source, vcs, cachePath, port, pollInterval, cacheTtl, ageKey, ageKeyFile, token };
 }

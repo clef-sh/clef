@@ -126,6 +126,51 @@ describe("ArtifactPacker", () => {
     expect(written.revision).toBeTruthy();
   });
 
+  it("should embed expiresAt when ttl is set", async () => {
+    const decrypted: DecryptedFile = {
+      values: { KEY: "val" },
+      metadata: { backend: "age", recipients: ["age1devkey"], lastModified: new Date() },
+    };
+    encryption.decrypt.mockResolvedValue(decrypted);
+
+    const config: PackConfig = {
+      identity: "api-gateway",
+      environment: "dev",
+      outputPath: "/output/artifact.json",
+      ttl: 3600,
+    };
+
+    const before = Date.now();
+    await packer.pack(config, baseManifest(), "/repo");
+    const after = Date.now();
+
+    const written: PackedArtifact = JSON.parse(String(mockFs.writeFileSync.mock.calls[0][1]));
+    expect(written.expiresAt).toBeTruthy();
+    const expiresAt = new Date(written.expiresAt!).getTime();
+    // Should be approximately 1 hour from now
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 3600_000);
+    expect(expiresAt).toBeLessThanOrEqual(after + 3600_000);
+  });
+
+  it("should not include expiresAt when ttl is not set", async () => {
+    const decrypted: DecryptedFile = {
+      values: { KEY: "val" },
+      metadata: { backend: "age", recipients: ["age1devkey"], lastModified: new Date() },
+    };
+    encryption.decrypt.mockResolvedValue(decrypted);
+
+    const config: PackConfig = {
+      identity: "api-gateway",
+      environment: "dev",
+      outputPath: "/output/artifact.json",
+    };
+
+    await packer.pack(config, baseManifest(), "/repo");
+
+    const written: PackedArtifact = JSON.parse(String(mockFs.writeFileSync.mock.calls[0][1]));
+    expect(written.expiresAt).toBeUndefined();
+  });
+
   it("should create output directory if it does not exist", async () => {
     const decrypted: DecryptedFile = {
       values: { KEY: "val" },

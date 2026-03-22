@@ -20,6 +20,7 @@ import { registerRecipientsCommand } from "./commands/recipients";
 import { registerMergeDriverCommand } from "./commands/merge-driver";
 import { registerServiceCommand } from "./commands/service";
 import { registerPackCommand } from "./commands/pack";
+import { registerRevokeCommand } from "./commands/revoke";
 import { registerDriftCommand } from "./commands/drift";
 import { registerReportCommand } from "./commands/report";
 import { formatter } from "./output/formatter";
@@ -93,6 +94,7 @@ registerRecipientsCommand(program, deps);
 registerMergeDriverCommand(program, deps);
 registerServiceCommand(program, deps);
 registerPackCommand(program, deps);
+registerRevokeCommand(program, deps);
 registerDriftCommand(program, deps);
 registerReportCommand(program, deps);
 

@@ -24,7 +24,7 @@ export interface VcsProviderConfig {
 export interface VcsProvider {
   /**
    * Fetch a single file by path from the repository.
-   * @param path - Repository-relative file path (e.g. `.clef/packed/api/production.age`).
+   * @param path - Repository-relative file path (e.g. `.clef/packed/api/production.age.json`).
    */
   fetchFile(path: string): Promise<VcsFileResult>;
 }

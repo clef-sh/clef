@@ -12,17 +12,17 @@ describe("FileArtifactSource", () => {
   it("should read artifact from file", async () => {
     mockFs.readFileSync.mockReturnValue('{"version":1}');
 
-    const source = new FileArtifactSource("/path/to/artifact.json");
+    const source = new FileArtifactSource("/path/to/artifact.age.json");
     const result = await source.fetch();
 
     expect(result.raw).toBe('{"version":1}');
-    expect(mockFs.readFileSync).toHaveBeenCalledWith("/path/to/artifact.json", "utf-8");
+    expect(mockFs.readFileSync).toHaveBeenCalledWith("/path/to/artifact.age.json", "utf-8");
   });
 
   it("should not return contentHash", async () => {
     mockFs.readFileSync.mockReturnValue("data");
 
-    const source = new FileArtifactSource("/path/to/artifact.json");
+    const source = new FileArtifactSource("/path/to/artifact.age.json");
     const result = await source.fetch();
 
     expect(result.contentHash).toBeUndefined();
@@ -33,12 +33,12 @@ describe("FileArtifactSource", () => {
       throw new Error("ENOENT");
     });
 
-    const source = new FileArtifactSource("/path/to/missing.json");
+    const source = new FileArtifactSource("/path/to/missing.age.json");
     await expect(source.fetch()).rejects.toThrow("ENOENT");
   });
 
   it("should describe itself", () => {
-    const source = new FileArtifactSource("/path/to/artifact.json");
-    expect(source.describe()).toBe("file /path/to/artifact.json");
+    const source = new FileArtifactSource("/path/to/artifact.age.json");
+    expect(source.describe()).toBe("file /path/to/artifact.age.json");
   });
 });

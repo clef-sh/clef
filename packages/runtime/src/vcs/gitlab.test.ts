@@ -22,13 +22,13 @@ describe("GitLabProvider", () => {
     });
 
     const provider = new GitLabProvider(config);
-    const result = await provider.fetchFile(".clef/packed/api/production.age");
+    const result = await provider.fetchFile(".clef/packed/api/production.age.json");
 
     expect(result.content).toBe("gitlab content");
     expect(result.sha).toBe("abc123");
     expect(mockFetch).toHaveBeenCalledWith(
       expect.stringContaining(
-        "/api/v4/projects/group%2Fproject/repository/files/.clef%2Fpacked%2Fapi%2Fproduction.age",
+        "/api/v4/projects/group%2Fproject/repository/files/.clef%2Fpacked%2Fapi%2Fproduction.age.json",
       ),
       expect.objectContaining({
         headers: { "PRIVATE-TOKEN": "glpat-test123" },

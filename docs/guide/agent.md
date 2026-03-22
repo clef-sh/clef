@@ -48,6 +48,7 @@ flowchart LR
   "ciphertextHash": "sha256-hex-digest",
   "ciphertext": "-----BEGIN AGE ENCRYPTED FILE-----\n...",
   "keys": ["DB_URL", "API_KEY", "STRIPE_KEY"],
+  "expiresAt": "2024-01-15T01:00:00.000Z",
   "envelope": {
     "provider": "aws",
     "keyId": "arn:aws:kms:us-east-1:123456789012:key/...",
@@ -57,7 +58,15 @@ flowchart LR
 }
 ```
 
+| Field       | Required | Description                                                   |
+| ----------- | -------- | ------------------------------------------------------------- |
+| `envelope`  | No       | KMS envelope metadata. Present for KMS envelope identities.   |
+| `expiresAt` | No       | ISO-8601 expiry. Agent rejects the artifact after this time.  |
+| `revokedAt` | No       | ISO-8601 revocation timestamp. Agent wipes cache immediately. |
+
 The `envelope` field is present when the identity uses KMS envelope encryption. It is omitted for age-only identities. When present, the artifact is self-describing — the runtime knows which KMS provider to call and which key to use. No KMS configuration is needed at runtime.
+
+The `expiresAt` field is set when packing with `--ttl`. The `revokedAt` field is set by `clef revoke` — see [Revocation](#revocation) below.
 
 ## Packing artifacts
 
@@ -94,7 +103,7 @@ jobs:
           CLEF_AGE_KEY: ${{ secrets.CLEF_DEPLOY_KEY }}
         run: |
           npx @clef-sh/cli pack api-gateway production \
-            --output .clef/packed/api-gateway/production.age
+            --output .clef/packed/api-gateway/production.age.json
 
       - name: Commit packed artifact
         run: |
@@ -222,6 +231,7 @@ All configuration via environment variables (universal for containers and Lambda
 | `CLEF_AGENT_CACHE_PATH`      | —              | Disk cache path for VCS failure fallback           |
 | `CLEF_AGENT_PORT`            | `7779`         | HTTP API port                                      |
 | `CLEF_AGENT_POLL_INTERVAL`   | `30`           | Seconds between polls                              |
+| `CLEF_AGENT_CACHE_TTL`       | `300`          | Max seconds to serve without a successful refresh  |
 | `CLEF_AGENT_AGE_KEY`         | —              | Inline age private key (optional for KMS envelope) |
 | `CLEF_AGENT_AGE_KEY_FILE`    | —              | Path to age key file (optional for KMS envelope)   |
 | `CLEF_AGENT_TOKEN`           | auto-generated | Bearer token for API auth                          |
@@ -234,13 +244,13 @@ KMS envelope artifacts are self-describing — the runtime calls KMS Decrypt to 
 
 The agent serves a REST API on `127.0.0.1` only:
 
-| Endpoint               | Auth         | Description                             |
-| ---------------------- | ------------ | --------------------------------------- |
-| `GET /v1/secrets`      | Bearer token | All secrets as JSON object              |
-| `GET /v1/secrets/:key` | Bearer token | Single secret `{ "value": "..." }`      |
-| `GET /v1/keys`         | Bearer token | Array of key names                      |
-| `GET /v1/health`       | None         | `{ "status": "ok", "revision": "..." }` |
-| `GET /v1/ready`        | None         | `200` if loaded, `503` if not           |
+| Endpoint               | Auth         | Description                                                                     |
+| ---------------------- | ------------ | ------------------------------------------------------------------------------- |
+| `GET /v1/secrets`      | Bearer token | All secrets as JSON object                                                      |
+| `GET /v1/secrets/:key` | Bearer token | Single secret `{ "value": "..." }`                                              |
+| `GET /v1/keys`         | Bearer token | Array of key names                                                              |
+| `GET /v1/health`       | None         | `{ "status": "ok", "revision": "...", "lastRefreshAt": ..., "expired": false }` |
+| `GET /v1/ready`        | None         | `200` if loaded and fresh, `503` if not loaded or cache expired                 |
 
 ### Authentication
 
@@ -436,9 +446,72 @@ Runtime:   agent fetches new artifact + uses new private key → seamless
 
 No key rotation needed. Each `clef pack` generates a fresh ephemeral key pair automatically.
 
+## Cache TTL
+
+The agent refuses to serve secrets that haven't been successfully refreshed within a configurable window. This bounds the blast radius of a compromised token or unreachable source.
+
+```bash
+export CLEF_AGENT_CACHE_TTL=300  # default: 5 minutes
+```
+
+If the agent cannot reach the source for longer than the TTL:
+
+1. In-memory cache is wiped
+2. Disk cache is purged (if configured)
+3. `/v1/secrets` and `/v1/keys` return 503
+4. `/v1/ready` returns `{ "ready": false, "reason": "cache_expired" }`
+5. `/v1/health` reports `"expired": true`
+
+The TTL is a hard backstop — even if polling breaks entirely, the agent stops serving after `CLEF_AGENT_CACHE_TTL` seconds.
+
+## Artifact TTL
+
+Pack an artifact with a built-in expiry using `--ttl`:
+
+```bash
+clef pack api-gateway production \
+  --output ./artifact.json \
+  --ttl 3600  # 1 hour
+```
+
+This embeds an `expiresAt` timestamp in the artifact. The agent rejects the artifact after that time, regardless of cache TTL. Use this when you want the artifact itself to be time-bounded — for example, short-lived credentials that should not be served beyond a known window.
+
+## Revocation
+
+`clef revoke` is the emergency brake. It overwrites the packed artifact with a revocation marker:
+
+```bash
+clef revoke api-gateway production
+git add .clef/packed/api-gateway/production.age.json
+git commit -m "revoke(api-gateway): compromised deploy token"
+git push
+```
+
+The agent detects the `revokedAt` field on the next poll and immediately wipes its cache. Secrets endpoints return 503 until a new artifact is packed and delivered.
+
+### Revocation timeline
+
+With `CLEF_AGENT_POLL_INTERVAL=5` and automated CI (a `workflow_dispatch` that runs `clef revoke`, commits, and pushes), revocation takes effect in under 15 seconds.
+
+### Restoring after revocation
+
+Rotate your secrets, repack, and push:
+
+```bash
+clef set api/production API_KEY new-key-value
+clef pack api-gateway production \
+  --output .clef/packed/api-gateway/production.age.json
+git add .clef/packed/ api/production.enc.yaml
+git commit -m "chore: rotate and repack api-gateway/production"
+git push
+```
+
+The agent picks up the new artifact on the next poll and resumes serving.
+
 ## See also
 
 - [`clef pack`](/cli/pack) — CLI reference for the pack command
+- [`clef revoke`](/cli/revoke) — emergency revocation reference
 - [`clef-agent`](/cli/agent) — standalone agent reference
 - [Service Identities](/guide/service-identities) — creating identities and packing artifacts
 - [CI/CD Integration](/guide/ci-cd) — pipeline setup

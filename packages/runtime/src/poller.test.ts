@@ -357,6 +357,8 @@ describe("ArtifactPoller", () => {
         write: jest.fn(),
         read: jest.fn().mockReturnValue(null),
         getCachedSha: jest.fn(),
+        getFetchedAt: jest.fn(),
+        purge: jest.fn(),
       } as unknown as DiskCache;
 
       const poller = new ArtifactPoller({
@@ -368,6 +370,260 @@ describe("ArtifactPoller", () => {
       });
 
       await expect(poller.fetchAndDecrypt()).rejects.toThrow("network error");
+    });
+  });
+
+  describe("cache TTL enforcement", () => {
+    it("should wipe and throw when fetch fails and in-memory cache is expired (no disk cache)", async () => {
+      // First load succeeds
+      const source: ArtifactSource = {
+        fetch: jest
+          .fn()
+          .mockResolvedValueOnce({ raw: makeArtifact({ revision: "rev1" }) })
+          .mockRejectedValueOnce(new Error("network error")),
+        describe: () => "mock",
+      };
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        pollInterval: 30,
+        cacheTtl: 10,
+      });
+
+      await poller.fetchAndDecrypt();
+      expect(cache.isReady()).toBe(true);
+
+      // Advance past TTL
+      jest.advanceTimersByTime(15_000);
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("cache expired");
+      expect(cache.isReady()).toBe(false);
+    });
+
+    it("should not wipe when fetch fails but cache is still fresh (no disk cache)", async () => {
+      const source: ArtifactSource = {
+        fetch: jest
+          .fn()
+          .mockResolvedValueOnce({ raw: makeArtifact({ revision: "rev1" }) })
+          .mockRejectedValueOnce(new Error("network error")),
+        describe: () => "mock",
+      };
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        pollInterval: 30,
+        cacheTtl: 300,
+      });
+
+      await poller.fetchAndDecrypt();
+      expect(cache.isReady()).toBe(true);
+
+      // Cache is still fresh — should throw the original error, not expire
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("network error");
+      expect(cache.isReady()).toBe(true);
+    });
+
+    it("should wipe and purge when fetch fails and disk cache is expired", async () => {
+      const source: ArtifactSource = {
+        fetch: jest.fn().mockRejectedValue(new Error("network error")),
+        describe: () => "mock",
+      };
+      const diskCache = {
+        write: jest.fn(),
+        read: jest.fn().mockReturnValue(makeArtifact({ revision: "old" })),
+        getCachedSha: jest.fn().mockReturnValue("sha-old"),
+        getFetchedAt: jest.fn().mockReturnValue(new Date(Date.now() - 600_000).toISOString()),
+        purge: jest.fn(),
+      } as unknown as DiskCache;
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        pollInterval: 30,
+        diskCache,
+        cacheTtl: 300,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("cache expired");
+      expect(diskCache.purge).toHaveBeenCalled();
+      expect(cache.isReady()).toBe(false);
+    });
+
+    it("should fall back to fresh disk cache even with TTL configured", async () => {
+      const artifactJson = makeArtifact({ revision: "cached-rev" });
+      const source: ArtifactSource = {
+        fetch: jest.fn().mockRejectedValue(new Error("network error")),
+        describe: () => "mock",
+      };
+      const diskCache = {
+        write: jest.fn(),
+        read: jest.fn().mockReturnValue(artifactJson),
+        getCachedSha: jest.fn().mockReturnValue("cached-sha"),
+        getFetchedAt: jest.fn().mockReturnValue(new Date().toISOString()),
+        purge: jest.fn(),
+      } as unknown as DiskCache;
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        pollInterval: 30,
+        diskCache,
+        cacheTtl: 300,
+      });
+
+      await poller.fetchAndDecrypt();
+      expect(cache.isReady()).toBe(true);
+      expect(cache.getRevision()).toBe("cached-rev");
+      expect(diskCache.purge).not.toHaveBeenCalled();
+    });
+
+    it("should wipe cache when fetch fails, disk cache is empty, and in-memory cache is expired", async () => {
+      const source: ArtifactSource = {
+        fetch: jest
+          .fn()
+          .mockResolvedValueOnce({ raw: makeArtifact({ revision: "rev1" }) })
+          .mockRejectedValueOnce(new Error("network error")),
+        describe: () => "mock",
+      };
+      const diskCache = {
+        write: jest.fn(),
+        read: jest.fn().mockReturnValue(null),
+        getCachedSha: jest.fn(),
+        getFetchedAt: jest.fn(),
+        purge: jest.fn(),
+      } as unknown as DiskCache;
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        pollInterval: 30,
+        diskCache,
+        cacheTtl: 10,
+      });
+
+      await poller.fetchAndDecrypt();
+      expect(cache.isReady()).toBe(true);
+
+      // Advance past TTL
+      jest.advanceTimersByTime(15_000);
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("cache expired");
+      expect(cache.isReady()).toBe(false);
+    });
+  });
+
+  describe("artifact expiry", () => {
+    it("should reject an expired artifact and wipe cache", async () => {
+      const expiredArtifact = makeArtifact({ revision: "exp-rev" });
+      const parsed = JSON.parse(expiredArtifact);
+      parsed.expiresAt = new Date(Date.now() - 60_000).toISOString();
+      const source = mockSource(JSON.stringify(parsed));
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        pollInterval: 30,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("Artifact expired at");
+      expect(cache.isReady()).toBe(false);
+    });
+
+    it("should accept an artifact with future expiresAt", async () => {
+      const futureArtifact = makeArtifact({ revision: "future-rev" });
+      const parsed = JSON.parse(futureArtifact);
+      parsed.expiresAt = new Date(Date.now() + 3600_000).toISOString();
+      const source = mockSource(JSON.stringify(parsed));
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        pollInterval: 30,
+      });
+
+      await poller.fetchAndDecrypt();
+      expect(cache.isReady()).toBe(true);
+    });
+
+    it("should accept an artifact without expiresAt", async () => {
+      const source = mockSource(makeArtifact({ revision: "no-exp" }));
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        pollInterval: 30,
+      });
+
+      await poller.fetchAndDecrypt();
+      expect(cache.isReady()).toBe(true);
+    });
+  });
+
+  describe("revocation", () => {
+    function makeRevokedArtifact(): string {
+      return JSON.stringify({
+        version: 1,
+        identity: "api-gateway",
+        environment: "production",
+        revokedAt: "2026-03-22T14:30:00.000Z",
+      });
+    }
+
+    it("should wipe cache and throw when artifact has revokedAt", async () => {
+      const source = mockSource(makeRevokedArtifact());
+
+      // Pre-load cache
+      cache.swap({ K: "v" }, ["K"], "old-rev");
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        pollInterval: 30,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("Artifact revoked");
+      expect(cache.isReady()).toBe(false);
+    });
+
+    it("should proceed normally when artifact has no revokedAt", async () => {
+      const source = mockSource(makeArtifact({ revision: "ok-rev" }));
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        pollInterval: 30,
+      });
+
+      await poller.fetchAndDecrypt();
+      expect(cache.isReady()).toBe(true);
+      expect(cache.getRevision()).toBe("ok-rev");
+    });
+
+    it("should include identity and timestamp in revocation error", async () => {
+      const source = mockSource(makeRevokedArtifact());
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        pollInterval: 30,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow(
+        "api-gateway/production at 2026-03-22T14:30:00.000Z",
+      );
     });
   });
 

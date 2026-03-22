@@ -12,7 +12,7 @@ export class VcsArtifactSource implements ArtifactSource {
     this.provider = provider;
     this.identity = identity;
     this.environment = environment;
-    this.path = `.clef/packed/${identity}/${environment}.age`;
+    this.path = `.clef/packed/${identity}/${environment}.age.json`;
   }
 
   async fetch(): Promise<ArtifactFetchResult> {
@@ -21,6 +21,6 @@ export class VcsArtifactSource implements ArtifactSource {
   }
 
   describe(): string {
-    return `VCS .clef/packed/${this.identity}/${this.environment}.age`;
+    return `VCS .clef/packed/${this.identity}/${this.environment}.age.json`;
   }
 }

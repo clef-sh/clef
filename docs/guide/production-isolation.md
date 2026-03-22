@@ -8,12 +8,8 @@ Co-locating secrets in the application repo is the recommended default (see [Cor
 
 - **Least privilege.** Developers who need `dev` and `staging` secrets should not need access to production ciphertext. A separate repo means separate age keys and separate repository access controls.
 - **Compliance.** SOC 2, PCI-DSS, and HIPAA frameworks may require that production credentials are stored and audited separately from development environments.
-- **Defense in depth.** Even though SOPS values are encrypted, key names are plaintext. Splitting repos ensures that key names and encrypted values for production are only visible to those who need them.
+- **Defense in depth.** Splitting repos ensures that production ciphertext is never cloned to developer machines — even accidentally. A leaked dev repo exposes no production material.
 - **Blast radius.** Compromising the dev repo (or its age key) does not expose production ciphertext.
-
-::: tip Key names are plaintext
-SOPS encrypts values but not key names. A developer with read access to the encrypted file can see `STRIPE_SECRET_KEY` as a key name even without the decryption key. Production isolation removes even that visibility from the dev repo.
-:::
 
 ## Setting up the production repo
 

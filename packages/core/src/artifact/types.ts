@@ -29,6 +29,8 @@ export interface PackedArtifact {
   keys: string[];
   /** KMS envelope metadata. Present when the identity uses KMS envelope encryption. */
   envelope?: ArtifactEnvelope;
+  /** ISO-8601 expiry timestamp. Artifact is rejected after this time. */
+  expiresAt?: string;
 }
 
 /** Configuration for the `pack` command. */
@@ -39,6 +41,8 @@ export interface PackConfig {
   environment: string;
   /** Local file path to write the artifact JSON to. */
   outputPath: string;
+  /** TTL in seconds — embeds an `expiresAt` timestamp in the artifact envelope. */
+  ttl?: number;
 }
 
 /** Result of a pack operation. */

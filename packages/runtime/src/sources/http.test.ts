@@ -15,11 +15,11 @@ describe("HttpArtifactSource", () => {
       headers: new Map([["etag", '"abc123"']]),
     });
 
-    const source = new HttpArtifactSource("https://bucket.example.com/artifact.json");
+    const source = new HttpArtifactSource("https://bucket.example.com/artifact.age.json");
     const result = await source.fetch();
 
     expect(result.raw).toBe('{"version":1}');
-    expect(mockFetch).toHaveBeenCalledWith("https://bucket.example.com/artifact.json");
+    expect(mockFetch).toHaveBeenCalledWith("https://bucket.example.com/artifact.age.json");
   });
 
   it("should return etag as contentHash", async () => {
@@ -31,7 +31,7 @@ describe("HttpArtifactSource", () => {
       headers,
     });
 
-    const source = new HttpArtifactSource("https://example.com/a.json");
+    const source = new HttpArtifactSource("https://example.com/a.age.json");
     const result = await source.fetch();
 
     expect(result.contentHash).toBe('"etag-value"');
@@ -45,7 +45,7 @@ describe("HttpArtifactSource", () => {
       headers,
     });
 
-    const source = new HttpArtifactSource("https://example.com/a.json");
+    const source = new HttpArtifactSource("https://example.com/a.age.json");
     const result = await source.fetch();
 
     expect(result.contentHash).toBeUndefined();
@@ -54,12 +54,12 @@ describe("HttpArtifactSource", () => {
   it("should throw on HTTP error", async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 404 });
 
-    const source = new HttpArtifactSource("https://example.com/missing.json");
+    const source = new HttpArtifactSource("https://example.com/missing.age.json");
     await expect(source.fetch()).rejects.toThrow("404");
   });
 
   it("should describe itself", () => {
-    const source = new HttpArtifactSource("https://example.com/artifact.json");
-    expect(source.describe()).toBe("HTTP https://example.com/artifact.json");
+    const source = new HttpArtifactSource("https://example.com/artifact.age.json");
+    expect(source.describe()).toBe("HTTP https://example.com/artifact.age.json");
   });
 });

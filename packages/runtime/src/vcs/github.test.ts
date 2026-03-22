@@ -22,12 +22,12 @@ describe("GitHubProvider", () => {
     });
 
     const provider = new GitHubProvider(config);
-    const result = await provider.fetchFile(".clef/packed/api/production.age");
+    const result = await provider.fetchFile(".clef/packed/api/production.age.json");
 
     expect(result.content).toBe("hello world");
     expect(result.sha).toBe("abc123");
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.github.com/repos/org/secrets/contents/.clef/packed/api/production.age",
+      "https://api.github.com/repos/org/secrets/contents/.clef/packed/api/production.age.json",
       expect.objectContaining({
         headers: {
           Authorization: "Bearer ghp_test123",

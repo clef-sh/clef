@@ -228,8 +228,9 @@ Read in full:
 - `packages/core/src/service-identity/manager.ts`
 - `packages/cli/src/commands/service.ts`
 - `packages/core/src/age/keygen.ts`
+- `packages/core/src/kms/types.ts`
 
-Check — Key generation:
+Check — Key generation (age-only path):
 
 - `generateAgeIdentity()` uses the `age-encryption` package
   (the `age-encryption` npm package) — not
@@ -239,21 +240,44 @@ Check — Key generation:
 - The secret key string is never assigned to any object that
   persists beyond the `create` or `rotate` function scope
 
+Check — KMS envelope path:
+
+- When `--kms-env` is provided, `create` does NOT call
+  `generateAgeIdentity()` for those environments — no age
+  keys generated, no private keys printed
+- KMS config (`provider`, `keyId`) is stored in `clef.yaml`
+  under the environment — no private key material stored
+- `registerRecipients()` skips KMS-backed environments —
+  confirm `isKmsEnvelope()` guard is checked before
+  `addRecipient()` is called
+- KMS-backed environments are skipped during `rotateKey()` —
+  there is no persistent key to rotate
+
+Check — Mutual exclusion:
+
+- Each environment in `service_identities` must have exactly
+  one of `recipient` (age public key) or `kms` (KMS config)
+- Manifest parser rejects environments with both `recipient`
+  and `kms` — confirm `ManifestValidationError` is thrown
+- Manifest parser rejects environments with neither —
+  confirm `ManifestValidationError` is thrown
+
 Check — Private key output:
 
 - `clef service create` prints private keys to stdout exactly
-  once — confirm they are not written to any file, not stored
-  in `clef.yaml`, not stored in `.clef-meta.yaml`, not stored
-  in `.clef/config.yaml`
+  once (age-only environments only) — confirm they are not
+  written to any file, not stored in `clef.yaml`, not stored
+  in `.clef-meta.yaml`, not stored in `.clef/config.yaml`
 - The output includes a clear warning that keys are shown once
   and must be stored in a secret manager immediately
 - After `create` returns, no in-memory reference to the private
   keys remains — they are not cached or logged
-- `clef service show` displays only public keys (age1...) —
-  never secret keys. Confirm no code path in `show` accesses
-  private key material
+- `clef service show` displays only public keys (age1...) or
+  KMS provider info — never secret keys. Confirm no code path
+  in `show` accesses private key material
 - `clef service list` displays truncated public key previews
-  only — confirm truncation uses `keyPreview()` or equivalent
+  (age-only) or `KMS (provider)` labels (KMS) — confirm
+  truncation uses `keyPreview()` or equivalent for age keys
 
 Check — Key rotation:
 
@@ -266,11 +290,15 @@ Check — Key rotation:
   prevents a window where both old and new keys can decrypt
 - Rotation of a single environment (`--environment`) does not
   affect other environments' keys
+- KMS-backed environments are skipped during rotation — no
+  error, just silently skipped
 
 Check — Recipient registration security:
 
 - `registerRecipients()` only adds the identity's public key
   to SOPS files within the identity's declared namespace scope
+- KMS-backed environments are skipped — no recipient to
+  register
 - A service identity scoped to `[api]` must NOT have its
   recipient registered on `database/*.enc.yaml` files — any
   scope leakage is a Critical issue
@@ -467,13 +495,15 @@ Check:
 - Missing token returns 401; wrong token returns 401; correct
   token returns 200
 
-### 1.14 Agent — plaintext never touches disk
+### 1.14 Runtime — plaintext never touches disk
 
 Read:
 
-- `packages/agent/src/poller.ts`
-- `packages/agent/src/decryptor.ts`
-- `packages/agent/src/cache.ts`
+- `packages/runtime/src/poller.ts`
+- `packages/runtime/src/decrypt.ts`
+- `packages/runtime/src/secrets-cache.ts`
+- `packages/runtime/src/disk-cache.ts`
+- `packages/runtime/src/kms/aws.ts`
 
 Check:
 
@@ -487,8 +517,51 @@ Check:
   partial or empty secrets map during a refresh
 - On fetch failure the existing cache is preserved and
   continues serving (stale-serve is preferred to empty)
+- `DiskCache` writes only the raw artifact JSON (already
+  age-encrypted ciphertext) and metadata (SHA, timestamp) —
+  never plaintext values. Confirm `disk-cache.ts` never
+  receives or writes decrypted content
 
-### 1.15 Agent — Lambda Extension key handling
+Check — KMS envelope unwrap:
+
+- When the artifact has an `envelope` field, the poller calls
+  `createKmsProvider()` and `kms.unwrap()` to recover the
+  ephemeral age private key — this happens in memory only
+- The unwrapped ephemeral key buffer is zeroed after use
+  (`unwrapped.fill(0)`) — confirm this zeroing exists
+- The KMS key ID comes from the artifact's `envelope.keyId`
+  field — it is NOT configurable via env var or runtime
+  config (the artifact is self-describing)
+- KMS errors (AccessDenied, InvalidKeyId) propagate cleanly
+  without leaking any key material in the error message
+- `@aws-sdk/client-kms` is loaded dynamically via
+  `require()` — failure to load produces a clear error
+  message, not an unhandled crash
+
+### 1.15 Runtime — VCS token and credential handling
+
+Read:
+
+- `packages/runtime/src/vcs/github.ts`
+- `packages/runtime/src/vcs/gitlab.ts`
+- `packages/runtime/src/vcs/bitbucket.ts`
+- `packages/runtime/src/index.ts` — `ClefRuntime` constructor
+
+Check:
+
+- VCS tokens are passed only in HTTP headers — never in URL
+  query parameters or logged in error messages
+- GitHub: `Authorization: Bearer {token}` header
+- GitLab: `PRIVATE-TOKEN: {token}` header
+- Bitbucket: `Authorization: Bearer {token}` header
+- On VCS API error (401, 403, 404) the error message includes
+  the status code and path but NOT the token
+- Age private key is resolved once in the `ClefRuntime`
+  constructor — not re-read on every poll cycle
+- No credential material appears in `ArtifactSource.describe()`
+  output (used for logging)
+
+### 1.16 Agent — Lambda Extension key handling
 
 Read:
 
@@ -505,11 +578,12 @@ Check:
 - SHUTDOWN event is handled — in-flight requests are drained
   before the process exits
 
-### 1.16 Pack command — plaintext handling
+### 1.17 Pack command — plaintext handling
 
 Read:
 
 - `packages/core/src/artifact/packer.ts`
+- `packages/core/src/artifact/resolve.ts`
 - `packages/cli/src/commands/pack.ts`
 
 Check:
@@ -527,7 +601,22 @@ Check:
 - Encrypted artifact JSON contains only ciphertext, key names,
   and metadata — no plaintext values anywhere in the envelope
 
-### 1.17 Install script — download integrity
+Check — KMS envelope path:
+
+- When `isKmsEnvelope(envConfig)` is true, the packer
+  generates an ephemeral age key pair, encrypts secrets to
+  the ephemeral public key, and wraps the ephemeral private
+  key with `kms.wrap()` — all in memory
+- The ephemeral private key is never written to the artifact
+  in plaintext — only the KMS-wrapped form (`wrappedKey`)
+  appears in the `envelope` field
+- If `KmsProvider` is not injected but the identity uses KMS,
+  the packer throws a clear error — not a null dereference
+- The CLI (`pack.ts`) dynamically imports `createKmsProvider`
+  from `@clef-sh/runtime` only when the identity uses KMS —
+  confirm the import is conditional, not top-level
+
+### 1.18 Install script — download integrity
 
 Read:
 
@@ -747,7 +836,7 @@ Read:
 - `packages/cli/src/commands/service.ts`
 - `packages/core/src/manifest/parser.ts`
 
-Check — `clef service create`:
+Check — `clef service create` (age-only):
 
 - Creating an identity with a namespace not in the manifest
   produces a clear error and does not modify `clef.yaml`
@@ -761,12 +850,28 @@ Check — `clef service create`:
   environments exist (dev, staging, production), three
   keypairs are generated. Missing any one is a High issue
 
+Check — `clef service create --kms-env`:
+
+- `--kms-env` flag is parsed correctly: format is
+  `env=provider:keyId`, repeatable
+- KMS environments store `{ kms: { provider, keyId } }` in
+  the manifest — no `recipient` field
+- KMS environments do NOT call `generateAgeIdentity()` and
+  do NOT print private keys
+- Mixed mode works: some environments use `--kms-env`, others
+  get age keys generated normally
+- Invalid provider (not `aws`, `gcp`, `azure`) produces a
+  clear error
+- Invalid format (missing `=` or `:`) produces a clear error
+
 Check — `clef service rotate`:
 
 - `--environment` flag correctly targets a single environment
   — other environments' keys remain unchanged in the manifest
 - Rotating all environments (no `--environment` flag) replaces
-  every key in the identity's `environments` map
+  every age-only key in the identity's `environments` map
+- KMS-backed environments are skipped during rotation — no
+  error, no key generated
 - After rotation, the identity's recipient in all scoped
   SOPS files matches the new public key — confirm by checking
   that old recipient removal and new recipient addition both
@@ -784,6 +889,8 @@ Check — `clef service validate` / drift detection:
   within its scope
 - `scope_mismatch` is detected when the identity's public key
   appears in a SOPS file outside its declared namespace scope
+- KMS-backed environments skip recipient checks entirely —
+  they have no recipient to check
 - Each issue includes a `fixCommand` suggestion where
   applicable
 - `clef lint` automatically runs service identity validation
@@ -878,55 +985,97 @@ Read:
 
 - `packages/cli/src/commands/pack.ts`
 - `packages/core/src/artifact/packer.ts`
+- `packages/core/src/artifact/types.ts`
 
 Check:
 
 - Nonexistent identity produces a clear error and exits 1
 - Nonexistent environment produces a clear error and exits 1
-- Artifact encrypts to the identity's public key for the
-  target environment — not to a developer key, not to a
-  hardcoded recipient
-- Artifact envelope includes the git revision SHA so the
-  agent can detect stale artifacts
+- Age-only: artifact encrypts to the identity's public key
+  for the target environment — not to a developer key, not
+  to a hardcoded recipient
+- KMS envelope: artifact encrypts to an ephemeral public key;
+  the ephemeral private key is wrapped by KMS and stored in
+  the `envelope` field — confirm `envelope.wrappedKey` is
+  base64-encoded, `envelope.provider` and `envelope.keyId`
+  match the manifest config
+- KMS envelope: `ArtifactPacker` requires a `KmsProvider` to
+  be injected — missing it throws a clear error
+- Artifact version is always `1` — the `envelope` field is
+  optional and its presence determines age-only vs KMS
+- Artifact envelope includes the revision so the agent can
+  detect stale artifacts
 - `--output` is required — omitting it produces a clear error
 - Exits 0 on success, 1 on any error
 
-### 2.15 Agent CLI correctness
+### 2.15 Runtime — ClefRuntime correctness
 
 Read:
 
-- `packages/cli/src/commands/agent.ts`
+- `packages/runtime/src/index.ts`
+- `packages/runtime/src/poller.ts`
+- `packages/runtime/src/sources/vcs.ts`
+- `packages/runtime/src/sources/http.ts`
+- `packages/runtime/src/sources/file.ts`
 
 Check:
 
-- `clef agent start` launches the agent process and validates
-  required configuration before starting
-- Missing `CLEF_AGENT_SOURCE` produces a clear error and
-  exits 1 rather than starting a non-functional server
-- Port, poll interval, and other flags are passed through
-  to the agent correctly
-- `--help` text accurately describes all flags and env vars
+- `ClefRuntime` constructor validates that either VCS config
+  (provider + repo + token + identity + environment) or a
+  source URL/path is provided — missing both throws
+- Age key resolution is wrapped in try/catch — it is optional
+  for KMS envelope artifacts. Missing age key does NOT throw
+  at construction time
+- `resolveSource()` correctly routes to `VcsArtifactSource`,
+  `HttpArtifactSource`, or `FileArtifactSource` based on
+  config
+- `start()` performs initial fetch+decrypt before returning —
+  `get()` is not callable before `start()` completes
+- `startPolling()` does nothing when `pollInterval` is 0
+- `stopPolling()` clears the interval timer
+- `init()` convenience function returns a ready runtime —
+  `runtime.ready` is `true` after `init()` resolves
+- Content-hash short-circuit: when the VCS SHA is unchanged,
+  the poller skips parse+decrypt entirely — confirm this is
+  tested
+- Disk cache fallback: when VCS fetch fails and `cachePath`
+  is set, the poller reads from disk cache — confirm this is
+  tested
+- Poller determines decrypt path by checking `artifact.envelope`
+  presence — not a version number. If `envelope` is present,
+  uses KMS unwrap; otherwise uses static age private key
+- Age-only artifact without a private key configured throws
+  a clear error at decrypt time — not a null dereference
 
-### 2.16 Agent lifecycle correctness
+### 2.16 Agent standalone correctness
 
 Read:
 
-- `packages/agent/src/poller.ts`
+- `packages/agent/src/main.ts`
+- `packages/agent/src/config.ts`
 - `packages/agent/src/lifecycle/daemon.ts`
 
 Check:
 
-- Poller performs an initial fetch synchronously before the
-  server begins accepting requests — `/v1/ready` returns 503
-  until the first successful fetch and decrypt
-- Revision field in the artifact envelope is used to skip
-  re-decryption when the artifact has not changed (SHA256
-  of fetched bytes compared before decryption)
-- Poll interval is configurable via env var and defaults to
-  a documented value
-- On fetch failure (network error, 404, bad checksum) the
-  existing cache remains in service — error is logged but
-  secrets continue to be served
+- The agent is a standalone binary — not a CLI subcommand.
+  Confirm `packages/cli/src/index.ts` does NOT import or
+  register any agent command
+- `resolveConfig()` validates VCS config: if any `VCS_*` var
+  is set, all required ones must be present — partial config
+  throws `ConfigError`
+- Invalid `CLEF_AGENT_VCS_PROVIDER` (e.g. `"svn"`) throws
+  `ConfigError`
+- Either `CLEF_AGENT_SOURCE` or VCS config is required —
+  neither produces a clear error
+- Age key (`CLEF_AGENT_AGE_KEY` / `CLEF_AGENT_AGE_KEY_FILE`)
+  is optional — not required for KMS envelope artifacts.
+  Missing age key does NOT throw `ConfigError`
+- `main.ts` wraps age key resolution in try/catch — failure
+  is OK (KMS envelope artifacts don't need it)
+- `main.ts` constructs the correct `ArtifactSource` based on
+  VCS vs HTTP vs file config
+- Poller performs initial fetch before the server starts —
+  `/v1/ready` returns 503 until first successful decrypt
 - On graceful shutdown the poller stops before the HTTP
   server closes, preventing new fetches during drain
 
@@ -952,9 +1101,11 @@ find packages/cli/src/commands -name "*.ts" \
   -not -name "*.test.ts" | sort
 ```
 
-Expect 19 command files: init, get, set, delete, diff,
+Expect 18 command files: init, get, set, delete, diff,
 lint, rotate, hooks, exec, export, import, doctor, update,
-scan, recipients, ui, merge-driver, service, bundle.
+scan, recipients, ui, merge-driver, service, pack, drift,
+report, bundle. Note: `agent` is NOT a CLI command — the
+agent is a standalone package (`@clef-sh/agent`).
 
 Check every command has:
 
@@ -1052,6 +1203,10 @@ Check — Core exports:
 - All related types are exported: `ServiceIdentityDefinition`,
   `ServiceIdentityEnvironmentConfig`,
   `ServiceIdentityDriftIssue`, `BundleConfig`, `BundleResult`
+- KMS types are exported from core: `KmsProvider`,
+  `KmsWrapResult`, `KmsProviderType`
+- `KmsConfig`, `isKmsEnvelope` are exported from core types
+- `ArtifactEnvelope` type is exported from core artifact types
 
 Check — Manifest integration:
 
@@ -1059,6 +1214,11 @@ Check — Manifest integration:
   in `clef.yaml`
 - Parser validates: unique identity names, namespace references
   exist, all environments have entries
+- Parser accepts `recipient` or `kms` per environment (mutually
+  exclusive) — both present throws, neither present throws
+- Valid `kms.provider` values: `aws`, `gcp`, `azure` — invalid
+  provider throws `ManifestValidationError`
+- `kms.keyId` is required and must be a non-empty string
 - A manifest without `service_identities` continues to work
   unchanged — no breaking change to existing repos
 
@@ -1126,14 +1286,48 @@ Check:
 - `scripts/download-sops.mjs` exists and handles all five
   platforms
 
-### 3.9 Agent package completeness
+### 3.9 Runtime package completeness
 
 Check:
 
-- `clef agent` command (or subcommand) is registered in
-  `packages/cli/src/index.ts`
-- `packages/agent/` contains: server, poller, config, cache,
-  decryptor, health, and lifecycle modules
+- `packages/runtime/` contains: VCS providers (github,
+  gitlab, bitbucket), artifact sources (vcs, http, file),
+  secrets-cache, disk-cache, decrypt, poller, KMS providers
+  (aws, gcp stub, azure stub), and the `ClefRuntime` public
+  API
+- `packages/runtime/package.json` has `age-encryption` as
+  its only production dependency and `@aws-sdk/client-kms`
+  as an optional dependency — no express, no core, no sops
+- `packages/runtime/.releaserc.json` exists with the same
+  semantic-release config as other packages
+- Runtime is listed in root `package.json` workspaces and
+  builds before agent in the build script
+- `typedoc.json` includes `packages/runtime/src/index.ts`
+  as an entry point
+- All runtime types are exported: `ClefRuntime`,
+  `RuntimeConfig`, `VcsProvider`, `VcsProviderConfig`,
+  `ArtifactSource`, `ArtifactFetchResult`, `SecretsCache`,
+  `DiskCache`, `AgeDecryptor`, `ArtifactPoller`
+- KMS exports: `KmsProvider`, `KmsWrapResult`,
+  `KmsProviderType`, `AwsKmsProvider`, `createKmsProvider`
+- `init()` convenience function is exported
+- `createVcsProvider()` factory function is exported
+- `createKmsProvider()` factory function is exported
+
+### 3.10 Agent package completeness
+
+Check:
+
+- The agent is a standalone package — NOT a CLI subcommand.
+  Confirm `packages/cli/src/index.ts` does NOT import
+  `registerAgentCommand` or reference `@clef-sh/agent`
+- `packages/agent/` contains: server, config, health, main,
+  and lifecycle modules (daemon, lambda-extension)
+- Agent depends on `@clef-sh/runtime` (not `age-encryption`
+  directly) — runtime provides cache, poller, decrypt, and
+  VCS providers
+- `packages/agent/src/index.ts` re-exports core types from
+  `@clef-sh/runtime` for convenience
 - Lambda Extension entry point exists under
   `packages/agent/src/lifecycle/`
 - Agent SEA build workflow exists
@@ -1141,15 +1335,21 @@ Check:
   `@clef-sh/agent@` release tags
 - Agent SEA binaries follow the `clef-agent-{platform}`
   naming convention across all five platforms
-- All agent configuration env vars are documented:
+- All agent configuration env vars are documented including
+  VCS vars: `CLEF_AGENT_VCS_PROVIDER`, `CLEF_AGENT_VCS_REPO`,
+  `CLEF_AGENT_VCS_TOKEN`, `CLEF_AGENT_VCS_IDENTITY`,
+  `CLEF_AGENT_VCS_ENVIRONMENT`, `CLEF_AGENT_VCS_REF`,
+  `CLEF_AGENT_VCS_API_URL`, `CLEF_AGENT_CACHE_PATH`,
   `CLEF_AGENT_SOURCE`, `CLEF_AGENT_PORT`,
   `CLEF_AGENT_POLL_INTERVAL`, `CLEF_AGENT_AGE_KEY`,
   `CLEF_AGENT_AGE_KEY_FILE`, `CLEF_AGENT_TOKEN`
 - `docs/guide/agent.md` exists covering: concept, env var
-  reference, deployment workflow, key provider examples
-- `docs/cli/agent.md` documents all flags and env vars
+  reference, deployment workflow, `@clef-sh/runtime` direct
+  import examples
+- `docs/cli/agent.md` documents the standalone binary and
+  all env vars
 
-### 3.10 Pack and drift completeness
+### 3.11 Pack and drift completeness
 
 Check:
 
@@ -1161,13 +1361,39 @@ Check:
 - `ArtifactPacker` and `DriftDetector` are exported from
   `packages/core/src/index.ts`
 - Artifact envelope type (version, identity, environment,
-  revision, ciphertextHash, ciphertext, keys) is exported
-  from `packages/core/src/index.ts`
+  revision, ciphertextHash, ciphertext, keys, envelope) is
+  exported from `packages/core/src/index.ts`
 - `docs/cli/pack.md` and `docs/cli/drift.md` exist
-- The end-to-end workflow (`pack` → upload → agent fetches)
-  is documented in at least one guide page
+- Two artifact delivery backends are documented:
+  - VCS (default): `pack` → commit to `.clef/packed/` →
+    agent fetches via VCS API
+  - Tokenless (S3/HTTP): `pack` → upload to S3/GCS → agent
+    fetches via HTTPS
+- Documentation presents both backends with a clear tradeoff
+  table (operational complexity, token management, audit
+  trail) — VCS is the default, tokenless is the alternative
 
-### 3.11 SEA binary completeness
+### 3.12 CI workflow completeness for runtime
+
+Check:
+
+- `.github/workflows/release.yml` includes a
+  `Release @clef-sh/runtime` step between core and agent
+- `.github/workflows/publish-prerelease.yml` computes a
+  prerelease version for runtime, stamps it, and publishes
+  it for both alpha and beta channels
+- `.github/workflows/publish-beta-npm.yml` stamps and
+  publishes runtime to npm between core and agent
+- `.github/workflows/ci.yml` build job includes
+  `npm run build --workspace=packages/runtime` before agent
+- `.github/workflows/ci.yml` coverage summary iterates over
+  `packages/runtime`
+- `.github/workflows/build-sea.yml` stamps runtime in the
+  version loop and builds runtime before agent SEA build
+- Root `package.json` build script includes runtime before
+  agent: `npm run build -w packages/runtime`
+
+### 3.13 SEA binary completeness
 
 Check:
 
@@ -1185,7 +1411,7 @@ Check:
 - `www/public/install.sh` downloads the clef CLI SEA binary
   (not an npm tarball) and verifies its checksum
 
-### 3.12 Install script completeness
+### 3.14 Install script completeness
 
 Check:
 
@@ -1321,6 +1547,20 @@ Check — Service identity tests:
 - A test asserts scope enforcement — recipient is NOT
   registered on files outside the identity's namespace scope
 
+Check — KMS envelope tests:
+
+- A test asserts `create` with `kmsEnvConfigs` does NOT
+  call `generateAgeIdentity()` and returns empty
+  `privateKeys`
+- A test asserts `create` with mixed age/KMS environments
+  generates age keys only for non-KMS environments
+- A test asserts KMS config is stored correctly in the
+  identity's `environments` map
+- A test asserts `registerRecipients()` skips KMS-backed
+  environments — `addRecipient` is not called for them
+- A test asserts KMS-backed environments are skipped during
+  `rotateKey()`
+
 Check — Bundle tests:
 
 - A test asserts the generated module contains age-encrypted
@@ -1366,7 +1606,63 @@ Check:
 - Assertions verify merge output values, not just that
   the function ran
 
-### 4.7 Agent test coverage
+### 4.7 Runtime test coverage
+
+Read all `*.test.ts` files under `packages/runtime/src/`.
+
+Check — VCS providers:
+
+- GitHub: happy path, 404, 401, 403 are tested
+- GitLab: happy path, 404, 401, 403 are tested
+- Bitbucket: happy path (two-call flow), error cases tested
+- Custom `apiUrl` is tested for all three providers
+- `ref` query parameter is tested for all three providers
+
+Check — Artifact sources:
+
+- `VcsArtifactSource` constructs correct path
+  (`.clef/packed/{identity}/{environment}.age.json`)
+- `HttpArtifactSource` returns ETag as `contentHash`
+- `FileArtifactSource` reads from disk
+- VCS/HTTP error propagation is tested
+
+Check — Poller:
+
+- Content-hash short-circuit: second fetch with same SHA
+  skips parse+decrypt — `cache.swap` not called
+- Revision-based skip: same revision skips decrypt even
+  without content hash
+- Disk cache write: successful fetch writes to disk cache
+- Disk cache fallback: fetch failure reads from disk cache
+- Disk cache empty: fetch failure + empty cache throws
+- Integrity check: tampered `ciphertextHash` is rejected
+- `onRefresh` callback is tested
+- Polling interval and `onError` callback are tested
+- KMS envelope artifact: mock KMS unwrap → decrypts
+  successfully — verify `createKmsProvider` is called with
+  the provider from the artifact's `envelope`
+- Age-only artifact without private key: throws clear error
+- Incomplete envelope fields: throws validation error
+
+Check — KMS providers:
+
+- `aws.test.ts`: wrap returns wrapped key + algorithm,
+  unwrap returns plaintext, KMS errors propagate
+- `index.test.ts`: factory creates AWS provider, GCP/Azure
+  throw "not yet implemented", unknown provider throws
+- `gcp.test.ts` and `azure.test.ts`: both methods throw
+  "not yet implemented"
+
+Check — ClefRuntime:
+
+- VCS source, HTTP source, and file source all tested
+- Missing config (no source, no VCS) throws
+- Missing age key does NOT throw (optional for KMS envelope)
+- `ready`, `get`, `getAll`, `env`, `keys`, `revision`
+  all tested after `start()`
+- `init()` returns a ready runtime
+
+### 4.8 Agent test coverage
 
 Read all `*.test.ts` files under `packages/agent/src/`.
 
@@ -1379,16 +1675,17 @@ Check:
 - Host header validation test: a non-loopback Host value
   returns 403
 - `/v1/health` and `/v1/ready` return 200 without any token
-- A test asserts `/v1/ready` returns 503 before the first
-  successful fetch, then 200 after
-- A test asserts that a fetch failure preserves the
-  existing cache (stale-serve, not empty-serve)
-- A test asserts the SHA256 `ciphertextHash` field is
-  verified before decryption — a tampered payload is rejected
-- A test asserts no plaintext is written to any file during
-  the fetch-decrypt-cache cycle
+- Config tests cover VCS config resolution: valid full VCS
+  config, partial VCS config throws, invalid provider throws,
+  either source or VCS required
+- Config tests assert age key is optional — missing both
+  `CLEF_AGENT_AGE_KEY` and `CLEF_AGENT_AGE_KEY_FILE` does
+  NOT throw `ConfigError`
+- Config tests cover `cachePath` env var
+- Agent server imports `SecretsCache` from `@clef-sh/runtime`
+  — not from a local module
 
-### 4.8 Pack and drift test coverage
+### 4.9 Pack and drift test coverage
 
 Read:
 
@@ -1404,6 +1701,16 @@ Check:
 - Pack: a test asserts a nonexistent identity produces a
   clear error and does not create an output file
 - Pack: a test asserts `--output` is required
+- Pack (KMS): a test asserts KMS identity produces an
+  artifact with `envelope` field containing provider, keyId,
+  wrappedKey, and algorithm
+- Pack (KMS): a test asserts `kms.wrap()` is called with
+  the correct key ID
+- Pack (KMS): a test asserts missing KMS provider throws
+  a clear error
+- Pack (age regression): a test asserts age-only identity
+  still produces an artifact without `envelope` even when
+  a KMS provider is injected
 - Drift: a test asserts exit 0 when matrices are identical,
   exit 1 when they differ
 - Drift: a test asserts `--namespace` correctly limits the
@@ -1505,19 +1812,27 @@ Read `docs/guide/service-identities.md`.
 Check:
 
 - The concept explanation distinguishes service identities
-  (machine keypairs) from human recipients clearly
-- The workflow (create → store → bundle → deploy) matches the
-  actual CLI commands and their flags
-- Key provider examples (AWS Secrets Manager, GCP Secret
-  Manager, Vault) use correct SDK syntax for those services
-- The manifest YAML example matches what `clef service create`
-  actually writes to `clef.yaml`
+  (machine keypairs or KMS envelope) from human recipients
+- Two encryption modes (age-only, KMS envelope) are
+  documented with a comparison table
+- Two artifact delivery backends (VCS, tokenless/S3) are
+  documented with a tradeoff table covering: operational
+  complexity, token management, audit trail, when to use
+- The manifest YAML examples show age-only, KMS-only, and
+  mixed configurations — confirm they match what
+  `clef service create` actually writes to `clef.yaml`
+- `--kms-env` flag format (`env=provider:keyId`) is
+  documented with examples
+- KMS envelope: no private keys printed, no rotation needed
+  — this is clearly stated
 - Multi-namespace key prefixing (`namespace/KEY`) is explained
   and matches the implementation
-- Rotation instructions are accurate and include the step to
-  update the secret manager with the new private key
-- The security model explanation (private key never stored by
-  Clef, bundle contains only ciphertext) is accurate
+- Rotation instructions are accurate — age-only envs get new
+  keys, KMS envs are skipped
+- CI workflow examples exist for both VCS delivery (git push)
+  and tokenless delivery (S3 upload)
+- The security model covers both age-only and KMS envelope
+  artifacts — what each contains, trust boundaries
 
 ### 5.8 Service and bundle CLI reference accuracy
 
@@ -1528,8 +1843,11 @@ For each:
 - Read the docs page
 - Read the corresponding command implementation
 - Verify every flag documented actually exists in the code
+  — including `--kms-env` on `service create`
 - Verify every flag in the code is documented
 - Verify example commands match the actual CLI registration
+- Verify `--kms-env` format documented (`env=provider:keyId`)
+  matches the parsing logic in `service.ts`
 
 Flag any inaccuracy as Low (High if the example would cause
 key material exposure or data loss).
@@ -1549,27 +1867,40 @@ Check:
 - The verification checklist commands all exist and work
   as described
 
-### 5.10 Agent guide accuracy
+### 5.10 Agent and runtime guide accuracy
 
 Read `docs/guide/agent.md` and `docs/cli/agent.md`.
-Read `packages/agent/src/config.ts` and
-`packages/agent/src/server.ts`.
+Read `packages/agent/src/config.ts`,
+`packages/agent/src/server.ts`, and
+`packages/runtime/src/index.ts`.
 
 Check:
 
 - Every env var documented in the guide matches the actual
   config implementation — names, defaults, and required vs
-  optional all match
+  optional all match. This includes VCS env vars:
+  `CLEF_AGENT_VCS_PROVIDER`, `CLEF_AGENT_VCS_REPO`,
+  `CLEF_AGENT_VCS_TOKEN`, `CLEF_AGENT_VCS_IDENTITY`,
+  `CLEF_AGENT_VCS_ENVIRONMENT`, `CLEF_AGENT_VCS_REF`,
+  `CLEF_AGENT_VCS_API_URL`, `CLEF_AGENT_CACHE_PATH`
 - API routes documented (`/v1/secrets`, `/v1/secrets/:key`,
   `/v1/keys`, `/v1/health`, `/v1/ready`) match the routes
   registered in `server.ts`
 - Token authentication description matches the
   implementation: Bearer scheme, 64-hex-char token
-- Lambda Extension workflow is documented and the steps
-  described match `lambda-extension.ts`
-- Key provider examples (e.g. loading `CLEF_AGENT_AGE_KEY`
-  from AWS Secrets Manager) use correct SDK syntax and
-  reference the correct env var names
+- The agent is documented as a standalone binary — not a
+  CLI subcommand. No documentation should reference
+  `clef agent start`
+- `@clef-sh/runtime` direct import examples (Lambda, long-
+  running service) are documented in `docs/guide/agent.md`
+  — both VCS and tokenless (S3 + KMS envelope) examples
+- `RuntimeConfig` fields documented match the actual
+  interface in `packages/runtime/src/index.ts`
+- `CLEF_AGENT_AGE_KEY` and `CLEF_AGENT_AGE_KEY_FILE` are
+  documented as optional (for KMS envelope artifacts)
+- Two delivery backends documented: VCS (default, pack →
+  commit → VCS API fetch) and tokenless (pack → S3 upload
+  → HTTP fetch). VCS is the recommended default
 - Poll interval, port, and other config knobs shown in
   the guide match their defaults in `config.ts`
 

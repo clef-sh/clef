@@ -41,7 +41,7 @@ describe("ClefRuntime", () => {
     it("should fetch from VCS provider and expose secrets", async () => {
       const artifactJson = makeArtifact();
       const content = Buffer.from(artifactJson).toString("base64");
-      mockFetch.mockResolvedValue({
+      mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ sha: "abc123", content, encoding: "base64" }),
       });
@@ -70,7 +70,8 @@ describe("ClefRuntime", () => {
   describe("with HTTP source", () => {
     it("should fetch from HTTP URL and expose secrets", async () => {
       const artifactJson = makeArtifact("http-rev");
-      mockFetch.mockResolvedValue({
+      // URL doesn't end in .age.json — no revocation check, single fetch call
+      mockFetch.mockResolvedValueOnce({
         ok: true,
         text: () => Promise.resolve(artifactJson),
         headers: new Headers(),
@@ -94,10 +95,13 @@ describe("ClefRuntime", () => {
       const artifactJson = makeArtifact("file-rev");
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const fsMock = require("fs") as jest.Mocked<typeof import("fs")>;
-      fsMock.readFileSync.mockReturnValue(artifactJson);
+      fsMock.readFileSync.mockImplementation((p: unknown) => {
+        if (String(p).endsWith(".revoked.json")) throw new Error("ENOENT");
+        return artifactJson;
+      });
 
       const runtime = new ClefRuntime({
-        source: "/path/to/artifact.json",
+        source: "/path/to/artifact.age.json",
         ageKey: "AGE-SECRET-KEY-1TEST",
       });
 
@@ -179,7 +183,7 @@ describe("init()", () => {
 
   it("should return a ready runtime", async () => {
     const artifactJson = makeArtifact("init-rev");
-    mockFetch.mockResolvedValue({
+    mockFetch.mockResolvedValueOnce({
       ok: true,
       text: () => Promise.resolve(artifactJson),
       headers: new Headers(),

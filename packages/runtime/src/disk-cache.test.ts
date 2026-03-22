@@ -20,7 +20,7 @@ describe("DiskCache", () => {
       expect(mockFs.writeFileSync).toHaveBeenCalledTimes(2);
       // Artifact file
       expect(mockFs.writeFileSync).toHaveBeenCalledWith(
-        expect.stringContaining("production.age"),
+        expect.stringContaining("production.age.json"),
         '{"version":1}',
         "utf-8",
       );
@@ -85,6 +85,52 @@ describe("DiskCache", () => {
       const sha = cache.getCachedSha();
 
       expect(sha).toBeUndefined();
+    });
+  });
+
+  describe("getFetchedAt", () => {
+    it("should return fetchedAt from metadata", () => {
+      mockFs.readFileSync.mockReturnValue(
+        '{"sha":"sha123","fetchedAt":"2024-01-01T00:00:00.000Z"}',
+      );
+
+      const cache = new DiskCache("/tmp/clef-cache", "api-gateway", "production");
+      const fetchedAt = cache.getFetchedAt();
+
+      expect(fetchedAt).toBe("2024-01-01T00:00:00.000Z");
+    });
+
+    it("should return undefined when no metadata exists", () => {
+      mockFs.readFileSync.mockImplementation(() => {
+        throw new Error("ENOENT");
+      });
+
+      const cache = new DiskCache("/tmp/clef-cache", "api", "staging");
+      const fetchedAt = cache.getFetchedAt();
+
+      expect(fetchedAt).toBeUndefined();
+    });
+  });
+
+  describe("purge", () => {
+    it("should unlink both artifact and metadata files", () => {
+      const cache = new DiskCache("/tmp/clef-cache", "api-gateway", "production");
+      cache.purge();
+
+      expect(mockFs.unlinkSync).toHaveBeenCalledTimes(2);
+      expect(mockFs.unlinkSync).toHaveBeenCalledWith(
+        expect.stringContaining("production.age.json"),
+      );
+      expect(mockFs.unlinkSync).toHaveBeenCalledWith(expect.stringContaining("production.meta"));
+    });
+
+    it("should not throw when files do not exist", () => {
+      mockFs.unlinkSync.mockImplementation(() => {
+        throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      });
+
+      const cache = new DiskCache("/tmp/clef-cache", "api", "staging");
+      expect(() => cache.purge()).not.toThrow();
     });
   });
 });

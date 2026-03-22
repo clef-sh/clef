@@ -65,7 +65,7 @@ export class ArtifactPacker {
       const kmsConfig = resolved.envConfig.kms;
       const wrapped = await this.kms.wrap(kmsConfig.keyId, Buffer.from(ephemeralPrivateKey));
 
-      const revision = Date.now().toString();
+      const revision = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
       const ciphertextHash = crypto.createHash("sha256").update(ciphertext).digest("hex");
 
       artifact = {
@@ -96,7 +96,7 @@ export class ArtifactPacker {
         throw new Error("Failed to age-encrypt artifact. Check recipient key.");
       }
 
-      const revision = Date.now().toString();
+      const revision = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
       const ciphertextHash = crypto.createHash("sha256").update(ciphertext).digest("hex");
 
       artifact = {
@@ -116,8 +116,14 @@ export class ArtifactPacker {
       fs.mkdirSync(outputDir, { recursive: true });
     }
 
+    if (config.ttl && config.ttl > 0) {
+      artifact.expiresAt = new Date(Date.now() + config.ttl * 1000).toISOString();
+    }
+
     const json = JSON.stringify(artifact, null, 2);
-    fs.writeFileSync(config.outputPath, json, "utf-8");
+    const tmpOutput = `${config.outputPath}.tmp.${process.pid}`;
+    fs.writeFileSync(tmpOutput, json, "utf-8");
+    fs.renameSync(tmpOutput, config.outputPath);
 
     return {
       outputPath: config.outputPath,

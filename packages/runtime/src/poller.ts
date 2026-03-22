@@ -24,6 +24,10 @@ export interface ArtifactEnvelope {
   ciphertext: string;
   keys: string[];
   envelope?: ArtifactKmsEnvelope;
+  /** ISO-8601 expiry timestamp. Artifact is rejected after this time. */
+  expiresAt?: string;
+  /** ISO-8601 revocation timestamp. Present when the artifact has been revoked. */
+  revokedAt?: string;
 }
 
 export interface PollerOptions {
@@ -41,6 +45,8 @@ export interface PollerOptions {
   onRefresh?: (revision: string) => void;
   /** Optional error callback for logging. */
   onError?: (err: Error) => void;
+  /** Max seconds the cache may be served without a successful refresh. */
+  cacheTtl?: number;
 }
 
 /**
@@ -74,23 +80,63 @@ export class ArtifactPoller {
       // Write to disk cache on successful fetch
       this.options.diskCache?.write(raw, contentHash);
     } catch (err) {
+      const ttl = this.options.cacheTtl;
       // Attempt disk cache fallback
       if (this.options.diskCache) {
         const cached = this.options.diskCache.read();
         if (cached) {
+          // Check if disk cache has also expired
+          if (ttl !== undefined) {
+            const fetchedAt = this.options.diskCache.getFetchedAt();
+            if (fetchedAt && (Date.now() - new Date(fetchedAt).getTime()) / 1000 > ttl) {
+              this.options.cache.wipe();
+              this.options.diskCache.purge();
+              throw new Error("Secrets cache expired: no successful refresh within TTL");
+            }
+          }
           raw = cached;
           contentHash = this.options.diskCache.getCachedSha();
           // If the cached hash matches, still skip
           if (contentHash && contentHash === this.lastContentHash) return;
         } else {
+          // No disk cache content — check in-memory TTL
+          if (ttl !== undefined && this.options.cache.isExpired(ttl)) {
+            this.options.cache.wipe();
+            throw new Error("Secrets cache expired: no successful refresh within TTL");
+          }
           throw err;
         }
       } else {
+        // No disk cache configured — check in-memory TTL
+        if (ttl !== undefined && this.options.cache.isExpired(ttl)) {
+          this.options.cache.wipe();
+          throw new Error("Secrets cache expired: no successful refresh within TTL");
+        }
         throw err;
       }
     }
 
+    // Check for revocation before full validation — a revoked artifact
+    // won't have ciphertext/revision fields.
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (parsed.revokedAt) {
+      this.options.cache.wipe();
+      this.options.diskCache?.purge();
+      this.lastRevision = null;
+      this.lastContentHash = null;
+      throw new Error(
+        `Artifact revoked: ${parsed.identity}/${parsed.environment} at ${parsed.revokedAt}`,
+      );
+    }
+
     const artifact = this.parseAndValidate(raw);
+
+    // Check artifact-level expiry
+    if (artifact.expiresAt && Date.now() > new Date(artifact.expiresAt).getTime()) {
+      this.options.cache.wipe();
+      this.options.diskCache?.purge();
+      throw new Error(`Artifact expired at ${artifact.expiresAt}`);
+    }
 
     // Skip if revision unchanged
     if (artifact.revision === this.lastRevision) return;
@@ -114,6 +160,8 @@ export class ArtifactPoller {
         wrappedKey,
         artifact.envelope.algorithm,
       );
+      // Note: unwrapped Buffer is zeroed below, but the resulting JS string is
+      // immutable and cannot be cleared (inherent V8/Node.js limitation). Accepted risk.
       agePrivateKey = unwrapped.toString("utf-8");
       unwrapped.fill(0);
     } else {
@@ -141,7 +189,12 @@ export class ArtifactPoller {
   async start(): Promise<void> {
     // Initial fetch — fail fast if source is unreachable
     await this.fetchAndDecrypt();
+    this.startInterval();
+  }
 
+  /** Start only the polling interval timer (no initial fetch). */
+  startInterval(): void {
+    if (this.timer) return;
     this.timer = setInterval(async () => {
       try {
         await this.fetchAndDecrypt();

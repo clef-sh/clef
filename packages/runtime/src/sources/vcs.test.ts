@@ -12,7 +12,9 @@ describe("VcsArtifactSource", () => {
 
     expect(result.raw).toBe("artifact-json");
     expect(result.contentHash).toBe("sha123");
-    expect(mockProvider.fetchFile).toHaveBeenCalledWith(".clef/packed/api-gateway/production.age");
+    expect(mockProvider.fetchFile).toHaveBeenCalledWith(
+      ".clef/packed/api-gateway/production.age.json",
+    );
   });
 
   it("should propagate VCS errors", async () => {
@@ -30,6 +32,6 @@ describe("VcsArtifactSource", () => {
     };
 
     const source = new VcsArtifactSource(mockProvider, "api-gateway", "production");
-    expect(source.describe()).toBe("VCS .clef/packed/api-gateway/production.age");
+    expect(source.describe()).toBe("VCS .clef/packed/api-gateway/production.age.json");
   });
 });

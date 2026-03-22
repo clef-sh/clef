@@ -28,7 +28,7 @@ describe("BitbucketProvider", () => {
       });
 
     const provider = new BitbucketProvider(config);
-    const result = await provider.fetchFile(".clef/packed/api/production.age");
+    const result = await provider.fetchFile(".clef/packed/api/production.age.json");
 
     expect(result.content).toBe("file content here");
     expect(result.sha).toBe("abc123");
@@ -36,7 +36,7 @@ describe("BitbucketProvider", () => {
 
     // Both calls use the same URL
     const expectedUrl =
-      "https://api.bitbucket.org/2.0/repositories/workspace/repo/src/main/.clef/packed/api/production.age";
+      "https://api.bitbucket.org/2.0/repositories/workspace/repo/src/main/.clef/packed/api/production.age.json";
     expect(mockFetch).toHaveBeenNthCalledWith(
       1,
       expectedUrl,
