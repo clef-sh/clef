@@ -604,6 +604,7 @@ Runtime decryption uses [age-encryption](https://www.npmjs.com/package/age-encry
 
 - [`clef service`](/cli/service) — CLI reference for service identity commands
 - [`clef pack`](/cli/pack) — CLI reference for the pack command
+- [Dynamic Secrets](/guide/dynamic-secrets) — using the agent with dynamic credential endpoints
 - [Runtime Agent](/guide/agent) — sidecar agent for secret rotation without redeployment
 - [Team Setup](/guide/team-setup) — adding human recipients
 - [CI/CD Integration](/guide/ci-cd) — using `clef exec` in CI pipelines

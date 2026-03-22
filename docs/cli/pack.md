@@ -27,11 +27,11 @@ See [Service Identities](/guide/service-identities) for the full guide.
 
 ## Flags
 
-| Flag                  | Type   | Required | Default | Description                                    |
-| --------------------- | ------ | -------- | ------- | ---------------------------------------------- |
-| `-o, --output <path>` | string | Yes      | —       | Output file path for the artifact              |
-| `--ttl <seconds>`     | number | No       | —       | Artifact TTL — embeds an `expiresAt` timestamp |
-| `--dir <path>`        | string | No       | cwd     | Override repository root                       |
+| Flag                  | Type   | Required | Default | Description                                                                                                                                                   |
+| --------------------- | ------ | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-o, --output <path>` | string | Yes      | —       | Output file path for the artifact                                                                                                                             |
+| `--ttl <seconds>`     | number | No       | —       | Artifact TTL — embeds an `expiresAt` timestamp. Also relevant for [dynamic secret patterns](/guide/dynamic-secrets#example-static-secrets-with-ttl-bounding). |
+| `--dir <path>`        | string | No       | cwd     | Override repository root                                                                                                                                      |
 
 ## Exit codes
 
