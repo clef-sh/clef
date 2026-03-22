@@ -128,7 +128,7 @@ process.on("SIGTERM", async () => {
 
 ## Event types
 
-Seven event types cover the full lifecycle. All events are emitted as OTLP LogRecords with an `event.name` attribute following the `clef.*` namespace.
+Eight event types cover the full lifecycle. All events are emitted as OTLP LogRecords with an `event.name` attribute following the `clef.*` namespace.
 
 ### `clef.agent.started`
 
@@ -191,6 +191,32 @@ Emitted when the cache TTL is exceeded without a successful refresh. The agent s
 | `clef.cacheTtlSeconds` | int     | Configured TTL in seconds     |
 | `clef.diskCachePurged` | boolean | Whether disk cache was purged |
 
+### `clef.artifact.invalid`
+
+Emitted when a fetched artifact fails validation or decryption. Distinguishes "source is down" (`fetch.failed`) from "source returned garbage."
+
+| Attribute     | Type   | Description                       |
+| ------------- | ------ | --------------------------------- |
+| `clef.reason` | string | Machine-readable category (below) |
+| `clef.error`  | string | Error message                     |
+
+**Reason values:**
+
+| Reason                | Meaning                                                    |
+| --------------------- | ---------------------------------------------------------- |
+| `json_parse`          | Response is not valid JSON                                 |
+| `unsupported_version` | `version` field is not `1`                                 |
+| `missing_fields`      | Missing `ciphertext`, `revision`, or `ciphertextHash`      |
+| `incomplete_envelope` | `envelope` present but missing provider/keyId/wrappedKey   |
+| `integrity`           | SHA-256 hash of ciphertext doesn't match `ciphertextHash`  |
+| `kms_unwrap`          | KMS Decrypt call failed (wrong key, permissions, etc.)     |
+| `decrypt`             | age decryption failed (key mismatch, corrupted ciphertext) |
+| `payload_parse`       | Decrypted plaintext is not valid JSON                      |
+
+::: info Missing private key is not `artifact.invalid`
+If the agent has no age key configured and the artifact doesn't use KMS envelope, the error is a configuration issue — the artifact itself is valid. This surfaces as a standard error through `onError`, not as `artifact.invalid`.
+:::
+
 ## OTLP format
 
 The emitter sends standard `ExportLogsServiceRequest` JSON to the configured endpoint. No SDK, no protobuf — just `fetch()` with hand-constructed JSON.
@@ -236,6 +262,7 @@ Constant across all events in a batch. Identifies the agent instance.
 | `artifact.expired`   | WARN     |
 | `fetch.failed`       | WARN     |
 | `cache.expired`      | ERROR    |
+| `artifact.invalid`   | ERROR    |
 
 ### Example payload
 

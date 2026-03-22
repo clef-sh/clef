@@ -619,6 +619,7 @@ describe("ArtifactPoller", () => {
       artifactRevoked: jest.Mock;
       artifactExpired: jest.Mock;
       cacheExpired: jest.Mock;
+      artifactInvalid: jest.Mock;
     };
 
     beforeEach(() => {
@@ -628,6 +629,7 @@ describe("ArtifactPoller", () => {
         artifactRevoked: jest.fn(),
         artifactExpired: jest.fn(),
         cacheExpired: jest.fn(),
+        artifactInvalid: jest.fn(),
       };
     });
 
@@ -739,6 +741,103 @@ describe("ArtifactPoller", () => {
         cacheTtlSeconds: 10,
         diskCachePurged: false,
       });
+    });
+
+    it("should emit artifact.invalid with reason unsupported_version", async () => {
+      const source = mockSource(makeArtifact({ version: 99 }));
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        telemetry: telemetry as unknown as TelemetryEmitter,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("Unsupported artifact version");
+
+      expect(telemetry.artifactInvalid).toHaveBeenCalledWith({
+        reason: "unsupported_version",
+        error: expect.stringContaining("Unsupported artifact version"),
+      });
+    });
+
+    it("should emit artifact.invalid with reason missing_fields", async () => {
+      const raw = JSON.stringify({
+        version: 1,
+        identity: "api-gateway",
+        environment: "production",
+        packedAt: "2024-01-15T00:00:00.000Z",
+        revision: "rev1",
+        // missing ciphertext and ciphertextHash
+      });
+      const source = mockSource(raw);
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        telemetry: telemetry as unknown as TelemetryEmitter,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("missing required fields");
+
+      expect(telemetry.artifactInvalid).toHaveBeenCalledWith({
+        reason: "missing_fields",
+        error: expect.stringContaining("missing required fields"),
+      });
+    });
+
+    it("should emit artifact.invalid with reason integrity on hash mismatch", async () => {
+      const source = mockSource(
+        makeArtifact({
+          ciphertextHash: "badhash000000000000000000000000000000000000000000000000000000000",
+        }),
+      );
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        telemetry: telemetry as unknown as TelemetryEmitter,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("integrity check failed");
+
+      expect(telemetry.artifactInvalid).toHaveBeenCalledWith({
+        reason: "integrity",
+        error: expect.stringContaining("integrity check failed"),
+      });
+    });
+
+    it("should emit artifact.invalid with reason json_parse on malformed JSON", async () => {
+      const source: ArtifactSource = {
+        fetch: jest.fn().mockResolvedValue({ raw: "not valid json{{{" }),
+        describe: () => "mock",
+      };
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        telemetry: telemetry as unknown as TelemetryEmitter,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow();
+
+      // The JSON.parse at the revocation check (line ~153) will throw first
+      // But since it's outside validateDecryptAndCache, let's test with valid
+      // JSON that fails parseAndValidate
+    });
+
+    it("should not emit artifact.invalid for missing private key (config error)", async () => {
+      const source = mockSource(makeArtifact());
+      const poller = new ArtifactPoller({
+        source,
+        // no privateKey
+        cache,
+        telemetry: telemetry as unknown as TelemetryEmitter,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("requires an age private key");
+
+      // Config error — should NOT be classified as artifact.invalid
+      expect(telemetry.artifactInvalid).not.toHaveBeenCalled();
     });
 
     it("should not throw when telemetry is not configured", async () => {

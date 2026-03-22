@@ -164,7 +164,29 @@ export class ArtifactPoller {
       );
     }
 
-    const artifact = this.parseAndValidate(raw);
+    // Validate, decrypt, and cache — emit artifact.invalid on any failure
+    await this.validateDecryptAndCache(raw, contentHash);
+  }
+
+  /**
+   * Validate the artifact, decrypt it, and swap the cache.
+   * Emits `artifact.invalid` on any validation or decryption failure,
+   * and `artifact.expired` / `artifact.refreshed` on their respective paths.
+   */
+  private async validateDecryptAndCache(
+    raw: string,
+    contentHash: string | undefined,
+  ): Promise<void> {
+    let artifact: ArtifactEnvelope;
+    try {
+      artifact = this.parseAndValidate(raw);
+    } catch (err) {
+      this.telemetry?.artifactInvalid({
+        reason: classifyValidationError(err),
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
 
     // Check artifact-level expiry
     if (artifact.expiresAt && Date.now() > new Date(artifact.expiresAt).getTime()) {
@@ -180,28 +202,41 @@ export class ArtifactPoller {
     // Verify integrity
     const hash = crypto.createHash("sha256").update(artifact.ciphertext).digest("hex");
     if (hash !== artifact.ciphertextHash) {
-      throw new Error(
+      const err = new Error(
         `Artifact integrity check failed: expected hash ${artifact.ciphertextHash}, got ${hash}`,
       );
+      this.telemetry?.artifactInvalid({
+        reason: "integrity",
+        error: err.message,
+      });
+      throw err;
     }
 
     // Resolve the age private key
     let agePrivateKey: string;
     if (artifact.envelope) {
       // KMS envelope: unwrap the ephemeral private key via KMS
-      const kms = createKmsProvider(artifact.envelope.provider);
-      const wrappedKey = Buffer.from(artifact.envelope.wrappedKey, "base64");
-      const unwrapped = await kms.unwrap(
-        artifact.envelope.keyId,
-        wrappedKey,
-        artifact.envelope.algorithm,
-      );
-      // Note: unwrapped Buffer is zeroed below, but the resulting JS string is
-      // immutable and cannot be cleared (inherent V8/Node.js limitation). Accepted risk.
-      agePrivateKey = unwrapped.toString("utf-8");
-      unwrapped.fill(0);
+      try {
+        const kms = createKmsProvider(artifact.envelope.provider);
+        const wrappedKey = Buffer.from(artifact.envelope.wrappedKey, "base64");
+        const unwrapped = await kms.unwrap(
+          artifact.envelope.keyId,
+          wrappedKey,
+          artifact.envelope.algorithm,
+        );
+        // Note: unwrapped Buffer is zeroed below, but the resulting JS string is
+        // immutable and cannot be cleared (inherent V8/Node.js limitation). Accepted risk.
+        agePrivateKey = unwrapped.toString("utf-8");
+        unwrapped.fill(0);
+      } catch (err) {
+        this.telemetry?.artifactInvalid({
+          reason: "kms_unwrap",
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
     } else {
-      // Age-only: use the static private key
+      // Age-only: use the static private key (config error, not artifact.invalid)
       if (!this.options.privateKey) {
         throw new Error(
           "Artifact requires an age private key. Set CLEF_AGENT_AGE_KEY or use KMS envelope encryption.",
@@ -211,20 +246,31 @@ export class ArtifactPoller {
     }
 
     // Decrypt
-    const plaintext = await this.decryptor.decrypt(artifact.ciphertext, agePrivateKey);
-    const values: Record<string, string> = JSON.parse(plaintext);
+    try {
+      const plaintext = await this.decryptor.decrypt(artifact.ciphertext, agePrivateKey);
+      const values: Record<string, string> = JSON.parse(plaintext);
 
-    // Atomic swap
-    this.options.cache.swap(values, artifact.keys, artifact.revision);
-    this.lastRevision = artifact.revision;
-    this.lastContentHash = contentHash ?? null;
-    this.lastExpiresAt = artifact.expiresAt ?? null;
-    this.options.onRefresh?.(artifact.revision);
-    this.telemetry?.artifactRefreshed({
-      revision: artifact.revision,
-      keyCount: artifact.keys.length,
-      kmsEnvelope: !!artifact.envelope,
-    });
+      // Atomic swap
+      this.options.cache.swap(values, artifact.keys, artifact.revision);
+      this.lastRevision = artifact.revision;
+      this.lastContentHash = contentHash ?? null;
+      this.lastExpiresAt = artifact.expiresAt ?? null;
+      this.options.onRefresh?.(artifact.revision);
+      this.telemetry?.artifactRefreshed({
+        revision: artifact.revision,
+        keyCount: artifact.keys.length,
+        kmsEnvelope: !!artifact.envelope,
+      });
+    } catch (err) {
+      // Don't double-emit for errors already classified above
+      if (err instanceof Error && !err.message.includes("integrity check failed")) {
+        this.telemetry?.artifactInvalid({
+          reason: err instanceof SyntaxError ? "payload_parse" : "decrypt",
+          error: err.message,
+        });
+      }
+      throw err;
+    }
   }
 
   /** Start the polling loop. Performs an initial fetch immediately. */
@@ -308,4 +354,14 @@ export class ArtifactPoller {
 
     return artifact;
   }
+}
+
+/** Classify a validation error from parseAndValidate into a machine-readable reason. */
+function classifyValidationError(err: unknown): string {
+  if (err instanceof SyntaxError) return "json_parse";
+  const msg = err instanceof Error ? err.message : "";
+  if (msg.includes("Unsupported artifact version")) return "unsupported_version";
+  if (msg.includes("missing required fields")) return "missing_fields";
+  if (msg.includes("incomplete envelope")) return "incomplete_envelope";
+  return "unknown";
 }

@@ -17,6 +17,7 @@ export type {
   ArtifactExpiredEvent,
   FetchFailedEvent,
   CacheExpiredEvent,
+  ArtifactInvalidEvent,
 } from "./telemetry";
 
 // VCS

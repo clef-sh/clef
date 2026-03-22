@@ -48,6 +48,12 @@ export interface CacheExpiredEvent extends TelemetryEventBase {
   diskCachePurged: boolean;
 }
 
+export interface ArtifactInvalidEvent extends TelemetryEventBase {
+  type: "artifact.invalid";
+  reason: string;
+  error: string;
+}
+
 /** Discriminated union of all telemetry event types. */
 export type TelemetryEvent =
   | AgentStartedEvent
@@ -56,7 +62,8 @@ export type TelemetryEvent =
   | ArtifactRevokedEvent
   | ArtifactExpiredEvent
   | FetchFailedEvent
-  | CacheExpiredEvent;
+  | CacheExpiredEvent
+  | ArtifactInvalidEvent;
 
 /** Configuration for the telemetry emitter. */
 export interface TelemetryOptions {
@@ -89,6 +96,7 @@ const SEVERITY: Record<string, { number: number; text: string }> = {
   "artifact.expired": { number: 13, text: "WARN" },
   "fetch.failed": { number: 13, text: "WARN" },
   "cache.expired": { number: 17, text: "ERROR" },
+  "artifact.invalid": { number: 17, text: "ERROR" },
 };
 
 /** Base fields that belong in the OTLP resource, not per-record attributes. */
@@ -163,6 +171,10 @@ export class TelemetryEmitter {
 
   cacheExpired(fields: { cacheTtlSeconds: number; diskCachePurged: boolean }): void {
     this.emit({ type: "cache.expired", ...fields });
+  }
+
+  artifactInvalid(fields: { reason: string; error: string }): void {
+    this.emit({ type: "artifact.invalid", ...fields });
   }
 
   /** Fire-and-forget flush of the current buffer. */

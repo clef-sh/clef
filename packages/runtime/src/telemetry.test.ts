@@ -157,6 +157,27 @@ describe("TelemetryEmitter", () => {
       emitter.stop();
     });
 
+    it("should emit artifact.invalid with reason and error", () => {
+      const emitter = new TelemetryEmitter(opts());
+      emitter.artifactInvalid({ reason: "integrity", error: "hash mismatch" });
+      emitter.flush();
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      const record = body.resourceLogs[0].scopeLogs[0].logRecords[0];
+
+      expect(record.body.stringValue).toBe("artifact.invalid");
+      expect(record.severityText).toBe("ERROR");
+      expect(record.attributes).toContainEqual({
+        key: "clef.reason",
+        value: { stringValue: "integrity" },
+      });
+      expect(record.attributes).toContainEqual({
+        key: "clef.error",
+        value: { stringValue: "hash mismatch" },
+      });
+      emitter.stop();
+    });
+
     it("should swallow errors in event methods", () => {
       mockFetch.mockImplementation(() => {
         throw new Error("fetch constructor crash");
