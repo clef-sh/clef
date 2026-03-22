@@ -3,6 +3,15 @@ import { SecretsCache } from "./secrets-cache";
 import { AgeDecryptor } from "./decrypt";
 import { ArtifactSource } from "./sources/types";
 import { DiskCache } from "./disk-cache";
+import { createKmsProvider } from "./kms";
+
+/** KMS envelope metadata for artifacts using KMS envelope encryption. */
+export interface ArtifactKmsEnvelope {
+  provider: string;
+  keyId: string;
+  wrappedKey: string;
+  algorithm: string;
+}
 
 /** Shape of a packed artifact JSON envelope. */
 export interface ArtifactEnvelope {
@@ -14,13 +23,14 @@ export interface ArtifactEnvelope {
   ciphertextHash: string;
   ciphertext: string;
   keys: string[];
+  envelope?: ArtifactKmsEnvelope;
 }
 
 export interface PollerOptions {
   /** Artifact source strategy. */
   source: ArtifactSource;
-  /** Age private key string. */
-  privateKey: string;
+  /** Age private key string. Optional for KMS envelope artifacts. */
+  privateKey?: string;
   /** Secrets cache to swap on new revisions. */
   cache: SecretsCache;
   /** Seconds between polls. */
@@ -93,8 +103,31 @@ export class ArtifactPoller {
       );
     }
 
+    // Resolve the age private key
+    let agePrivateKey: string;
+    if (artifact.envelope) {
+      // KMS envelope: unwrap the ephemeral private key via KMS
+      const kms = createKmsProvider(artifact.envelope.provider);
+      const wrappedKey = Buffer.from(artifact.envelope.wrappedKey, "base64");
+      const unwrapped = await kms.unwrap(
+        artifact.envelope.keyId,
+        wrappedKey,
+        artifact.envelope.algorithm,
+      );
+      agePrivateKey = unwrapped.toString("utf-8");
+      unwrapped.fill(0);
+    } else {
+      // Age-only: use the static private key
+      if (!this.options.privateKey) {
+        throw new Error(
+          "Artifact requires an age private key. Set CLEF_AGENT_AGE_KEY or use KMS envelope encryption.",
+        );
+      }
+      agePrivateKey = this.options.privateKey;
+    }
+
     // Decrypt
-    const plaintext = await this.decryptor.decrypt(artifact.ciphertext, this.options.privateKey);
+    const plaintext = await this.decryptor.decrypt(artifact.ciphertext, agePrivateKey);
     const values: Record<string, string> = JSON.parse(plaintext);
 
     // Atomic swap
@@ -139,6 +172,16 @@ export class ArtifactPoller {
     }
     if (!artifact.ciphertext || !artifact.revision || !artifact.ciphertextHash) {
       throw new Error("Invalid artifact: missing required fields.");
+    }
+    if (artifact.envelope) {
+      if (
+        !artifact.envelope.provider ||
+        !artifact.envelope.keyId ||
+        !artifact.envelope.wrappedKey ||
+        !artifact.envelope.algorithm
+      ) {
+        throw new Error("Invalid artifact: incomplete envelope fields.");
+      }
     }
 
     return artifact;

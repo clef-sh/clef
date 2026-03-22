@@ -12,6 +12,11 @@ export { GitLabProvider } from "./vcs/gitlab";
 export { BitbucketProvider } from "./vcs/bitbucket";
 export { createVcsProvider } from "./vcs/index";
 
+// KMS
+export type { KmsProvider, KmsWrapResult, KmsProviderType } from "./kms";
+export { AwsKmsProvider } from "./kms";
+export { createKmsProvider } from "./kms";
+
 // Sources
 export type { ArtifactSource, ArtifactFetchResult } from "./sources/types";
 export { HttpArtifactSource } from "./sources/http";
@@ -81,8 +86,14 @@ export class ClefRuntime {
   constructor(config: RuntimeConfig) {
     this.config = config;
 
-    const decryptor = new AgeDecryptor();
-    const privateKey = decryptor.resolveKey(config.ageKey, config.ageKeyFile);
+    // Age key is optional — KMS envelope artifacts don't need one
+    let privateKey: string | undefined;
+    try {
+      const decryptor = new AgeDecryptor();
+      privateKey = decryptor.resolveKey(config.ageKey, config.ageKeyFile);
+    } catch {
+      // OK — will work if artifact uses KMS envelope encryption
+    }
 
     const source = this.resolveSource(config);
     const diskCache = config.cachePath

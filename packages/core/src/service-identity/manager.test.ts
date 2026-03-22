@@ -145,6 +145,89 @@ describe("ServiceIdentityManager", () => {
         expect.stringMatching(/^age1pubkey/),
       );
     });
+
+    it("should create KMS identity without generating age keys", async () => {
+      const manifest = baseManifest();
+      const manifestYaml = YAML.stringify({
+        version: 1,
+        environments: manifest.environments,
+        namespaces: manifest.namespaces,
+        sops: manifest.sops,
+        file_pattern: manifest.file_pattern,
+      });
+      mockFs.readFileSync.mockReturnValue(manifestYaml);
+      mockFs.writeFileSync.mockImplementation(() => {});
+      mockFs.existsSync.mockReturnValue(false);
+
+      const kmsEnvConfigs = {
+        dev: { provider: "aws" as const, keyId: "arn:aws:kms:us-east-1:111:key/dev" },
+        staging: { provider: "aws" as const, keyId: "arn:aws:kms:us-east-1:222:key/stg" },
+        production: { provider: "aws" as const, keyId: "arn:aws:kms:us-west-2:333:key/prd" },
+      };
+
+      const result = await manager.create(
+        "kms-svc",
+        ["api"],
+        "KMS service",
+        manifest,
+        "/repo",
+        kmsEnvConfigs,
+      );
+
+      // No private keys should be generated for KMS environments
+      expect(Object.keys(result.privateKeys)).toHaveLength(0);
+      expect(generateAgeIdentity).not.toHaveBeenCalled();
+
+      // KMS config should be stored
+      expect(result.identity.environments.dev.kms).toEqual(kmsEnvConfigs.dev);
+      expect(result.identity.environments.staging.kms).toEqual(kmsEnvConfigs.staging);
+      expect(result.identity.environments.production.kms).toEqual(kmsEnvConfigs.production);
+
+      // No recipients should be registered for KMS environments
+      expect(encryption.addRecipient).not.toHaveBeenCalled();
+    });
+
+    it("should handle mixed age and KMS environments", async () => {
+      const manifest = baseManifest();
+      const manifestYaml = YAML.stringify({
+        version: 1,
+        environments: manifest.environments,
+        namespaces: manifest.namespaces,
+        sops: manifest.sops,
+        file_pattern: manifest.file_pattern,
+      });
+      mockFs.readFileSync.mockReturnValue(manifestYaml);
+      mockFs.writeFileSync.mockImplementation(() => {});
+      mockFs.existsSync.mockImplementation((p) => String(p).includes("api/"));
+
+      const kmsEnvConfigs = {
+        production: { provider: "aws" as const, keyId: "arn:aws:kms:us-west-2:333:key/prd" },
+      };
+
+      const result = await manager.create(
+        "mixed-svc",
+        ["api"],
+        "Mixed service",
+        manifest,
+        "/repo",
+        kmsEnvConfigs,
+      );
+
+      // Only dev and staging should have age keys
+      expect(Object.keys(result.privateKeys)).toHaveLength(2);
+      expect(result.privateKeys.dev).toBeTruthy();
+      expect(result.privateKeys.staging).toBeTruthy();
+      expect(result.privateKeys.production).toBeUndefined();
+
+      // Production should have KMS config
+      expect(result.identity.environments.production.kms).toEqual(kmsEnvConfigs.production);
+
+      // Only age environments should have recipients registered
+      expect(encryption.addRecipient).toHaveBeenCalledWith(
+        expect.stringContaining("api/"),
+        expect.stringMatching(/^age1pubkey/),
+      );
+    });
   });
 
   describe("list", () => {

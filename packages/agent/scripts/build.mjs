@@ -18,7 +18,7 @@ const BASE_CONFIG = {
   platform: /** @type {const} */ ("node"),
   target: "node18",
   nodePaths: [resolve(repoRoot, "node_modules")],
-  external: ["fsevents"],
+  external: ["fsevents", "@aws-sdk/client-kms"],
 };
 
 // ── age-encryption CJS pre-bundle ─────────────────────────────────────────────

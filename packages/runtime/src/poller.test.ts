@@ -15,6 +15,20 @@ jest.mock(
   { virtual: true },
 );
 
+// Mock KMS for envelope artifact tests
+jest.mock("./kms", () => {
+  const unwrapFn = jest.fn();
+  return {
+    createKmsProvider: jest.fn().mockReturnValue({
+      wrap: jest.fn(),
+      unwrap: unwrapFn,
+    }),
+    __mockUnwrap: unwrapFn,
+  };
+});
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- access mock fn
+const { __mockUnwrap: mockKmsUnwrap } = require("./kms") as { __mockUnwrap: jest.Mock };
+
 function makeArtifact(
   overrides: Partial<{
     version: number;
@@ -22,6 +36,12 @@ function makeArtifact(
     ciphertext: string;
     ciphertextHash: string;
     keys: string[];
+    envelope: {
+      provider: string;
+      keyId: string;
+      wrappedKey: string;
+      algorithm: string;
+    };
   }> = {},
 ): string {
   const ciphertext =
@@ -30,7 +50,7 @@ function makeArtifact(
   const hash =
     overrides.ciphertextHash ?? crypto.createHash("sha256").update(ciphertext).digest("hex");
 
-  return JSON.stringify({
+  const artifact: Record<string, unknown> = {
     version: overrides.version ?? 1,
     identity: "api-gateway",
     environment: "production",
@@ -39,7 +59,11 @@ function makeArtifact(
     ciphertextHash: hash,
     ciphertext,
     keys: overrides.keys ?? ["DB_URL", "API_KEY"],
-  });
+  };
+  if (overrides.envelope) {
+    artifact.envelope = overrides.envelope;
+  }
+  return JSON.stringify(artifact);
 }
 
 function mockSource(raw: string, contentHash?: string): ArtifactSource {
@@ -172,6 +196,76 @@ describe("ArtifactPoller", () => {
       });
 
       await expect(poller.fetchAndDecrypt()).rejects.toThrow("Unsupported artifact version");
+    });
+
+    it("should throw when age-only artifact has no private key", async () => {
+      const source = mockSource(makeArtifact());
+
+      const poller = new ArtifactPoller({
+        source,
+        cache,
+        pollInterval: 30,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("requires an age private key");
+    });
+
+    it("should decrypt KMS envelope artifact via KMS unwrap", async () => {
+      mockKmsUnwrap.mockResolvedValue(Buffer.from("AGE-SECRET-KEY-1UNWRAPPED"));
+
+      const source = mockSource(
+        makeArtifact({
+          revision: "kms-rev",
+          envelope: {
+            provider: "aws",
+            keyId: "arn:aws:kms:us-east-1:111:key/test",
+            wrappedKey: Buffer.from("wrapped-key").toString("base64"),
+            algorithm: "SYMMETRIC_DEFAULT",
+          },
+        }),
+      );
+
+      const poller = new ArtifactPoller({
+        source,
+        cache,
+        pollInterval: 30,
+      });
+
+      await poller.fetchAndDecrypt();
+
+      expect(cache.isReady()).toBe(true);
+      expect(cache.getRevision()).toBe("kms-rev");
+      expect(mockKmsUnwrap).toHaveBeenCalledWith(
+        "arn:aws:kms:us-east-1:111:key/test",
+        expect.any(Buffer),
+        "SYMMETRIC_DEFAULT",
+      );
+    });
+
+    it("should reject artifact with incomplete envelope fields", async () => {
+      const ciphertext =
+        "-----BEGIN AGE ENCRYPTED FILE-----\nmock\n-----END AGE ENCRYPTED FILE-----";
+      const hash = crypto.createHash("sha256").update(ciphertext).digest("hex");
+      const raw = JSON.stringify({
+        version: 1,
+        identity: "api-gateway",
+        environment: "production",
+        packedAt: "2024-01-15T00:00:00.000Z",
+        revision: "bad-envelope",
+        ciphertextHash: hash,
+        ciphertext,
+        keys: ["DB_URL"],
+        envelope: { provider: "aws" },
+      });
+      const source = mockSource(raw);
+
+      const poller = new ArtifactPoller({
+        source,
+        cache,
+        pollInterval: 30,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("incomplete envelope fields");
     });
 
     it("should call onRefresh callback on successful cache swap", async () => {

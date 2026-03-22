@@ -125,9 +125,7 @@ export function resolveConfig(env: Record<string, string | undefined> = process.
 
   const ageKey = env.CLEF_AGENT_AGE_KEY;
   const ageKeyFile = env.CLEF_AGENT_AGE_KEY_FILE;
-  if (!ageKey && !ageKeyFile) {
-    throw new ConfigError("Either CLEF_AGENT_AGE_KEY or CLEF_AGENT_AGE_KEY_FILE must be set.");
-  }
+  // Age key is optional — KMS envelope artifacts don't need one
 
   const token = env.CLEF_AGENT_TOKEN ?? randomBytes(32).toString("hex");
 

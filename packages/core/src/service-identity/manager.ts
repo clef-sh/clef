@@ -5,8 +5,11 @@ import * as YAML from "yaml";
 import {
   ClefManifest,
   EncryptionBackend,
+  KmsConfig,
   ServiceIdentityDefinition,
   ServiceIdentityDriftIssue,
+  ServiceIdentityEnvironmentConfig,
+  isKmsEnvelope,
 } from "../types";
 import { generateAgeIdentity } from "../age/keygen";
 import { MatrixManager } from "../matrix/manager";
@@ -42,10 +45,13 @@ export class ServiceIdentityManager {
   ) {}
 
   /**
-   * Create a new service identity with per-environment age key pairs.
-   * Generates keys, updates the manifest, and registers public keys as SOPS recipients.
+   * Create a new service identity with per-environment age key pairs or KMS envelope config.
+   * For age-only: generates keys, updates the manifest, and registers public keys as SOPS recipients.
+   * For KMS: stores KMS config in manifest, no age keys generated.
    *
-   * @returns The created identity definition and the per-environment private keys (printed once).
+   * @param kmsEnvConfigs - Optional per-environment KMS config. When provided, those envs use
+   *   KMS envelope encryption instead of generating age keys.
+   * @returns The created identity definition and the per-environment private keys (empty for KMS envs).
    */
   async create(
     name: string,
@@ -53,6 +59,7 @@ export class ServiceIdentityManager {
     description: string,
     manifest: ClefManifest,
     repoRoot: string,
+    kmsEnvConfigs?: Record<string, KmsConfig>,
   ): Promise<{
     identity: ServiceIdentityDefinition;
     privateKeys: Record<string, string>;
@@ -70,14 +77,21 @@ export class ServiceIdentityManager {
       }
     }
 
-    // Generate per-environment key pairs
-    const environments: Record<string, { recipient: string }> = {};
+    // Generate per-environment config
+    const environments: Record<string, ServiceIdentityEnvironmentConfig> = {};
     const privateKeys: Record<string, string> = {};
 
     for (const env of manifest.environments) {
-      const identity = await generateAgeIdentity();
-      environments[env.name] = { recipient: identity.publicKey };
-      privateKeys[env.name] = identity.privateKey;
+      const kmsConfig = kmsEnvConfigs?.[env.name];
+      if (kmsConfig) {
+        // KMS envelope path — no age keys generated
+        environments[env.name] = { kms: kmsConfig };
+      } else {
+        // Age-only path
+        const identity = await generateAgeIdentity();
+        environments[env.name] = { recipient: identity.publicKey };
+        privateKeys[env.name] = identity.privateKey;
+      }
     }
 
     const definition: ServiceIdentityDefinition = {
@@ -89,6 +103,7 @@ export class ServiceIdentityManager {
 
     // Register public keys as SOPS recipients on scoped files BEFORE writing
     // the manifest, so a registration failure doesn't leave orphaned state.
+    // (Only for age-only environments — KMS envs have no recipient to register.)
     await this.registerRecipients(definition, manifest, repoRoot);
 
     // Update manifest on disk
@@ -142,6 +157,10 @@ export class ServiceIdentityManager {
       const envConfig = identity.environments[cell.environment];
       if (!envConfig) continue;
 
+      // KMS-backed environments have no recipient to register
+      if (isKmsEnvelope(envConfig)) continue;
+      if (!envConfig.recipient) continue;
+
       try {
         await this.encryption.addRecipient(cell.filePath, envConfig.recipient);
       } catch {
@@ -182,7 +201,13 @@ export class ServiceIdentityManager {
 
     try {
       for (const envName of envsToRotate) {
-        const oldRecipient = identity.environments[envName]?.recipient;
+        const envConfig = identity.environments[envName];
+        if (!envConfig) {
+          throw new Error(`Environment '${envName}' not found on identity '${name}'.`);
+        }
+        // KMS-backed environments don't have age keys to rotate
+        if (isKmsEnvelope(envConfig)) continue;
+        const oldRecipient = envConfig.recipient;
         if (!oldRecipient) {
           throw new Error(`Environment '${envName}' not found on identity '${name}'.`);
         }
@@ -276,9 +301,12 @@ export class ServiceIdentityManager {
       }
 
       // Check recipient registration on scoped files
+      // (KMS-backed environments skip recipient checks — no recipient to register)
       for (const cell of cells) {
         const envConfig = si.environments[cell.environment];
         if (!envConfig) continue;
+        if (isKmsEnvelope(envConfig)) continue;
+        if (!envConfig.recipient) continue;
 
         if (si.namespaces.includes(cell.namespace)) {
           // Should be registered

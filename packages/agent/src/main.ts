@@ -23,8 +23,14 @@ import { Daemon } from "./lifecycle/daemon";
 async function main(): Promise<void> {
   const config = resolveConfig();
 
-  const decryptor = new AgeDecryptor();
-  const privateKey = decryptor.resolveKey(config.ageKey, config.ageKeyFile);
+  // Age key is optional — KMS envelope artifacts don't need one
+  let privateKey: string | undefined;
+  try {
+    const decryptor = new AgeDecryptor();
+    privateKey = decryptor.resolveKey(config.ageKey, config.ageKeyFile);
+  } catch {
+    // OK — will work if artifact uses KMS envelope encryption
+  }
 
   // Construct artifact source
   let source: ArtifactSource;

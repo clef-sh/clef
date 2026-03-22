@@ -1,7 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import { ClefManifest, EncryptionBackend } from "../types";
+import { ClefManifest, EncryptionBackend, isKmsEnvelope } from "../types";
+import { KmsProvider } from "../kms";
 import { MatrixManager } from "../matrix/manager";
 import { PackConfig, PackResult, PackedArtifact } from "./types";
 import { resolveIdentitySecrets } from "./resolve";
@@ -16,6 +17,7 @@ export class ArtifactPacker {
   constructor(
     private readonly encryption: EncryptionBackend,
     private readonly matrixManager: MatrixManager,
+    private readonly kms?: KmsProvider,
   ) {}
 
   /**
@@ -35,29 +37,79 @@ export class ArtifactPacker {
     const plaintext = JSON.stringify(resolved.values);
 
     let ciphertext: string;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic ESM import of CJS-incompatible package
-      const { Encrypter } = await import("age-encryption" as any);
-      const e = new Encrypter();
-      e.addRecipient(resolved.recipient);
-      ciphertext = await e.encrypt(plaintext);
-    } catch {
-      throw new Error("Failed to age-encrypt artifact. Check recipient key.");
+    let artifact: PackedArtifact;
+
+    if (isKmsEnvelope(resolved.envConfig)) {
+      // KMS envelope path
+      if (!this.kms) {
+        throw new Error("KMS provider required for envelope encryption but none was provided.");
+      }
+
+      // Generate ephemeral age key pair
+      const { generateIdentity, identityToRecipient, Encrypter } = await import(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic ESM import of CJS-incompatible package
+        "age-encryption" as any
+      );
+      const ephemeralPrivateKey = (await generateIdentity()) as string;
+      const ephemeralPublicKey = (await identityToRecipient(ephemeralPrivateKey)) as string;
+
+      try {
+        const e = new Encrypter();
+        e.addRecipient(ephemeralPublicKey);
+        ciphertext = await e.encrypt(plaintext);
+      } catch {
+        throw new Error("Failed to age-encrypt artifact with ephemeral key.");
+      }
+
+      // Wrap the ephemeral private key with KMS
+      const kmsConfig = resolved.envConfig.kms;
+      const wrapped = await this.kms.wrap(kmsConfig.keyId, Buffer.from(ephemeralPrivateKey));
+
+      const revision = Date.now().toString();
+      const ciphertextHash = crypto.createHash("sha256").update(ciphertext).digest("hex");
+
+      artifact = {
+        version: 1,
+        identity: config.identity,
+        environment: config.environment,
+        packedAt: new Date().toISOString(),
+        revision,
+        ciphertextHash,
+        ciphertext,
+        keys: Object.keys(resolved.values),
+        envelope: {
+          provider: kmsConfig.provider,
+          keyId: kmsConfig.keyId,
+          wrappedKey: wrapped.wrappedKey.toString("base64"),
+          algorithm: wrapped.algorithm,
+        },
+      };
+    } else {
+      // Age-only path (v1, unchanged)
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic ESM import of CJS-incompatible package
+        const { Encrypter } = await import("age-encryption" as any);
+        const e = new Encrypter();
+        e.addRecipient(resolved.recipient!);
+        ciphertext = await e.encrypt(plaintext);
+      } catch {
+        throw new Error("Failed to age-encrypt artifact. Check recipient key.");
+      }
+
+      const revision = Date.now().toString();
+      const ciphertextHash = crypto.createHash("sha256").update(ciphertext).digest("hex");
+
+      artifact = {
+        version: 1,
+        identity: config.identity,
+        environment: config.environment,
+        packedAt: new Date().toISOString(),
+        revision,
+        ciphertextHash,
+        ciphertext,
+        keys: Object.keys(resolved.values),
+      };
     }
-
-    const revision = Date.now().toString();
-    const ciphertextHash = crypto.createHash("sha256").update(ciphertext).digest("hex");
-
-    const artifact: PackedArtifact = {
-      version: 1,
-      identity: config.identity,
-      environment: config.environment,
-      packedAt: new Date().toISOString(),
-      revision,
-      ciphertextHash,
-      ciphertext,
-      keys: Object.keys(resolved.values),
-    };
 
     const outputDir = path.dirname(config.outputPath);
     if (!fs.existsSync(outputDir)) {
@@ -72,7 +124,7 @@ export class ArtifactPacker {
       namespaceCount: resolved.identity.namespaces.length,
       keyCount: Object.keys(resolved.values).length,
       artifactSize: Buffer.byteLength(json, "utf-8"),
-      revision,
+      revision: artifact.revision,
     };
   }
 }

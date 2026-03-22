@@ -48,13 +48,11 @@ describe("resolveConfig", () => {
     );
   });
 
-  it("should throw ConfigError when neither age key is set", () => {
-    expect(() => resolveConfig({ CLEF_AGENT_SOURCE: "https://example.com/a.json" })).toThrow(
-      ConfigError,
-    );
-    expect(() => resolveConfig({ CLEF_AGENT_SOURCE: "https://example.com/a.json" })).toThrow(
-      "CLEF_AGENT_AGE_KEY",
-    );
+  it("should not throw when neither age key is set (KMS envelope artifacts)", () => {
+    const config = resolveConfig({ CLEF_AGENT_SOURCE: "https://example.com/a.json" });
+    expect(config.ageKey).toBeUndefined();
+    expect(config.ageKeyFile).toBeUndefined();
+    expect(config.source).toBe("https://example.com/a.json");
   });
 
   it("should throw ConfigError for invalid port", () => {

@@ -7,7 +7,9 @@ import {
   SubprocessRunner,
   MatrixManager,
   ArtifactPacker,
+  isKmsEnvelope,
 } from "@clef-sh/core";
+import type { KmsProvider } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
@@ -33,7 +35,19 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
 
         const sopsClient = await createSopsClient(repoRoot, deps.runner);
         const matrixManager = new MatrixManager();
-        const packer = new ArtifactPacker(sopsClient, matrixManager);
+
+        // Resolve KMS provider if the identity uses envelope encryption
+        let kmsProvider: KmsProvider | undefined;
+        const si = manifest.service_identities?.find((s) => s.name === identity);
+        const envConfig = si?.environments[environment];
+        if (envConfig && isKmsEnvelope(envConfig)) {
+          const { createKmsProvider } = await import("@clef-sh/runtime");
+          kmsProvider = createKmsProvider(envConfig.kms.provider, {
+            region: envConfig.kms.region,
+          });
+        }
+
+        const packer = new ArtifactPacker(sopsClient, matrixManager, kmsProvider);
 
         const outputPath = path.resolve(opts.output);
 
@@ -47,6 +61,10 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
         formatter.print(`  Output:   ${result.outputPath}`);
         formatter.print(`  Size:     ${(result.artifactSize / 1024).toFixed(1)} KB`);
         formatter.print(`  Revision: ${result.revision}`);
+
+        if (envConfig && isKmsEnvelope(envConfig)) {
+          formatter.print(`  Envelope: KMS (${envConfig.kms.provider})`);
+        }
 
         formatter.warn(
           "\nThe artifact contains encrypted secrets. Do NOT commit it to version control.",

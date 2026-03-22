@@ -294,9 +294,11 @@ export class LintRunner {
       }
 
       // Recipient registration on scoped files
+      // (KMS-backed environments skip recipient checks)
       for (const cell of existingCells) {
         const envConfig = si.environments[cell.environment];
         if (!envConfig) continue;
+        if (!envConfig.recipient) continue;
 
         if (si.namespaces.includes(cell.namespace)) {
           try {

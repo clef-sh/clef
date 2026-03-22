@@ -19,26 +19,24 @@ If redeploy-on-change is acceptable, [`clef exec`](/cli/exec) or [`clef export`]
 flowchart LR
   subgraph ci["CI"]
     pack["clef pack"]
-    commit["git push"]
+    deliver["git push / s3 cp"]
   end
   subgraph runtime["Runtime"]
     agent["Agent / Runtime"]
     app["Application"]
   end
 
-  pack -->|"re-encrypt"| commit
-  commit -->|"VCS API"| agent
+  pack -->|"re-encrypt"| deliver
+  deliver -->|"VCS API or HTTPS"| agent
   agent -->|"plaintext"| app
 ```
 
-1. **`clef pack`** decrypts scoped SOPS files with the deploy key, re-encrypts to the service identity's public key, and writes a JSON artifact
-2. **CI commits** the artifact to `.clef/packed/{identity}/{environment}.age` in git
-3. At runtime, the **agent** (or `@clef-sh/runtime` imported directly) fetches the artifact via the VCS provider API (GitHub, GitLab, or Bitbucket), decrypts with the service identity's private key, and serves secrets via localhost
-4. The agent **polls** the VCS API at a configurable interval, detecting new revisions and performing atomic cache swaps
+1. **`clef pack`** decrypts scoped SOPS files with the deploy key, re-encrypts to the service identity's key, and writes a JSON artifact
+2. **CI delivers** the artifact — either by committing to git or uploading to S3/GCS
+3. At runtime, the **agent** (or `@clef-sh/runtime` imported directly) fetches the artifact, decrypts it, and serves secrets via localhost
+4. The agent **polls** at a configurable interval, detecting new revisions and performing atomic cache swaps
 
 ## Artifact format
-
-The artifact is a JSON envelope — language-agnostic and forward-compatible:
 
 ```json
 {
@@ -49,18 +47,28 @@ The artifact is a JSON envelope — language-agnostic and forward-compatible:
   "revision": "1705276800000",
   "ciphertextHash": "sha256-hex-digest",
   "ciphertext": "-----BEGIN AGE ENCRYPTED FILE-----\n...",
-  "keys": ["DB_URL", "API_KEY", "STRIPE_KEY"]
+  "keys": ["DB_URL", "API_KEY", "STRIPE_KEY"],
+  "envelope": {
+    "provider": "aws",
+    "keyId": "arn:aws:kms:us-east-1:123456789012:key/...",
+    "wrappedKey": "base64-encoded-wrapped-ephemeral-private-key",
+    "algorithm": "SYMMETRIC_DEFAULT"
+  }
 }
 ```
+
+The `envelope` field is present when the identity uses KMS envelope encryption. It is omitted for age-only identities. When present, the artifact is self-describing — the runtime knows which KMS provider to call and which key to use. No KMS configuration is needed at runtime.
 
 ## Packing artifacts
 
 ```bash
 # Generate the artifact locally
-clef pack api-gateway production --output .clef/packed/api-gateway/production.age
+clef pack api-gateway production --output ./artifact.json
 ```
 
-### CI workflow example
+### VCS delivery (default)
+
+Commit the artifact to the repo so the agent can fetch it via the VCS API:
 
 ```yaml
 # .github/workflows/pack.yml
@@ -96,6 +104,28 @@ jobs:
           git commit -m "chore: pack api-gateway/production" || echo "No changes"
           git push
 ```
+
+### Tokenless delivery (S3/HTTP)
+
+Upload to an object store instead. The runtime fetches via HTTPS — no VCS token needed at runtime:
+
+```yaml
+# .github/workflows/pack.yml (tokenless variant)
+- name: Pack artifact
+  env:
+    CLEF_AGE_KEY: ${{ secrets.CLEF_DEPLOY_KEY }}
+  run: |
+    npx @clef-sh/cli pack api-gateway production \
+      --output ./artifact.json
+
+- name: Upload to S3
+  run: |
+    aws s3 cp ./artifact.json \
+      s3://my-secrets-bucket/clef/api-gateway/production.json \
+      --sse AES256
+```
+
+See [Service Identities — Artifact Delivery](/guide/service-identities#artifact-delivery) for a full comparison of both backends.
 
 ## Installing the agent
 
@@ -151,8 +181,17 @@ export CLEF_AGENT_VCS_REPO=org/secrets
 export CLEF_AGENT_VCS_TOKEN=ghp_...
 export CLEF_AGENT_VCS_IDENTITY=api-gateway
 export CLEF_AGENT_VCS_ENVIRONMENT=production
-export CLEF_AGENT_AGE_KEY=AGE-SECRET-KEY-1...
+export CLEF_AGENT_AGE_KEY=AGE-SECRET-KEY-1...  # not needed for KMS envelope artifacts
 export CLEF_AGENT_POLL_INTERVAL=30
+
+clef-agent
+```
+
+### HTTP source (tokenless)
+
+```bash
+export CLEF_AGENT_SOURCE=https://my-secrets-bucket.s3.amazonaws.com/clef/api-gateway/production.json
+export CLEF_AGENT_AGE_KEY=AGE-SECRET-KEY-1...  # not needed for KMS envelope artifacts
 
 clef-agent
 ```
@@ -170,22 +209,26 @@ clef-agent
 
 All configuration via environment variables (universal for containers and Lambda):
 
-| Variable                     | Default        | Description                                       |
-| ---------------------------- | -------------- | ------------------------------------------------- |
-| `CLEF_AGENT_VCS_PROVIDER`    | —              | VCS provider (`github`, `gitlab`, or `bitbucket`) |
-| `CLEF_AGENT_VCS_REPO`        | —              | Repository (`owner/repo`)                         |
-| `CLEF_AGENT_VCS_TOKEN`       | —              | VCS authentication token                          |
-| `CLEF_AGENT_VCS_IDENTITY`    | —              | Service identity name                             |
-| `CLEF_AGENT_VCS_ENVIRONMENT` | —              | Target environment                                |
-| `CLEF_AGENT_VCS_REF`         | default branch | Git ref (branch/tag/sha)                          |
-| `CLEF_AGENT_VCS_API_URL`     | —              | Custom API URL (self-hosted instances)            |
-| `CLEF_AGENT_SOURCE`          | —              | HTTP URL or local file path (alternative to VCS)  |
-| `CLEF_AGENT_CACHE_PATH`      | —              | Disk cache path for VCS failure fallback          |
-| `CLEF_AGENT_PORT`            | `7779`         | HTTP API port                                     |
-| `CLEF_AGENT_POLL_INTERVAL`   | `30`           | Seconds between polls                             |
-| `CLEF_AGENT_AGE_KEY`         | —              | Inline age private key                            |
-| `CLEF_AGENT_AGE_KEY_FILE`    | —              | Path to age key file                              |
-| `CLEF_AGENT_TOKEN`           | auto-generated | Bearer token for API auth                         |
+| Variable                     | Default        | Description                                        |
+| ---------------------------- | -------------- | -------------------------------------------------- |
+| `CLEF_AGENT_VCS_PROVIDER`    | —              | VCS provider (`github`, `gitlab`, or `bitbucket`)  |
+| `CLEF_AGENT_VCS_REPO`        | —              | Repository (`owner/repo`)                          |
+| `CLEF_AGENT_VCS_TOKEN`       | —              | VCS authentication token                           |
+| `CLEF_AGENT_VCS_IDENTITY`    | —              | Service identity name                              |
+| `CLEF_AGENT_VCS_ENVIRONMENT` | —              | Target environment                                 |
+| `CLEF_AGENT_VCS_REF`         | default branch | Git ref (branch/tag/sha)                           |
+| `CLEF_AGENT_VCS_API_URL`     | —              | Custom API URL (self-hosted instances)             |
+| `CLEF_AGENT_SOURCE`          | —              | HTTP URL or local file path (alternative to VCS)   |
+| `CLEF_AGENT_CACHE_PATH`      | —              | Disk cache path for VCS failure fallback           |
+| `CLEF_AGENT_PORT`            | `7779`         | HTTP API port                                      |
+| `CLEF_AGENT_POLL_INTERVAL`   | `30`           | Seconds between polls                              |
+| `CLEF_AGENT_AGE_KEY`         | —              | Inline age private key (optional for KMS envelope) |
+| `CLEF_AGENT_AGE_KEY_FILE`    | —              | Path to age key file (optional for KMS envelope)   |
+| `CLEF_AGENT_TOKEN`           | auto-generated | Bearer token for API auth                          |
+
+::: info Age key is optional for KMS envelope artifacts
+KMS envelope artifacts are self-describing — the runtime calls KMS Decrypt to unwrap the ephemeral key. No `CLEF_AGENT_AGE_KEY` or `CLEF_AGENT_AGE_KEY_FILE` is needed.
+:::
 
 ## HTTP API
 
@@ -236,6 +279,8 @@ For Node.js applications, you can skip the sidecar entirely and import `@clef-sh
 npm install @clef-sh/runtime
 ```
 
+**VCS source:**
+
 ```javascript
 import { init } from "@clef-sh/runtime";
 
@@ -245,7 +290,21 @@ const runtime = await init({
   identity: "api-gateway",
   environment: "production",
   token: process.env.CLEF_VCS_TOKEN,
-  ageKey: process.env.CLEF_AGE_KEY,
+  ageKey: process.env.CLEF_AGE_KEY, // optional for KMS envelope artifacts
+});
+
+const dbUrl = runtime.get("DB_URL");
+```
+
+**Tokenless (S3 + KMS envelope):**
+
+```javascript
+import { init } from "@clef-sh/runtime";
+
+const runtime = await init({
+  source: "https://my-secrets-bucket.s3.amazonaws.com/clef/api-gateway/production.json",
+  // No token, no age key — artifact self-describes its KMS config.
+  // Runtime calls KMS Decrypt using the workload's IAM role.
 });
 
 const dbUrl = runtime.get("DB_URL");
@@ -355,19 +414,27 @@ CLEF_AGENT_AGE_KEY=AGE-SECRET-KEY-1... \
 
 ```
 Developer: clef set payments/prod STRIPE_KEY new_value → commit → push
-CI:        clef pack → commit to .clef/packed/ → push
-Runtime:   agent polls VCS API → detects new revision → fetches → decrypts
+CI:        clef pack → deliver artifact (git push or s3 cp) → done
+Runtime:   agent polls → detects new revision → fetches → decrypts
 App:       GET /v1/secrets/STRIPE_KEY → returns new value
 ```
 
+No CI "rotation job" needed — this is your normal merge workflow. The CI step that runs `clef pack` is the same one that runs on every push to main.
+
 ## Key rotation without redeploy
+
+**Age-only identities:**
 
 ```
 Developer: clef service rotate api-gateway -e production → new key pair
            Update private key in KMS/secrets manager
-CI:        clef pack → new artifact encrypted to new public key → commit → push
+CI:        clef pack → new artifact encrypted to new public key → deliver
 Runtime:   agent fetches new artifact + uses new private key → seamless
 ```
+
+**KMS envelope identities:**
+
+No key rotation needed. Each `clef pack` generates a fresh ephemeral key pair automatically.
 
 ## See also
 

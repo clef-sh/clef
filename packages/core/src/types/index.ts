@@ -463,11 +463,31 @@ export class SopsVersionError extends ClefError {
   }
 }
 
+// ── KMS Envelope Encryption ──────────────────────────────────────────────
+
+export type KmsProviderType = "aws" | "gcp" | "azure";
+
+export interface KmsConfig {
+  provider: KmsProviderType;
+  keyId: string;
+  region?: string;
+}
+
 // ── Service Identity ─────────────────────────────────────────────────────
 
-/** Per-environment config for a service identity (just the age public key). */
+/** Per-environment config for a service identity: either age-only or KMS envelope. */
 export interface ServiceIdentityEnvironmentConfig {
-  recipient: string;
+  /** Age public key (age-only path). Mutually exclusive with `kms`. */
+  recipient?: string;
+  /** KMS envelope encryption config. Mutually exclusive with `recipient`. */
+  kms?: KmsConfig;
+}
+
+/** Type guard: returns true when the environment config uses KMS envelope encryption. */
+export function isKmsEnvelope(
+  cfg: ServiceIdentityEnvironmentConfig,
+): cfg is ServiceIdentityEnvironmentConfig & { kms: KmsConfig } {
+  return cfg.kms !== undefined;
 }
 
 /** A machine-oriented identity with scoped namespace access and per-environment age keys. */

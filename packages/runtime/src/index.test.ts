@@ -115,13 +115,19 @@ describe("ClefRuntime", () => {
       );
     });
 
-    it("should throw when no age key is provided", () => {
+    it("should not throw when no age key is provided (KMS envelope artifacts supported)", () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        text: () => Promise.resolve(makeArtifact()),
+        headers: new Headers(),
+      });
+
       expect(
         () =>
           new ClefRuntime({
             source: "https://example.com/a.json",
           }),
-      ).toThrow("No age key available");
+      ).not.toThrow();
     });
   });
 
