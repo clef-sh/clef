@@ -191,6 +191,11 @@ async function handleSecondDevOnboarding(
     config = { age_key_storage: "keychain", age_keychain_label: label };
   } else {
     // Keychain unavailable — filesystem fallback
+    formatter.warn(
+      "OS keychain is not available on this system.\n" +
+        "  The private key will be written to the filesystem instead.\n" +
+        "  See https://docs.clef.sh/guide/key-storage for security implications.",
+    );
     let keyPath: string;
 
     if (options.nonInteractive || !process.stdin.isTTY) {
@@ -697,6 +702,7 @@ function promptWithDefault(message: string, defaultValue: string): Promise<strin
   return new Promise((resolve) => {
     rl.question(prompt, (answer: string) => {
       rl.close();
+      process.stdin.pause();
       resolve(answer.trim() || defaultValue);
     });
   });

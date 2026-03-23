@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as YAML from "yaml";
 import {
+  CLEF_KEYSTORE_NAMESPACE,
   ClefManifest,
   ClefReport,
   CLEF_REPORT_SCHEMA_VERSION,
@@ -161,11 +162,13 @@ export class ReportGenerator {
         name: e.name,
         protected: e.protected ?? false,
       })),
-      namespaces: manifest.namespaces.map((ns) => ({
-        name: ns.name,
-        hasSchema: !!ns.schema,
-        owners: ns.owners ?? [],
-      })),
+      namespaces: manifest.namespaces
+        .filter((ns) => ns.name !== CLEF_KEYSTORE_NAMESPACE)
+        .map((ns) => ({
+          name: ns.name,
+          hasSchema: !!ns.schema,
+          owners: ns.owners ?? [],
+        })),
       defaultBackend: manifest.sops.default_backend,
     };
   }
@@ -177,6 +180,7 @@ export class ReportGenerator {
   ): Promise<ReportMatrixCell[]> {
     const allCells = this.matrixManager.resolveMatrix(manifest, repoRoot);
     const cells = allCells.filter((cell) => {
+      if (cell.namespace === CLEF_KEYSTORE_NAMESPACE) return false;
       const nsOk =
         !options?.namespaceFilter?.length || options.namespaceFilter.includes(cell.namespace);
       const envOk =

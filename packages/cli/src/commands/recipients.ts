@@ -30,6 +30,7 @@ export function waitForEnter(message: string): Promise<void> {
     });
     rl.question(message, () => {
       rl.close();
+      process.stdin.pause();
       resolve();
     });
   });

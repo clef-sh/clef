@@ -1,3 +1,5 @@
+import * as fs from "fs";
+import * as YAML from "yaml";
 import { LintRunner } from "./runner";
 import { MatrixManager } from "../matrix/manager";
 import { SchemaValidator } from "../schema/validator";
@@ -5,6 +7,7 @@ import { SopsClient } from "../sops/client";
 import { ClefManifest, MatrixCell } from "../types";
 
 jest.mock("fs");
+const mockFs = fs as jest.Mocked<typeof fs>;
 jest.mock("../pending/metadata", () => ({
   getPendingKeys: jest.fn().mockResolvedValue([]),
 }));
@@ -752,6 +755,152 @@ describe("LintRunner", () => {
         testManifest(),
       );
       expect(result.fileCount).toBe(1);
+    });
+  });
+
+  describe("keystore lint checks", () => {
+    function keystoreManifest(): ClefManifest {
+      return {
+        ...testManifest(),
+        namespaces: [
+          { name: "database", description: "DB", schema: "schemas/database.yaml" },
+          { name: "auth", description: "Auth" },
+          {
+            name: "_keystore",
+            description: "System-managed namespace for service identity private keys.",
+          },
+        ],
+        service_identities: [
+          {
+            name: "web-app",
+            description: "Web app",
+            namespaces: ["database"],
+            environments: {
+              dev: { recipient: "age1webapp_dev" },
+              production: { recipient: "age1webapp_prd" },
+            },
+          },
+        ],
+      };
+    }
+
+    it("should warn when service identity has no keystore entry", async () => {
+      const manifest = keystoreManifest();
+      const cells = allExistCells();
+      jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
+
+      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
+      sopsClient.decrypt = jest.fn().mockResolvedValue({
+        values: { DB_HOST: "localhost" },
+        metadata: { backend: "age", recipients: ["age1webapp_dev"], lastModified: new Date() },
+      });
+      sopsClient.getMetadata = jest.fn().mockResolvedValue({
+        backend: "age",
+        recipients: ["age1webapp_dev"],
+        lastModified: new Date(),
+      });
+
+      // Keystore file exists but does NOT contain web-app
+      mockFs.existsSync.mockImplementation((p) => {
+        if (String(p).includes("_keystore/")) return true;
+        return true;
+      });
+      mockFs.readFileSync.mockImplementation((p) => {
+        if (String(p).includes("_keystore/")) {
+          return YAML.stringify({ "other-svc": "ENC[AES256_GCM,data:...]", sops: {} });
+        }
+        return "";
+      });
+
+      jest.spyOn(schemaValidator, "loadSchema").mockImplementation(() => {
+        throw new Error("no schema");
+      });
+
+      const result = await runner.run(manifest, "/repo");
+      const keystoreWarnings = result.issues.filter(
+        (i) => i.category === "service-identity" && i.message.includes("no private key stored"),
+      );
+      expect(keystoreWarnings.length).toBeGreaterThan(0);
+      expect(keystoreWarnings[0].fixCommand).toContain("clef service rotate");
+    });
+
+    it("should warn on orphaned keystore entries", async () => {
+      const manifest = keystoreManifest();
+      const cells = allExistCells();
+      jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
+
+      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
+      sopsClient.decrypt = jest.fn().mockResolvedValue({
+        values: { DB_HOST: "localhost" },
+        metadata: { backend: "age", recipients: ["age1webapp_dev"], lastModified: new Date() },
+      });
+      sopsClient.getMetadata = jest.fn().mockResolvedValue({
+        backend: "age",
+        recipients: ["age1webapp_dev"],
+        lastModified: new Date(),
+      });
+
+      // Keystore contains web-app AND an orphaned entry
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockImplementation((p) => {
+        if (String(p).includes("_keystore/")) {
+          return YAML.stringify({
+            "web-app": "ENC[AES256_GCM,data:...]",
+            "deleted-svc": "ENC[AES256_GCM,data:...]",
+            sops: {},
+          });
+        }
+        return "";
+      });
+
+      jest.spyOn(schemaValidator, "loadSchema").mockImplementation(() => {
+        throw new Error("no schema");
+      });
+
+      const result = await runner.run(manifest, "/repo");
+      const orphanWarnings = result.issues.filter(
+        (i) => i.category === "service-identity" && i.message.includes("Orphaned"),
+      );
+      expect(orphanWarnings.length).toBeGreaterThan(0);
+      expect(orphanWarnings[0].message).toContain("deleted-svc");
+    });
+
+    it("should not warn when keystore entries match identities", async () => {
+      const manifest = keystoreManifest();
+      const cells = allExistCells();
+      jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
+
+      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
+      sopsClient.decrypt = jest.fn().mockResolvedValue({
+        values: { DB_HOST: "localhost" },
+        metadata: { backend: "age", recipients: ["age1webapp_dev"], lastModified: new Date() },
+      });
+      sopsClient.getMetadata = jest.fn().mockResolvedValue({
+        backend: "age",
+        recipients: ["age1webapp_dev"],
+        lastModified: new Date(),
+      });
+
+      // Keystore contains exactly web-app — no orphans, no missing
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockImplementation((p) => {
+        if (String(p).includes("_keystore/")) {
+          return YAML.stringify({ "web-app": "ENC[AES256_GCM,data:...]", sops: {} });
+        }
+        return "";
+      });
+
+      jest.spyOn(schemaValidator, "loadSchema").mockImplementation(() => {
+        throw new Error("no schema");
+      });
+
+      const result = await runner.run(manifest, "/repo");
+      const keystoreIssues = result.issues.filter(
+        (i) =>
+          i.category === "service-identity" &&
+          (i.message.includes("Orphaned") || i.message.includes("no private key stored")),
+      );
+      expect(keystoreIssues).toHaveLength(0);
     });
   });
 });

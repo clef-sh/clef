@@ -99,6 +99,7 @@ export const formatter = {
     return new Promise((resolve) => {
       rl.question(color(pc.yellow, `${prompt} [y/N] `), (answer) => {
         rl.close();
+        process.stdin.pause();
         resolve(answer.toLowerCase() === "y" || answer.toLowerCase() === "yes");
       });
     });
@@ -141,6 +142,7 @@ export const formatter = {
             process.stdin.setRawMode(false);
           }
           process.stdin.removeListener("data", onData);
+          process.stdin.pause();
           process.stderr.write("\n");
           resolve(value);
         } else if (char === "\u0003") {

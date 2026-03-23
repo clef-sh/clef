@@ -190,8 +190,10 @@ describe("clef service", () => {
       ]);
 
       expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("new-svc"));
-      expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("ONCE"));
-      expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("AGE-SECRET-KEY-"));
+      expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("_keystore"));
+      expect(mockFormatter.print).toHaveBeenCalledWith(
+        expect.stringContaining("clef service get-key"),
+      );
     });
 
     it("should error when namespace not found", async () => {
@@ -229,7 +231,7 @@ describe("clef service", () => {
       await program.parseAsync(["node", "clef", "service", "rotate", "existing-svc"]);
 
       expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("rotated"));
-      expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("ONCE"));
+      expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("_keystore"));
     });
 
     it("should error on unknown identity", async () => {

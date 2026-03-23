@@ -188,6 +188,27 @@ jobs:
       - run: npm run build --workspace=packages/agent
       - run: npm run build --workspace=packages/cli
       - run: npm run test:integration
+      - name: Agent integration tests
+        run: npx jest --config packages/agent/jest.integration.config.js
+
+  # Agent E2E: spawns the built agent binary as a subprocess.
+  agent-e2e-smoke:
+    name: Agent E2E Smoke
+    needs: integration-test
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace=packages/core
+      - run: npm run build --workspace=packages/runtime
+      - run: npm run build --workspace=packages/agent
+      - name: Agent E2E
+        run: npx jest --config packages/agent/jest.e2e.config.js
 
   # Smoke test: single SEA+Linux on every PR for fast feedback.
   e2e-smoke:
@@ -214,6 +235,39 @@ jobs:
         with:
           name: playwright-report-smoke
           path: e2e/playwright-report/
+
+  # Agent E2E: full platform matrix on push. Spawns agent subprocess + real age encryption.
+  agent-e2e:
+    name: Agent E2E (${{ matrix.label }})
+    needs: integration-test
+    if: github.event_name == 'push'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x64
+            runner: ubuntu-latest
+          - label: macos-arm64
+            runner: macos-latest
+          - label: windows-x64
+            runner: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Build packages
+        shell: bash
+        run: |
+          npm run build -w packages/core
+          npm run build -w packages/runtime
+          npm run build -w packages/agent
+      - name: Agent E2E
+        shell: bash
+        run: npx jest --config packages/agent/jest.e2e.config.js
 
   # Full matrix: all platforms × SEA + Node. Runs only on merge to main/staging/dev.
   e2e:
