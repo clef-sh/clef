@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/core",
-  "version": "0.1.6-alpha.27",
+  "version": "0.1.6-alpha.29",
   "description": "Core library for Clef — git-native secrets management",
   "repository": {
     "type": "git",
