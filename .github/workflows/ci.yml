@@ -191,9 +191,9 @@ jobs:
       - name: Agent integration tests
         run: npx jest --config packages/agent/jest.integration.config.js
 
-  # Agent E2E: spawns the built agent binary as a subprocess.
+  # Agent smoke: single SEA+Linux on every PR for fast feedback.
   agent-e2e-smoke:
-    name: Agent E2E Smoke
+    name: Agent E2E Smoke (sea-linux-x64)
     needs: integration-test
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -204,15 +204,19 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run build --workspace=packages/core
-      - run: npm run build --workspace=packages/runtime
-      - run: npm run build --workspace=packages/agent
-      - name: Agent E2E
+      - name: Build packages
+        run: |
+          npm run build -w packages/core
+          npm run build -w packages/runtime
+          npm run build:sea -w packages/agent
+      - name: Agent E2E (SEA)
+        env:
+          CLEF_AGENT_E2E_MODE: sea
         run: npx jest --config packages/agent/jest.e2e.config.js
 
-  # Smoke test: single SEA+Linux on every PR for fast feedback.
-  e2e-smoke:
-    name: E2E Smoke (sea-linux-x64)
+  # CLI smoke: single SEA+Linux on every PR for fast feedback.
+  cli-e2e-smoke:
+    name: CLI E2E Smoke (sea-linux-x64)
     needs: integration-test
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -236,7 +240,7 @@ jobs:
           name: playwright-report-smoke
           path: e2e/playwright-report/
 
-  # Agent E2E: full platform matrix on push. Spawns agent subprocess + real age encryption.
+  # Agent E2E: full platform matrix on push. SEA + Node × all platforms.
   agent-e2e:
     name: Agent E2E (${{ matrix.label }})
     needs: integration-test
@@ -246,12 +250,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: linux-x64
+          # SEA binary — every platform the agent ships binaries for
+          - label: sea-linux-x64
             runner: ubuntu-latest
-          - label: macos-arm64
+            mode: sea
+          - label: sea-linux-arm64
+            runner: ubuntu-24.04-arm
+            mode: sea
+          - label: sea-macos-arm64
             runner: macos-latest
-          - label: windows-x64
+            mode: sea
+          - label: sea-windows-x64
             runner: windows-latest
+            mode: sea
+          # Pure Node.js (no SEA) — verifies the npm-installed path
+          - label: node-linux-x64
+            runner: ubuntu-latest
+            mode: node
+          - label: node-windows-x64
+            runner: windows-latest
+            mode: node
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -264,14 +282,20 @@ jobs:
         run: |
           npm run build -w packages/core
           npm run build -w packages/runtime
-          npm run build -w packages/agent
+          if [[ "${{ matrix.mode }}" == "sea" ]]; then
+            npm run build:sea -w packages/agent
+          else
+            npm run build -w packages/agent
+          fi
       - name: Agent E2E
         shell: bash
+        env:
+          CLEF_AGENT_E2E_MODE: ${{ matrix.mode }}
         run: npx jest --config packages/agent/jest.e2e.config.js
 
-  # Full matrix: all platforms × SEA + Node. Runs only on merge to main/staging/dev.
-  e2e:
-    name: E2E (${{ matrix.label }})
+  # CLI E2E: full platform matrix on push. SEA + Node × all platforms.
+  cli-e2e:
+    name: CLI E2E (${{ matrix.label }})
     needs: integration-test
     if: github.event_name == 'push'
     runs-on: ${{ matrix.runner }}
