@@ -3,6 +3,7 @@ import * as path from "path";
 import * as YAML from "yaml";
 import { ClefLocalConfig, SopsClient, SubprocessRunner } from "@clef-sh/core";
 import { getKeychainKey } from "./keychain";
+import { formatter } from "./output/formatter";
 
 const CLEF_DIR = ".clef";
 const CLEF_CONFIG_FILENAME = "config.yaml";
@@ -43,6 +44,16 @@ export async function resolveAgeCredential(
   if (label) {
     const keychainKey = await getKeychainKey(runner, label);
     if (keychainKey) return { source: "keychain", privateKey: keychainKey };
+
+    // Keychain was configured but lookup failed — warn unless config
+    // already records that init fell back to file storage.
+    if (config?.age_key_storage !== "file") {
+      formatter.warn(
+        "OS keychain is configured but the age key could not be retrieved.\n" +
+          "  Falling back to environment variables / key file.\n" +
+          "  Run clef doctor for diagnostics.",
+      );
+    }
   }
 
   // 2. CLEF_AGE_KEY env var (inline key)
@@ -147,7 +158,11 @@ export async function resolveAgePrivateKey(
         const content = fs.readFileSync(filePath, "utf-8");
         const match = content.match(AGE_SECRET_KEY_RE);
         return match ? match[1] : null;
-      } catch {
+      } catch (err) {
+        formatter.warn(
+          `Could not read age key file (CLEF_AGE_KEY_FILE=${filePath}): ` +
+            `${err instanceof Error ? err.message : String(err)}`,
+        );
         return null;
       }
     }
@@ -156,7 +171,11 @@ export async function resolveAgePrivateKey(
         const content = fs.readFileSync(credential.path, "utf-8");
         const match = content.match(AGE_SECRET_KEY_RE);
         return match ? match[1] : null;
-      } catch {
+      } catch (err) {
+        formatter.warn(
+          `Could not read age key file (${credential.path}): ` +
+            `${err instanceof Error ? err.message : String(err)}`,
+        );
         return null;
       }
     }
@@ -169,7 +188,11 @@ function readLocalConfig(repoRoot: string): ClefLocalConfig | null {
   try {
     if (!fs.existsSync(clefConfigPath)) return null;
     return YAML.parse(fs.readFileSync(clefConfigPath, "utf-8")) as ClefLocalConfig;
-  } catch {
+  } catch (err) {
+    formatter.warn(
+      `Failed to parse ${clefConfigPath}: ${err instanceof Error ? err.message : String(err)}\n` +
+        "  Credential resolution will proceed without local config.",
+    );
     return null;
   }
 }
