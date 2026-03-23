@@ -1,6 +1,13 @@
 /** Supported file extensions for encrypted SOPS files managed by Clef. */
 export const CLEF_SUPPORTED_EXTENSIONS = [".enc.yaml", ".enc.json"] as const;
 
+/** Reserved namespace name for storing service identity private keys. */
+export const CLEF_KEYSTORE_NAMESPACE = "_keystore";
+
+/** Description for the auto-created keystore namespace. */
+export const CLEF_KEYSTORE_DESCRIPTION =
+  "System-managed namespace for service identity private keys.";
+
 // ── Subprocess Runner (dependency injection for sops & git) ──────────────────
 
 /** Result returned by a subprocess invocation. */

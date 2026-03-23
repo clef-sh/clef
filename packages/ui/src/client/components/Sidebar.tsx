@@ -2,6 +2,9 @@ import React from "react";
 import { theme } from "../theme";
 import type { ClefManifest, MatrixStatus, GitStatus as GitStatusType } from "@clef-sh/core";
 
+/** Must match CLEF_KEYSTORE_NAMESPACE from @clef-sh/core (runtime import not available in browser). */
+const KEYSTORE_NS = "_keystore";
+
 export type ViewName =
   | "matrix"
   | "editor"
@@ -10,6 +13,7 @@ export type ViewName =
   | "scan"
   | "import"
   | "recipients"
+  | "identities"
   | "history";
 
 interface SidebarProps {
@@ -39,7 +43,7 @@ export function Sidebar({
     ? gitStatus.staged.length + gitStatus.unstaged.length + gitStatus.untracked.length
     : 0;
 
-  const namespaces = manifest?.namespaces ?? [];
+  const namespaces = (manifest?.namespaces ?? []).filter((ns) => ns.name !== KEYSTORE_NS);
 
   return (
     <div
@@ -145,6 +149,18 @@ export function Sidebar({
           label="Recipients"
           active={activeView === "recipients"}
           onClick={() => setView("recipients")}
+        />
+        <NavItem
+          icon={"\u2699"}
+          label="Service IDs"
+          active={activeView === "identities"}
+          onClick={() => setView("identities")}
+          badge={
+            manifest?.service_identities?.length
+              ? String(manifest.service_identities.length)
+              : undefined
+          }
+          badgeColor={theme.purple}
         />
         <NavItem
           icon={"\u23F1"}

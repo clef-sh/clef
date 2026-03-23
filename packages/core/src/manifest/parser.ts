@@ -13,6 +13,7 @@
 import * as fs from "fs";
 import * as YAML from "yaml";
 import {
+  CLEF_KEYSTORE_NAMESPACE,
   ClefManifest,
   ClefCloudConfig,
   ClefEnvironment,
@@ -463,6 +464,12 @@ export class ManifestParser {
           if (typeof ns !== "string") {
             throw new ManifestValidationError(
               `Service identity '${siName}' has a non-string entry in 'namespaces'.`,
+              "service_identities",
+            );
+          }
+          if (ns === CLEF_KEYSTORE_NAMESPACE) {
+            throw new ManifestValidationError(
+              `Service identity '${siName}' cannot scope to reserved namespace '${CLEF_KEYSTORE_NAMESPACE}'.`,
               "service_identities",
             );
           }

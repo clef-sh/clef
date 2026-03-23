@@ -1,10 +1,14 @@
 import * as path from "path";
+import * as fs from "fs";
+import * as YAML from "yaml";
 import {
+  CLEF_KEYSTORE_NAMESPACE,
   ClefManifest,
   LintIssue,
   LintResult,
   resolveRecipientsForEnvironment,
   ServiceIdentityDefinition,
+  isKmsEnvelope,
 } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { SchemaValidator } from "../schema/validator";
@@ -36,7 +40,9 @@ export class LintRunner {
    */
   async run(manifest: ClefManifest, repoRoot: string): Promise<LintResult> {
     const issues: LintIssue[] = [];
-    const cells = this.matrixManager.resolveMatrix(manifest, repoRoot);
+    const cells = this.matrixManager
+      .resolveMatrix(manifest, repoRoot)
+      .filter((c) => c.namespace !== CLEF_KEYSTORE_NAMESPACE);
     let fileCount = 0;
     let pendingCount = 0;
 
@@ -261,7 +267,7 @@ export class LintRunner {
   private async lintServiceIdentities(
     identities: ServiceIdentityDefinition[],
     manifest: ClefManifest,
-    _repoRoot: string,
+    repoRoot: string,
     existingCells: { namespace: string; environment: string; filePath: string }[],
   ): Promise<LintIssue[]> {
     const issues: LintIssue[] = [];
@@ -289,6 +295,21 @@ export class LintRunner {
             category: "service-identity",
             file: "clef.yaml",
             message: `Service identity '${si.name}' is missing environment '${envName}'. Manually add an age key pair for this environment in clef.yaml.`,
+          });
+        }
+      }
+
+      // Keystore: check that age-only environments have stored keys
+      for (const [envName, envConfig] of Object.entries(si.environments)) {
+        if (isKmsEnvelope(envConfig)) continue;
+        const keystoreKeys = this.readKeystoreKeys(manifest, repoRoot, envName);
+        if (keystoreKeys !== null && !keystoreKeys.has(si.name)) {
+          issues.push({
+            severity: "warning",
+            category: "service-identity",
+            file: "clef.yaml",
+            message: `Service identity '${si.name}' has no private key stored in _keystore for environment '${envName}'.`,
+            fixCommand: `clef service rotate ${si.name} -e ${envName}`,
           });
         }
       }
@@ -334,7 +355,52 @@ export class LintRunner {
       }
     }
 
+    // Orphaned keystore entries: keys in _keystore that don't match any identity
+    const identityNames = new Set(identities.map((si) => si.name));
+    for (const env of manifest.environments) {
+      const keystoreKeys = this.readKeystoreKeys(manifest, repoRoot, env.name);
+      if (!keystoreKeys) continue;
+      for (const keyName of keystoreKeys) {
+        if (!identityNames.has(keyName)) {
+          issues.push({
+            severity: "warning",
+            category: "service-identity",
+            file: `_keystore/${env.name}`,
+            message: `Orphaned keystore entry '${keyName}' in environment '${env.name}' has no matching service identity.`,
+          });
+        }
+      }
+    }
+
     return issues;
+  }
+
+  /**
+   * Read key names from a _keystore encrypted file without decryption.
+   * SOPS stores key names in plaintext — only values are encrypted.
+   * Returns null if the keystore namespace or file doesn't exist.
+   */
+  private readKeystoreKeys(
+    manifest: ClefManifest,
+    repoRoot: string,
+    environment: string,
+  ): Set<string> | null {
+    if (!manifest.namespaces.some((ns) => ns.name === CLEF_KEYSTORE_NAMESPACE)) return null;
+
+    const relativePath = manifest.file_pattern
+      .replace("{namespace}", CLEF_KEYSTORE_NAMESPACE)
+      .replace("{environment}", environment);
+    const filePath = path.join(repoRoot, relativePath);
+
+    try {
+      if (!fs.existsSync(filePath)) return null;
+      const raw = fs.readFileSync(filePath, "utf-8");
+      const parsed = YAML.parse(raw);
+      if (parsed === null || parsed === undefined || typeof parsed !== "object") return null;
+      return new Set(Object.keys(parsed as Record<string, unknown>).filter((k) => k !== "sops"));
+    } catch {
+      return null;
+    }
   }
 
   /**
