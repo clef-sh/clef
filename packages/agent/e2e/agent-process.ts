@@ -1,6 +1,10 @@
 /**
  * Spawns the agent as a real subprocess and waits for it to become ready.
  *
+ * Two modes controlled by `CLEF_AGENT_E2E_MODE`:
+ *   - `"sea"` (default): uses the SEA binary at packages/agent/dist/clef-agent
+ *   - `"node"`:           uses `node packages/agent/dist/agent.cjs`
+ *
  * Mirrors the pattern in e2e/setup/server.ts for the CLI UI tests.
  */
 import { spawn } from "child_process";
@@ -9,7 +13,9 @@ import * as net from "net";
 import * as path from "path";
 
 const REPO_ROOT = path.resolve(__dirname, "../../..");
-const AGENT_ENTRY = path.join(REPO_ROOT, "packages/agent/dist/agent.cjs");
+const AGENT_PKG = path.join(REPO_ROOT, "packages/agent");
+const SEA_BINARY = path.join(AGENT_PKG, "dist/clef-agent");
+const NODE_ENTRY = path.join(AGENT_PKG, "dist/agent.cjs");
 
 export interface AgentProcess {
   url: string;
@@ -31,7 +37,7 @@ function findFreePort(): Promise<number> {
 }
 
 /**
- * Spawn `node dist/agent.cjs` with the given environment and wait for readiness.
+ * Spawn the agent binary and wait for readiness.
  *
  * @param artifactPath  Path to the packed artifact JSON file.
  * @param agePrivateKey Inline age private key string.
@@ -42,10 +48,28 @@ export async function startAgent(
   agePrivateKey: string,
   options?: { port?: number; token?: string; cacheTtl?: number },
 ): Promise<AgentProcess> {
-  if (!fs.existsSync(AGENT_ENTRY)) {
-    throw new Error(
-      `Agent entry not found at ${AGENT_ENTRY}.\n` + `Build first: npm run build -w packages/agent`,
-    );
+  const mode = (process.env.CLEF_AGENT_E2E_MODE ?? "node") as "sea" | "node";
+
+  let command: string;
+  let args: string[];
+
+  if (mode === "sea") {
+    const bin = process.platform === "win32" ? SEA_BINARY + ".exe" : SEA_BINARY;
+    if (!fs.existsSync(bin)) {
+      throw new Error(
+        `SEA binary not found at ${bin}.\nBuild first: npm run build:sea -w packages/agent`,
+      );
+    }
+    command = bin;
+    args = [];
+  } else {
+    if (!fs.existsSync(NODE_ENTRY)) {
+      throw new Error(
+        `Agent entry not found at ${NODE_ENTRY}.\nBuild first: npm run build -w packages/agent`,
+      );
+    }
+    command = process.execPath;
+    args = [NODE_ENTRY];
   }
 
   const port = options?.port ?? (await findFreePort());
@@ -64,7 +88,7 @@ export async function startAgent(
   }
 
   return new Promise<AgentProcess>((resolve, reject) => {
-    const proc = spawn(process.execPath, [AGENT_ENTRY], {
+    const proc = spawn(command, args, {
       env,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -77,18 +101,24 @@ export async function startAgent(
     const tryResolve = (text: string): void => {
       if (text.includes("[clef-agent] token:") && !settled) {
         settled = true;
+
+        // Swallow stdio errors after startup — on Windows, killing the
+        // subprocess severs pipes immediately (TerminateProcess), causing
+        // ECONNRESET / EPIPE on any buffered reads.
+        proc.stdout!.on("error", () => {});
+        proc.stderr!.on("error", () => {});
+        proc.stdin!.on("error", () => {});
+
         resolve({
           url: `http://127.0.0.1:${port}`,
           token,
           port,
           stop: () =>
             new Promise<void>((res) => {
-              proc.kill("SIGTERM");
               proc.once("exit", () => res());
-              // Force kill after 5s
-              const timer = setTimeout(() => {
-                proc.kill("SIGKILL");
-              }, 5000);
+              proc.kill();
+              // Force-resolve after 5s in case exit event never fires
+              const timer = setTimeout(() => res(), 5000);
               timer.unref();
             }),
         });
