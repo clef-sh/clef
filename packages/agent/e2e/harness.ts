@@ -93,6 +93,9 @@ export async function agentFetch(
   const url = `${baseUrl}${path}`;
   const headers: Record<string, string> = {
     Host: new URL(baseUrl).host,
+    // Disable keep-alive — on Windows, idle keep-alive connections cause
+    // ECONNRESET when the agent subprocess is killed during teardown.
+    Connection: "close",
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
