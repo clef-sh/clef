@@ -90,7 +90,10 @@ export async function startAgent(
   return new Promise<AgentProcess>((resolve, reject) => {
     const proc = spawn(command, args, {
       env,
-      stdio: ["pipe", "pipe", "pipe"],
+      // stdin is "ignore" — the agent doesn't read from it, and piping
+      // stdin creates a handle that causes ECONNRESET on Windows when the
+      // process is killed (TerminateProcess severs the pipe mid-read).
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
     let settled = false;
@@ -107,7 +110,6 @@ export async function startAgent(
         // ECONNRESET / EPIPE on any buffered reads.
         proc.stdout!.on("error", () => {});
         proc.stderr!.on("error", () => {});
-        proc.stdin!.on("error", () => {});
 
         resolve({
           url: `http://127.0.0.1:${port}`,
@@ -122,7 +124,6 @@ export async function startAgent(
               proc.stderr!.removeAllListeners("data");
               proc.stdout!.destroy();
               proc.stderr!.destroy();
-              proc.stdin!.destroy();
               proc.removeAllListeners("error");
               proc.on("error", () => {});
               proc.once("exit", () => res());
