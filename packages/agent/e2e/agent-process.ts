@@ -77,18 +77,24 @@ export async function startAgent(
     const tryResolve = (text: string): void => {
       if (text.includes("[clef-agent] token:") && !settled) {
         settled = true;
+
+        // Swallow stdio errors after startup — on Windows, killing the
+        // subprocess severs pipes immediately (TerminateProcess), causing
+        // ECONNRESET / EPIPE on any buffered reads.
+        proc.stdout!.on("error", () => {});
+        proc.stderr!.on("error", () => {});
+        proc.stdin!.on("error", () => {});
+
         resolve({
           url: `http://127.0.0.1:${port}`,
           token,
           port,
           stop: () =>
             new Promise<void>((res) => {
-              proc.kill("SIGTERM");
               proc.once("exit", () => res());
-              // Force kill after 5s
-              const timer = setTimeout(() => {
-                proc.kill("SIGKILL");
-              }, 5000);
+              proc.kill();
+              // Force-resolve after 5s in case exit event never fires
+              const timer = setTimeout(() => res(), 5000);
               timer.unref();
             }),
         });
