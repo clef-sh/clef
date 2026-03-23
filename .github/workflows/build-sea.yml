@@ -107,7 +107,7 @@ jobs:
         shell: bash
         run: |
           VER="${{ needs.check-tag.outputs.version }}"
-          for pkg in packages/core packages/cli packages/agent packages/ui; do
+          for pkg in packages/core packages/runtime packages/cli packages/agent packages/ui; do
             node -e "
               const fs = require('fs');
               const p = JSON.parse(fs.readFileSync('$pkg/package.json','utf8'));
@@ -197,7 +197,7 @@ jobs:
         shell: bash
         run: |
           VER="${{ needs.check-tag.outputs.version }}"
-          for pkg in packages/core packages/agent; do
+          for pkg in packages/core packages/runtime packages/agent; do
             node -e "
               const fs = require('fs');
               const p = JSON.parse(fs.readFileSync('$pkg/package.json','utf8'));
@@ -209,7 +209,9 @@ jobs:
 
       - name: Build packages
         shell: bash
-        run: npm run build -w packages/core
+        run: |
+          npm run build -w packages/core
+          npm run build -w packages/runtime
 
       - name: Build SEA binary
         shell: bash

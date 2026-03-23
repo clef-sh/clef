@@ -49,6 +49,7 @@ clef ui
 | `clef update`        | Scaffold missing matrix cells             |
 | `clef get`           | Retrieve a single decrypted value         |
 | `clef set`           | Set a secret value                        |
+| `clef compare`       | Compare a stored secret with a value      |
 | `clef delete`        | Remove a key from an encrypted file       |
 | `clef diff`          | Compare secrets between two environments  |
 | `clef lint`          | Full repo health check                    |
@@ -56,7 +57,7 @@ clef ui
 | `clef scan`          | Scan for plaintext secrets in the repo    |
 | `clef import`        | Import secrets from `.env`, JSON, or YAML |
 | `clef export`        | Print secrets as shell export statements  |
-| `clef recipients`    | Manage age recipients (list, add, remove) |
+| `clef recipients`    | Manage age recipients and access requests |
 | `clef hooks install` | Install the pre-commit hook               |
 | `clef exec`          | Run a command with injected secrets       |
 | `clef ui`            | Start the local web UI                    |

@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/cli",
-  "version": "0.1.5",
+  "version": "0.1.6-beta.32",
   "description": "CLI for Clef — git-native secrets management",
   "repository": {
     "type": "git",
@@ -38,8 +38,7 @@
     "@clef-sh/sops-win32-x64": "3.9.4"
   },
   "devDependencies": {
-    "@clef-sh/agent": "*",
-    "@clef-sh/core": "^0.1.0",
+    "@clef-sh/core": "*",
     "@clef-sh/ui": "*",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.11.0",

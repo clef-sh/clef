@@ -204,7 +204,7 @@ my-app-production/
 
 - **Least privilege.** Developers who need `dev` and `staging` secrets never see production ciphertext.
 - **Compliance.** SOC 2, PCI-DSS, and HIPAA frameworks may require separate storage and audit trails for production credentials.
-- **Defense in depth.** Even though SOPS values are encrypted, key names are plaintext. Splitting repos limits visibility of production key names.
+- **Defense in depth.** Splitting repos ensures that production ciphertext is never cloned to developer machines — even accidentally. A leaked dev repo exposes no production material.
 
 Use `clef drift` to keep key sets in sync across repos — it compares without decryption and works without sops installed. See [Production Isolation](/guide/production-isolation) for the full setup guide.
 

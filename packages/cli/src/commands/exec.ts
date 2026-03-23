@@ -29,7 +29,10 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
     )
     .option("--only <keys>", "Comma-separated list of keys to inject (ignores all others)")
     .option("--prefix <string>", "Prefix all injected key names (e.g. --prefix APP_)")
-    .option("--no-override", "Do not override existing environment variables")
+    .option(
+      "--no-override",
+      "Do not override: skips --also keys that collide with primary, and skips Clef keys that collide with existing env vars",
+    )
     .option(
       "--also <target>",
       "Also inject secrets from another namespace/environment (repeatable)",

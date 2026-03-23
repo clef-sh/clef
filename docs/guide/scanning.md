@@ -14,18 +14,18 @@ Two categories:
 
 Clef maintains a list of known secret formats and matches them against each line of every scanned file:
 
-| Pattern                      | Example                                                                                            |
-| ---------------------------- | -------------------------------------------------------------------------------------------------- |
-| AWS access key               | `AKIAIOSFODNN7EXAMPLE`                                                                             |
-| Stripe live key              | `sk_live_4eC39HqLyjW...`                                                                           |
-| Stripe test key              | `sk_test_4eC39HqLyjW...`                                                                           |
-| GitHub personal access token | `ghp_16C7e42F292c6...`                                                                             |
-| GitHub OAuth token           | `gho_16C7e42F292c6...`                                                                             |
-| GitHub Actions token         | `ghs_16C7e42F292c6...`                                                                             |
-| Slack token                  | `xoxb-2048-352-1234...`                                                                            |
-| Private key header           | `-----BEGIN RSA PRIVATE KEY-----`, `-----BEGIN EC PRIVATE KEY-----`, `-----BEGIN PRIVATE KEY-----` |
-| Generic API key              | `API_KEY=...`, `SECRET_KEY=...`, `ACCESS_TOKEN=...`, `AUTH_TOKEN=...`                              |
-| Database URL                 | `postgres://user:pass@host/db`                                                                     |
+| Pattern                      | Example                                                                                                                                                                      |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AWS access key               | `AKIAIOSFODNN7EXAMPLE`                                                                                                                                                       |
+| Stripe live key              | `sk_live_4eC39HqLyjW...`                                                                                                                                                     |
+| Stripe test key              | `sk_test_4eC39HqLyjW...`                                                                                                                                                     |
+| GitHub personal access token | `ghp_16C7e42F292c6...`                                                                                                                                                       |
+| GitHub OAuth token           | `gho_16C7e42F292c6...`                                                                                                                                                       |
+| GitHub Actions token         | `ghs_16C7e42F292c6...`                                                                                                                                                       |
+| Slack token                  | `xoxb-2048-352-1234...`                                                                                                                                                      |
+| Private key header           | `-----BEGIN RSA PRIVATE KEY-----`, `-----BEGIN EC PRIVATE KEY-----`, `-----BEGIN DSA PRIVATE KEY-----`, `-----BEGIN OPENSSH PRIVATE KEY-----`, `-----BEGIN PRIVATE KEY-----` |
+| Generic API key              | `API_KEY=...`, `SECRET_KEY=...`, `ACCESS_TOKEN=...`, `AUTH_TOKEN=...`                                                                                                        |
+| Database URL                 | `postgres://user:pass@host/db`                                                                                                                                               |
 
 Pattern detection targets well-known secret formats with fixed prefixes. False positives on pattern matches are rare.
 

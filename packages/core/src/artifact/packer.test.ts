@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import { ArtifactPacker } from "./packer";
 import { ClefManifest, EncryptionBackend, DecryptedFile } from "../types";
+import { KmsProvider, KmsWrapResult } from "../kms";
 import { MatrixManager } from "../matrix/manager";
 import { PackConfig, PackedArtifact } from "./types";
 
@@ -18,6 +19,8 @@ jest.mock(
           "-----BEGIN AGE ENCRYPTED FILE-----\nencrypted\n-----END AGE ENCRYPTED FILE-----",
         ),
     })),
+    generateIdentity: jest.fn().mockResolvedValue("AGE-SECRET-KEY-1EPHEMERAL"),
+    identityToRecipient: jest.fn().mockResolvedValue("age1ephemeralrecipient"),
   }),
   { virtual: true },
 );
@@ -123,6 +126,51 @@ describe("ArtifactPacker", () => {
     expect(written.revision).toBeTruthy();
   });
 
+  it("should embed expiresAt when ttl is set", async () => {
+    const decrypted: DecryptedFile = {
+      values: { KEY: "val" },
+      metadata: { backend: "age", recipients: ["age1devkey"], lastModified: new Date() },
+    };
+    encryption.decrypt.mockResolvedValue(decrypted);
+
+    const config: PackConfig = {
+      identity: "api-gateway",
+      environment: "dev",
+      outputPath: "/output/artifact.json",
+      ttl: 3600,
+    };
+
+    const before = Date.now();
+    await packer.pack(config, baseManifest(), "/repo");
+    const after = Date.now();
+
+    const written: PackedArtifact = JSON.parse(String(mockFs.writeFileSync.mock.calls[0][1]));
+    expect(written.expiresAt).toBeTruthy();
+    const expiresAt = new Date(written.expiresAt!).getTime();
+    // Should be approximately 1 hour from now
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 3600_000);
+    expect(expiresAt).toBeLessThanOrEqual(after + 3600_000);
+  });
+
+  it("should not include expiresAt when ttl is not set", async () => {
+    const decrypted: DecryptedFile = {
+      values: { KEY: "val" },
+      metadata: { backend: "age", recipients: ["age1devkey"], lastModified: new Date() },
+    };
+    encryption.decrypt.mockResolvedValue(decrypted);
+
+    const config: PackConfig = {
+      identity: "api-gateway",
+      environment: "dev",
+      outputPath: "/output/artifact.json",
+    };
+
+    await packer.pack(config, baseManifest(), "/repo");
+
+    const written: PackedArtifact = JSON.parse(String(mockFs.writeFileSync.mock.calls[0][1]));
+    expect(written.expiresAt).toBeUndefined();
+  });
+
   it("should create output directory if it does not exist", async () => {
     const decrypted: DecryptedFile = {
       values: { KEY: "val" },
@@ -209,5 +257,115 @@ describe("ArtifactPacker", () => {
     expect(writtenJson).not.toContain("postgres://secret-host");
     expect(writtenJson).not.toContain("sk-secret123");
     expect(writtenJson).toContain("BEGIN AGE ENCRYPTED FILE");
+  });
+
+  describe("KMS envelope encryption", () => {
+    function kmsManifest(): ClefManifest {
+      return {
+        ...baseManifest(),
+        service_identities: [
+          ...baseManifest().service_identities!,
+          {
+            name: "kms-svc",
+            description: "KMS service",
+            namespaces: ["api"],
+            environments: {
+              dev: {
+                kms: {
+                  provider: "aws",
+                  keyId: "arn:aws:kms:us-east-1:111:key/test-key",
+                },
+              },
+            },
+          },
+        ],
+      };
+    }
+
+    function mockKms(): jest.Mocked<KmsProvider> {
+      return {
+        wrap: jest.fn().mockResolvedValue({
+          wrappedKey: Buffer.from("wrapped-ephemeral-key"),
+          algorithm: "SYMMETRIC_DEFAULT",
+        } as KmsWrapResult),
+        unwrap: jest.fn(),
+      };
+    }
+
+    it("should produce an artifact with envelope for KMS identity", async () => {
+      const kms = mockKms();
+      const kmsPacker = new ArtifactPacker(encryption, matrixManager, kms);
+
+      const decrypted: DecryptedFile = {
+        values: { SECRET: "val" },
+        metadata: { backend: "age", recipients: [], lastModified: new Date() },
+      };
+      encryption.decrypt.mockResolvedValue(decrypted);
+
+      const config: PackConfig = {
+        identity: "kms-svc",
+        environment: "dev",
+        outputPath: "/output/artifact.json",
+      };
+
+      const result = await kmsPacker.pack(config, kmsManifest(), "/repo");
+      expect(result.keyCount).toBe(1);
+
+      const written: PackedArtifact = JSON.parse(String(mockFs.writeFileSync.mock.calls[0][1]));
+      expect(written.version).toBe(1);
+      expect(written.envelope).toBeDefined();
+      expect(written.envelope!.provider).toBe("aws");
+      expect(written.envelope!.keyId).toBe("arn:aws:kms:us-east-1:111:key/test-key");
+      expect(written.envelope!.wrappedKey).toBeTruthy();
+      expect(written.envelope!.algorithm).toBe("SYMMETRIC_DEFAULT");
+      expect(kms.wrap).toHaveBeenCalledWith(
+        "arn:aws:kms:us-east-1:111:key/test-key",
+        expect.any(Buffer),
+      );
+    });
+
+    it("should throw when KMS provider is not injected for KMS identity", async () => {
+      const noKmsPacker = new ArtifactPacker(encryption, matrixManager);
+
+      const decrypted: DecryptedFile = {
+        values: { SECRET: "val" },
+        metadata: { backend: "age", recipients: [], lastModified: new Date() },
+      };
+      encryption.decrypt.mockResolvedValue(decrypted);
+
+      const config: PackConfig = {
+        identity: "kms-svc",
+        environment: "dev",
+        outputPath: "/output/artifact.json",
+      };
+
+      await expect(noKmsPacker.pack(config, kmsManifest(), "/repo")).rejects.toThrow(
+        "KMS provider required",
+      );
+    });
+
+    it("should produce artifact without envelope for age-only identity when KMS provider is injected", async () => {
+      const kms = mockKms();
+      const kmsPacker = new ArtifactPacker(encryption, matrixManager, kms);
+
+      const decrypted: DecryptedFile = {
+        values: { KEY: "val" },
+        metadata: { backend: "age", recipients: ["age1devkey"], lastModified: new Date() },
+      };
+      encryption.decrypt.mockResolvedValue(decrypted);
+
+      const config: PackConfig = {
+        identity: "api-gateway",
+        environment: "dev",
+        outputPath: "/output/artifact.json",
+      };
+
+      await kmsPacker.pack(config, kmsManifest(), "/repo");
+
+      const written: PackedArtifact = JSON.parse(String(mockFs.writeFileSync.mock.calls[0][1]));
+      expect(written.version).toBe(1);
+      expect(written.envelope).toBeUndefined();
+      expect(kms.wrap).not.toHaveBeenCalled();
+    });
   });
 });

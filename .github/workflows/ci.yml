@@ -21,6 +21,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build --workspace=packages/core
+      - run: npm run build --workspace=packages/runtime
+      - run: npm run build --workspace=packages/agent
       - run: npm run build --workspace=packages/ui
       - name: Test with coverage
         run: npm run test:coverage --workspaces --if-present
@@ -30,7 +32,7 @@ jobs:
         if: always()
         run: |
           echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
-          for pkg in packages/core packages/cli packages/ui packages/agent; do
+          for pkg in packages/core packages/cli packages/ui packages/runtime packages/agent; do
             if [ -f "$pkg/coverage/coverage-summary.json" ]; then
               echo "### $pkg" >> $GITHUB_STEP_SUMMARY
               cat "$pkg/coverage/coverage-summary.json" | \
@@ -95,6 +97,7 @@ jobs:
       - run: npm ci
       - run: npm run build --workspace=packages/core
       - run: npm run build --workspace=packages/ui
+      - run: npm run build --workspace=packages/runtime
       - run: npm run build --workspace=packages/agent
       - run: npm run build --workspace=packages/cli
 
@@ -181,6 +184,7 @@ jobs:
       - run: npm ci
       - run: npm run build --workspace=packages/core
       - run: npm run build --workspace=packages/ui
+      - run: npm run build --workspace=packages/runtime
       - run: npm run build --workspace=packages/agent
       - run: npm run build --workspace=packages/cli
       - run: npm run test:integration

@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/agent",
-  "version": "0.1.5",
+  "version": "0.1.6-beta.32",
   "description": "Runtime secrets sidecar agent for Clef",
   "repository": {
     "type": "git",
@@ -22,7 +22,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "age-encryption": "^0.3.0",
+    "@clef-sh/runtime": "*",
     "express": "^5.1.0"
   },
   "devDependencies": {

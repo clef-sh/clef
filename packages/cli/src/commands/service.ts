@@ -9,7 +9,9 @@ import {
   ServiceIdentityManager,
   PartialRotationError,
   keyPreview,
+  isKmsEnvelope,
 } from "@clef-sh/core";
+import type { KmsConfig } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
@@ -22,73 +24,135 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
   // --- create ---
   serviceCmd
     .command("create <name>")
-    .description("Create a new service identity with per-environment age key pairs.")
+    .description(
+      "Create a new service identity with per-environment age key pairs or KMS envelope encryption.",
+    )
     .requiredOption("--namespaces <ns>", "Comma-separated list of namespace scopes")
     .option("--description <desc>", "Human-readable description", "")
-    .action(async (name: string, opts: { namespaces: string; description: string }) => {
-      try {
-        const repoRoot = (program.opts().dir as string) || process.cwd();
-        const parser = new ManifestParser();
-        const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
+    .option(
+      "--kms-env <mapping>",
+      "KMS envelope encryption for an environment: env=provider:keyId (repeatable)",
+      (val: string, acc: string[]) => {
+        acc.push(val);
+        return acc;
+      },
+      [] as string[],
+    )
+    .action(
+      async (name: string, opts: { namespaces: string; description: string; kmsEnv: string[] }) => {
+        try {
+          const repoRoot = (program.opts().dir as string) || process.cwd();
+          const parser = new ManifestParser();
+          const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const namespaces = opts.namespaces.split(",").map((s) => s.trim());
+          const namespaces = opts.namespaces.split(",").map((s) => s.trim());
 
-        const protectedEnvs = manifest.environments.filter((e) => e.protected).map((e) => e.name);
+          // Parse --kms-env mappings
+          let kmsEnvConfigs: Record<string, KmsConfig> | undefined;
+          if (opts.kmsEnv.length > 0) {
+            kmsEnvConfigs = {};
+            for (const mapping of opts.kmsEnv) {
+              const eqIdx = mapping.indexOf("=");
+              if (eqIdx === -1) {
+                throw new Error(
+                  `Invalid --kms-env format: '${mapping}'. Expected: env=provider:keyId`,
+                );
+              }
+              const envName = mapping.slice(0, eqIdx);
+              const rest = mapping.slice(eqIdx + 1);
+              const colonIdx = rest.indexOf(":");
+              if (colonIdx === -1) {
+                throw new Error(
+                  `Invalid --kms-env format: '${mapping}'. Expected: env=provider:keyId`,
+                );
+              }
+              const provider = rest.slice(0, colonIdx);
+              const keyId = rest.slice(colonIdx + 1);
+              if (!["aws", "gcp", "azure"].includes(provider)) {
+                throw new Error(
+                  `Invalid KMS provider '${provider}'. Must be one of: aws, gcp, azure.`,
+                );
+              }
+              kmsEnvConfigs[envName] = {
+                provider: provider as "aws" | "gcp" | "azure",
+                keyId,
+              };
+            }
+          }
 
-        if (protectedEnvs.length > 0) {
-          const confirmed = await formatter.confirm(
-            `This will register recipients in protected environment(s): ${protectedEnvs.join(", ")}. Continue?`,
+          const hasAgeEnvs =
+            !kmsEnvConfigs || manifest.environments.some((e) => !kmsEnvConfigs![e.name]);
+
+          const protectedEnvs = manifest.environments.filter((e) => e.protected).map((e) => e.name);
+
+          if (protectedEnvs.length > 0 && hasAgeEnvs) {
+            const confirmed = await formatter.confirm(
+              `This will register recipients in protected environment(s): ${protectedEnvs.join(", ")}. Continue?`,
+            );
+            if (!confirmed) {
+              formatter.error("Aborted.");
+              process.exit(1);
+              return;
+            }
+          }
+
+          const matrixManager = new MatrixManager();
+          const sopsClient = await createSopsClient(repoRoot, deps.runner);
+          const manager = new ServiceIdentityManager(sopsClient, matrixManager);
+
+          formatter.print(`${sym("working")}  Creating service identity '${name}'...`);
+
+          const result = await manager.create(
+            name,
+            namespaces,
+            opts.description || name,
+            manifest,
+            repoRoot,
+            kmsEnvConfigs,
           );
-          if (!confirmed) {
-            formatter.error("Aborted.");
+
+          formatter.success(`Service identity '${name}' created.`);
+          formatter.print(`\n  Namespaces: ${result.identity.namespaces.join(", ")}`);
+          formatter.print(
+            `  Environments: ${Object.keys(result.identity.environments).join(", ")}\n`,
+          );
+
+          if (Object.keys(result.privateKeys).length > 0) {
+            // Print private keys ONCE (age-only environments)
+            formatter.warn(
+              "Private keys are shown ONCE. Store them securely (e.g. AWS Secrets Manager, Vault).\n",
+            );
+
+            for (const [envName, privateKey] of Object.entries(result.privateKeys)) {
+              formatter.print(`  ${envName}:`);
+              formatter.print(`    ${privateKey}\n`);
+            }
+            for (const k of Object.keys(result.privateKeys)) result.privateKeys[k] = "";
+          }
+
+          // Report KMS environments
+          for (const [envName, envConfig] of Object.entries(result.identity.environments)) {
+            if (isKmsEnvelope(envConfig)) {
+              formatter.print(
+                `  ${envName}: KMS envelope (${envConfig.kms.provider}) — no age keys generated.`,
+              );
+            }
+          }
+
+          formatter.hint(
+            `git add clef.yaml && git commit -m "feat: add service identity '${name}'"`,
+          );
+        } catch (err) {
+          if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
+            formatter.formatDependencyError(err);
             process.exit(1);
             return;
           }
-        }
-
-        const matrixManager = new MatrixManager();
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const manager = new ServiceIdentityManager(sopsClient, matrixManager);
-
-        formatter.print(`${sym("working")}  Creating service identity '${name}'...`);
-
-        const result = await manager.create(
-          name,
-          namespaces,
-          opts.description || name,
-          manifest,
-          repoRoot,
-        );
-
-        formatter.success(`Service identity '${name}' created.`);
-        formatter.print(`\n  Namespaces: ${result.identity.namespaces.join(", ")}`);
-        formatter.print(
-          `  Environments: ${Object.keys(result.identity.environments).join(", ")}\n`,
-        );
-
-        // Print private keys ONCE
-        formatter.warn(
-          "Private keys are shown ONCE. Store them securely (e.g. AWS Secrets Manager, Vault).\n",
-        );
-
-        for (const [envName, privateKey] of Object.entries(result.privateKeys)) {
-          formatter.print(`  ${envName}:`);
-          formatter.print(`    ${privateKey}\n`);
-        }
-        for (const k of Object.keys(result.privateKeys)) result.privateKeys[k] = "";
-        result.privateKeys = {};
-
-        formatter.hint(`git add clef.yaml && git commit -m "feat: add service identity '${name}'"`);
-      } catch (err) {
-        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-          formatter.formatDependencyError(err);
+          formatter.error((err as Error).message);
           process.exit(1);
-          return;
         }
-        formatter.error((err as Error).message);
-        process.exit(1);
-      }
-    });
+      },
+    );
 
   // --- list ---
   serviceCmd
@@ -113,7 +177,11 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
 
         const rows = identities.map((si) => {
           const envStr = Object.entries(si.environments)
-            .map(([e, cfg]) => `${e}: ${keyPreview(cfg.recipient)}`)
+            .map(([e, cfg]) =>
+              isKmsEnvelope(cfg)
+                ? `${e}: KMS (${cfg.kms.provider})`
+                : `${e}: ${keyPreview(cfg.recipient!)}`,
+            )
             .join(", ");
           return [si.name, si.namespaces.join(", "), envStr];
         });
@@ -156,8 +224,13 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         formatter.print(`Namespaces: ${identity.namespaces.join(", ")}\n`);
 
         for (const [envName, envConfig] of Object.entries(identity.environments)) {
-          const cfg = envConfig as { recipient: string };
-          formatter.print(`  ${envName}: ${keyPreview(cfg.recipient)}`);
+          if (isKmsEnvelope(envConfig)) {
+            formatter.print(
+              `  ${envName}: KMS (${envConfig.kms.provider}) — ${envConfig.kms.keyId}`,
+            );
+          } else {
+            formatter.print(`  ${envName}: ${keyPreview(envConfig.recipient!)}`);
+          }
         }
         formatter.print("");
       } catch (err) {
