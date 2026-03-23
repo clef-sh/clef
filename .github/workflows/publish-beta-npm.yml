@@ -57,34 +57,39 @@ jobs:
           fi
 
       - name: Publish @clef-sh/core
+        continue-on-error: true
         working-directory: packages/core
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public
+          npm publish --tag beta --access public || echo "::warning::@clef-sh/core publish failed (may already exist)"
         env:
           NPM_CONFIG_PROVENANCE: "true"
 
       - name: Publish @clef-sh/runtime
+        continue-on-error: true
         working-directory: packages/runtime
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public
+          npm publish --tag beta --access public || echo "::warning::@clef-sh/runtime publish failed (may already exist)"
         env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
 
       - name: Publish @clef-sh/agent
+        continue-on-error: true
         working-directory: packages/agent
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public
+          npm publish --tag beta --access public || echo "::warning::@clef-sh/agent publish failed (may already exist)"
         env:
           NPM_CONFIG_PROVENANCE: "true"
 
       - name: Publish @clef-sh/cli
+        continue-on-error: true
         working-directory: packages/cli
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public
+          npm publish --tag beta --access public || echo "::warning::@clef-sh/cli publish failed (may already exist)"
         env:
           NPM_CONFIG_PROVENANCE: "true"
 
