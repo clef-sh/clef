@@ -21,9 +21,10 @@ export class AgeDecryptor {
     d.addIdentity(privateKey);
 
     // age binary format cannot survive JSON string round-trip (TextDecoder loses
-    // high bytes). If the ciphertext looks like base64 (no "age-encryption.org"
-    // header), decode to a Buffer so the age library receives intact bytes.
-    const input = ciphertext.startsWith("age-encryption.org")
+    // high bytes). If the ciphertext looks like base64 (no age PEM header),
+    // decode to a Buffer so the age library receives intact bytes.
+    const isAgePem = ciphertext.startsWith("age-encryption.org/v1\n");
+    const input = isAgePem
       ? ciphertext
       : Buffer.from(ciphertext, "base64");
     return d.decrypt(input, "text");
