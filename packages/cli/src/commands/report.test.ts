@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import { Command } from "commander";
 import { registerReportCommand } from "./report";
-import { SubprocessRunner, ClefReport, SopsMissingError } from "@clef-sh/core";
+import { SubprocessRunner, ClefReport, SopsMissingError, CloudApiError } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 
 jest.mock("fs");
@@ -35,6 +35,15 @@ jest.mock("@clef-sh/core", () => {
   return {
     ...actual,
     ReportGenerator: jest.fn().mockImplementation(() => ({ generate: mockGenerate })),
+    CloudClient: jest.fn().mockImplementation(() => ({
+      fetchIntegration: mockFetchIntegration,
+      submitReport: mockSubmitReport,
+      submitBatchReports: mockSubmitBatchReports,
+    })),
+    ReportTransformer: jest.fn().mockImplementation(() => ({
+      transform: mockTransform,
+    })),
+    collectCIContext: (...args: unknown[]) => mockCollectCIContext(...args),
   };
 });
 
@@ -61,6 +70,15 @@ const validManifestYaml = YAML.stringify({
   namespaces: [{ name: "database", description: "DB" }],
   sops: { default_backend: "age" },
   file_pattern: "{namespace}/{environment}.enc.yaml",
+});
+
+const cloudManifestYaml = YAML.stringify({
+  version: 1,
+  environments: [{ name: "dev", description: "Dev" }],
+  namespaces: [{ name: "database", description: "DB" }],
+  sops: { default_backend: "age" },
+  file_pattern: "{namespace}/{environment}.enc.yaml",
+  cloud: { integrationId: "int_abc" },
 });
 
 function makeClefReport(overrides: Partial<ClefReport> = {}): ClefReport {
