@@ -5,6 +5,7 @@
  * and start a real agent server backed by a FileArtifactSource.
  */
 import * as fs from "fs";
+import * as http from "http";
 import * as path from "path";
 import * as os from "os";
 import { execFileSync } from "child_process";
@@ -84,22 +85,49 @@ export function scaffoldFixture(secrets: Record<string, string>): TestFixture {
 
 /**
  * Helper to make HTTP requests to the agent.
+ *
+ * Uses Node's http module instead of fetch/undici — undici's connection
+ * pooling keeps sockets alive even with Connection: close, causing
+ * ECONNRESET on Windows when the subprocess is killed during teardown.
  */
-export async function agentFetch(
+export function agentFetch(
   baseUrl: string,
-  path: string,
+  urlPath: string,
   token?: string,
-): Promise<{ status: number; body: unknown; headers: Headers }> {
-  const url = `${baseUrl}${path}`;
-  const headers: Record<string, string> = {
-    Host: new URL(baseUrl).host,
-    // Disable keep-alive — on Windows, idle keep-alive connections cause
-    // ECONNRESET when the agent subprocess is killed during teardown.
-    Connection: "close",
-  };
-  if (token) headers.Authorization = `Bearer ${token}`;
+): Promise<{ status: number; body: unknown; headers: http.IncomingHttpHeaders }> {
+  const parsed = new URL(baseUrl);
+  return new Promise((resolve, reject) => {
+    const reqHeaders: Record<string, string> = {
+      Host: parsed.host,
+      Connection: "close",
+    };
+    if (token) reqHeaders.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(url, { headers });
-  const body = await res.json();
-  return { status: res.status, body, headers: res.headers };
+    const req = http.get(
+      {
+        hostname: parsed.hostname,
+        port: Number(parsed.port),
+        path: urlPath,
+        headers: reqHeaders,
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk: Buffer) => {
+          data += chunk.toString();
+        });
+        res.on("end", () => {
+          try {
+            resolve({
+              status: res.statusCode ?? 0,
+              body: JSON.parse(data),
+              headers: res.headers,
+            });
+          } catch {
+            resolve({ status: res.statusCode ?? 0, body: data, headers: res.headers });
+          }
+        });
+      },
+    );
+    req.on("error", reject);
+  });
 }
