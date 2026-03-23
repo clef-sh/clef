@@ -107,7 +107,11 @@ export function registerInitCommand(program: Command, deps: { runner: Subprocess
       "dev,staging,production",
     )
     .option("--namespaces <namespaces>", "Comma-separated list of namespaces")
-    .option("--backend <backend>", "SOPS encryption backend (age, awskms, gcpkms, pgp)", "age")
+    .option(
+      "--backend <backend>",
+      "SOPS encryption backend (age, awskms, gcpkms, azurekv, pgp)",
+      "age",
+    )
     .option("--non-interactive", "Skip interactive prompts and use defaults/flags")
     .option(
       "--random-values",
@@ -555,6 +559,13 @@ function buildSopsYaml(
           const resourceId = env.sops?.gcp_kms_resource_id ?? manifest.sops.gcp_kms_resource_id;
           if (resourceId) {
             rule.gcp_kms = resourceId;
+          }
+          break;
+        }
+        case "azurekv": {
+          const kvUrl = env.sops?.azure_kv_url ?? manifest.sops.azure_kv_url;
+          if (kvUrl) {
+            rule.azure_keyvault = kvUrl;
           }
           break;
         }

@@ -438,18 +438,22 @@ export class SopsClient implements EncryptionBackend {
     return { backend, recipients, lastModified };
   }
 
-  private detectBackend(sops: Record<string, unknown>): "age" | "awskms" | "gcpkms" | "pgp" {
+  private detectBackend(
+    sops: Record<string, unknown>,
+  ): "age" | "awskms" | "gcpkms" | "azurekv" | "pgp" {
     if (sops.age && Array.isArray(sops.age) && (sops.age as unknown[]).length > 0) return "age";
     if (sops.kms && Array.isArray(sops.kms) && (sops.kms as unknown[]).length > 0) return "awskms";
     if (sops.gcp_kms && Array.isArray(sops.gcp_kms) && (sops.gcp_kms as unknown[]).length > 0)
       return "gcpkms";
+    if (sops.azure_kv && Array.isArray(sops.azure_kv) && (sops.azure_kv as unknown[]).length > 0)
+      return "azurekv";
     if (sops.pgp && Array.isArray(sops.pgp) && (sops.pgp as unknown[]).length > 0) return "pgp";
     return "age"; // Interpretation: default to age when metadata is ambiguous
   }
 
   private extractRecipients(
     sops: Record<string, unknown>,
-    backend: "age" | "awskms" | "gcpkms" | "pgp",
+    backend: "age" | "awskms" | "gcpkms" | "azurekv" | "pgp",
   ): string[] {
     switch (backend) {
       case "age": {
@@ -463,6 +467,17 @@ export class SopsClient implements EncryptionBackend {
       case "gcpkms": {
         const entries = sops.gcp_kms as Array<Record<string, unknown>> | undefined;
         return entries?.map((e) => String(e.resource_id ?? "")) ?? [];
+      }
+      case "azurekv": {
+        const entries = sops.azure_kv as Array<Record<string, unknown>> | undefined;
+        return (
+          entries?.map((e) => {
+            const vaultUrl = String(e.vaultUrl ?? e.vault_url ?? "");
+            const name = String(e.name ?? e.key ?? "");
+            // Return the composite Key Vault key identifier
+            return vaultUrl && name ? `${vaultUrl}/keys/${name}` : vaultUrl || name;
+          }) ?? []
+        );
       }
       case "pgp": {
         const entries = sops.pgp as Array<Record<string, unknown>> | undefined;
@@ -484,6 +499,7 @@ export class SopsClient implements EncryptionBackend {
           backend: manifest.sops.default_backend,
           aws_kms_arn: manifest.sops.aws_kms_arn,
           gcp_kms_resource_id: manifest.sops.gcp_kms_resource_id,
+          azure_kv_url: manifest.sops.azure_kv_url,
           pgp_fingerprint: manifest.sops.pgp_fingerprint,
         };
 
@@ -499,6 +515,11 @@ export class SopsClient implements EncryptionBackend {
       case "gcpkms":
         if (config.gcp_kms_resource_id) {
           args.push("--gcp-kms", config.gcp_kms_resource_id);
+        }
+        break;
+      case "azurekv":
+        if (config.azure_kv_url) {
+          args.push("--azure-kv", config.azure_kv_url);
         }
         break;
       case "pgp":

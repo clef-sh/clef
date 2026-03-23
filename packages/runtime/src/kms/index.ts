@@ -1,5 +1,7 @@
 import { KmsProvider } from "./types";
 import { AwsKmsProvider } from "./aws";
+import { GcpKmsProvider } from "./gcp";
+import { AzureKmsProvider } from "./azure";
 
 export type { KmsProvider, KmsWrapResult, KmsProviderType } from "./types";
 export { AwsKmsProvider } from "./aws";
@@ -8,16 +10,15 @@ export { AzureKmsProvider } from "./azure";
 
 /**
  * Factory: create a KMS provider by name.
- * AWS is fully implemented; GCP and Azure are stubs.
  */
 export function createKmsProvider(provider: string, options?: { region?: string }): KmsProvider {
   switch (provider) {
     case "aws":
       return new AwsKmsProvider(options?.region);
     case "gcp":
-      throw new Error("GCP KMS is not yet implemented.");
+      return new GcpKmsProvider();
     case "azure":
-      throw new Error("Azure Key Vault is not yet implemented.");
+      return new AzureKmsProvider();
     default:
       throw new Error(`Unknown KMS provider: ${provider}`);
   }
