@@ -12,7 +12,7 @@ import {
 
 /**
  * Transforms a local {@link ClefReport} into the {@link CloudApiReport} payload
- * expected by the Clef Cloud API. Mapping is deterministic and side-effect-free.
+ * expected by the Clef Pro API. Mapping is deterministic and side-effect-free.
  */
 export class ReportTransformer {
   transform(report: ClefReport): CloudApiReport {

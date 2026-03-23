@@ -732,7 +732,7 @@ export interface CloudBatchResponse {
   reportIds: string[];
 }
 
-/** Thrown when a Clef Cloud API request fails. */
+/** Thrown when a Clef Pro API request fails. */
 export class CloudApiError extends ClefError {
   constructor(
     message: string,

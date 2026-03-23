@@ -1,4 +1,4 @@
-# Clef Cloud: OTLP Telemetry Contract
+# Clef Pro: OTLP Telemetry Contract
 
 **Status:** Ready for backend implementation
 **Date:** 2026-03-22
@@ -7,7 +7,7 @@
 
 ## Overview
 
-Clef Cloud is an OTLP-compatible telemetry backend for the Clef ecosystem. It receives structured events from CLI commands, CI pipelines, and runtime agents via standard `POST /v1/logs` — the same endpoint any OTLP collector exposes.
+Clef Pro is an OTLP-compatible telemetry backend for the Clef ecosystem. It receives structured events from CLI commands, CI pipelines, and runtime agents via standard `POST /v1/logs` — the same endpoint any OTLP collector exposes.
 
 This document defines the complete contract: every event type, every attribute, every resource field. The backend team implements ingestion against this spec. The UI team builds governance views on top of the indexed data.
 
@@ -33,7 +33,7 @@ This document defines the complete contract: every event type, every attribute, 
                   (OTLP/HTTP JSON)
                             │
                 ┌───────────▼───────────┐
-                │     Clef Cloud        │
+                │     Clef Pro        │
                 │                       │
                 │  ┌─────────────────┐  │
                 │  │ OTLP Ingestion  │  │
@@ -423,8 +423,8 @@ Events are correlated across three dimensions:
 
 ---
 
-## What Clef Cloud Is NOT
+## What Clef Pro Is NOT
 
 - **Not a log aggregator** — it indexes Clef-specific events, not arbitrary application logs
 - **Not a secrets store** — no ciphertext, no plaintext, no key values ever transit the endpoint
-- **Not required** — users can point at Grafana, Datadog, or any OTLP backend. Clef Cloud is one option with Clef-specific governance views built in
+- **Not required** — users can point at Grafana, Datadog, or any OTLP backend. Clef Pro is one option with Clef-specific governance views built in

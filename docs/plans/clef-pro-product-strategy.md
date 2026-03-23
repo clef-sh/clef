@@ -1,4 +1,4 @@
-# Clef Cloud: Product Strategy & Architecture
+# Clef Pro: Product Strategy & Architecture
 
 **Status:** Draft for architect review
 **Date:** 2026-03-17
@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-Clef Cloud is a control plane for git-native secrets management. It governs the process of managing secrets without ever taking custody of key material or ciphertext. The core differentiator: **governance without custody**.
+Clef Pro is a control plane for git-native secrets management. It governs the process of managing secrets without ever taking custody of key material or ciphertext. The core differentiator: **governance without custody**.
 
 The market currently offers two extremes — full-trust platforms (Vault, cloud secret managers) where the provider holds plaintext, and full-DIY tools (raw SOPS, git-crypt) with no governance or visibility. Clef occupies the gap: enterprise-grade policy enforcement, compliance reporting, and rotation orchestration, with a zero-custody trust model.
 
@@ -75,7 +75,7 @@ The CLI, core library, local UI, merge driver, git hooks. Everything a developer
 The control plane never has read access to customer repositories. All data flows from the customer's environment to the control plane via a CI job — the same model as CodeQL and Dependabot.
 
 ```
-Customer Environment                          Clef Cloud
+Customer Environment                          Clef Pro
 ====================                          ==========
 
   Git Repo
@@ -101,11 +101,11 @@ Customer Environment                          Clef Cloud
 ### Data Flow
 
 1. Developer pushes a change that touches encrypted files.
-2. GitHub/GitLab sends a webhook to the Clef Cloud App.
+2. GitHub/GitLab sends a webhook to the Clef Pro App.
 3. The App triggers a CI workflow in the customer's repo (permissions: `actions:write` only).
 4. The CI job runs the Clef CLI, which reads manifests and SOPS metadata blocks locally.
 5. The CLI builds a structured metadata report — recipient fingerprints, rotation timestamps, policy evaluation results. No ciphertext, no secret values.
-6. The report is POSTed to the Clef Cloud API with an org-scoped token.
+6. The report is POSTed to the Clef Pro API with an org-scoped token.
 7. The control plane evaluates policies, updates the dashboard, and fires alerts if needed.
 
 ### What the Control Plane Sees
@@ -150,7 +150,7 @@ The action:
 
 1. Installs the Clef CLI
 2. Runs `clef report` which extracts metadata from manifests and encrypted file headers
-3. POSTs the structured report to the Clef Cloud API
+3. POSTs the structured report to the Clef Pro API
 
 The action is MIT-licensed. Customers can read, fork, and audit exactly what leaves their environment.
 
@@ -309,7 +309,7 @@ Many of the local UI's core features require decryption access that the hosted U
 A separate private package that imports the shared grid/layout primitives from `@clef-sh/ui` and builds the governance-specific views:
 
 - **Auth wrapper** — SSO/SAML, team RBAC
-- **Cloud API adapter** — reads from Clef Cloud API (aggregated report metadata)
+- **Cloud API adapter** — reads from Clef Pro API (aggregated report metadata)
 - **Org dashboard** — multi-repo compliance posture, drift alerts, rotation status
 - **Audit log viewer** — historical record of changes, rotations, policy evaluations
 - **Policy configuration UI** — rotation schedules, compliance framework selection, alerting rules
@@ -327,7 +327,7 @@ The local UI familiarizes developers with the matrix model and Clef's mental mod
 ## Recommended Build Sequence
 
 1. **`clef report` CLI command** — metadata extraction and structured output. This is the foundation everything else depends on.
-2. **Clef Cloud API** — receives reports, stores metadata, evaluates policies.
+2. **Clef Pro API** — receives reports, stores metadata, evaluates policies.
 3. **GitHub App (minimal)** — webhook receiver + `actions:write` for triggering CI.
 4. **Dashboard** — org-wide compliance posture, per-repo status, drift alerts.
 5. **`clef audit` local evaluation** — same policy engine running offline via CLI.

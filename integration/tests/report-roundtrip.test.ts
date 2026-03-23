@@ -205,7 +205,7 @@ describe("clef report --since", () => {
 });
 
 describe("clef report --push", () => {
-  it("should error when no API token is provided", () => {
+  it("should error when CLEF_TELEMETRY_URL is not set", () => {
     const result = spawnSync("node", [clefBin, "report", "--push"], {
       cwd: repo.dir,
       env: { ...process.env, SOPS_AGE_KEY_FILE: keys.keyFilePath },
@@ -213,17 +213,6 @@ describe("clef report --push", () => {
     });
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("API token");
-  });
-
-  it("should error when cloud.integrationId is missing from manifest", () => {
-    const result = spawnSync("node", [clefBin, "report", "--push", "--api-token", "tok_test"], {
-      cwd: repo.dir,
-      env: { ...process.env, SOPS_AGE_KEY_FILE: keys.keyFilePath },
-      encoding: "utf8",
-    });
-
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("integrationId");
+    expect(result.stderr).toContain("CLEF_TELEMETRY_URL");
   });
 });

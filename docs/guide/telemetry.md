@@ -1,6 +1,6 @@
 # Telemetry
 
-Clef emits structured telemetry events via [OTLP](https://opentelemetry.io/docs/specs/otlp/) (OpenTelemetry Protocol) over HTTP. Events cover the full lifecycle — artifact refreshes, revocations, expiry, fetch failures, and agent start/stop. Point the endpoint at any OTLP-compatible backend: Grafana, Datadog, Honeycomb, a self-hosted OTel Collector, or Clef Cloud.
+Clef emits structured telemetry events via [OTLP](https://opentelemetry.io/docs/specs/otlp/) (OpenTelemetry Protocol) over HTTP. Events cover the full lifecycle — artifact refreshes, revocations, expiry, fetch failures, and agent start/stop. Point the endpoint at any OTLP-compatible backend: Grafana, Datadog, Honeycomb, a self-hosted OTel Collector, or Clef Pro.
 
 ## When to use telemetry
 
