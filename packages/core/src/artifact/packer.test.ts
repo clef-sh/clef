@@ -119,7 +119,7 @@ describe("ArtifactPacker", () => {
     expect(written.version).toBe(1);
     expect(written.identity).toBe("api-gateway");
     expect(written.environment).toBe("dev");
-    expect(written.ciphertext).toContain("BEGIN AGE ENCRYPTED FILE");
+    expect(written.ciphertext).toBeTruthy();
     expect(written.keys).toEqual(["DATABASE_URL", "API_KEY"]);
     expect(written.ciphertextHash).toMatch(/^[0-9a-f]{64}$/);
     expect(written.packedAt).toBeTruthy();
@@ -268,7 +268,8 @@ describe("ArtifactPacker", () => {
     const writtenJson = String(mockFs.writeFileSync.mock.calls[0][1]);
     const written: PackedArtifact = JSON.parse(writtenJson);
     expect(typeof written.ciphertext).toBe("string");
-    expect(written.ciphertext).toBe(ageText);
+    // Uint8Array is base64-encoded for JSON-safe transport
+    expect(written.ciphertext).toBe(Buffer.from(ageText).toString("base64"));
     // Must not contain byte-indexed keys from raw Uint8Array serialization
     expect(writtenJson).not.toContain('"0":');
 
@@ -294,7 +295,8 @@ describe("ArtifactPacker", () => {
     const writtenJson = String(mockFs.writeFileSync.mock.calls[0][1]);
     expect(writtenJson).not.toContain("postgres://secret-host");
     expect(writtenJson).not.toContain("sk-secret123");
-    expect(writtenJson).toContain("BEGIN AGE ENCRYPTED FILE");
+    // Ciphertext should be present (base64-encoded)
+    expect(JSON.parse(writtenJson).ciphertext).toBeTruthy();
   });
 
   describe("KMS envelope encryption", () => {

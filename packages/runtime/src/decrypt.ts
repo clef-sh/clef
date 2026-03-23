@@ -19,7 +19,14 @@ export class AgeDecryptor {
     const { Decrypter } = await import("age-encryption" as any);
     const d = new Decrypter();
     d.addIdentity(privateKey);
-    return d.decrypt(ciphertext, "text");
+
+    // age binary format cannot survive JSON string round-trip (TextDecoder loses
+    // high bytes). If the ciphertext looks like base64 (no "age-encryption.org"
+    // header), decode to a Buffer so the age library receives intact bytes.
+    const input = ciphertext.startsWith("age-encryption.org")
+      ? ciphertext
+      : Buffer.from(ciphertext, "base64");
+    return d.decrypt(input, "text");
   }
 
   /**

@@ -19,7 +19,9 @@
     "build": "node scripts/build.mjs",
     "build:sea": "node scripts/build.mjs --sea",
     "test": "jest",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "test:integration": "jest --config jest.integration.config.js",
+    "test:e2e": "jest --config jest.e2e.config.js"
   },
   "dependencies": {
     "@clef-sh/runtime": "*",

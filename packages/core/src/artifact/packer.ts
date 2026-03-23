@@ -60,7 +60,7 @@ export class ArtifactPacker {
         ciphertext =
           typeof encrypted === "string"
             ? encrypted
-            : new TextDecoder().decode(encrypted as Uint8Array);
+            : Buffer.from(encrypted as Uint8Array).toString("base64");
       } catch {
         throw new Error("Failed to age-encrypt artifact with ephemeral key.");
       }
@@ -99,7 +99,7 @@ export class ArtifactPacker {
         ciphertext =
           typeof encrypted === "string"
             ? encrypted
-            : new TextDecoder().decode(encrypted as Uint8Array);
+            : Buffer.from(encrypted as Uint8Array).toString("base64");
       } catch {
         throw new Error("Failed to age-encrypt artifact. Check recipient key.");
       }
