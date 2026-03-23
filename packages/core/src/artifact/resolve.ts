@@ -1,4 +1,9 @@
-import { ClefManifest, EncryptionBackend, ServiceIdentityDefinition } from "../types";
+import {
+  ClefManifest,
+  EncryptionBackend,
+  ServiceIdentityDefinition,
+  ServiceIdentityEnvironmentConfig,
+} from "../types";
 import { MatrixManager } from "../matrix/manager";
 
 /** Resolved identity secrets: merged key/value map plus metadata. */
@@ -7,8 +12,10 @@ export interface ResolvedSecrets {
   values: Record<string, string>;
   /** The matched service identity definition. */
   identity: ServiceIdentityDefinition;
-  /** Age public key for the target environment. */
-  recipient: string;
+  /** Age public key for the target environment (undefined for KMS identities). */
+  recipient?: string;
+  /** Full environment config (age-only or KMS). */
+  envConfig: ServiceIdentityEnvironmentConfig;
 }
 
 /**
@@ -69,5 +76,6 @@ export async function resolveIdentitySecrets(
     values: allValues,
     identity,
     recipient: envConfig.recipient,
+    envConfig,
   };
 }

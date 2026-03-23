@@ -616,6 +616,40 @@ describe("ManifestParser", () => {
       expect(() => parser.validate(manifest)).toThrow(/invalid 'sops' field/);
     });
 
+    describe("cloud section validation", () => {
+      it("should accept a valid cloud section", () => {
+        const manifest = {
+          ...validManifest(),
+          cloud: { integrationId: "int_abc123" },
+        };
+        const result = parser.validate(manifest);
+        expect(result.cloud).toEqual({ integrationId: "int_abc123" });
+      });
+
+      it("should accept manifest without cloud section", () => {
+        const result = parser.validate(validManifest());
+        expect(result.cloud).toBeUndefined();
+      });
+
+      it("should reject cloud with missing integrationId", () => {
+        const manifest = { ...validManifest(), cloud: {} };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/integrationId/);
+      });
+
+      it("should reject cloud with non-string integrationId", () => {
+        const manifest = { ...validManifest(), cloud: { integrationId: 123 } };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/integrationId/);
+      });
+
+      it("should reject non-object cloud field", () => {
+        const manifest = { ...validManifest(), cloud: "not-an-object" };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/must be an object/);
+      });
+    });
+
     describe("service_identities validation", () => {
       const testRecipient = "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p";
 
@@ -809,6 +843,141 @@ describe("ManifestParser", () => {
         };
         expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
         expect(() => parser.validate(manifest)).toThrow(/must be an array/);
+      });
+
+      it("should accept a valid KMS service identity", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "kms-svc",
+              description: "KMS service",
+              namespaces: ["database"],
+              environments: {
+                dev: { kms: { provider: "aws", keyId: "arn:aws:kms:us-east-1:111:key/dev" } },
+                staging: { kms: { provider: "aws", keyId: "arn:aws:kms:us-east-1:222:key/stg" } },
+                production: {
+                  kms: {
+                    provider: "aws",
+                    keyId: "arn:aws:kms:us-west-2:333:key/prd",
+                    region: "us-west-2",
+                  },
+                },
+              },
+            },
+          ],
+        };
+        const result = parser.validate(manifest);
+        expect(result.service_identities).toHaveLength(1);
+        expect(result.service_identities![0].environments.dev.kms).toEqual({
+          provider: "aws",
+          keyId: "arn:aws:kms:us-east-1:111:key/dev",
+          region: undefined,
+        });
+        expect(result.service_identities![0].environments.production.kms?.region).toBe("us-west-2");
+      });
+
+      it("should reject both recipient and kms (mutual exclusion)", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "bad-svc",
+              description: "Bad config",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient, kms: { provider: "aws", keyId: "arn:..." } },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/mutually exclusive/);
+      });
+
+      it("should reject neither recipient nor kms", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "empty-svc",
+              description: "Empty config",
+              namespaces: ["database"],
+              environments: {
+                dev: {},
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/must have either/);
+      });
+
+      it("should reject invalid KMS provider", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "bad-provider",
+              description: "Bad provider",
+              namespaces: ["database"],
+              environments: {
+                dev: { kms: { provider: "oracle", keyId: "key-123" } },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/kms\.provider must be one of/);
+      });
+
+      it("should reject KMS config with missing keyId", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "no-keyid",
+              description: "Missing keyId",
+              namespaces: ["database"],
+              environments: {
+                dev: { kms: { provider: "aws" } },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/kms\.keyId must be a non-empty string/);
+      });
+
+      it("should allow mixed age and KMS environments", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "mixed-svc",
+              description: "Mixed environments",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: {
+                  kms: { provider: "aws", keyId: "arn:aws:kms:us-west-2:333:key/prd" },
+                },
+              },
+            },
+          ],
+        };
+        const result = parser.validate(manifest);
+        expect(result.service_identities![0].environments.dev.recipient).toBeTruthy();
+        expect(result.service_identities![0].environments.production.kms).toBeTruthy();
       });
     });
   });

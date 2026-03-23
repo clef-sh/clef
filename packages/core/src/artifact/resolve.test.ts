@@ -88,6 +88,7 @@ describe("resolveIdentitySecrets", () => {
     expect(result.values).toEqual({ DATABASE_URL: "postgres://...", API_KEY: "secret123" });
     expect(result.identity.name).toBe("api-gateway");
     expect(result.recipient).toBe("age1devkey");
+    expect(result.envConfig).toEqual({ recipient: "age1devkey" });
   });
 
   it("should use namespace-prefixed keys for multi-namespace identity", async () => {
@@ -162,6 +163,39 @@ describe("resolveIdentitySecrets", () => {
     // With multi-namespace, keys are prefixed, so no collision
     expect(result.values["api__SAME_KEY"]).toBe("val_a");
     expect(result.values["database__SAME_KEY"]).toBe("val_b");
+  });
+
+  it("should resolve envConfig for KMS identity", async () => {
+    const manifest = baseManifest();
+    manifest.service_identities!.push({
+      name: "kms-svc",
+      description: "KMS service",
+      namespaces: ["api"],
+      environments: {
+        dev: { kms: { provider: "aws", keyId: "arn:aws:kms:us-east-1:111:key/test" } },
+      },
+    });
+
+    const decrypted: DecryptedFile = {
+      values: { SECRET: "val" },
+      metadata: { backend: "age", recipients: [], lastModified: new Date() },
+    };
+    encryption.decrypt.mockResolvedValue(decrypted);
+
+    const result = await resolveIdentitySecrets(
+      "kms-svc",
+      "dev",
+      manifest,
+      "/repo",
+      encryption,
+      matrixManager,
+    );
+
+    expect(result.recipient).toBeUndefined();
+    expect(result.envConfig.kms).toEqual({
+      provider: "aws",
+      keyId: "arn:aws:kms:us-east-1:111:key/test",
+    });
   });
 
   it("should handle zero keys gracefully", async () => {

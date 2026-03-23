@@ -1,4 +1,4 @@
-import { ArtifactPoller } from "../poller";
+import { ArtifactPoller, TelemetryEmitter } from "@clef-sh/runtime";
 import { AgentServerHandle } from "../server";
 
 /** Event types returned by the Lambda Extensions API. */
@@ -13,6 +13,7 @@ export interface LambdaExtensionOptions {
   server: AgentServerHandle;
   /** TTL in seconds — refresh artifact if older than this on INVOKE. */
   refreshTtl: number;
+  telemetry?: TelemetryEmitter;
   onLog?: (message: string) => void;
 }
 
@@ -25,14 +26,16 @@ export interface LambdaExtensionOptions {
 export class LambdaExtension {
   private lastRefresh = 0;
   private readonly options: LambdaExtensionOptions;
+  private readonly startedAt: number;
 
   constructor(options: LambdaExtensionOptions) {
     this.options = options;
+    this.startedAt = Date.now();
   }
 
   /** Run the Lambda Extension lifecycle. */
   async start(): Promise<void> {
-    const { poller, server, onLog, refreshTtl } = this.options;
+    const { poller, server, onLog, refreshTtl, telemetry } = this.options;
 
     const extensionId = await this.register();
     onLog?.(`Registered with Lambda Extensions API (id: ${extensionId})`);
@@ -50,6 +53,15 @@ export class LambdaExtension {
       if (event.eventType === "SHUTDOWN") {
         onLog?.("SHUTDOWN event received.");
         poller.stop();
+        telemetry?.agentStopped({
+          reason: "lambda_shutdown",
+          uptimeSeconds: Math.round((Date.now() - this.startedAt) / 1000),
+        });
+        try {
+          await telemetry?.stopAsync();
+        } catch {
+          // Best-effort flush
+        }
         await server.stop();
         break;
       }

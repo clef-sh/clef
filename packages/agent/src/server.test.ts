@@ -1,6 +1,6 @@
 import * as http from "http";
 import { startAgentServer, AgentServerHandle } from "./server";
-import { SecretsCache } from "./cache";
+import { SecretsCache } from "@clef-sh/runtime";
 import type { AddressInfo } from "net";
 
 let handle: AgentServerHandle;
@@ -34,22 +34,30 @@ describe("Agent HTTP server", () => {
   });
 
   describe("unauthenticated endpoints", () => {
-    it("GET /v1/health should return ok", async () => {
+    it("GET /v1/health should return ok with TTL fields", async () => {
       const { status, body } = await getJson("/v1/health");
       expect(status).toBe(200);
-      expect(body).toEqual({ status: "ok", revision: null });
+      expect(body).toEqual({
+        status: "ok",
+        revision: null,
+        lastRefreshAt: null,
+        expired: false,
+      });
     });
 
-    it("GET /v1/health should include revision when cache loaded", async () => {
+    it("GET /v1/health should include revision and lastRefreshAt when cache loaded", async () => {
       cache.swap({ KEY: "val" }, ["KEY"], "rev42");
       const { body } = await getJson("/v1/health");
-      expect(body).toEqual({ status: "ok", revision: "rev42" });
+      expect((body as Record<string, unknown>).status).toBe("ok");
+      expect((body as Record<string, unknown>).revision).toBe("rev42");
+      expect((body as Record<string, unknown>).lastRefreshAt).toEqual(expect.any(Number));
+      expect((body as Record<string, unknown>).expired).toBe(false);
     });
 
     it("GET /v1/ready should return 503 when cache not loaded", async () => {
       const { status, body } = await getJson("/v1/ready");
       expect(status).toBe(503);
-      expect(body).toEqual({ ready: false });
+      expect(body).toEqual({ ready: false, reason: "not_loaded" });
     });
 
     it("GET /v1/ready should return 200 when cache loaded", async () => {
@@ -145,6 +153,91 @@ describe("Agent HTTP server", () => {
         req.end();
       });
       expect(status).toBe(403);
+    });
+  });
+
+  describe("cache TTL guard", () => {
+    const TTL_PORT = 19780;
+    let ttlHandle: AgentServerHandle;
+    let ttlCache: SecretsCache;
+
+    async function getTtlJson(
+      path: string,
+      token?: string,
+    ): Promise<{ status: number; body: unknown }> {
+      const headers: Record<string, string> = {
+        Host: `127.0.0.1:${TTL_PORT}`,
+      };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(`http://127.0.0.1:${TTL_PORT}${path}`, { headers });
+      const body = await res.json();
+      return { status: res.status, body };
+    }
+
+    beforeEach(async () => {
+      ttlCache = new SecretsCache();
+      ttlHandle = await startAgentServer({
+        port: TTL_PORT,
+        token: TOKEN,
+        cache: ttlCache,
+        cacheTtl: 10,
+      });
+    });
+
+    afterEach(async () => {
+      if (ttlHandle) await ttlHandle.stop();
+    });
+
+    it("should return 503 on /v1/secrets when cache is expired", async () => {
+      // Swap with a timestamp in the past
+      const now = Date.now();
+      jest.spyOn(Date, "now").mockReturnValueOnce(now - 20_000);
+      ttlCache.swap({ KEY: "val" }, ["KEY"], "rev1");
+      jest.spyOn(Date, "now").mockReturnValue(now);
+
+      const { status, body } = await getTtlJson("/v1/secrets", TOKEN);
+      expect(status).toBe(503);
+      expect(body).toEqual({ error: "Secrets expired" });
+    });
+
+    it("should return 503 on /v1/keys when cache is expired", async () => {
+      const now = Date.now();
+      jest.spyOn(Date, "now").mockReturnValueOnce(now - 20_000);
+      ttlCache.swap({ KEY: "val" }, ["KEY"], "rev1");
+      jest.spyOn(Date, "now").mockReturnValue(now);
+
+      const { status, body } = await getTtlJson("/v1/keys", TOKEN);
+      expect(status).toBe(503);
+      expect(body).toEqual({ error: "Secrets expired" });
+    });
+
+    it("should serve secrets normally when cache is fresh", async () => {
+      ttlCache.swap({ KEY: "val" }, ["KEY"], "rev1");
+
+      const { status, body } = await getTtlJson("/v1/secrets", TOKEN);
+      expect(status).toBe(200);
+      expect(body).toEqual({ KEY: "val" });
+    });
+
+    it("GET /v1/health should report expired=true when cache is expired", async () => {
+      const now = Date.now();
+      jest.spyOn(Date, "now").mockReturnValueOnce(now - 20_000);
+      ttlCache.swap({ KEY: "val" }, ["KEY"], "rev1");
+      jest.spyOn(Date, "now").mockReturnValue(now);
+
+      const { body } = await getTtlJson("/v1/health");
+      expect((body as Record<string, unknown>).expired).toBe(true);
+    });
+
+    it("GET /v1/ready should return 503 with reason cache_expired", async () => {
+      const now = Date.now();
+      jest.spyOn(Date, "now").mockReturnValueOnce(now - 20_000);
+      ttlCache.swap({ KEY: "val" }, ["KEY"], "rev1");
+      jest.spyOn(Date, "now").mockReturnValue(now);
+
+      const { status, body } = await getTtlJson("/v1/ready");
+      expect(status).toBe(503);
+      expect(body).toEqual({ ready: false, reason: "cache_expired" });
     });
   });
 });

@@ -14,6 +14,8 @@ import {
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
+import { lintResultToOtlp, pushOtlp, resolveTelemetryConfig } from "../output/otlp";
+import { version as cliVersion } from "../../package.json";
 
 export function registerLintCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -26,7 +28,8 @@ export function registerLintCommand(program: Command, deps: { runner: Subprocess
     )
     .option("--fix", "Auto-fix safe issues (scaffold missing files)")
     .option("--json", "Output raw LintResult JSON")
-    .action(async (options: { fix?: boolean; json?: boolean }) => {
+    .option("--push", "Push results as OTLP to CLEF_TELEMETRY_URL")
+    .action(async (options: { fix?: boolean; json?: boolean; push?: boolean }) => {
       try {
         const repoRoot = (program.opts().dir as string) || process.cwd();
         const parser = new ManifestParser();
@@ -42,6 +45,18 @@ export function registerLintCommand(program: Command, deps: { runner: Subprocess
           result = await lintRunner.fix(manifest, repoRoot);
         } else {
           result = await lintRunner.run(manifest, repoRoot);
+        }
+
+        if (options.push) {
+          const config = resolveTelemetryConfig();
+          if (!config) {
+            formatter.error("--push requires CLEF_TELEMETRY_URL to be set.");
+            process.exit(1);
+            return;
+          }
+          const payload = lintResultToOtlp(result, cliVersion);
+          await pushOtlp(payload, config);
+          formatter.success("Lint results pushed to telemetry endpoint.");
         }
 
         if (options.json) {

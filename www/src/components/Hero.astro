@@ -17,13 +17,13 @@
   </svg>
 
   <!-- Ghost Treble Clef: same SVG file as site header, opacity ghost -->
-  <!-- <img
+  <img
     src="/clef.svg"
     alt=""
     aria-hidden="true"
     style="position:absolute;left:-20px;top:50%;transform:translateY(-50%);height:70px;width:200px;opacity:0.08;pointer-events:none;z-index:0;"
-  /> -->
-  <span class="font-mono text-clef-accent text-3xl" style="position:absolute;left:30px;top:52%;transform:translateY(-50%);height:70px;width:200px;opacity:0.08;pointer-events:none;z-index:0;">&</span>
+  />
+  <!-- <span class="font-mono text-clef-accent text-3xl" style="position:absolute;left:30px;top:52%;transform:translateY(-50%);height:70px;width:200px;opacity:0.08;pointer-events:none;z-index:0;">&</span> -->
   <!-- All hero content sits above decorative layers -->
   <div class="relative z-1">
 
@@ -45,16 +45,19 @@
         <h1
           class="mb-5 max-w-190 text-[clamp(34px,5vw,62px)] font-bold leading-[1.08] tracking-tight text-clef-text"
         >
-          Every environment in
+          Zero custody.
           <br />
-          <span class="text-clef-accent">harmony.</span>
+          <span class="text-clef-accent">Zero ops.</span>
         </h1>
 
         <!-- Subtext -->
         <p class="max-w-140 text-[17px] leading-relaxed text-clef-textSecondary">
-          Clef brings structure, schema enforcement, and a local UI to Mozilla SOPS.
-          Your secrets stay under version control, encrypted by your KMS — no hosted service,
-          no sync step, no external state to manage.
+          Your secrets live in git, encrypted by your KMS. No hosted vault,
+          no external state, no vendor with access to your keys.
+          Clef governs the process — not the data.
+        </p>
+        <p class="mt-2 max-w-140 text-[14px] text-clef-textMuted">
+          Built on <a href="https://github.com/getsops/sops" class="text-clef-textSecondary underline-offset-2 hover:underline">Mozilla SOPS</a>. Encrypted at rest with age or your cloud KMS.
         </p>
 
         <!-- Install Command Pill -->
@@ -117,13 +120,13 @@
           </a>
         </div>
 
-        <!-- Clef Cloud teaser -->
+        <!-- Clef Pro teaser -->
         <p class="mt-2 text-[13px] text-clef-textMuted">
-          Teams and enterprise?
+          The governance layer. No custody required.
           <a
-            href="https://clef.sh/cloud"
+            href="https://pro.clef.sh"
             class="text-clef-accent underline-offset-2 hover:underline"
-          >Clef Cloud — request early access &rarr;</a>
+          >Clef Pro &rarr;</a>
         </p>
       </div><!-- /.hero-text -->
 

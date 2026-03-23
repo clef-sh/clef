@@ -687,6 +687,28 @@ sops:
       expect(metadata.backend).toBe("gcpkms");
     });
 
+    it("should detect Azure Key Vault backend", async () => {
+      const azureYaml = `data: ENC[AES256_GCM,data:test=]
+sops:
+  azure_kv:
+    - vaultUrl: https://my-vault.vault.azure.net
+      name: my-key
+      version: abc123
+      enc: testenc
+  lastmodified: "2024-01-15T10:30:00Z"
+  version: 3.8.1`;
+
+      mockReadFileSync.mockReturnValue(azureYaml);
+      const runner = mockRunner({
+        "sops filestatus": { stdout: "", stderr: "", exitCode: 1 },
+      });
+
+      const client = new SopsClient(runner);
+      const metadata = await client.getMetadata("database/dev.enc.yaml");
+      expect(metadata.backend).toBe("azurekv");
+      expect(metadata.recipients).toEqual(["https://my-vault.vault.azure.net/keys/my-key"]);
+    });
+
     it("should detect PGP backend", async () => {
       const pgpYaml = `data: ENC[AES256_GCM,data:test=]
 sops:
@@ -741,6 +763,25 @@ sops:
       const client = new SopsClient(runner);
       const metadata = await client.getMetadata("database/dev.enc.yaml");
       expect(metadata.backend).toBe("gcpkms");
+      expect(metadata.recipients).toEqual([""]);
+    });
+
+    it("should handle Azure KV entries with missing vaultUrl/name", async () => {
+      const azureYaml = `data: ENC[AES256_GCM,data:test=]
+sops:
+  azure_kv:
+    - enc: testenc
+  lastmodified: "2024-01-15T10:30:00Z"
+  version: 3.8.1`;
+
+      mockReadFileSync.mockReturnValue(azureYaml);
+      const runner = mockRunner({
+        "sops filestatus": { stdout: "", stderr: "", exitCode: 1 },
+      });
+
+      const client = new SopsClient(runner);
+      const metadata = await client.getMetadata("database/dev.enc.yaml");
+      expect(metadata.backend).toBe("azurekv");
       expect(metadata.recipients).toEqual([""]);
     });
 
@@ -888,6 +929,30 @@ sops:
       expect(sopsCall![1]).toContain("--gcp-kms");
     });
 
+    it("should pass --azure-kv for azurekv backend", async () => {
+      const runFn = jest.fn(async (command: string, _args: string[]) => {
+        if (command === "sops") return { stdout: "encrypted", stderr: "", exitCode: 0 };
+        return { stdout: "", stderr: "", exitCode: 0 };
+      });
+
+      const client = new SopsClient({ run: runFn });
+      const manifest: ClefManifest = {
+        ...testManifest(),
+        sops: {
+          default_backend: "azurekv",
+          azure_kv_url: "https://my-vault.vault.azure.net/keys/my-key/abc123",
+        },
+      };
+
+      await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest);
+
+      const sopsCall = runFn.mock.calls.find(
+        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+      );
+      expect(sopsCall![1]).toContain("--azure-kv");
+      expect(sopsCall![1]).toContain("https://my-vault.vault.azure.net/keys/my-key/abc123");
+    });
+
     it("should pass --pgp for pgp backend", async () => {
       const runFn = jest.fn(async (command: string, _args: string[]) => {
         if (command === "sops") return { stdout: "encrypted", stderr: "", exitCode: 0 };
@@ -967,6 +1032,36 @@ sops:
       );
       expect(sopsCall![1]).toContain("--gcp-kms");
       expect(sopsCall![1]).toContain("projects/prod/locations/global/keyRings/r/cryptoKeys/k");
+    });
+
+    it("should resolve per-env azurekv backend when environment is provided", async () => {
+      const runFn = jest.fn(async (command: string, _args: string[]) => {
+        if (command === "sops") return { stdout: "encrypted", stderr: "", exitCode: 0 };
+        return { stdout: "", stderr: "", exitCode: 0 };
+      });
+
+      const client = new SopsClient({ run: runFn });
+      const manifest: ClefManifest = {
+        ...testManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: {
+              backend: "azurekv",
+              azure_kv_url: "https://prod-vault.vault.azure.net/keys/prod-key/v1",
+            },
+          },
+        ],
+      };
+
+      await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest, "production");
+
+      const sopsCall = runFn.mock.calls.find(
+        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+      );
+      expect(sopsCall![1]).toContain("--azure-kv");
+      expect(sopsCall![1]).toContain("https://prod-vault.vault.azure.net/keys/prod-key/v1");
     });
 
     it("should fall back to global backend when env has no override", async () => {

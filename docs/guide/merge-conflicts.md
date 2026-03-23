@@ -41,7 +41,7 @@ When git detects a conflict on an `.enc.yaml` or `.enc.json` file, the Clef merg
 1. **Decrypts** all three versions in memory — base (common ancestor), ours (current branch), theirs (incoming branch)
 2. **Three-way merges** the plaintext key/value maps using the standard diff3 algorithm
 3. If the merge is **clean** (no conflicting keys) — re-encrypts the merged result and writes it back. Git sees a successful merge.
-4. If there is a **real conflict** (both sides changed the same key to different values) — reports the conflicting keys with their plaintext values so you can resolve them manually.
+4. If there is a **real conflict** (both sides changed the same key to different values) — reports the conflicting keys with their status (`has value` / `deleted` / `absent`) so you can resolve them manually. Plaintext values are never shown.
 
 For the Alice/Bob example:
 

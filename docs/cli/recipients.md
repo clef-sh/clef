@@ -6,8 +6,11 @@ Manage age public keys that can decrypt this repository's secrets.
 
 ```bash
 clef recipients list [-e <environment>]
-clef recipients add <age-public-key> [--label <name>] [-e <environment>]
+clef recipients add <age-public-key> [--label <name>] -e <environment>
 clef recipients remove <age-public-key> [-e <environment>]
+clef recipients request [--label <name>] [-e <environment>]
+clef recipients pending
+clef recipients approve <label-or-key> [-e <environment>]
 ```
 
 ## Description
@@ -37,14 +40,14 @@ Recipients — 3 keys can decrypt this repository
 
 ### add
 
-Add a new recipient and re-encrypt files.
+Add a new recipient and re-encrypt files for a specific environment. The `-e` flag is required — recipients must be added per-environment.
 
 ```bash
-clef recipients add age1abc... --label "Alice"
+clef recipients add age1abc... --label "Alice" -e dev
 clef recipients add age1abc... --label "Alice" -e production
 ```
 
-Validates the key, adds it to `clef.yaml`, and re-encrypts affected files. Without `-e`, the recipient can decrypt all environments; with `-e`, only that environment's files are re-encrypted.
+Validates the key, adds it to `clef.yaml`, and re-encrypts the environment's files. Run once per environment the recipient needs access to.
 
 ### remove
 
@@ -58,6 +61,39 @@ clef recipients remove age1def... -e production
 With `-e`, only the specified environment's files are re-encrypted and the recipient is removed from that environment's list only.
 
 This command requires interactive input and cannot be run in CI. See [Re-encryption vs revocation](#re-encryption-vs-revocation) for why.
+
+### request
+
+Publish your public key so a team member can approve it — no out-of-band key exchange needed.
+
+```bash
+clef recipients request
+clef recipients request --label "Alice"
+clef recipients request --label "Alice" -e staging
+```
+
+Derives your public key from the private key created during `clef init`, writes it to `.clef-requests.yaml`, and prints a commit hint. The label defaults to `git config user.name` if not provided.
+
+### pending
+
+List pending access requests.
+
+```bash
+clef recipients pending
+```
+
+Shows all requests in `.clef-requests.yaml` with labels, key previews, age, and environment scope.
+
+### approve
+
+Approve a pending request and re-encrypt files for an environment. Uses the environment from the request if one was specified, otherwise `-e` is required.
+
+```bash
+clef recipients approve Alice -e dev
+clef recipients approve Alice    # uses environment from request
+```
+
+Runs the same confirmation and re-encryption flow as `add`, then removes the request from `.clef-requests.yaml`.
 
 ## Re-encryption vs revocation
 

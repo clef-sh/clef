@@ -44,12 +44,29 @@ export { RecipientManager } from "./recipients";
 export type { Recipient, RecipientsResult } from "./recipients";
 export { validateAgePublicKey, keyPreview } from "./recipients/validator";
 export type { AgeKeyValidation } from "./recipients/validator";
+export {
+  REQUESTS_FILENAME,
+  requestsFilePath,
+  loadRequests,
+  saveRequests,
+  upsertRequest,
+  removeRequest as removeAccessRequest,
+  findRequest,
+} from "./recipients/requests";
+export type { RecipientRequest } from "./recipients/requests";
 export { DriftDetector } from "./drift/detector";
-export { ReportGenerator, ReportSanitizer } from "./report";
+export {
+  ReportGenerator,
+  ReportSanitizer,
+  ReportTransformer,
+  CloudClient,
+  collectCIContext,
+} from "./report";
 export { SopsMergeDriver } from "./merge/driver";
 export type { MergeResult, MergeKey, MergeKeyStatus } from "./merge/driver";
 export { ServiceIdentityManager, PartialRotationError } from "./service-identity/manager";
 export { resolveIdentitySecrets } from "./artifact/resolve";
 export type { ResolvedSecrets } from "./artifact/resolve";
 export { ArtifactPacker } from "./artifact/packer";
-export type { PackedArtifact, PackConfig, PackResult } from "./artifact/types";
+export type { PackedArtifact, PackConfig, PackResult, ArtifactEnvelope } from "./artifact/types";
+export type { KmsProvider, KmsWrapResult, KmsProviderType } from "./kms";

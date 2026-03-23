@@ -1,3 +1,15 @@
+/** KMS envelope metadata for artifacts using KMS envelope encryption. */
+export interface ArtifactEnvelope {
+  /** KMS provider that wrapped the DEK (e.g. "aws", "gcp", "azure"). */
+  provider: string;
+  /** KMS key ARN/ID used to wrap the ephemeral age private key. */
+  keyId: string;
+  /** Base64-encoded wrapped ephemeral age private key (DEK). */
+  wrappedKey: string;
+  /** KMS encryption algorithm (e.g. "SYMMETRIC_DEFAULT"). */
+  algorithm: string;
+}
+
 /** JSON envelope for a packed artifact. Language-agnostic, forward-compatible. */
 export interface PackedArtifact {
   version: 1;
@@ -15,6 +27,10 @@ export interface PackedArtifact {
   ciphertext: string;
   /** Secret key names for introspection (not the values). */
   keys: string[];
+  /** KMS envelope metadata. Present when the identity uses KMS envelope encryption. */
+  envelope?: ArtifactEnvelope;
+  /** ISO-8601 expiry timestamp. Artifact is rejected after this time. */
+  expiresAt?: string;
 }
 
 /** Configuration for the `pack` command. */
@@ -25,6 +41,8 @@ export interface PackConfig {
   environment: string;
   /** Local file path to write the artifact JSON to. */
   outputPath: string;
+  /** TTL in seconds — embeds an `expiresAt` timestamp in the artifact envelope. */
+  ttl?: number;
 }
 
 /** Result of a pack operation. */

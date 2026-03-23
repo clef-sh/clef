@@ -6,41 +6,118 @@
  * cache, server, and daemon, then starts the daemon lifecycle.
  */
 import { resolveConfig, ConfigError } from "./config";
-import { AgeDecryptor } from "./decryptor";
-import { SecretsCache } from "./cache";
-import { ArtifactPoller } from "./poller";
+import {
+  SecretsCache,
+  AgeDecryptor,
+  ArtifactPoller,
+  createVcsProvider,
+  VcsArtifactSource,
+  HttpArtifactSource,
+  FileArtifactSource,
+  DiskCache,
+  TelemetryEmitter,
+} from "@clef-sh/runtime";
+import type { ArtifactSource } from "@clef-sh/runtime";
 import { startAgentServer } from "./server";
 import { Daemon } from "./lifecycle/daemon";
+
+import { version as agentVersion } from "../package.json";
 
 async function main(): Promise<void> {
   const config = resolveConfig();
 
-  const decryptor = new AgeDecryptor();
-  const privateKey = decryptor.resolveKey(config.ageKey, config.ageKeyFile);
+  // Age key is optional — KMS envelope artifacts don't need one
+  let privateKey: string | undefined;
+  try {
+    const decryptor = new AgeDecryptor();
+    privateKey = decryptor.resolveKey(config.ageKey, config.ageKeyFile);
+  } catch {
+    // OK — will work if artifact uses KMS envelope encryption
+  }
+
+  // Construct artifact source
+  let source: ArtifactSource;
+  if (config.vcs) {
+    const provider = createVcsProvider({
+      provider: config.vcs.provider,
+      repo: config.vcs.repo,
+      token: config.vcs.token,
+      ref: config.vcs.ref,
+      apiUrl: config.vcs.apiUrl,
+    });
+    source = new VcsArtifactSource(provider, config.vcs.identity, config.vcs.environment);
+  } else if (config.source) {
+    source =
+      config.source.startsWith("http://") || config.source.startsWith("https://")
+        ? new HttpArtifactSource(config.source)
+        : new FileArtifactSource(config.source);
+  } else {
+    throw new ConfigError("No artifact source configured.");
+  }
+
+  const diskCache =
+    config.cachePath && config.vcs
+      ? new DiskCache(config.cachePath, config.vcs.identity, config.vcs.environment)
+      : undefined;
 
   const cache = new SecretsCache();
   const poller = new ArtifactPoller({
-    source: config.source,
+    source,
     privateKey,
     cache,
-    pollInterval: config.pollInterval,
+    diskCache,
+    cacheTtl: config.cacheTtl,
     onError: (err) => console.error(`[clef-agent] poll error: ${err.message}`),
   });
 
   await poller.fetchAndDecrypt();
 
+  // Telemetry setup — after first fetch so the auth token can be read from packed secrets
+  let telemetry: TelemetryEmitter | undefined;
+
+  if (config.telemetry) {
+    // Resolve auth headers from packed secrets
+    const headers: Record<string, string> = {};
+    const headersRaw = cache.get("CLEF_TELEMETRY_HEADERS");
+    const tokenRaw = cache.get("CLEF_TELEMETRY_TOKEN");
+    if (headersRaw) {
+      // Comma-separated key=value pairs (OTEL convention)
+      for (const pair of headersRaw.split(",")) {
+        const eq = pair.indexOf("=");
+        if (eq > 0) headers[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim();
+      }
+    } else if (tokenRaw) {
+      headers["Authorization"] = `Bearer ${tokenRaw}`;
+    }
+
+    const sourceType = config.vcs ? "vcs" : config.source?.startsWith("http") ? "http" : "file";
+    telemetry = new TelemetryEmitter({
+      url: config.telemetry.url,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
+      version: agentVersion,
+      agentId: config.agentId,
+      identity: config.vcs?.identity ?? "unknown",
+      environment: config.vcs?.environment ?? "unknown",
+      sourceType,
+    });
+    poller.setTelemetry(telemetry);
+  }
+
   const server = await startAgentServer({
     port: config.port,
     token: config.token,
     cache,
+    cacheTtl: config.cacheTtl,
   });
 
   const daemon = new Daemon({
     poller,
     server,
+    telemetry,
     onLog: (msg) => console.log(`[clef-agent] ${msg}`),
   });
 
+  telemetry?.agentStarted({ version: agentVersion });
   console.log(`[clef-agent] token: ${config.token.slice(0, 8)}...`);
   await daemon.start();
 }
