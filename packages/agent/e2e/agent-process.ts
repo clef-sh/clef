@@ -115,6 +115,16 @@ export async function startAgent(
           port,
           stop: () =>
             new Promise<void>((res) => {
+              // Detach data listeners and destroy streams before killing
+              // to prevent ECONNRESET on Windows when TerminateProcess
+              // severs pipes mid-read.
+              proc.stdout!.removeAllListeners("data");
+              proc.stderr!.removeAllListeners("data");
+              proc.stdout!.destroy();
+              proc.stderr!.destroy();
+              proc.stdin!.destroy();
+              proc.removeAllListeners("error");
+              proc.on("error", () => {});
               proc.once("exit", () => res());
               proc.kill();
               // Force-resolve after 5s in case exit event never fires
