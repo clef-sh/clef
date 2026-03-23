@@ -52,6 +52,9 @@ npm-debug.log*
 
 platforms/*/bin/sops
 
+# SEA config (generated during build:sea with content-hashed filenames)
+packages/cli/sea-config.json
+
 # Blackbox test runs
 .blackbox-runs/
 
