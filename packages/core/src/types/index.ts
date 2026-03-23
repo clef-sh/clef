@@ -49,9 +49,10 @@ export interface ClefManifest {
 
 /** Per-environment SOPS backend override. */
 export interface EnvironmentSopsOverride {
-  backend: "age" | "awskms" | "gcpkms" | "pgp";
+  backend: "age" | "awskms" | "gcpkms" | "azurekv" | "pgp";
   aws_kms_arn?: string;
   gcp_kms_resource_id?: string;
+  azure_kv_url?: string;
   pgp_fingerprint?: string;
 }
 
@@ -81,6 +82,7 @@ export function resolveBackendConfig(
     backend: manifest.sops.default_backend,
     aws_kms_arn: manifest.sops.aws_kms_arn,
     gcp_kms_resource_id: manifest.sops.gcp_kms_resource_id,
+    azure_kv_url: manifest.sops.azure_kv_url,
     pgp_fingerprint: manifest.sops.pgp_fingerprint,
   };
 }
@@ -111,9 +113,10 @@ export interface ClefNamespace {
 
 /** SOPS encryption backend configuration from the manifest. */
 export interface SopsConfig {
-  default_backend: "age" | "awskms" | "gcpkms" | "pgp";
+  default_backend: "age" | "awskms" | "gcpkms" | "azurekv" | "pgp";
   aws_kms_arn?: string;
   gcp_kms_resource_id?: string;
+  azure_kv_url?: string;
   pgp_fingerprint?: string;
 }
 
@@ -292,8 +295,8 @@ export interface DecryptedFile {
 
 /** SOPS metadata extracted from an encrypted file without decrypting its values. */
 export interface SopsMetadata {
-  backend: "age" | "awskms" | "gcpkms" | "pgp";
-  /** List of recipient identifiers (age public keys, KMS ARNs, PGP fingerprints). */
+  backend: "age" | "awskms" | "gcpkms" | "azurekv" | "pgp";
+  /** List of recipient identifiers (age public keys, KMS ARNs, Azure KV URLs, PGP fingerprints). */
   recipients: string[];
   lastModified: Date;
 }

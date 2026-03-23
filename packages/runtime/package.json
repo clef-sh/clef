@@ -21,7 +21,10 @@
     "age-encryption": "^0.3.0"
   },
   "optionalDependencies": {
-    "@aws-sdk/client-kms": "^3.500.0"
+    "@aws-sdk/client-kms": "^3.500.0",
+    "@azure/identity": "^4.0.0",
+    "@azure/keyvault-keys": "^4.8.0",
+    "@google-cloud/kms": "^4.0.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
