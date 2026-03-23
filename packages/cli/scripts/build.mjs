@@ -29,7 +29,13 @@ const BASE_CONFIG = {
   // Ensure packages hoisted to the workspace root are always found.
   nodePaths: [resolve(repoRoot, "node_modules")],
   // fsevents is an optional native dep of chokidar and cannot be bundled.
-  external: ["fsevents", "@aws-sdk/client-kms"],
+  external: [
+    "fsevents",
+    "@aws-sdk/client-kms",
+    "@azure/identity",
+    "@azure/keyvault-keys",
+    "@google-cloud/kms",
+  ],
   // Alias @clef-sh/core to its TypeScript source files.
   //
   // @clef-sh/core's package.json "main" points to dist/index.js (CJS compiled
