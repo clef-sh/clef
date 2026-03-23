@@ -1,20 +1,13 @@
-import * as path from "path";
 import pc from "picocolors";
 import { Command } from "commander";
 import {
   ClefReport,
-  CloudApiError,
-  CloudApiReport,
-  CloudClient,
-  ManifestParser,
   MatrixManager,
   ReportGenerator,
-  ReportTransformer,
   SchemaValidator,
   SopsMissingError,
   SopsVersionError,
   SubprocessRunner,
-  collectCIContext,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
@@ -122,12 +115,6 @@ export function registerReportCommand(program: Command, deps: { runner: Subproce
           // ── Default: output single report ───────────────────────────────
           outputReport(headReport, options);
         } catch (err) {
-          if (err instanceof CloudApiError) {
-            formatter.error(err.message);
-            if (err.fix) formatter.hint(err.fix);
-            process.exit(1);
-            return;
-          }
           if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
             formatter.formatDependencyError(err);
             process.exit(1);
