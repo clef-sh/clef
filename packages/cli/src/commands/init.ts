@@ -697,6 +697,7 @@ function promptWithDefault(message: string, defaultValue: string): Promise<strin
   return new Promise((resolve) => {
     rl.question(prompt, (answer: string) => {
       rl.close();
+      process.stdin.pause();
       resolve(answer.trim() || defaultValue);
     });
   });

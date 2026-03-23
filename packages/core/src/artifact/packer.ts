@@ -56,7 +56,11 @@ export class ArtifactPacker {
       try {
         const e = new Encrypter();
         e.addRecipient(ephemeralPublicKey);
-        ciphertext = await e.encrypt(plaintext);
+        const encrypted = await e.encrypt(plaintext);
+        ciphertext =
+          typeof encrypted === "string"
+            ? encrypted
+            : new TextDecoder().decode(encrypted as Uint8Array);
       } catch {
         throw new Error("Failed to age-encrypt artifact with ephemeral key.");
       }
@@ -91,7 +95,11 @@ export class ArtifactPacker {
         const { Encrypter } = await import("age-encryption" as any);
         const e = new Encrypter();
         e.addRecipient(resolved.recipient!);
-        ciphertext = await e.encrypt(plaintext);
+        const encrypted = await e.encrypt(plaintext);
+        ciphertext =
+          typeof encrypted === "string"
+            ? encrypted
+            : new TextDecoder().decode(encrypted as Uint8Array);
       } catch {
         throw new Error("Failed to age-encrypt artifact. Check recipient key.");
       }
