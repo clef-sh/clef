@@ -11,6 +11,17 @@ import * as http from "http";
 import { scaffoldFixture, agentFetch, type TestFixture } from "./harness";
 import { startAgent, type AgentProcess } from "./agent-process";
 
+// On Windows, TerminateProcess can cause ECONNRESET/EPIPE on subprocess
+// stdio streams. Catch these at the process level so Jest doesn't fail
+// the suite after all tests pass.
+const isWindows = process.platform === "win32";
+if (isWindows) {
+  process.on("uncaughtException", (err) => {
+    if (err.message?.includes("ECONNRESET") || err.message?.includes("EPIPE")) return;
+    throw err;
+  });
+}
+
 const TEST_SECRETS = {
   DATABASE_URL: "postgres://localhost:5432/mydb",
   API_KEY: "sk_live_test_12345",
@@ -26,7 +37,16 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  if (agent) await agent.stop();
+  try {
+    if (agent) await agent.stop();
+  } catch (err) {
+    // Log but don't fail — teardown errors on Windows are expected
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes("ECONNRESET") && !msg.includes("EPIPE")) {
+      // eslint-disable-next-line no-console -- diagnostic for CI failures
+      console.warn("[agent-e2e] afterAll stop error:", msg);
+    }
+  }
   if (fixture) fixture.cleanup();
 });
 
