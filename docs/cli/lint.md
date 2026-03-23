@@ -22,10 +22,11 @@ The exit code reflects whether errors (not warnings) were found, making `clef li
 
 ## Flags
 
-| Flag     | Type      | Default | Description                                                                |
-| -------- | --------- | ------- | -------------------------------------------------------------------------- |
-| `--fix`  | `boolean` | `false` | Auto-fix safe issues. Currently supports scaffolding missing matrix files. |
-| `--json` | `boolean` | `false` | Output the raw `LintResult` as JSON instead of formatted output            |
+| Flag     | Type      | Default | Description                                                                                              |
+| -------- | --------- | ------- | -------------------------------------------------------------------------------------------------------- |
+| `--fix`  | `boolean` | `false` | Auto-fix safe issues. Currently supports scaffolding missing matrix files.                               |
+| `--json` | `boolean` | `false` | Output the raw `LintResult` as JSON instead of formatted output                                          |
+| `--push` | `boolean` | `false` | Push results as OTLP to `CLEF_TELEMETRY_URL`. See [Telemetry — CLI `--push`](/guide/telemetry#cli-push). |
 
 ## Exit codes
 

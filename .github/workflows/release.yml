@@ -1,8 +1,12 @@
-# Release workflow — publishes @clef-sh/core, @clef-sh/agent, and @clef-sh/cli
+# Release workflow — publishes @clef-sh/core, @clef-sh/runtime, @clef-sh/agent, and @clef-sh/cli
 # to npm independently, each versioned by its own commits.
 # @clef-sh/ui is also semver'd here but publishes to GitHub Packages only (never npm).
 #
-# Release order: core → agent → cli → ui.
+# Triggers automatically when the CI workflow passes on main, or manually via
+# workflow_dispatch. semantic-release commits version bumps back with [skip ci],
+# so CI does not re-run and no release loop occurs.
+#
+# Release order: core → runtime → agent → cli → ui.
 # If core publishes a new version, cli's @clef-sh/core devDependency is bumped
 # automatically, creating a commit that triggers cli's own semantic-release.
 #
@@ -14,6 +18,10 @@ name: Release
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: write
@@ -22,15 +30,24 @@ permissions:
   issues: write
   pull-requests: write
 
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Semantic Release
     runs-on: ubuntu-latest
-    environment: prod
+    # For workflow_run: only proceed if CI succeeded.
+    # For workflow_dispatch: always proceed (no workflow_run context).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: main
           persist-credentials: false
 
       - uses: actions/setup-node@v6
@@ -58,6 +75,21 @@ jobs:
             echo "version=$AFTER" >> "$GITHUB_OUTPUT"
           fi
         working-directory: packages/core
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+
+      - name: Release @clef-sh/runtime
+        id: runtime
+        run: |
+          BEFORE=$(node -p "require('./package.json').version")
+          npx semantic-release
+          AFTER=$(node -p "require('./package.json').version")
+          if [ "$BEFORE" != "$AFTER" ]; then
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            echo "version=$AFTER" >> "$GITHUB_OUTPUT"
+          fi
+        working-directory: packages/runtime
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"

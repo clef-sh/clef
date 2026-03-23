@@ -31,6 +31,11 @@ export interface SubprocessOptions {
 
 // ── Manifest ────────────────────────────────────────────────────────────────
 
+/** Cloud integration configuration stored in the manifest. */
+export interface ClefCloudConfig {
+  integrationId: string;
+}
+
 /** Parsed and validated contents of a `clef.yaml` manifest file. */
 export interface ClefManifest {
   version: number;
@@ -39,6 +44,7 @@ export interface ClefManifest {
   sops: SopsConfig;
   file_pattern: string;
   service_identities?: ServiceIdentityDefinition[];
+  cloud?: ClefCloudConfig;
 }
 
 /** Per-environment SOPS backend override. */
@@ -457,11 +463,31 @@ export class SopsVersionError extends ClefError {
   }
 }
 
+// ── KMS Envelope Encryption ──────────────────────────────────────────────
+
+export type KmsProviderType = "aws" | "gcp" | "azure";
+
+export interface KmsConfig {
+  provider: KmsProviderType;
+  keyId: string;
+  region?: string;
+}
+
 // ── Service Identity ─────────────────────────────────────────────────────
 
-/** Per-environment config for a service identity (just the age public key). */
+/** Per-environment config for a service identity: either age-only or KMS envelope. */
 export interface ServiceIdentityEnvironmentConfig {
-  recipient: string;
+  /** Age public key (age-only path). Mutually exclusive with `kms`. */
+  recipient?: string;
+  /** KMS envelope encryption config. Mutually exclusive with `recipient`. */
+  kms?: KmsConfig;
+}
+
+/** Type guard: returns true when the environment config uses KMS envelope encryption. */
+export function isKmsEnvelope(
+  cfg: ServiceIdentityEnvironmentConfig,
+): cfg is ServiceIdentityEnvironmentConfig & { kms: KmsConfig } {
+  return cfg.kms !== undefined;
 }
 
 /** A machine-oriented identity with scoped namespace access and per-environment age keys. */
@@ -620,4 +646,100 @@ export interface ClefReport {
   matrix: ReportMatrixCell[];
   policy: ReportPolicy;
   recipients: Record<string, ReportRecipientSummary>;
+}
+
+// ── Cloud API types ──────────────────────────────────────────────────────────
+
+/** Health status for a single matrix cell in a cloud report. */
+export type CloudCellHealthStatus = "healthy" | "warning" | "critical" | "unknown";
+
+/** A single cell summary sent to the Cloud API. */
+export interface CloudReportCell {
+  namespace: string;
+  environment: string;
+  healthStatus: CloudCellHealthStatus;
+  description: string;
+}
+
+/** Summary section of a cloud API report. */
+export interface CloudReportSummary {
+  filesScanned: number;
+  namespaces: string[];
+  environments: string[];
+  cells: CloudReportCell[];
+  violations: number;
+  passed: boolean;
+}
+
+/** Drift entry for a single namespace in a cloud report. */
+export interface CloudReportDrift {
+  namespace: string;
+  isDrifted: boolean;
+  driftCount: number;
+}
+
+/** A single policy result in a cloud report. */
+export interface CloudPolicyResult {
+  ruleId: string;
+  ruleName: string;
+  passed: boolean;
+  severity: string;
+  message: string;
+  scope?: { namespace?: string; environment?: string };
+}
+
+/** CI context attached to cloud reports when collectCIContext is enabled. */
+export interface CloudCIContext {
+  provider: string;
+  pipelineUrl?: string;
+  trigger?: string;
+}
+
+/** The report payload sent to the Cloud API. */
+export interface CloudApiReport {
+  commitSha: string;
+  branch: string;
+  commitTimestamp: number;
+  cliVersion: string;
+  summary: CloudReportSummary;
+  drift: CloudReportDrift[];
+  policyResults: CloudPolicyResult[];
+  ciContext?: CloudCIContext;
+}
+
+/** Batch payload for backfill submissions (max 500, oldest→newest). */
+export interface CloudBatchPayload {
+  reports: CloudApiReport[];
+}
+
+/** Response from GET /api/v1/integrations/:integrationId. */
+export interface CloudIntegrationResponse {
+  lastCommitSha: string | null;
+  config: {
+    collectCIContext: boolean;
+  };
+}
+
+/** Response from POST /api/v1/reports. */
+export interface CloudReportResponse {
+  id: string;
+  commitSha: string;
+}
+
+/** Response from POST /api/v1/reports/batch. */
+export interface CloudBatchResponse {
+  accepted: number;
+  reportIds: string[];
+}
+
+/** Thrown when a Clef Pro API request fails. */
+export class CloudApiError extends ClefError {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
+    fix?: string,
+  ) {
+    super(message, fix);
+    this.name = "CloudApiError";
+  }
 }

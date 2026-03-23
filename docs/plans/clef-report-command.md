@@ -2,17 +2,17 @@
 
 **Status:** Draft for architect review
 **Date:** 2026-03-17
-**Parent:** [Clef Cloud Product Strategy](./clef-cloud-product-strategy.md)
+**Parent:** [Clef Pro Product Strategy](./clef-pro-product-strategy.md)
 
 ---
 
 ## Purpose
 
-`clef report` is the foundational command for Clef Cloud. It extracts metadata from a Clef-managed repository and produces a structured report that can be:
+`clef report` is the foundational command for Clef Pro. It extracts metadata from a Clef-managed repository and produces a structured report that can be:
 
 1. Displayed in the terminal for local review
 2. Output as JSON for CI pipelines
-3. POSTed to the Clef Cloud API by the `clef-sh/report` GitHub Action
+3. POSTed to the Clef Pro API by the `clef-sh/report` GitHub Action
 
 The command **never** includes ciphertext or decrypted values in its output.
 
@@ -27,7 +27,7 @@ clef report
 # JSON output (for CI / piping)
 clef report --json
 
-# POST directly to Clef Cloud API
+# POST directly to Clef Pro API
 clef report --push --api-token <token>
 
 # Filter to specific namespaces or environments
@@ -330,7 +330,7 @@ The `--push` flag implies `--json` internally (the API receives the JSON report)
 ```
 $ clef report --push
 
-  ✓ Report pushed to Clef Cloud
+  ✓ Report pushed to Clef Pro
     Repo: acme/billing-service @ a1b2c3d
     Issues: 1 error, 3 warnings
     Dashboard: https://app.clef.sh/acme/billing-service/reports/latest
@@ -375,7 +375,7 @@ $ clef report --push
 └─────────────────┬───────────────────────────────────┘
                   │
                   ▼  POST (sanitized payload only)
-           Clef Cloud API
+           Clef Pro API
 ```
 
 Improvements to `LintRunner`, `DriftDetector`, or `MatrixManager` automatically improve the report. Existing test coverage for those modules covers analysis correctness. Report-specific tests only need to verify:

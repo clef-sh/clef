@@ -14,9 +14,11 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import {
   ClefManifest,
+  ClefCloudConfig,
   ClefEnvironment,
   ManifestValidationError,
   ServiceIdentityDefinition,
+  ServiceIdentityEnvironmentConfig,
 } from "../types";
 import { validateAgePublicKey } from "../recipients/validator";
 
@@ -34,6 +36,7 @@ const VALID_TOP_LEVEL_KEYS = [
   "sops",
   "file_pattern",
   "service_identities",
+  "cloud",
 ];
 const ENV_NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
 const FILE_PATTERN_REQUIRED_TOKENS = ["{namespace}", "{environment}"];
@@ -473,7 +476,7 @@ export class ManifestParser {
           );
         }
         const siEnvs = siObj.environments as Record<string, unknown>;
-        const parsedEnvs: Record<string, { recipient: string }> = {};
+        const parsedEnvs: Record<string, ServiceIdentityEnvironmentConfig> = {};
 
         // Validate that all declared environments are covered
         for (const env of environments) {
@@ -494,25 +497,71 @@ export class ManifestParser {
           }
           if (typeof envVal !== "object" || envVal === null) {
             throw new ManifestValidationError(
-              `Service identity '${siName}' environment '${envName}' must be an object with 'recipient'.`,
+              `Service identity '${siName}' environment '${envName}' must be an object with 'recipient' or 'kms'.`,
               "service_identities",
             );
           }
           const envObj = envVal as Record<string, unknown>;
-          if (!envObj.recipient || typeof envObj.recipient !== "string") {
+          const hasRecipient = envObj.recipient !== undefined;
+          const hasKms = envObj.kms !== undefined;
+
+          if (hasRecipient && hasKms) {
             throw new ManifestValidationError(
-              `Service identity '${siName}' environment '${envName}' is missing a 'recipient' string.`,
+              `Service identity '${siName}' environment '${envName}': 'recipient' and 'kms' are mutually exclusive.`,
               "service_identities",
             );
           }
-          const recipientValidation = validateAgePublicKey(envObj.recipient);
-          if (!recipientValidation.valid) {
+          if (!hasRecipient && !hasKms) {
             throw new ManifestValidationError(
-              `Service identity '${siName}' environment '${envName}': ${recipientValidation.error}`,
+              `Service identity '${siName}' environment '${envName}' must have either 'recipient' or 'kms'.`,
               "service_identities",
             );
           }
-          parsedEnvs[envName] = { recipient: recipientValidation.key! };
+
+          if (hasRecipient) {
+            if (typeof envObj.recipient !== "string") {
+              throw new ManifestValidationError(
+                `Service identity '${siName}' environment '${envName}': 'recipient' must be a string.`,
+                "service_identities",
+              );
+            }
+            const recipientValidation = validateAgePublicKey(envObj.recipient);
+            if (!recipientValidation.valid) {
+              throw new ManifestValidationError(
+                `Service identity '${siName}' environment '${envName}': ${recipientValidation.error}`,
+                "service_identities",
+              );
+            }
+            parsedEnvs[envName] = { recipient: recipientValidation.key! };
+          } else {
+            const kmsObj = envObj.kms as Record<string, unknown>;
+            if (typeof kmsObj !== "object" || kmsObj === null) {
+              throw new ManifestValidationError(
+                `Service identity '${siName}' environment '${envName}': 'kms' must be an object.`,
+                "service_identities",
+              );
+            }
+            const validProviders = ["aws", "gcp", "azure"];
+            if (!kmsObj.provider || !validProviders.includes(kmsObj.provider as string)) {
+              throw new ManifestValidationError(
+                `Service identity '${siName}' environment '${envName}': kms.provider must be one of: ${validProviders.join(", ")}.`,
+                "service_identities",
+              );
+            }
+            if (!kmsObj.keyId || typeof kmsObj.keyId !== "string") {
+              throw new ManifestValidationError(
+                `Service identity '${siName}' environment '${envName}': kms.keyId must be a non-empty string.`,
+                "service_identities",
+              );
+            }
+            parsedEnvs[envName] = {
+              kms: {
+                provider: kmsObj.provider as "aws" | "gcp" | "azure",
+                keyId: kmsObj.keyId,
+                region: typeof kmsObj.region === "string" ? kmsObj.region : undefined,
+              },
+            };
+          }
         }
 
         return {
@@ -536,6 +585,22 @@ export class ManifestParser {
       }
     }
 
+    // cloud (optional)
+    let cloud: ClefCloudConfig | undefined;
+    if (obj.cloud !== undefined) {
+      if (typeof obj.cloud !== "object" || obj.cloud === null || Array.isArray(obj.cloud)) {
+        throw new ManifestValidationError("Field 'cloud' must be an object.", "cloud");
+      }
+      const cloudObj = obj.cloud as Record<string, unknown>;
+      if (typeof cloudObj.integrationId !== "string" || cloudObj.integrationId.length === 0) {
+        throw new ManifestValidationError(
+          "Field 'cloud.integrationId' is required and must be a non-empty string.",
+          "cloud",
+        );
+      }
+      cloud = { integrationId: cloudObj.integrationId };
+    }
+
     return {
       version: 1,
       environments,
@@ -543,6 +608,7 @@ export class ManifestParser {
       sops: sopsConfig,
       file_pattern: obj.file_pattern,
       ...(serviceIdentities ? { service_identities: serviceIdentities } : {}),
+      ...(cloud ? { cloud } : {}),
     };
   }
 

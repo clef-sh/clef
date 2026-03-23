@@ -27,7 +27,7 @@ Browser (React)  ←→  Express server (127.0.0.1:7777)  ←→  SOPS binary
 
 ## Sidebar navigation
 
-The left sidebar (220px wide) provides global navigation and contextual information:
+The left sidebar provides global navigation and contextual information:
 
 ### Header
 

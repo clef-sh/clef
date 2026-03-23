@@ -3,6 +3,7 @@ import { NodeSubprocessRunner } from "./subprocess";
 import { registerInitCommand } from "./commands/init";
 import { registerGetCommand } from "./commands/get";
 import { registerSetCommand } from "./commands/set";
+import { registerCompareCommand } from "./commands/compare";
 import { registerDeleteCommand } from "./commands/delete";
 import { registerDiffCommand } from "./commands/diff";
 import { registerLintCommand } from "./commands/lint";
@@ -19,8 +20,8 @@ import { registerRecipientsCommand } from "./commands/recipients";
 import { registerMergeDriverCommand } from "./commands/merge-driver";
 import { registerServiceCommand } from "./commands/service";
 import { registerPackCommand } from "./commands/pack";
+import { registerRevokeCommand } from "./commands/revoke";
 import { registerDriftCommand } from "./commands/drift";
-import { registerAgentCommand } from "./commands/agent";
 import { registerReportCommand } from "./commands/report";
 import { formatter } from "./output/formatter";
 import { setPlainMode, isPlainMode, symbols } from "./output/symbols";
@@ -76,6 +77,7 @@ program.on("option:version", () => {
 registerInitCommand(program, deps);
 registerGetCommand(program, deps);
 registerSetCommand(program, deps);
+registerCompareCommand(program, deps);
 registerDeleteCommand(program, deps);
 registerDiffCommand(program, deps);
 registerLintCommand(program, deps);
@@ -92,8 +94,8 @@ registerRecipientsCommand(program, deps);
 registerMergeDriverCommand(program, deps);
 registerServiceCommand(program, deps);
 registerPackCommand(program, deps);
+registerRevokeCommand(program, deps);
 registerDriftCommand(program, deps);
-registerAgentCommand(program, deps);
 registerReportCommand(program, deps);
 
 program.parseAsync(process.argv).catch((err) => {

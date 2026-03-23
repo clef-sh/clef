@@ -23,9 +23,13 @@ on:
     branches: [dev, staging]
 
 permissions:
-  contents: write # create GitHub releases on staging
+  contents: write # create GitHub releases on staging + commit version stamps
   packages: write # publish to GitHub Packages
   actions: read # query CI workflow status
+
+concurrency:
+  group: prerelease-${{ github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   # Gate: wait for the CI workflow (including the full E2E matrix) to pass
@@ -75,6 +79,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.ref_name }}
 
       - uses: actions/setup-node@v6
         with:
@@ -100,6 +105,8 @@ jobs:
           # For new packages not yet on main, fall back to the current branch version.
           git show origin/main:packages/core/package.json  > /tmp/core-main.json
           git show origin/main:packages/cli/package.json   > /tmp/cli-main.json
+          git show origin/main:packages/runtime/package.json > /tmp/runtime-main.json 2>/dev/null \
+            || cp packages/runtime/package.json /tmp/runtime-main.json
           git show origin/main:packages/agent/package.json > /tmp/agent-main.json 2>/dev/null \
             || cp packages/agent/package.json /tmp/agent-main.json
           git show origin/main:packages/ui/package.json    > /tmp/ui-main.json 2>/dev/null \
@@ -149,16 +156,19 @@ jobs:
           }
 
           CORE_BASE=$(node -p "require('/tmp/core-main.json').version.replace(/-.*/, '')")
+          RUNTIME_BASE=$(node -p "require('/tmp/runtime-main.json').version.replace(/-.*/, '')")
           CLI_BASE=$(node -p "require('/tmp/cli-main.json').version.replace(/-.*/, '')")
           AGENT_BASE=$(node -p "require('/tmp/agent-main.json').version.replace(/-.*/, '')")
           UI_BASE=$(node -p "require('/tmp/ui-main.json').version.replace(/-.*/, '')")
 
-          CORE_NEXT=$(next_version  "@clef-sh/core"  "packages/core"  "$CORE_BASE")
-          CLI_NEXT=$(next_version   "@clef-sh/cli"   "packages/cli"   "$CLI_BASE")
-          AGENT_NEXT=$(next_version "@clef-sh/agent" "packages/agent" "$AGENT_BASE")
-          UI_NEXT=$(next_version    "@clef-sh/ui"    "packages/ui"    "$UI_BASE")
+          CORE_NEXT=$(next_version    "@clef-sh/core"    "packages/core"    "$CORE_BASE")
+          RUNTIME_NEXT=$(next_version "@clef-sh/runtime" "packages/runtime" "$RUNTIME_BASE")
+          CLI_NEXT=$(next_version     "@clef-sh/cli"     "packages/cli"     "$CLI_BASE")
+          AGENT_NEXT=$(next_version   "@clef-sh/agent"   "packages/agent"   "$AGENT_BASE")
+          UI_NEXT=$(next_version      "@clef-sh/ui"      "packages/ui"      "$UI_BASE")
 
           CORE_VER="${CORE_NEXT}-${PRE}.${{ github.run_number }}"
+          RUNTIME_VER="${RUNTIME_NEXT}-${PRE}.${{ github.run_number }}"
           CLI_VER="${CLI_NEXT}-${PRE}.${{ github.run_number }}"
           AGENT_VER="${AGENT_NEXT}-${PRE}.${{ github.run_number }}"
           UI_VER="${UI_NEXT}-${PRE}.${{ github.run_number }}"
@@ -173,17 +183,19 @@ jobs:
             fs.writeFileSync('$1/package.json', JSON.stringify(p, null, 2) + '\n');
           "; }
 
-          stamp packages/core  "$CORE_VER"
-          stamp packages/cli   "$CLI_VER"
-          stamp packages/agent "$AGENT_VER"
-          stamp packages/ui    "$UI_VER"
+          stamp packages/core    "$CORE_VER"
+          stamp packages/runtime "$RUNTIME_VER"
+          stamp packages/cli     "$CLI_VER"
+          stamp packages/agent   "$AGENT_VER"
+          stamp packages/ui      "$UI_VER"
 
-          echo "dist_tag=${DIST_TAG}"        >> "$GITHUB_OUTPUT"
-          echo "prerelease=${PRE}"           >> "$GITHUB_OUTPUT"
-          echo "core_version=${CORE_VER}"    >> "$GITHUB_OUTPUT"
-          echo "cli_version=${CLI_VER}"      >> "$GITHUB_OUTPUT"
-          echo "agent_version=${AGENT_VER}"  >> "$GITHUB_OUTPUT"
-          echo "ui_version=${UI_VER}"        >> "$GITHUB_OUTPUT"
+          echo "dist_tag=${DIST_TAG}"            >> "$GITHUB_OUTPUT"
+          echo "prerelease=${PRE}"               >> "$GITHUB_OUTPUT"
+          echo "core_version=${CORE_VER}"        >> "$GITHUB_OUTPUT"
+          echo "runtime_version=${RUNTIME_VER}"  >> "$GITHUB_OUTPUT"
+          echo "cli_version=${CLI_VER}"          >> "$GITHUB_OUTPUT"
+          echo "agent_version=${AGENT_VER}"      >> "$GITHUB_OUTPUT"
+          echo "ui_version=${UI_VER}"            >> "$GITHUB_OUTPUT"
 
       - name: Build all packages
         run: npm run build
@@ -195,6 +207,13 @@ jobs:
       - name: Publish @clef-sh/core (alpha)
         if: github.ref_name == 'dev'
         working-directory: packages/core
+        run: npm publish --tag alpha --access restricted --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/runtime (alpha)
+        if: github.ref_name == 'dev'
+        working-directory: packages/runtime
         run: npm publish --tag alpha --access restricted --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -224,6 +243,13 @@ jobs:
       - name: Publish @clef-sh/core (beta)
         if: github.ref_name == 'staging'
         working-directory: packages/core
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/runtime (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/runtime
         run: npm publish --tag beta --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -265,6 +291,30 @@ jobs:
 
           To promote to npm for public testing, trigger the **Publish Beta to npm** workflow."
 
+      - name: Commit version stamps back to ${{ github.ref_name }}
+        run: |
+          if git diff --quiet packages/*/package.json; then
+            echo "No version changes to commit"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            packages/core/package.json \
+            packages/runtime/package.json \
+            packages/cli/package.json \
+            packages/agent/package.json \
+            packages/ui/package.json
+
+          PRE="${{ steps.ver.outputs.prerelease }}"
+          CLI_VER="${{ steps.ver.outputs.cli_version }}"
+          git commit -m "chore(release): stamp ${PRE} versions (${CLI_VER}) [skip ci]"
+
+          git pull --rebase origin "${{ github.ref_name }}"
+          git push origin "${{ github.ref_name }}"
+
       - name: Publish summary
         if: always()
         run: |
@@ -272,6 +322,7 @@ jobs:
           echo "| Package | Version |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/core\` | \`${{ steps.ver.outputs.core_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/runtime\` | \`${{ steps.ver.outputs.runtime_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/agent\` | \`${{ steps.ver.outputs.agent_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/cli\` | \`${{ steps.ver.outputs.cli_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/ui\` | \`${{ steps.ver.outputs.ui_version }}\` (GitHub Packages only) |" >> "$GITHUB_STEP_SUMMARY"

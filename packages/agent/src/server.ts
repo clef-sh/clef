@@ -2,7 +2,7 @@ import { timingSafeEqual } from "crypto";
 import express, { Request, Response, NextFunction } from "express";
 import { Server } from "http";
 import type { AddressInfo } from "net";
-import { SecretsCache } from "./cache";
+import { SecretsCache } from "@clef-sh/runtime";
 import { healthHandler, readyHandler } from "./health";
 
 export interface AgentServerHandle {
@@ -15,6 +15,7 @@ export interface AgentServerOptions {
   port: number;
   token: string;
   cache: SecretsCache;
+  cacheTtl?: number;
 }
 
 /**
@@ -28,7 +29,7 @@ export interface AgentServerOptions {
  *   GET /v1/ready         → readiness probe (unauthenticated)
  */
 export function startAgentServer(options: AgentServerOptions): Promise<AgentServerHandle> {
-  const { port, token, cache } = options;
+  const { port, token, cache, cacheTtl } = options;
   const app = express();
 
   app.use(express.json());
@@ -37,7 +38,7 @@ export function startAgentServer(options: AgentServerOptions): Promise<AgentServ
   app.use("/v1", (req: Request, res: Response, next: NextFunction) => {
     const host = req.headers.host ?? "";
     const actualPort = (req.socket.address() as { port?: number })?.port ?? port;
-    const allowedHosts = [`127.0.0.1:${actualPort}`, `127.0.0.1:${port}`, "127.0.0.1"];
+    const allowedHosts = [`127.0.0.1:${actualPort}`, `127.0.0.1:${port}`];
     if (!allowedHosts.includes(host)) {
       res.status(403).json({ error: "Forbidden: invalid Host header" });
       return;
@@ -52,12 +53,23 @@ export function startAgentServer(options: AgentServerOptions): Promise<AgentServ
   });
 
   // Unauthenticated endpoints — must be mounted before the auth middleware
-  app.get("/v1/health", healthHandler(cache));
-  app.get("/v1/ready", readyHandler(cache));
+  app.get("/v1/health", healthHandler(cache, cacheTtl));
+  app.get("/v1/ready", readyHandler(cache, cacheTtl));
 
   // Bearer token authentication for secrets endpoints
   app.use("/v1/secrets", authMiddleware(token));
   app.use("/v1/keys", authMiddleware(token));
+
+  // TTL guard — reject requests when cache has expired
+  const ttlGuard = (_req: Request, res: Response, next: NextFunction): void => {
+    if (cacheTtl !== undefined && cache.isExpired(cacheTtl)) {
+      res.status(503).json({ error: "Secrets expired" });
+      return;
+    }
+    next();
+  };
+  app.use("/v1/secrets", ttlGuard);
+  app.use("/v1/keys", ttlGuard);
 
   // GET /v1/secrets — all secrets
   app.get("/v1/secrets", (_req: Request, res: Response) => {
@@ -94,7 +106,12 @@ export function startAgentServer(options: AgentServerOptions): Promise<AgentServ
           url,
           stop: () =>
             new Promise<void>((resolveStop, rejectStop) => {
+              // Close idle connections immediately, then force-close active ones after 3s
               server.close((err) => (err ? rejectStop(err) : resolveStop()));
+              const drainTimer = setTimeout(() => {
+                server.closeAllConnections();
+              }, 3000);
+              drainTimer.unref();
             }),
           address: () => server.address(),
         });

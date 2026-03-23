@@ -1,9 +1,10 @@
-import { ArtifactPoller } from "../poller";
+import { ArtifactPoller, TelemetryEmitter } from "@clef-sh/runtime";
 import { AgentServerHandle } from "../server";
 
 export interface DaemonOptions {
   poller: ArtifactPoller;
   server: AgentServerHandle;
+  telemetry?: TelemetryEmitter;
   onLog?: (message: string) => void;
 }
 
@@ -18,9 +19,11 @@ export class Daemon {
   private readonly options: DaemonOptions;
   private shutdownResolve?: () => void;
   private readonly shutdownPromise: Promise<void>;
+  private readonly startedAt: number;
 
   constructor(options: DaemonOptions) {
     this.options = options;
+    this.startedAt = Date.now();
     this.shutdownPromise = new Promise<void>((resolve) => {
       this.shutdownResolve = resolve;
     });
@@ -28,13 +31,22 @@ export class Daemon {
 
   /** Start the daemon and register signal handlers. */
   async start(): Promise<void> {
-    const { poller, server, onLog } = this.options;
+    const { poller, server, telemetry, onLog } = this.options;
 
     const shutdown = async () => {
       if (this.shutdownRequested) return;
       this.shutdownRequested = true;
       onLog?.("Shutting down...");
       poller.stop();
+      telemetry?.agentStopped({
+        reason: "signal",
+        uptimeSeconds: Math.round((Date.now() - this.startedAt) / 1000),
+      });
+      try {
+        await telemetry?.stopAsync();
+      } catch {
+        // Best-effort flush
+      }
       try {
         await server.stop();
       } catch {
@@ -52,8 +64,8 @@ export class Daemon {
     });
 
     onLog?.(`Agent server listening at ${server.url}`);
-    onLog?.("Performing initial fetch...");
-    await poller.start();
+    // main.ts already calls fetchAndDecrypt() — only start the polling schedule.
+    poller.startPolling();
     onLog?.("Agent ready. Polling for updates.");
   }
 

@@ -118,7 +118,7 @@ clef ui
 
 ## age vs KMS: choosing an encryption backend
 
-This walkthrough uses the **age** backend for every environment — the simplest configuration. age keys are free, require no cloud infrastructure, and work offline. The tradeoff is no built-in audit logging and fully self-managed key management.
+This walkthrough uses the **age** backend for every environment — the simplest configuration. age keys are free, require no cloud infrastructure, and work offline. The tradeoff is no built-in audit logging and you are responsible for distributing and rotating keys yourself.
 
 Two mechanisms restrict access within a repo:
 
