@@ -11,17 +11,6 @@ import * as http from "http";
 import { scaffoldFixture, agentFetch, type TestFixture } from "./harness";
 import { startAgent, type AgentProcess } from "./agent-process";
 
-// On Windows, TerminateProcess can cause ECONNRESET/EPIPE on subprocess
-// stdio streams. Catch these at the process level so Jest doesn't fail
-// the suite after all tests pass.
-const isWindows = process.platform === "win32";
-if (isWindows) {
-  process.on("uncaughtException", (err) => {
-    if (err.message?.includes("ECONNRESET") || err.message?.includes("EPIPE")) return;
-    throw err;
-  });
-}
-
 const TEST_SECRETS = {
   DATABASE_URL: "postgres://localhost:5432/mydb",
   API_KEY: "sk_live_test_12345",
@@ -37,16 +26,7 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  try {
-    if (agent) await agent.stop();
-  } catch (err) {
-    // Log but don't fail — teardown errors on Windows are expected
-    const msg = err instanceof Error ? err.message : String(err);
-    if (!msg.includes("ECONNRESET") && !msg.includes("EPIPE")) {
-      // eslint-disable-next-line no-console -- diagnostic for CI failures
-      console.warn("[agent-e2e] afterAll stop error:", msg);
-    }
-  }
+  if (agent) await agent.stop();
   if (fixture) fixture.cleanup();
 });
 
@@ -129,7 +109,7 @@ describe("secrets retrieval", () => {
 describe("security headers", () => {
   it("GET /v1/secrets includes Cache-Control: no-store", async () => {
     const { headers } = await agentFetch(agent.url, "/v1/secrets", agent.token);
-    expect(headers.get("cache-control")).toBe("no-store");
+    expect(headers["cache-control"]).toBe("no-store");
   });
 
   it("rejects requests with invalid Host header", async () => {
