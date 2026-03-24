@@ -605,12 +605,22 @@ The trust chain is: git write access → manifest control → recipient list →
 
 Unlike centralized vault architectures, there is no central server to attack, DDoS, or compromise. There is no shared database to breach. There is no root key or master secret that unlocks everything. The git repository is the source of truth, protected by existing git access controls.
 
-The blast radius of a key compromise depends on the KMS key topology. Clef supports two configurations:
+The blast radius of a key compromise depends on the KMS key topology. The architecture supports two independent axes of key separation:
 
-- **Single KMS key** (SOPS backend and service identity envelope use the same key): Compromise of the key exposes all SOPS files and all artifacts encrypted with that key. This is operationally simpler — one key, one IAM policy — and is the recommended starting point.
-- **Separate KMS keys** (SOPS backend uses key A, each service identity's envelope uses key B): Compromise of a service identity's envelope key (B) exposes only that identity's artifact — the attacker cannot decrypt the source SOPS files (key A) or other identities' artifacts (their own keys). This is the configuration that delivers per-service, per-environment blast radius containment.
+**SOPS backend keys** (source encryption): The manifest supports per-environment backend overrides. Each environment can use a different encryption backend and key — age for local development, a regional KMS key for staging, a separate KMS key for production. A compromised key exposes only the SOPS files encrypted with that key, not files in other environments.
 
-The "per-service, per-environment" blast radius claim in this paper assumes the separate-key configuration. With a single shared key, the blast radius is scoped to everything encrypted with that key. Organizations should choose based on their threat model: single key for simplicity, separate keys when a compromised runtime must not be able to escalate to source file decryption.
+**Service identity envelope keys** (artifact encryption): Each service identity declares its own KMS key per environment via `clef service create --kms-env`. The `api-gateway` production artifact can use a different KMS key than the `payments-svc` production artifact.
+
+The full matrix is per-environment SOPS backend key multiplied by per-identity-per-environment envelope key. A concrete example:
+
+- Dev SOPS files: age (local, no cloud dependency)
+- Production SOPS files: KMS key A (us-east-1)
+- `api-gateway` production envelope: KMS key B
+- `payments-svc` production envelope: KMS key C
+
+In this topology, a compromised `api-gateway` runtime has `kms:Decrypt` on key B. It can unwrap its own artifact — the secrets it already has via the agent. It cannot decrypt production SOPS files (key A), dev SOPS files (age, different key entirely), or the `payments-svc` artifact (key C). The blast radius is one service identity in one environment.
+
+At the other end of the spectrum, a single KMS key for everything is operationally simpler — one key, one IAM policy — and is a reasonable starting point. The blast radius of that key's compromise is everything encrypted with it. Organizations should choose the topology that matches their threat model. The architecture supports the full range without code changes — it is a configuration decision in `clef.yaml` and `.sops.yaml`.
 
 ### 8.5 Defense in Depth
 
