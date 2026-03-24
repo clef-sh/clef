@@ -1,6 +1,6 @@
-# Clef: Zero-Custody, Zero-Ops Secrets Management
+# Clef: No Servers. No Tokens. No Vendor Custody.
 
-**From Local Development to Production Workloads — Without Servers, Tokens, or Operational Overhead**
+**Secrets management from local development to production — without central infrastructure**
 
 ---
 
@@ -18,7 +18,7 @@ This paper describes the architecture that makes this possible across four deplo
 
 ### 1.1 The Custody Dilemma
 
-Every secrets manager that stores ciphertext or plaintext on its own infrastructure creates a custodial relationship. The vendor becomes a single point of compromise: one breach exposes every customer's secrets simultaneously. Even self-hosted solutions like HashiCorp Vault concentrate risk. A compromised Vault cluster yields every secret it manages.
+Every secrets manager that stores ciphertext or plaintext on its own infrastructure creates a custodial relationship. A breach of that infrastructure exposes whatever data the customer has stored on it. Even self-hosted solutions concentrate risk: a compromised Vault cluster exposes every secret it manages.
 
 ### 1.2 The Operational Tax
 
@@ -28,9 +28,11 @@ Self-hosted secrets management is operationally expensive. Vault requires a high
 
 Traditional secrets managers require an authentication token to retrieve secrets, but that token is itself a secret. This chicken-and-egg problem leads to tokens baked into container images, hardcoded in CI variables, or stored in yet another secrets manager. Each token is a static credential with broad access that, if leaked, grants an attacker the keys to the kingdom.
 
-Age-based encryption offers a meaningful improvement over vault tokens: an age key in a developer's OS keychain is a different risk profile than a Vault token in a CI variable. For small teams with a small circle of trust, age keys are simple, portable, require no cloud infrastructure, and provide a manageable custody arrangement where the blast radius is bounded by the team itself. Clef fully supports this model and it is the fastest path to structured secrets management.
+Age-based encryption gives Clef feature parity with existing secrets managers on the bootstrapping problem. An age key is a static credential — in CI it must be stored in a CI secret, in production something must hold it. This is the same custodial model as a Doppler service token or an Infisical API key — a static credential that something must hold. Vault can avoid static credentials through its native IAM and OIDC auth methods, but that capability requires operating a Vault server. The tradeoff is the operational burden described in Section 1.2. Age keys are simpler (no server, no SDK, no renewal logic) but they are not architecturally different.
 
-However, age keys are still static credentials. In CI, the age key must be stored somewhere. In production, something must hold it. The custody problem is reduced in scope but not eliminated. For organizations that need policy-based access control across CI, staging, and production, Section 6 describes how KMS envelope encryption replaces static credentials with IAM policy.
+For local development, age keys are effective. The key lives in the developer's OS keychain, protected by device authentication, and never leaves the machine. For small teams with a small circle of trust, this is a manageable custody arrangement. Clef fully supports this model and it is the fastest path to structured secrets management.
+
+Where Clef goes beyond the competition is the KMS envelope mode described in Section 6 — which eliminates static credentials entirely and replaces the bootstrapping problem with IAM policy.
 
 ---
 
@@ -56,7 +58,7 @@ Every Clef-managed repository contains a `clef.yaml` manifest that declares:
 
 **Namespace granularity matters.** The intended grain is one namespace per external dependency or credential source — `rds-primary`, `stripe-api`, `sendgrid`, `auth0` — not broad category buckets like `database` or `api-keys`. This is a deliberate departure from the flat `.env` file mentality where all secrets live in one bag. Fine-grained namespaces enable fine-grained access control: a service identity scoped to `["stripe-api"]` gets Stripe credentials and nothing else. A namespace with twenty unrelated secrets defeats this model because scoping becomes meaningless — any service identity that needs one secret in the namespace gets all twenty.
 
-The namespace × environment cross-product forms the **matrix**. Each cell maps to an encrypted file (e.g., `stripe-api/production.enc.yaml`). The matrix is the single source of truth. If a cell is missing, lint catches it. If keys drift between environments, lint catches it. If a recipient is unregistered, lint catches it.
+The namespace × environment cross-product forms the **matrix**. Each cell maps to an encrypted file (e.g., `stripe-api/production.enc.yaml`). The matrix is the single source of truth. Lint validates the matrix automatically — missing cells, key drift between environments, and unregistered recipients are all caught before they reach production.
 
 ```
                  development    staging    production
@@ -68,13 +70,19 @@ The namespace × environment cross-product forms the **matrix**. Each cell maps 
 
 ### 2.3 Git as Source of Truth
 
-Clef treats the git repository as the authoritative store for secrets state. This is a deliberate architectural choice, not a convenient default. Git is not a database, and it carries limitations: repository size grows as encrypted files accumulate, branch-heavy workflows multiply encrypted file variants, and git hosting availability becomes a dependency for secret updates (though not for secret delivery; see Section 5.5).
+Clef treats the git repository as the authoritative store for secrets state. This is a deliberate architectural choice, not a convenient default. Git is not a database, and it carries limitations: repository size grows as encrypted files accumulate, branch-heavy workflows multiply encrypted file variants, and git hosting availability affects the automation of secret updates — though any clone of the repository can be used to update, pack, and deploy independently. Every developer's checkout is a full copy of the secrets state. The git host coordinates collaboration; it is not required for operations. Section 5.5 covers runtime resilience during outages.
 
-These trade-offs are acceptable because the alternative is worse. A dedicated secrets database introduces a second source of truth, requires its own backup and replication strategy, and creates the exact operational and custodial burdens Clef is designed to eliminate. Git is infrastructure every engineering team already operates, monitors, and protects. Building on it means Clef inherits existing access controls, audit logs, review workflows, and disaster recovery, rather than duplicating them.
+These trade-offs are acceptable because the alternative is worse. A dedicated secrets database introduces a second source of truth: the code references secrets by name, the database holds the values, and the two must be kept in sync across every deployment. When secrets and code are versioned separately, drift between them — a key the code expects but the database doesn't have, a database entry nothing references — is a class of bug with no single place to diagnose. With git, the encrypted values and the code that uses them are versioned together. A single commit is the complete state. And because SOPS stores key names in plaintext, a static analysis pass can cross-reference code usage (`process.env.DB_URL`, `secrets.get("API_KEY")`) against the keys present in the encrypted files — no decryption required. This makes it possible to prove at lint time that every secret the code references exists in the matrix, and that every secret in the matrix is referenced by code. A separate secrets database cannot offer this without a live connection to the database at analysis time.
 
-### 2.4 Dependency Injection and Testing
+A separate database also requires its own backup and replication strategy and creates the operational and custodial burdens Clef is designed to eliminate. Git is infrastructure every engineering team already operates, monitors, and protects. Building on it means Clef inherits existing access controls, audit logs, review workflows, and disaster recovery, rather than duplicating them.
 
-All subprocess interactions (SOPS calls, git operations) are abstracted behind a `SubprocessRunner` interface. Production code uses the real implementation; tests inject mocks. This means the core library has zero side effects in test, with no real processes spawned and no filesystem mutations, while maintaining identical code paths.
+A git repository containing encrypted secrets is a higher-value target than a typical code repository. Even without decryption keys, read access reveals: namespace names (which expose the external dependencies your system uses), environment topology, service identity structure and scoping, recipient fingerprints (which can be correlated to individuals or roles), and the complete history of changes to all of the above. This is a reconnaissance map of your secrets infrastructure.
+
+VCS providers were not designed with this level of criticality in mind. They are built to host code, not to serve as the access control layer for a secrets store. By using git for both, the repository inherits a combined risk profile: it is simultaneously a code repository, a secrets store, and an access control system. This is the core tradeoff of the architecture.
+
+The argument for accepting this tradeoff is operational: properly securing one system is likely easier than properly securing two. A team that enforces branch protection, requires PR reviews, runs `clef lint` in CI, and restricts repository access has one set of controls to maintain. A team running Vault alongside git has two access control surfaces, two audit logs, two sets of credentials, and two systems that must stay in sync. The simpler system is easier to get right — but it must be treated with the seriousness of both.
+
+For organizations where the reconnaissance risk of a repository breach is unacceptable, the repository should be private with access restricted to the team that manages secrets. This partially undermines the "secrets and code versioned together" benefit — a separate private secrets repository reintroduces coordination overhead between the code repo and the secrets repo. The tradeoff is real, and the right choice depends on the organization's threat model.
 
 ---
 
@@ -179,7 +187,7 @@ The packed artifact is a structured JSON document:
   "packedAt": "2026-03-22T10:00:00.000Z",
   "revision": "1711101600000-a1b2c3d4",
   "ciphertextHash": "sha256:...",
-  "ciphertext": "-----BEGIN AGE ENCRYPTED FILE-----\n...",
+  "ciphertext": "YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgy...",
   "keys": ["DB_URL", "API_KEY", "STRIPE_SECRET"],
   "expiresAt": "2026-03-22T11:00:00.000Z",
   "envelope": {
@@ -199,7 +207,7 @@ Key design properties:
 - **`revokedAt`**: When present, signals immediate revocation. The runtime wipes its cache and refuses to serve secrets.
 - **`envelope`**: Optional KMS wrapper enabling tokenless, keyless deployments (see Section 6).
 
-The `ciphertext` field and the `envelope` field are not independent modes but complementary layers. The `ciphertext` is always age-encrypted. When the `envelope` is present, it contains the age private key wrapped by KMS. The runtime first unwraps the age key via `kms:Decrypt`, then uses it to decrypt the ciphertext. Without the envelope, the runtime uses a locally-held age private key directly.
+The `ciphertext` field is always base64-encoded age-encrypted binary. Base64 is used because age's binary format cannot survive a JSON string round-trip intact — base64 provides a standard, language-agnostic encoding that any runtime can decode. When the `envelope` field is present, it contains the age private key wrapped by KMS. The runtime first unwraps the age key via `kms:Decrypt`, then base64-decodes and decrypts the ciphertext. Without the envelope, the runtime uses a locally-held age private key directly.
 
 ### 4.4 Service Identity Scoping
 
@@ -209,7 +217,7 @@ Service identities provide **cryptographic least privilege**. Each identity has:
 - Per-environment cryptographic keys (age key pairs or KMS envelope configuration)
 - Registration as a SOPS recipient on scoped files only
 
-An `api-gateway` identity scoped to `["api-keys", "database"]` cannot decrypt the `payments` namespace. The cryptographic enforcement is at the file level, not an ACL that can be bypassed. A compromised service identity yields only the secrets that service was authorized to access.
+An `api-gateway` identity scoped to `["api-keys", "database"]` cannot decrypt the `payments` namespace — the enforcement is cryptographic at the file level. But the configuration of that enforcement — who is a recipient on which files — is controlled by the manifest, which lives in git. This means git access control is the access control for secrets. That is both the simplicity and the caveat: one system instead of two, but that one system carries the risk profile of both.
 
 ---
 
@@ -232,7 +240,7 @@ The Clef agent (`@clef-sh/agent`) wraps the runtime in an HTTP API designed for 
 Application Container          Agent Sidecar
 ┌──────────────────┐           ┌──────────────────┐
 │                  │  HTTP     │  Express API     │
-│  Your app code   │◄────────►│  127.0.0.1:7779   │
+│  Your app code   │◄─────────►│  127.0.0.1:7779  │
 │                  │  Bearer   │                  │
 │  fetch secrets   │  token    │  ArtifactPoller  │
 │  from localhost  │           │  SecretsCache    │
@@ -288,15 +296,17 @@ The cache system provides multiple layers of fault tolerance:
 3. **TTL enforcement**: Both caches respect a configurable TTL. Stale secrets are wiped, not served.
 4. **Revocation**: If the artifact contains a `revokedAt` timestamp, both caches are immediately wiped and all subsequent reads return errors until a valid artifact is available.
 
-### 5.5 Resilience During VCS Outages
+### 5.5 Resilience During Outages
 
-The normal flow depends on git hosting for CI-triggered `clef pack` runs. If your git host is unavailable, two mechanisms ensure continuity:
+The agent supports two artifact source configurations with different resilience characteristics. Which one you use determines your failure modes.
 
-**Runtime side**: The agent's disk cache (Section 5.4) continues serving the last successfully fetched artifact. Applications keep running with current secrets until the cache TTL expires. For most outages, this is sufficient since git hosting downtime is typically measured in minutes.
+**Hosted artifact (S3, HTTP) — the recommended production path.** The agent polls an artifact stored in S3, a CDN, or any HTTP endpoint. The git host is not in the runtime path at all. A git outage blocks new `clef pack` runs (CI cannot update the artifact) but running agents are unaffected — they continue polling the artifact store, which operates on a separate availability plane. For most organizations, this is the correct configuration for production workloads.
 
-**Pack side**: Any machine with the repository checked out locally can run `clef pack` and push the artifact directly to the storage backend (S3, HTTP, etc.). The packed artifact is self-contained. It does not reference git at runtime and does not require the git host to be reachable. In KMS envelope mode, the only external dependency is the KMS API, which operates on a separate availability plane from your git host.
+**VCS-direct polling.** The agent polls the VCS API (GitHub, GitLab, Bitbucket) for the artifact file directly from the repository. This is simpler to configure — no artifact store to provision — but it means the agent's availability depends on the VCS API. If the VCS is unreachable and the agent's cache TTL expires, the agent stops serving secrets (it wipes stale caches rather than serving potentially outdated values). Teams using VCS-direct polling should set conservative cache TTLs and understand that a prolonged VCS outage will eventually affect secret delivery.
 
-A git outage degrades the automation of secret updates, not the availability of secrets themselves.
+In both configurations, the disk cache (Section 5.4) provides a buffer: the last successfully fetched artifact is persisted to disk and used as a fallback during transient source failures. This buys time — minutes to hours depending on TTL — but it is not a substitute for a highly available artifact source in production.
+
+Regardless of polling source, any machine with a local clone of the repository can run `clef pack` and push a new artifact directly to the storage backend. The packed artifact is self-contained and does not reference git at runtime.
 
 ---
 
@@ -359,76 +369,52 @@ In KMS envelope mode, the security model reduces to IAM permissions on a single 
 
 ## 7. Dynamic Credentials via Customer Lambda
 
-### 7.1 The Framework Approach
+### 7.1 The Envelope Contract
 
-Vault and similar tools maintain hundreds of "secrets engine" integrations: database credential generators, cloud IAM token issuers, certificate authorities. Each integration is a maintenance burden and a potential attack surface. When an upstream API changes, every customer is affected simultaneously.
+The artifact envelope specification — `version`, `identity`, `environment`, `ciphertext`, `ciphertextHash`, `expiresAt`, `revokedAt`, optional KMS `envelope` — is a universal interface between credential generation and credential consumption. Anything that can produce a conforming JSON document can serve as a credential source. Anything running the Clef agent can consume it.
 
-Clef takes a different approach: **Clef defines the contract; customers implement the logic.** The artifact envelope schema (`version`, `identity`, `environment`, `ciphertext`, `expiresAt`, `revokedAt`) is the interface. Any system that produces a valid envelope can serve as a credential source.
+This decoupling is the architectural contribution. The agent does not know or care how the credential was generated. It polls a URL, validates the envelope, decrypts, and serves. The credential producer does not know or care how the credential is consumed. It generates, encrypts, and publishes a conforming envelope. The contract is the boundary between the two.
 
-This means evaluating Clef against Vault's built-in database secrets engine is not an apples-to-apples comparison. Vault provides immediate, out-of-the-box credential generation. Clef requires the customer to write and maintain a Lambda function. The trade-off is ownership: Vault's engine is convenient until it breaks, at which point every Vault user is affected and the fix depends on HashiCorp's release cycle. A customer-owned broker breaks only for that customer and the fix is a code change they control.
+This is the same kind of architectural insight as REST defining a uniform interface between clients and servers: standardize the interface, and the systems on both sides can evolve independently.
 
-To reduce this adoption friction, the **Clef Broker Registry** provides community-maintained templates for common patterns (RDS IAM, STS AssumeRole, OAuth token refresh) that scaffold into the customer's infrastructure via `clef install`. The templates are free and open because they grow the ecosystem. See Section 10 for the commercial extensions that build on this foundation.
+### 7.2 Credential Producers
 
-### 7.2 The Customer-Owned Broker Pattern
+Any system that returns a valid envelope over HTTP is a credential producer. The simplest implementation is a serverless function behind an HTTP endpoint:
 
-A typical dynamic credential flow uses a customer-owned Lambda function (or equivalent serverless function):
+1. The function is invoked when the agent polls its URL
+2. It generates or fetches a short-lived credential from the target system
+3. It encrypts the credential into a Clef envelope (age + optional KMS wrapping)
+4. It returns the envelope as the HTTP response
 
-```
-                          Customer's AWS Account
-┌──────────────────────────────────────────────────────────────┐
-│                                                              │
-│  EventBridge Timer (every 50 min)                            │
-│       │                                                      │
-│       ▼                                                      │
-│  Lambda: credential-broker                                   │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │ 1. Generate short-lived DB credentials                 │  │
-│  │    (RDS IAM auth token, or STS AssumeRole,             │  │
-│  │     or any custom credential source)                   │  │
-│  │                                                        │  │
-│  │ 2. Pack into Clef artifact envelope:                   │  │
-│  │    { ciphertext: age_encrypt(credentials),             │  │
-│  │      expiresAt: now + 60min,                           │  │
-│  │      envelope: { wrappedKey: kms_wrap(ephemeral) } }   │  │
-│  │                                                        │  │
-│  │ 3. Write to S3 / commit to git / push to HTTP store    │  │
-│  └────────────────────────────────────────────────────────┘  │
-│                                                              │
-│  Agent Sidecar (in ECS/EKS/Lambda)                           │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │ Polls artifact source                                  │  │
-│  │ Adaptive interval: 80% of expiresAt remaining          │  │
-│  │ → Unwraps via KMS → decrypts → atomic cache swap       │  │
-│  │ → Serves to app via localhost HTTP                     │  │
-│  └────────────────────────────────────────────────────────┘  │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
-```
+The agent's existing HTTP polling works unchanged — no new agent code, no intermediate storage, no scheduler. The function executes on demand when the agent polls. The agent's adaptive polling refreshes at 80% of `expiresAt`, so the credential is always fresh when the application reads it.
+
+Valid credential producers include:
+
+- A Lambda function URL or Cloud Function that generates database IAM tokens
+- A Kubernetes CronJob that mints short-lived service credentials
+- A GitHub Action that packs and publishes artifacts on push
+- A shell script on a bastion host that wraps a vendor CLI
+- A SaaS vendor that adopts the envelope format natively
+- `clef pack` in CI (the static credential path described in Section 4)
+
+The contract is the standard. The implementation is the producer's choice.
 
 ### 7.3 What Clef Provides vs. What the Customer Owns
 
-**Clef provides:**
+**Clef provides** the envelope specification, the agent, and the Lambda extension. **The customer provides** the credential generation logic. Today, most teams adopting Clef's dynamic credentials will write broker logic — a serverless function that calls the target system's API and returns an envelope. This is real engineering work. It is also the expected state of a new contract standard: the value accrues as more reference implementations exist, and the contract is designed so that producing implementations is low-friction.
 
-- The **artifact envelope specification**: A versioned, integrity-checked, expiry-aware JSON schema.
-- The **agent**: A production-hardened sidecar that handles polling, KMS unwrap, age decryption, cache management, revocation detection, and adaptive refresh scheduling.
-- The **Lambda extension**: Native AWS Lambda Extensions API integration for serverless workloads.
-- **Reference implementations**: Documented examples for common patterns (RDS IAM, STS AssumeRole, OAuth token refresh, custom broker template).
-
-**The customer owns:**
-
-- The credential generation logic (their Lambda, their IAM roles, their database access).
-- The storage location (their S3 bucket, their git repo, their HTTP endpoint).
-- The refresh schedule (their EventBridge rule, their cron job).
-- The KMS key (their key, their key policy, their rotation schedule).
+The Clef Broker Registry (Section 10.2) provides community-maintained reference implementations for common credential sources. These are starting points, not dependencies — the architecture is useful the moment a team writes their first conforming producer.
 
 ### 7.4 Why This Matters
 
-This inversion of responsibility has concrete implications:
+Vault tightly couples credential generation, storage, delivery, and access control into one system. This is convenient — configure a database secrets engine and credentials flow immediately. But it means the credential lifecycle is bound to Vault's availability, Vault's release cycle, and Vault's integration maintenance. Clef standardizes only the delivery interface and leaves credential generation to the implementer. The tradeoff is upfront implementation work in exchange for independence from any single system's maintenance and availability.
 
-1. **No vendor dependency for credential logic.** If Clef disappears tomorrow, the customer's Lambda still generates credentials. They just need a different delivery mechanism.
-2. **No maintenance burden on Clef.** AWS SDK changes, database driver updates, and cloud API deprecations are the customer's concern for their own broker. Clef's contract (the envelope schema) is stable.
-3. **Bounded blast radius.** A bug in a Vault database secrets engine affects every Vault user. A bug in a customer's broker affects only that customer.
-4. **Full auditability.** The customer's serverless execution logs, IAM audit logs, and KMS usage logs provide a complete audit trail within their own cloud account.
+Concrete implications of the decoupled model:
+
+1. **No vendor dependency for credential logic.** If Clef disappears tomorrow, the customer's function still generates credentials. They just need a different delivery mechanism.
+2. **No maintenance burden on Clef.** SDK changes, driver updates, and API deprecations are the customer's concern for their own producer. Clef's contract (the envelope schema) is stable.
+3. **Bounded blast radius.** A bug in a Vault database secrets engine affects every Vault user. A bug in a customer's producer affects only that customer.
+4. **Full auditability.** The customer's execution logs, IAM audit logs, and KMS usage logs provide a complete audit trail within their own cloud account.
 
 ### 7.5 The Agent in Lambda
 
@@ -467,22 +453,55 @@ The extension registers for `INVOKE` and `SHUTDOWN` events via the Lambda Extens
 
 Lambda functions access secrets via a local HTTP call. No SDK, no environment variable parsing, no cold-start credential bootstrapping. The extension handles all of it.
 
-### 7.6 Eliminating Static Secrets Entirely
+### 7.6 The Static Root Credential Reality
 
-Taken to its full extent, the dynamic credential pattern can eliminate static secrets from the entire system. Every secret becomes a short-lived credential generated on demand:
+Dynamic credentials do not eliminate static secrets. They add a logic layer in front of them. A broker that generates short-lived database tokens still needs a root credential — the database master password, the IAM user that calls `rds-generate-db-auth-token`, the OAuth client secret that issues access tokens. That root credential is static, long-lived, and must be stored somewhere.
 
-- **Database access**: Lambda generates RDS IAM auth tokens (15-minute TTL).
-- **Cloud IAM**: Lambda calls STS AssumeRole, returns scoped temporary credentials.
-- **Third-party services**: Lambda fetches short-lived tokens from OAuth flows or vendor APIs.
-- **Service-to-service auth**: Lambda mints JWTs with short expiry.
+This is not a deficiency of the architecture. It is an honest description of how credential systems work today. The value of the dynamic broker pattern is not that it eliminates static secrets — it is that it **contains them**. The static root credential lives in the broker's Clef namespace, encrypted at rest, delivered via the same KMS envelope + IAM model described in Section 6. The broker itself runs with a Clef agent sidecar and reads its root credentials from `127.0.0.1:7779`. The same protections that secure application secrets — per-service scoping, KMS envelope encryption, IAM-only authentication, audit logging — secure the broker's bootstrapping credentials.
 
-Each Lambda produces a valid Clef envelope with a tight `expiresAt`. The agent polls adaptively at 80% of TTL. No secret lives longer than its TTL window. Git history becomes irrelevant because every historical credential has already expired at the target system by design.
+The result is a layered architecture:
 
-**What this achieves**: Expired credentials are worthless ciphertext. Rotation is just the next Lambda invocation. The blast radius of any compromise is time-bounded to the TTL window. The full Clef delivery machinery (agent, adaptive polling, revocation, telemetry) operates without static key baggage.
+```
+Application                  Broker                       Static Credential
+┌──────────────┐            ┌──────────────┐             ┌──────────────┐
+│ Reads short- │            │ Reads root   │             │ Stored in    │
+│ lived token  │◄── agent ──│ credential   │◄── agent ───│ Clef (KMS    │
+│ from agent   │            │ from agent   │             │ envelope)    │
+│              │            │              │             │              │
+│ Token TTL:   │            │ Generates    │             │ Protected by │
+│ 15 minutes   │            │ short-lived  │             │ IAM policy   │
+│              │            │ token        │             │              │
+└──────────────┘            └──────────────┘             └──────────────┘
+```
 
-**What's hard about it**: Not everything supports short-lived credentials. Some third-party SaaS APIs only issue static API keys. Operational complexity increases, since maintaining a fleet of Lambda functions with their own IAM roles, error handling, and monitoring is real engineering work. And cold-start latency can block applications if the agent's cache expires before a fresh credential arrives.
+The application never sees the root credential. The broker sees it briefly, in memory, to generate the short-lived token. The root credential is protected by the same zero-static-credential KMS model as everything else. If the broker's execution environment is compromised, the attacker gets the root credential for the duration of the compromise — but the blast radius is one credential source, not the entire secrets store.
 
-**The pragmatic conclusion**: The fully dynamic model is the correct architecture for high-security environments that can afford the engineering investment. For most organizations, the sweet spot is a hybrid approach: dynamic credentials for sensitive, high-rotation targets (database access, cloud IAM, payment processor tokens) and static encrypted secrets via `clef set` for the long tail of low-risk configuration that doesn't support short-lived credentials.
+### 7.7 What Dynamic Credentials Achieve
+
+Given the static root credential reality, the dynamic pattern still provides meaningful security improvements over direct static credential distribution:
+
+- **Time-bounded blast radius**: A leaked short-lived token expires in minutes. A leaked static credential is valid until someone notices and rotates it.
+- **Automatic rotation**: Rotation is the next broker invocation, not a manual operational procedure.
+- **Reduced distribution surface**: The root credential exists in one place (the broker's Clef namespace, encrypted in git). The short-lived tokens are delivered to applications via the agent. No application ever holds or stores the root credential.
+- **Separation of exposure**: The root credential is encrypted in git history — accessible only via KMS, auditable, scoped to the broker's service identity. The application-facing credential is ephemeral. Even if git history is compromised, the attacker gets encrypted root credentials (useless without KMS) and expired short-lived tokens (useless by design).
+
+### 7.8 Limitations and the Path Forward
+
+Every dynamic credential system today requires a static bootstrapping credential because the target platforms haven't adopted tokenless access patterns universally. IAM auth for RDS exists, but most databases still require a password. Workload identity federation exists on GCP, but most SaaS APIs still issue static API keys. The industry is moving toward tokenless — slowly, unevenly.
+
+The Clef envelope contract positions ahead of that curve. Four properties make this work:
+
+1. **The envelope is platform-agnostic.** It doesn't care if the credential inside was generated from a static root credential or from a tokenless IAM call. The contract is: ciphertext, integrity hash, expiry, optional KMS envelope. What produced the credential is irrelevant to the consumer.
+
+2. **The agent doesn't care about the source.** It polls, validates, decrypts, serves. Whether the artifact came from a broker that used a static database password or from a broker that used workload identity federation — same consumption path.
+
+3. **The migration path is a deletion, not a migration.** When a platform adopts tokenless access, you update the broker logic (remove the static credential, use the native IAM/identity mechanism), and nothing downstream changes. No application code changes, no agent changes, no envelope format changes. You delete a secret from a Clef namespace.
+
+4. **The hybrid model works indefinitely.** Dynamic credentials for systems that support them, static encrypted secrets via `clef set` for the long tail that doesn't. Both flow through the same agent and the same envelope format. The architecture does not require the industry to catch up to be useful today.
+
+The honest caveat: Clef cannot force platform adoption. But by standardizing on the envelope contract now, organizations avoid re-architecting when platforms do catch up. The worst case is that the broker pattern continues working as-is with the static root credential. The best case is that the root credential drops out and the broker simplifies to a thin IAM call — with zero changes to the consuming infrastructure.
+
+The transition from "static root + broker logic" to "native tokenless" is designed to be a deletion, not a migration.
 
 The architecture accommodates both through the same agent and the same envelope format. A single Clef agent can serve static secrets from a packed artifact alongside dynamic credentials from a Lambda endpoint. The consumption interface is identical. The investment in the agent, the envelope contract, and the adaptive polling machinery is amortized across every secret type.
 
@@ -516,13 +535,17 @@ The Clef Pro control plane (if used) operates on **metadata only**: rotation tim
 | Artifact store read access            | Ciphertext and KMS-wrapped ephemeral key                            | Decrypt without `kms:Decrypt` permission on the specific KMS key                                             |
 | KMS `Decrypt` permission on wrong key | Nothing useful                                                      | Decrypt artifacts wrapped with a different KMS key                                                           |
 
-### 8.3 Cryptographic Access Control
+### 8.3 Access Control
 
-Access to secrets is enforced cryptographically, not by ACLs:
+In a traditional secrets manager, access control is a separate system: the vault server evaluates policies at request time. In Clef, access control is git. The manifest declares who can decrypt what, SOPS enforces it cryptographically, and git controls who can change the manifest. There is no separate policy server to configure, maintain, or secure — but there is also no separation between the system that holds secrets and the system that controls access to them.
+
+The cryptographic mechanisms are:
 
 - **Per-environment encryption**: Each environment can use a different backend (age, KMS) and different recipients. A developer with the `development` age key cannot decrypt `production`.
 - **Per-service-identity scoping**: Service identities are registered as SOPS recipients only on the namespace files they need. The `api-gateway` identity cannot decrypt `payments` secrets because it is not a recipient on those files.
 - **Per-artifact ephemeral keys** (KMS mode): Each packed artifact uses a unique ephemeral age key pair. Compromising one artifact's decrypted content reveals nothing about other artifacts.
+
+The trust chain is: git write access → manifest control → recipient list → cryptographic enforcement. An attacker who can merge a change to `clef.yaml` can add themselves as a recipient. This is the same class of risk as an attacker who can modify Vault policies or Doppler project access — the difference is that in Clef, the access control configuration is version-controlled, reviewable in a PR diff, and auditable in git history. The residual risk is an insider with merge permissions who adds a rogue recipient in a PR alongside legitimate changes. `clef lint` detects unrecognized recipients, but the lint output must be reviewed — it does not block merges on its own without CI enforcement.
 
 ### 8.4 No Single Point of Failure
 
@@ -572,27 +595,29 @@ Repository write access is the trust boundary. But it is the same trust boundary
 
 ### 9.1 Operational Burden
 
-| Solution            | Infrastructure required                  | Operational model                  |
-| ------------------- | ---------------------------------------- | ---------------------------------- |
-| HashiCorp Vault     | HA cluster + storage backend + unsealing | Dedicated team                     |
-| AWS Secrets Manager | None (managed)                           | Per-secret pricing                 |
-| Infisical           | PostgreSQL + Redis + app server          | Medium ops                         |
-| Doppler             | None (SaaS)                              | Vendor-managed                     |
-| **Clef**            | **None (Clef-specific)**                 | **Zero additional infrastructure** |
+| Solution            | Infrastructure required                  | Operational model                                           |
+| ------------------- | ---------------------------------------- | ----------------------------------------------------------- |
+| HashiCorp Vault     | HA cluster + storage backend + unsealing | Dedicated team                                              |
+| AWS Secrets Manager | None (managed)                           | Per-secret pricing                                          |
+| Infisical           | PostgreSQL + Redis + app server          | Medium ops                                                  |
+| Doppler             | None (SaaS)                              | Vendor-managed                                              |
+| **Clef**            | **None (Clef-specific)**                 | **Git workflow + KMS/IAM provisioning (age mode: minimal)** |
 
 A clarification on "zero ops": Clef requires no Clef-specific infrastructure because secrets live in git and runtime delivery uses the customer's existing compute and storage. However, the KMS-native path requires provisioning KMS keys, writing IAM policies, configuring CI roles, and managing artifact storage. These are real operational tasks, but they are tasks within the platform engineering the team already does. The claim is not that no work is required, but that no new category of infrastructure is introduced.
 
 ### 9.2 Custody Model
 
-| Solution            | Who holds secrets?                  | Default blast radius             | Granular scoping available?         |
-| ------------------- | ----------------------------------- | -------------------------------- | ----------------------------------- |
-| Vault (self-hosted) | Customer's Vault cluster            | All secrets in that cluster      | Yes, via policies and namespaces    |
-| Vault (HCP)         | HashiCorp                           | All secrets in that tenant       | Yes, via policies                   |
-| Doppler             | Doppler                             | All secrets in that org          | Yes, via projects and environments  |
-| AWS Secrets Manager | AWS                                 | Per-account                      | Yes, via per-secret IAM policies    |
-| **Clef**            | **Customer's git + customer's KMS** | **Per-service, per-environment** | **Yes, cryptographically enforced** |
+| Solution            | Who holds secrets?                  | Default blast radius             | Granular scoping available?                       |
+| ------------------- | ----------------------------------- | -------------------------------- | ------------------------------------------------- |
+| Vault (self-hosted) | Customer's Vault cluster            | All secrets in that cluster      | Yes, via policies and namespaces                  |
+| Vault (HCP)         | HashiCorp                           | All secrets in that tenant       | Yes, via policies                                 |
+| Doppler             | Doppler                             | All secrets in that org          | Yes, via projects and environments                |
+| AWS Secrets Manager | AWS                                 | Per-account                      | Yes, via per-secret IAM policies                  |
+| **Clef**            | **Customer's git + customer's KMS** | **Per-service, per-environment** | **Yes, git-controlled cryptographic enforcement** |
 
-A fair comparison: most tools support granular access control when configured correctly. The difference is enforcement mechanism. Vault, Doppler, and ASM enforce access via ACL policies evaluated by a central server; if the server is compromised or misconfigured, the policy is bypassed. Clef enforces access cryptographically: a service identity that is not a SOPS recipient on a file cannot decrypt it, regardless of any misconfiguration elsewhere in the system. The policy is the cryptography.
+Most tools support granular access control when configured correctly. The difference is where the access control lives. Vault and Doppler evaluate policies on a central server — a separate system to configure and secure. Clef's access control is the git repository itself: the manifest declares recipients, SOPS enforces the cryptography, and git branch protection controls who can change the manifest. This is simpler (one system, not two) but it means the git repository carries the combined risk profile of a secrets store and an access control system. Organizations should protect it accordingly.
+
+Cloud-native secret managers (AWS Secrets Manager, GCP Secret Manager, Azure Key Vault) deserve specific mention: for teams invested in a cloud provider's IAM, these services provide identity-based access control without a static bootstrap credential — a property they share with Clef's KMS mode. The architectural difference is that cloud secret managers store secrets on the provider's infrastructure while Clef stores encrypted secrets in git. Both are valid trust models; the choice depends on whether the team prioritizes managed convenience or git-native versioning and vendor independence.
 
 ### 9.3 Dynamic Credentials
 
@@ -601,6 +626,18 @@ A fair comparison: most tools support granular access control when configured co
 | Vault secrets engines     | Vault-maintained plugins  | High (Vault team)             | All Vault users     |
 | Infisical dynamic secrets | Infisical-maintained      | Medium                        | All Infisical users |
 | **Clef**                  | **Customer-owned Lambda** | **Customer's responsibility** | **One customer**    |
+
+### 9.4 When to Use What
+
+Not every team needs zero-custody. Not every team has the cloud-native maturity for KMS envelope mode. Honest guidance:
+
+**A small team on a PaaS with a handful of environment variables**: Doppler or the platform's native secrets. The overhead of git-native encryption, SOPS, and age keys is not justified for five env vars. Clef is designed for teams that have outgrown `.env` files, not teams that haven't needed to yet.
+
+**A team already using a cloud provider's IAM extensively**: Cloud-native secret managers (AWS Secrets Manager, GCP Secret Manager, Azure Key Vault) are serious alternatives. They offer native IAM integration, managed rotation for supported services, and zero infrastructure — similar properties to Clef's KMS mode. The tradeoff: secrets are not versioned in git (no PR review, no drift detection, no cross-environment comparison), and each secret is a separate managed resource. Clef is stronger when the team values git-native workflows, namespace-level organization, and cross-environment consistency checking. Cloud secret managers are stronger when the team wants managed rotation and minimal tooling.
+
+**A team that needs dynamic credentials today with minimal engineering investment**: Vault. Its built-in secrets engines for databases, cloud IAM, and PKI are production-proven and require no custom code. Clef's broker model requires building and maintaining the credential logic. The Clef Broker Registry aims to reduce this gap but is not yet a mature ecosystem.
+
+**A team that wants secrets versioned alongside code, git-native review workflows, and no central server**: Clef. This is the use case the architecture is designed for.
 
 ---
 

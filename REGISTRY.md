@@ -2,13 +2,196 @@
 
 ## Overview
 
-A community-driven registry of dynamic credential broker templates, distributed as a GitHub repository. `clef install <broker>` downloads a broker template into the user's project. The user deploys it themselves with their own IaC tooling. Clef never touches cloud APIs.
+A community-driven registry of dynamic credential broker handlers, distributed as a GitHub repository. A broker is any HTTP endpoint that returns a valid Clef artifact envelope. `clef install <broker>` downloads a handler into the user's project. The user deploys it behind any URL. The Clef agent polls that URL — same as it polls any other artifact source.
+
+Clef provides the **broker runtime** (`@clef-sh/broker-runtime`) — an npm package that handles envelope construction, KMS wrapping, and HTTP serving. A community broker is a single `create()` function. The runtime does the rest.
 
 ---
 
-## Architecture
+## The Core Contract
 
-### The Registry
+A broker is an HTTP endpoint. The agent polls it. The broker returns a Clef artifact envelope. That's the entire interface.
+
+```
+Agent (adaptive polling)          Broker (any HTTP endpoint)
+┌──────────────────────┐          ┌──────────────────────┐
+│                      │  GET     │                      │
+│  Polls broker URL    │─────────►│  1. Generate cred    │
+│  at 80% of TTL       │          │  2. age-encrypt      │
+│                      │◄─────────│  3. KMS-wrap         │
+│  Unwraps via KMS     │  200 OK  │  4. Return envelope  │
+│  Decrypts via age    │  (JSON)  │                      │
+│  Serves to app       │          │                      │
+└──────────────────────┘          └──────────────────────┘
+```
+
+How the broker generates the credential is not Clef's concern. What infrastructure it runs on is not Clef's concern. The contract is: return a valid envelope at an HTTP URL. The agent already knows how to consume it.
+
+A broker can be:
+
+- A Lambda behind API Gateway (or a Function URL)
+- A Cloud Function behind its default HTTPS trigger
+- A container with an HTTP server
+- A plain process on a VM
+- Anything that responds to HTTP with a valid envelope
+
+No EventBridge. No S3 bucket. No cron job. The agent's adaptive polling is the scheduler.
+
+---
+
+## The Broker Runtime
+
+The `@clef-sh/broker-runtime` package is the key to reducing adoption burden. It handles everything except the credential generation logic.
+
+### What the runtime does
+
+1. **HTTP serving** — Starts a server, handles the agent's GET requests
+2. **Config loading** — Reads broker inputs from environment variables or the Clef agent
+3. **Envelope construction** — age-encrypts credentials with an ephemeral key
+4. **KMS wrapping** — Wraps the ephemeral private key via KMS
+5. **Response caching** — Caches the generated envelope until TTL threshold, avoiding redundant credential generation on every poll
+6. **Health endpoint** — `GET /health` for infrastructure probes
+
+### What the broker author writes
+
+A single handler file conforming to the `BrokerHandler` interface:
+
+```typescript
+import type { BrokerHandler } from "@clef-sh/broker-runtime";
+
+export interface BrokerHandler {
+  create(config: Record<string, string>): Promise<{
+    data: Record<string, string>; // the credentials
+    ttl: number; // seconds until expiry
+  }>;
+
+  revoke?(entityId: string, config: Record<string, string>): Promise<void>;
+
+  validateConnection?(config: Record<string, string>): Promise<boolean>;
+}
+```
+
+**`create`** is the only required method. `revoke` and `validateConnection` are optional — most Tier 1 brokers (self-expiring credentials) don't need them.
+
+### Example: RDS IAM broker (complete handler)
+
+```typescript
+import { Signer } from "@aws-sdk/rds-signer";
+import type { BrokerHandler } from "@clef-sh/broker-runtime";
+
+export const handler: BrokerHandler = {
+  create: async (config) => {
+    const signer = new Signer({
+      hostname: config.DB_ENDPOINT,
+      port: Number(config.DB_PORT ?? "5432"),
+      username: config.DB_USER,
+    });
+    return {
+      data: { DB_TOKEN: await signer.getAuthToken() },
+      ttl: 900,
+    };
+  },
+};
+```
+
+15 lines. No envelope logic, no KMS calls, no HTTP server code, no S3 writes.
+
+### Example: SQL database broker (Handlebars templates)
+
+The SQL broker uses statement templates — one provider covers every SQL database:
+
+```yaml
+# broker.yaml
+name: sql-database
+provider: agnostic
+inputs:
+  - name: DB_HOST
+    secret: false
+  - name: DB_PORT
+    secret: false
+    default: "5432"
+  - name: DB_ADMIN_USER
+    secret: true
+  - name: DB_ADMIN_PASSWORD
+    secret: true
+  - name: DB_NAME
+    secret: false
+  - name: CREATE_STATEMENT
+    secret: false
+    default: |
+      CREATE ROLE "{{username}}" WITH LOGIN PASSWORD '{{password}}'
+      VALID UNTIL '{{expiration}}';
+      GRANT SELECT ON ALL TABLES IN SCHEMA public TO "{{username}}";
+  - name: REVOKE_STATEMENT
+    secret: false
+    default: |
+      DROP ROLE IF EXISTS "{{username}}";
+```
+
+```typescript
+import type { BrokerHandler } from "@clef-sh/broker-runtime";
+import Handlebars from "handlebars";
+import { randomBytes } from "node:crypto";
+import knex from "knex";
+
+export const handler: BrokerHandler = {
+  create: async (config) => {
+    const username = `clef_${Date.now()}`;
+    const password = randomBytes(24).toString("base64url");
+    const expiration = new Date(Date.now() + 3600_000).toISOString();
+
+    const db = knex({
+      client: "pg",
+      connection: {
+        /* from config */
+      },
+    });
+    const sql = Handlebars.compile(config.CREATE_STATEMENT)({ username, password, expiration });
+    await db.raw(sql);
+    await db.destroy();
+
+    return {
+      data: { DB_USER: username, DB_PASSWORD: password },
+      ttl: 3600,
+    };
+  },
+
+  revoke: async (entityId, config) => {
+    const db = knex({
+      client: "pg",
+      connection: {
+        /* from config */
+      },
+    });
+    const sql = Handlebars.compile(config.REVOKE_STATEMENT)({ username: entityId });
+    await db.raw(sql);
+    await db.destroy();
+  },
+};
+```
+
+One handler, every SQL database. The user changes the `CREATE_STATEMENT` and `REVOKE_STATEMENT` for MySQL, Oracle, MSSQL — the handler doesn't change.
+
+### How the runtime executes
+
+```typescript
+import { serve } from "@clef-sh/broker-runtime";
+import { handler } from "./handler.js";
+
+serve(handler, { port: process.env.PORT ?? 8080 });
+```
+
+That's the entrypoint. `serve()` does:
+
+1. Loads config from env vars (or Clef agent if `CLEF_AGENT_URL` is set)
+2. On GET `/`: calls `handler.create(config)` → encrypts → KMS wraps → returns envelope JSON
+3. Caches the response until 80% of TTL has elapsed (avoids generating new credentials on every poll)
+4. On GET `/health`: returns 200
+5. If `handler.revoke` exists and the broker manages stateful credentials (SQL users), tracks `entityId` and calls `revoke` on the previous credential when a new one is created
+
+---
+
+## The Registry
 
 A public GitHub repository (`clef-sh/brokers`) containing one directory per broker. The registry is the repo — no API server, no database, no CDN. Discovery is via an auto-generated `index.json` at the repo root.
 
@@ -19,9 +202,6 @@ github.com/clef-sh/brokers/
 │   ├── rds-iam/
 │   │   ├── broker.yaml
 │   │   ├── handler.ts
-│   │   ├── deploy/
-│   │   │   ├── sam/template.yaml
-│   │   │   └── terraform/main.tf
 │   │   └── README.md
 │   ├── sts-assume-role/
 │   └── secrets-manager-passthrough/
@@ -29,11 +209,14 @@ github.com/clef-sh/brokers/
 │   ├── cloud-sql-iam/
 │   └── workload-identity-token/
 ├── azure/
-│   └── keyvault-rotation/
+│   └── entra-id-token/
 └── agnostic/
+    ├── sql-database/
     ├── oauth-token-refresh/
     └── jwt-minter/
 ```
+
+Note: no `deploy/` subdirectory per broker. The deployment template is **one shared template** in the runtime package (or a top-level `deploy/` in the registry) parameterized by broker name. The handler is the only broker-specific code.
 
 ### Contribution Model
 
@@ -41,18 +224,19 @@ Fork and PR. Same as Homebrew formulas.
 
 1. Contributor forks `clef-sh/brokers`
 2. Adds a directory under the appropriate cloud provider (or `agnostic/`)
-3. Includes a valid `broker.yaml` manifest
+3. Includes `broker.yaml` + `handler.ts` + `README.md`
 4. Opens a PR
-5. Maintainers review the manifest and handler code
-6. On merge, CI regenerates `index.json`
+5. CI validates: `broker.yaml` schema, handler type-checks against `BrokerHandler`, README structure
+6. Maintainers review the handler logic
+7. On merge, CI regenerates `index.json`
 
-No `publish` command, no accounts, no auth. If contribution volume ever warrants automation, the solution is more maintainers, not a publishing API.
+The barrier to contribution is writing a `create()` function — not understanding age encryption, KMS, or the artifact envelope format.
 
 ---
 
 ## The broker.yaml Manifest
 
-Every broker must have a `broker.yaml` at its root. This is the contract between the broker and the registry/CLI.
+Every broker must have a `broker.yaml` at its root.
 
 ```yaml
 name: rds-iam
@@ -60,8 +244,8 @@ version: 1.0.0
 description: Generate RDS IAM authentication tokens with 15-minute TTL
 author: clef-sh
 license: MIT
-provider: aws # aws | gcp | azure | agnostic
-requires: agent # broker reads its config from the Clef agent
+provider: aws
+tier: 1 # 1 = self-expiring, 2 = stateful (needs revoke), 3 = complex lifecycle
 
 inputs:
   - name: DB_ENDPOINT
@@ -74,42 +258,54 @@ inputs:
     description: Database port
     secret: false
     default: "5432"
-  - name: KMS_KEY_ARN
-    description: KMS key ARN for envelope encryption
-    secret: false
 
 output:
-  identity: rds-primary # suggested service identity name
-  ttl: 900 # artifact expiresAt in seconds
+  identity: rds-primary
+  ttl: 900
+  keys: [DB_TOKEN]
 
-deploy:
-  - tool: sam
-    entrypoint: deploy/sam/template.yaml
-  - tool: terraform
-    entrypoint: deploy/terraform/main.tf
+runtime:
+  dependencies:
+    "@aws-sdk/rds-signer": "^3.0.0"
+  permissions:
+    - rds-db:connect # IAM permissions the broker's execution role needs
 ```
 
 ### Field Definitions
 
-| Field              | Required | Description                                                                                |
-| ------------------ | -------- | ------------------------------------------------------------------------------------------ |
-| `name`             | Yes      | Unique broker identifier (lowercase, hyphens)                                              |
-| `version`          | Yes      | Semver version                                                                             |
-| `description`      | Yes      | One-line description                                                                       |
-| `author`           | Yes      | Author or organization                                                                     |
-| `license`          | Yes      | SPDX license identifier                                                                    |
-| `provider`         | Yes      | Target cloud (`aws`, `gcp`, `azure`, `agnostic`)                                           |
-| `requires`         | No       | `agent` if the broker reads config from the Clef agent                                     |
-| `inputs`           | Yes      | Parameters the broker needs — `secret: true` means it should be stored in a Clef namespace |
-| `inputs[].default` | No       | Default value if not provided                                                              |
-| `output.identity`  | No       | Suggested service identity name for the output artifact                                    |
-| `output.ttl`       | No       | Suggested TTL in seconds for the output artifact                                           |
-| `deploy`           | Yes      | Available deployment methods with tool name and entrypoint                                 |
+| Field                  | Required | Description                                                                                |
+| ---------------------- | -------- | ------------------------------------------------------------------------------------------ |
+| `name`                 | Yes      | Unique broker identifier (lowercase, hyphens)                                              |
+| `version`              | Yes      | Semver version                                                                             |
+| `description`          | Yes      | One-line description                                                                       |
+| `author`               | Yes      | Author or organization                                                                     |
+| `license`              | Yes      | SPDX license identifier                                                                    |
+| `provider`             | Yes      | Target cloud (`aws`, `gcp`, `azure`, `agnostic`)                                           |
+| `tier`                 | Yes      | `1` (self-expiring), `2` (stateful/revocable), `3` (complex lifecycle)                     |
+| `inputs`               | Yes      | Parameters the broker needs — `secret: true` means it should be stored in a Clef namespace |
+| `inputs[].default`     | No       | Default value if not provided                                                              |
+| `output.identity`      | No       | Suggested service identity name for the output artifact                                    |
+| `output.ttl`           | No       | Suggested TTL in seconds for the output artifact                                           |
+| `output.keys`          | No       | Secret key names the broker produces                                                       |
+| `runtime.dependencies` | No       | npm dependencies the handler needs (installed by the runtime)                              |
+| `runtime.permissions`  | No       | IAM permissions the broker's execution role needs (documentation, not enforcement)         |
 
 ### Input Types
 
-- `secret: false` — configuration value (endpoint, username, region). Can be a deployment parameter or env var.
-- `secret: true` — sensitive credential (OAuth client secret, database password). Should be stored in a Clef namespace and read via the agent at runtime.
+- `secret: false` — configuration value (endpoint, username, region). Environment variable or deployment parameter.
+- `secret: true` — sensitive credential (database password, OAuth client secret). Stored in a Clef namespace and read via the agent at runtime.
+
+---
+
+## Broker Tiers
+
+| Tier  | Credential Type     | Revocation                                   | Examples                                                                     | Complexity                                                             |
+| ----- | ------------------- | -------------------------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| **1** | Self-expiring       | None needed — credentials expire naturally   | STS AssumeRole, RDS IAM, OAuth access tokens, GCP access tokens              | Handler is a pure function. `create()` only.                           |
+| **2** | Stateful, revocable | Create-new, revoke-previous                  | SQL database users, MongoDB users, Redis ACL users                           | Handler has `create()` + `revoke()`. Runtime tracks previous entityId. |
+| **3** | Complex lifecycle   | Multi-step teardown or external coordination | IAM users (detach policies, delete keys, remove from groups), LDAP, K8s RBAC | Advanced. Handler manages full lifecycle. May need external state.     |
+
+**Phase 1 focuses on Tier 1.** These cover the most common real-world use cases and require zero state management. Tier 2 (SQL templates) is Phase 1 stretch. Tier 3 is future work.
 
 ---
 
@@ -124,28 +320,27 @@ $ clef install rds-iam
 
   Name:        rds-iam
   Provider:    aws
+  Tier:        1 (self-expiring credentials)
   Description: Generate RDS IAM authentication tokens with 15-minute TTL
-  Agent:       required
 
   Created:
     brokers/rds-iam/broker.yaml
     brokers/rds-iam/handler.ts
-    brokers/rds-iam/deploy/sam/template.yaml
-    brokers/rds-iam/deploy/terraform/main.tf
-    brokers/rds-iam/README.md
 
-  Inputs (configure in broker.yaml or Clef namespace):
+  Inputs:
     DB_ENDPOINT  (required)
     DB_USER      (required)
     DB_PORT      (default: 5432)
-    KMS_KEY_ARN  (required)
 
-  Deploy with:
-    cd brokers/rds-iam && sam deploy --guided
+  Output:
+    Keys:    DB_TOKEN
+    TTL:     900s
 
-  To store broker config as Clef secrets:
-    clef set broker-rds-iam/production DB_ENDPOINT "mydb.cluster-abc.rds.amazonaws.com"
-    clef set broker-rds-iam/production DB_USER "clef_readonly"
+  IAM permissions needed:
+    rds-db:connect
+
+  Deploy:
+    See: https://registry.clef.sh/brokers/rds-iam#deploy
 ```
 
 ### Implementation
@@ -160,10 +355,13 @@ interface BrokerManifest {
   author: string;
   license: string;
   provider: string;
-  requires?: string;
+  tier: 1 | 2 | 3;
   inputs: { name: string; description: string; secret: boolean; default?: string }[];
-  output?: { identity?: string; ttl?: number };
-  deploy: { tool: string; entrypoint: string }[];
+  output?: { identity?: string; ttl?: number; keys?: string[] };
+  runtime?: {
+    dependencies?: Record<string, string>;
+    permissions?: string[];
+  };
 }
 ```
 
@@ -171,160 +369,87 @@ interface BrokerManifest {
 
 1. Fetch `index.json` from `https://raw.githubusercontent.com/clef-sh/brokers/main/index.json`
 2. Look up the broker name in the index to get the directory path
-3. Download the broker directory (via GitHub API tarball or individual file fetches)
+3. Download `broker.yaml`, `handler.ts`, `README.md` (3 files — not a project scaffold)
 4. Write files to `brokers/<name>/` in the user's repo
-5. Parse `broker.yaml` and print summary (inputs, deploy commands)
+5. Parse `broker.yaml` and print summary
 6. Exit — no deployment, no cloud calls
 
 **Additional commands:**
 
 - `clef search <query>` — search the index by name, provider, or description
 - `clef search --provider aws` — filter by cloud provider
-
-### Fetching Strategy
-
-Two options for downloading broker files from GitHub:
-
-**Option A: GitHub API (per-file)**
-
-- `GET /repos/clef-sh/brokers/contents/{path}` for each file
-- Simple but rate-limited (60/hr unauthenticated, 5000/hr with token)
-- Good enough for `clef install` which runs infrequently
-
-**Option B: Download tarball, extract directory**
-
-- `GET /repos/clef-sh/brokers/tarball/main`
-- Download entire repo as tar.gz, extract only the target directory
-- One request, no rate limit concerns
-- Larger download but simpler implementation
-
-Recommendation: **Option A** for v1. Rate limiting is not a concern for a command run once per broker. Switch to Option B if rate limits become an issue.
+- `clef search --tier 1` — filter by complexity tier
 
 ---
 
-## Broker Handler Pattern
+## Deployment
 
-Every broker handler follows the same pattern regardless of language:
+Clef does not deploy brokers. But because every broker uses the same runtime, deployment is a generic template parameterized by broker name — not a per-broker IaC project.
 
-1. Read config from the Clef agent (`http://127.0.0.1:7779/v1/secrets`)
-2. Generate or fetch the credential from the target system
-3. Encrypt the credential into a Clef artifact envelope
-4. Write the artifact to storage (S3, HTTP, git)
+### Shared deployment templates
 
-### Reference Implementation (TypeScript)
+The `@clef-sh/broker-runtime` package (or a `deploy/` directory in the registry) provides generic deployment templates:
 
-```typescript
-import http from "node:http";
-import { createHash, randomBytes } from "node:crypto";
+**AWS Lambda + Function URL (SAM):**
 
-// 1. Read config from agent
-async function getConfig(): Promise<Record<string, string>> {
-  const token = process.env.CLEF_AGENT_TOKEN;
-  const res = await fetch("http://127.0.0.1:7779/v1/secrets", {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  return res.json();
-}
+```yaml
+# deploy/sam/template.yaml — works for ANY broker
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
 
-// 2. Generate credential (broker-specific)
-async function generateCredential(config: Record<string, string>): Promise<Record<string, string>> {
-  // ... broker-specific logic (RDS IAM token, STS creds, OAuth token, etc.)
-  return { DB_TOKEN: token };
-}
+Parameters:
+  BrokerName:
+    Type: String
+  KmsKeyArn:
+    Type: String
+  # ... broker inputs injected as env vars
 
-// 3. Pack into Clef artifact envelope
-async function packArtifact(
-  secrets: Record<string, string>,
-  kmsKeyArn: string,
-  identity: string,
-  environment: string,
-  ttl: number,
-): Promise<string> {
-  // age-encrypt secrets with ephemeral key
-  // wrap ephemeral key with KMS
-  // return JSON envelope
-}
-
-// 4. Write to S3
-async function writeToS3(artifact: string, bucket: string, key: string): Promise<void> {
-  // ... S3 put
-}
-
-// Entry point
-export async function handler(): Promise<void> {
-  const config = await getConfig();
-  const creds = await generateCredential(config);
-  const artifact = await packArtifact(
-    creds,
-    config.KMS_KEY_ARN,
-    "rds-primary",
-    process.env.CLEF_ENVIRONMENT ?? "production",
-    900,
-  );
-  await writeToS3(artifact, config.ARTIFACT_BUCKET, `clef/rds-primary/production.age.json`);
-}
+Resources:
+  BrokerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: nodejs20.x
+      Handler: index.handler
+      CodeUri: ./brokers/${BrokerName}/
+      Layers:
+        - !Ref BrokerRuntimeLayer
+      Environment:
+        Variables:
+          KMS_KEY_ARN: !Ref KmsKeyArn
+      FunctionUrlConfig:
+        AuthType: AWS_IAM # agent authenticates via IAM
 ```
 
-### Optional: @clef-sh/broker-sdk
+**Dockerfile (generic — works for any broker):**
 
-A lightweight helper library that handles envelope creation, reducing boilerplate:
-
-```typescript
-import { packEnvelope } from "@clef-sh/broker-sdk";
-
-const artifact = await packEnvelope({
-  identity: "rds-primary",
-  environment: "production",
-  secrets: { DB_TOKEN: token },
-  kmsKeyArn: config.KMS_KEY_ARN,
-  ttl: 900,
-});
+```dockerfile
+FROM node:20-slim
+WORKDIR /app
+COPY brokers/<name>/handler.ts .
+COPY brokers/<name>/broker.yaml .
+RUN npm install @clef-sh/broker-runtime
+CMD ["node", "-e", "import('./handler.js').then(h => require('@clef-sh/broker-runtime').serve(h.handler))"]
 ```
 
-This SDK would be TypeScript/Node and optional — any language can construct the JSON envelope directly. The SDK is a convenience, not a requirement.
-
-**Decision needed:** Build the SDK in Phase 1 or let early brokers construct envelopes manually?
-
----
-
-## Broker Deployment
-
-Clef does not deploy brokers. The broker template includes deployment configurations for common IaC tools. The user deploys with their existing tooling.
-
-### Deployment templates include:
-
-- Lambda function (or Cloud Function, Azure Function)
-- IAM role with least-privilege permissions for the target system
-- EventBridge rule (or Cloud Scheduler, Timer Trigger) for the refresh schedule
-- Clef agent Lambda extension layer (when `requires: agent`)
-- S3 bucket or output location for the artifact
-
-### The user's responsibility:
-
-- Review and customize the deployment template for their environment
-- Set deployment parameters (VPC, subnets, security groups, tags)
-- Deploy with `sam deploy`, `terraform apply`, `cdk deploy`, etc.
-- Store broker config secrets in Clef (`clef set broker-<name>/<env> ...`)
+The handler is the only broker-specific code. Everything else is shared infrastructure.
 
 ---
 
 ## Broker Config as Clef Secrets
 
-When a broker has `requires: agent` and inputs with `secret: true`, the recommended pattern is:
+When a broker has inputs with `secret: true`, the recommended pattern is:
 
-1. Create a Clef namespace for the broker's config: `broker-rds-iam`
-2. Create a service identity for the broker Lambda: `broker-rds-iam-runner`
-3. Store config secrets: `clef set broker-rds-iam/production CLIENT_SECRET "..."`
-4. Pack the config artifact: `clef pack broker-rds-iam-runner production`
-5. The broker Lambda reads its config from the agent, generates the dynamic credential, writes the output artifact
+1. Store root credentials in a Clef namespace: `clef set broker-rds-iam/production DB_ADMIN_PASSWORD "..."`
+2. The broker reads them from environment variables (injected by the deployment template) or from the Clef agent if running as a sidecar
+3. The broker runtime passes them to `handler.create(config)`
 
-The broker consumes Clef to produce Clef. Static root credentials managed by Clef, dynamic credentials delivered by Clef.
+The broker consumes static secrets (managed by Clef) to produce dynamic credentials (delivered by Clef). Same agent, same envelope, same consumption path.
 
 ---
 
 ## Registry Index (index.json)
 
-Auto-generated by CI on every merge to `main`. Structure:
+Auto-generated by CI on every merge to `main`:
 
 ```json
 {
@@ -337,139 +462,98 @@ Auto-generated by CI on every merge to `main`. Structure:
       "description": "Generate RDS IAM authentication tokens with 15-minute TTL",
       "author": "clef-sh",
       "provider": "aws",
+      "tier": 1,
       "path": "aws/rds-iam",
-      "requires": "agent"
+      "outputKeys": ["DB_TOKEN"]
     },
     {
-      "name": "oauth-token-refresh",
+      "name": "sql-database",
       "version": "1.0.0",
-      "description": "Refresh OAuth access tokens from client credentials",
+      "description": "Dynamic SQL database credentials via Handlebars templates",
       "author": "clef-sh",
       "provider": "agnostic",
-      "path": "agnostic/oauth-token-refresh",
-      "requires": "agent"
+      "tier": 2,
+      "path": "agnostic/sql-database",
+      "outputKeys": ["DB_USER", "DB_PASSWORD"]
     }
   ]
 }
 ```
 
-**CI generation:** A simple script walks the repo, reads each `broker.yaml`, and writes `index.json`. Runs on every merge to `main`.
-
 ---
 
 ## Implementation Phases
 
-### Phase 1: Registry Repo + `clef install` (MVP)
+### Phase 1: Broker Runtime + Registry + Reference Brokers
 
 **Scope:**
 
-- Create `clef-sh/brokers` repository with directory structure
-- Write 2-3 reference brokers (rds-iam, sts-assume-role, oauth-token-refresh)
-- CI script to generate `index.json` from `broker.yaml` files on merge to `main`
-- `clef install <name>` command — fetch index, download broker, scaffold into `brokers/`
-- `clef search` command — search/filter the index
-- CONTRIBUTING.md with broker authoring guidelines and README requirements
-- `broker.yaml` JSON schema for validation
+- `@clef-sh/broker-runtime` npm package:
+  - `BrokerHandler` interface (create, revoke?, validateConnection?)
+  - `serve(handler)` — HTTP server + envelope construction + KMS wrapping + response caching
+  - Envelope construction extracted from `@clef-sh/core` packer
+  - Published to npm
+- Create `clef-sh/brokers` repository
+- Reference Tier 1 brokers (handler-only, ~15-30 lines each):
+  - `aws/rds-iam` — RDS IAM auth token
+  - `aws/sts-assume-role` — STS temporary credentials
+  - `agnostic/oauth-token-refresh` — OAuth client_credentials token
+- Shared deployment templates (SAM + Dockerfile)
+- `clef install <name>` + `clef search` CLI commands
+- CI: index generator + `broker.yaml` schema validation + handler type-check
+- CONTRIBUTING.md with broker authoring guidelines
 
-**README requirement:** Every broker must include a `README.md` with a standard structure. This is enforced in CI and is a prerequisite for the Phase 2 static site. Required sections:
+**The runtime is Phase 1, not Phase 2.** Without it, every broker is 500 lines of boilerplate. With it, a broker is a `create()` function. The runtime is what makes the registry viable.
 
-- Description (what the broker does)
-- Prerequisites (cloud permissions, dependencies)
-- Install instructions (`clef install <name>`)
-- Configuration (inputs table — which are secrets, which are config)
-- Deploy instructions (per IaC tool available in `deploy/`)
-- How it works (credential generation flow)
+**Complexity:** Medium (~5-7 days)
 
-This structure is validated by CI in Phase 1 so that every merged broker is site-ready before the site exists.
-
-**Complexity:** Medium (~3-5 days)
-
+- Broker runtime: ~2-3 days (envelope logic exists in core, needs extraction + HTTP serving layer)
 - CLI commands: ~200 lines (install + search)
-- Reference brokers: ~150 lines each (handler + deployment template + README)
-- CI: index generator + `broker.yaml` schema validation + README structure check
-- Documentation: ~1 day
+- Reference brokers: ~30 lines each
+- Shared deployment templates: ~1 day
+- CI + documentation: ~1 day
 
-**Does not include:**
+### Phase 2: SQL Templates + Tier 2 + Registry Site
 
-- @clef-sh/broker-sdk (brokers construct envelopes manually)
-- Any cloud deployment from Clef
-- Broker versioning beyond what's in broker.yaml
-- Static site (Phase 2)
+**Scope — SQL template broker:**
 
-### Phase 2: Registry Site + Broker SDK
+- `agnostic/sql-database` broker with Handlebars statement templates
+- Covers Postgres, MySQL, Oracle, MSSQL via user-provided SQL statements
+- Tier 2: runtime tracks previous entityId, calls `revoke()` on rotation
+
+**Scope — Additional brokers:**
+
+- `gcp/workload-identity-token` — GCP access token via service account impersonation
+- `agnostic/mongodb` — Dynamic MongoDB users
+- `agnostic/redis-acl` — Dynamic Redis ACL users
 
 **Scope — Static site (`registry.clef.sh`):**
 
-A VitePress static site generated from the brokers repo and deployed to Cloudflare Pages. The site is the public-facing registry — browsable, searchable, with install instructions and full documentation for every broker.
+- VitePress site generated from `broker.yaml` + `README.md`
+- Each broker gets a page at `registry.clef.sh/brokers/<name>`
+- Searchable index with provider and tier filters
+- Deployed to Cloudflare Pages on merge to `main`
 
-- VitePress project in the brokers repo (e.g., `site/` directory)
-- CI generates VitePress markdown pages from each broker's `broker.yaml` + `README.md` on every merge to `main`
-- Each broker gets a page at `registry.clef.sh/brokers/<name>` with:
-  - Description, author, license, provider badge
-  - Install command (`clef install <name>`)
-  - Inputs table (auto-generated from `broker.yaml`)
-  - Full README content
-  - Deploy instructions per IaC tool
-  - Link to source on GitHub
-- Index page at `registry.clef.sh` with:
-  - Searchable/filterable broker list
-  - Provider filter (AWS, GCP, Azure, agnostic)
-  - Broker count, community stats
-- Deployed to Cloudflare Pages via GitHub Actions on merge to `main`
-- Custom domain: `registry.clef.sh`
+**Complexity:** Medium (~5-7 days)
 
-**Site generation pipeline:**
-
-```
-merge to main
-  → CI: validate broker.yaml schema + README structure
-  → CI: generate index.json
-  → CI: generate VitePress pages from broker.yaml + README.md
-  → CI: vitepress build
-  → CI: deploy to Cloudflare Pages
-```
-
-The generation script reads each broker directory:
-
-```
-aws/rds-iam/broker.yaml + README.md
-  → site/brokers/rds-iam.md (VitePress page with frontmatter from broker.yaml)
-```
-
-**Scope — Broker SDK:**
-
-- `@clef-sh/broker-sdk` npm package
-- `packEnvelope()` function — age encryption + KMS wrapping + JSON envelope construction
-- `readAgentConfig()` function — fetch secrets from localhost agent
-- TypeScript types for the artifact envelope
-- Published to npm
-
-**Complexity:** Medium (~4-6 days)
-
-- Site scaffolding + VitePress config: ~1 day
-- Page generation script: ~200 lines
-- CI pipeline (build + Cloudflare deploy): ~1 day
-- SDK: ~2 days (thin wrapper, most logic exists in `@clef-sh/core`)
-- Custom domain + DNS: ~1 hour
-
-**Depends on:** Phase 1 (brokers exist with validated READMEs)
-
-### Phase 3: Validation + Community
+### Phase 3: Validation + Community + Advanced Brokers
 
 **Scope:**
 
-- Broker testing framework — CI runs broker handler in a sandbox to verify it produces valid envelopes
-- Community contribution guidelines and review process (CONTRIBUTING.md already exists from Phase 1, this adds PR templates, review checklist)
-- Site enhancements: broker categories/tags, "recently added" section, contributor profiles
+- Broker testing framework — CI runs `handler.create()` in a sandbox to verify envelope shape
+- Community contribution guidelines (PR templates, review checklist)
+- Tier 3 brokers for complex lifecycle credentials (K8s service accounts, LDAP)
+- Private registry support (`clef install --registry <url>`)
+- Site enhancements: categories, "recently added", contributor profiles
 
-**Complexity:** Medium (~3-4 days)
+**Complexity:** Medium (~4-5 days)
 
 ### Phase 4: Clef Pro Integration
 
 **Scope:**
 
 - Clef Pro shows installed brokers per repo (from `clef report` data)
-- Broker health monitoring (artifact freshness, generation errors)
+- Broker health monitoring (artifact freshness, generation errors via OTLP)
 - Policy enforcement on broker output (TTL minimums, required KMS wrapping)
 
 **Complexity:** Depends on Clef Pro control plane readiness
@@ -478,30 +562,46 @@ aws/rds-iam/broker.yaml + README.md
 
 ## Design Decisions
 
-| Decision                | Choice                   | Rationale                                                        |
-| ----------------------- | ------------------------ | ---------------------------------------------------------------- |
-| Registry infrastructure | GitHub repo              | Zero ops, community PRs, git versioning                          |
-| Distribution            | Download files from repo | No npm for deployment templates                                  |
-| Contribution model      | Fork + PR                | No auth/accounts/publish infra needed                            |
-| Deployment              | User handles it          | Avoid scope creep into IaC debugging                             |
-| IaC tool                | Not mandated             | Broker templates can include SAM, Terraform, CDK, etc.           |
-| Handler language        | Not mandated             | TypeScript default for official brokers, community uses anything |
-| Broker config secrets   | Clef-managed via agent   | Consistent story — no secrets in env vars or external stores     |
-| Index generation        | CI on merge              | Auto-generated, always in sync with repo contents                |
-| Broker SDK              | Phase 2                  | Let reference brokers validate the API first                     |
-| Registry site           | VitePress + Cloudflare   | Static, zero ops, generated from repo content                    |
-| README requirement      | Phase 1 (enforced in CI) | Every broker is site-ready before the site exists                |
+| Decision                | Choice                           | Rationale                                                             |
+| ----------------------- | -------------------------------- | --------------------------------------------------------------------- |
+| Broker contract         | HTTP endpoint returning envelope | Agent already polls HTTP — no new protocol, no S3, no cron            |
+| Broker runtime          | Phase 1, required                | Without it, adoption burden is too high — every broker is boilerplate |
+| Registry infrastructure | GitHub repo                      | Zero ops, community PRs, git versioning                               |
+| Contribution model      | Fork + PR                        | Barrier is writing a `create()` function, not understanding age/KMS   |
+| Deployment templates    | Shared, not per-broker           | One SAM/Dockerfile template works for all brokers                     |
+| Handler interface       | create + optional revoke         | Mirrors what every secrets manager converges on                       |
+| SQL broker              | Handlebars statement templates   | One provider covers every SQL database                                |
+| Tier system             | 1/2/3 by credential lifecycle    | Sets expectations: Tier 1 is trivial, Tier 3 is advanced              |
+| Handler language        | TypeScript (runtime is Node)     | Matches Clef ecosystem; community can wrap any language behind HTTP   |
+| Revocation model        | Create-new, revoke-previous      | Works in stateless serverless; no job queue needed                    |
+
+---
+
+## Comparison with Infisical
+
+Infisical's dynamic secrets system supports ~22 credential providers. Their provider interface (`create`, `revoke`, `renew`, `validateInputs`, `validateConnection`) is a useful reference for the `BrokerHandler` contract. However, the architectures are fundamentally different:
+
+| Aspect                  | Infisical                                    | Clef                                                 |
+| ----------------------- | -------------------------------------------- | ---------------------------------------------------- |
+| Execution               | Server-side, centralized                     | Customer-side, any HTTP endpoint                     |
+| Root credential custody | Infisical server holds all root creds        | Customer's environment only                          |
+| Revocation              | pgboss job queue on Infisical server         | Self-expiring (Tier 1) or create-and-revoke (Tier 2) |
+| Provider code           | Enterprise-licensed (`ee/`), not reusable    | Clean-room MIT implementations                       |
+| Adding a provider       | Modify Infisical source code                 | Fork registry, add a `create()` function             |
+| Blast radius            | Infisical server compromise = all root creds | One broker compromise = one credential source        |
+
+The credential generation logic itself is trivial in every case — it's SDK calls to the target system. Infisical's implementations cannot be reused (enterprise license), but the same ~15-30 lines of SDK code can be written clean-room from public cloud documentation.
 
 ---
 
 ## Open Questions
 
-1. **Broker versioning:** Should the registry support multiple versions of the same broker? Or is latest-only sufficient for v1?
+1. **Response caching in the runtime:** When the agent polls, should the broker generate fresh credentials every time, or cache the envelope until ~80% of TTL? Caching reduces load on the target system but means multiple agents may share a credential window.
 
-2. **Breaking changes:** How do we handle broker.yaml schema evolution? Versioned schema with migration?
+2. **Authentication on the broker URL:** Lambda Function URLs support AWS_IAM auth. For other deployments, should the runtime support bearer token auth? Or is network-level isolation (VPC, security groups) sufficient?
 
-3. **Broker testing in CI:** How deep should validation go? Just schema validation, or actually run the handler in a sandbox?
+3. **Broker versioning:** Latest-only for v1? Or should `clef install rds-iam@1.2.0` pin a version?
 
-4. **Private registries:** Should `clef install` support a custom registry URL for organizations with internal brokers? (Likely yes, but Phase 3+)
+4. **Private registries:** `clef install --registry <url>` for organizations with internal brokers. Phase 3.
 
-5. **Broker dependencies:** Can one broker depend on another? (Probably not — keep it flat for simplicity)
+5. **State for Tier 2 brokers:** Where does the runtime store the previous `entityId` for create-and-revoke? A small state file in the broker's environment (Lambda `/tmp`, container volume)? Or in the envelope metadata itself?

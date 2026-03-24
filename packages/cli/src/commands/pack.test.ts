@@ -153,7 +153,8 @@ describe("clef pack", () => {
       expect(artifact.version).toBe(1);
       expect(artifact.identity).toBe("api-gateway");
       expect(artifact.environment).toBe("dev");
-      expect(artifact.ciphertext).toContain("BEGIN AGE ENCRYPTED FILE");
+      // Ciphertext is base64-encoded
+      expect(artifact.ciphertext).toMatch(/^[A-Za-z0-9+/]+=*$/);
       expect(artifact.keys).toEqual(expect.arrayContaining(["DATABASE_URL", "API_KEY"]));
     }
   });
