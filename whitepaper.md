@@ -155,7 +155,17 @@ A CI pipeline that runs `clef pack` needs to decrypt SOPS files. Clef supports a
 
 The **quick-start tier** is a complete solution for small teams. Store an age key in GitHub Actions secrets and go. The age key is a static credential in an external store, which means CI depends on that store's security, but for teams with a small circle of trust, this is a manageable custody arrangement. No cloud infrastructure required, no KMS key to provision, no IAM policies to write. Many teams will run this way permanently and that's fine.
 
-The **KMS-native tier** is the path for organizations that need policy-based access control, auditability, and zero static credentials. SOPS files are encrypted directly with KMS (not age), and `clef pack` uses KMS envelope encryption for the output artifact. CI needs only IAM permissions. The KMS key never leaves the HSM. Access is controlled by IAM policy, which is auditable, revocable, scoped, and centrally managed.
+The **KMS-native tier** eliminates all static credentials from the CI pipeline. This requires three things to be true simultaneously:
+
+1. **The SOPS backend is KMS.** The `.sops.yaml` creation rule points to a KMS key ARN (AWS, GCP, or Azure), not an age recipient. SOPS encrypts and decrypts `.enc.yaml` files by calling the cloud KMS API directly — no private key exists anywhere. This is configured at `clef init` time with `--backend awskms --kms-arn <arn>`.
+2. **The service identity uses KMS envelope encryption.** The `clef.yaml` service identity has a `kms:` block (provider + keyId) instead of a `recipient:` age public key. `clef pack` generates an ephemeral age key pair per invocation, wraps the ephemeral private key with this KMS key, and discards both after packing.
+3. **CI authenticates via IAM role.** GitHub Actions OIDC federation, GCP Workload Identity, or equivalent platform-native identity — not a stored access key or service account JSON.
+
+When all three hold, no static credential exists anywhere in the pipeline. CI's IAM role calls `kms:Decrypt` on the SOPS key (the KMS key in `.sops.yaml`) to read the source encrypted files, and `kms:Encrypt` on the service identity's envelope key (the KMS key in `clef.yaml` under `service_identities[].environments[].kms.keyId`) to wrap the ephemeral key in the output artifact.
+
+The SOPS key and envelope key can be the same KMS key (simpler — one key, one IAM policy) or different keys (separation of duty — a compromised runtime that can unwrap its own artifact cannot decrypt the source SOPS files, because it has `kms:Decrypt` on the envelope key but not on the SOPS key).
+
+If any one of the three uses age instead of KMS, a static credential enters the pipeline at that point. The zero-credential claim applies only when all three are KMS-native. This is an honest boundary — mixing age and KMS is fully supported, and the security of each layer is independent.
 
 ### 4.2 The Artifact Packing Pipeline
 
@@ -314,13 +324,13 @@ Regardless of polling source, any machine with a local clone of the repository c
 
 ### 6.1 The Token Bootstrapping Problem, Solved
 
-As discussed in Section 1.3, age keys reduce the custody problem but don't eliminate it. **KMS envelope encryption breaks this cycle.** No static credential exists anywhere in the pipeline:
+As discussed in Section 1.3, age keys reduce the custody problem but don't eliminate it. **KMS envelope encryption breaks this cycle** — when the full KMS-native stack is in place (Section 4.1: SOPS backend is KMS, service identity uses KMS envelope, CI authenticates via IAM role). Under those conditions, no static credential exists anywhere in the pipeline:
 
-- CI authenticates via IAM role; KMS does the crypto server-side; key material never leaves the HSM.
-- Runtime authenticates via IAM role; same.
-- The KMS key cannot be exported.
-- Access control is IAM policy: auditable, revocable, scoped, centrally managed.
-- Every `clef pack` generates an ephemeral key pair. There is no long-lived secret to rotate or protect.
+- CI calls `kms:Decrypt` on the SOPS key (the KMS key in `.sops.yaml`) to read encrypted files. No private key.
+- `clef pack` calls `kms:Encrypt` on the service identity's envelope key to wrap the ephemeral private key. No static key stored.
+- Runtime calls `kms:Decrypt` on the envelope key to unwrap the ephemeral private key. No static key deployed.
+- All three authenticate via IAM role. Key material never leaves the HSM.
+- Every `clef pack` generates a fresh ephemeral key pair. There is no long-lived secret to rotate or protect.
 
 The flow:
 
