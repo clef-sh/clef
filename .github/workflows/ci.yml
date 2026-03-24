@@ -212,7 +212,7 @@ jobs:
       - name: Agent E2E (SEA)
         env:
           CLEF_AGENT_E2E_MODE: sea
-        run: npx jest --config packages/agent/jest.e2e.config.js
+        run: npx tsx --test packages/agent/e2e/agent.e2e.test.ts
 
   # CLI smoke: single SEA+Linux on every PR for fast feedback.
   cli-e2e-smoke:
@@ -291,7 +291,7 @@ jobs:
         shell: bash
         env:
           CLEF_AGENT_E2E_MODE: ${{ matrix.mode }}
-        run: npx jest --config packages/agent/jest.e2e.config.js
+        run: npx tsx --test packages/agent/e2e/agent.e2e.test.ts
 
   # CLI E2E: full platform matrix on push. SEA + Node × all platforms.
   cli-e2e:
