@@ -109,6 +109,8 @@ jobs:
             || cp packages/runtime/package.json /tmp/runtime-main.json
           git show origin/main:packages/agent/package.json > /tmp/agent-main.json 2>/dev/null \
             || cp packages/agent/package.json /tmp/agent-main.json
+          git show origin/main:packages/broker/package.json > /tmp/broker-main.json 2>/dev/null \
+            || cp packages/broker/package.json /tmp/broker-main.json
           git show origin/main:packages/ui/package.json    > /tmp/ui-main.json 2>/dev/null \
             || cp packages/ui/package.json /tmp/ui-main.json
 
@@ -159,18 +161,21 @@ jobs:
           RUNTIME_BASE=$(node -p "require('/tmp/runtime-main.json').version.replace(/-.*/, '')")
           CLI_BASE=$(node -p "require('/tmp/cli-main.json').version.replace(/-.*/, '')")
           AGENT_BASE=$(node -p "require('/tmp/agent-main.json').version.replace(/-.*/, '')")
+          BROKER_BASE=$(node -p "require('/tmp/broker-main.json').version.replace(/-.*/, '')")
           UI_BASE=$(node -p "require('/tmp/ui-main.json').version.replace(/-.*/, '')")
 
           CORE_NEXT=$(next_version    "@clef-sh/core"    "packages/core"    "$CORE_BASE")
           RUNTIME_NEXT=$(next_version "@clef-sh/runtime" "packages/runtime" "$RUNTIME_BASE")
           CLI_NEXT=$(next_version     "@clef-sh/cli"     "packages/cli"     "$CLI_BASE")
           AGENT_NEXT=$(next_version   "@clef-sh/agent"   "packages/agent"   "$AGENT_BASE")
+          BROKER_NEXT=$(next_version  "@clef-sh/broker"  "packages/broker"  "$BROKER_BASE")
           UI_NEXT=$(next_version      "@clef-sh/ui"      "packages/ui"      "$UI_BASE")
 
           CORE_VER="${CORE_NEXT}-${PRE}.${{ github.run_number }}"
           RUNTIME_VER="${RUNTIME_NEXT}-${PRE}.${{ github.run_number }}"
           CLI_VER="${CLI_NEXT}-${PRE}.${{ github.run_number }}"
           AGENT_VER="${AGENT_NEXT}-${PRE}.${{ github.run_number }}"
+          BROKER_VER="${BROKER_NEXT}-${PRE}.${{ github.run_number }}"
           UI_VER="${UI_NEXT}-${PRE}.${{ github.run_number }}"
 
           # Stamp package.json files NOW, before the build, so that esbuild
@@ -187,6 +192,7 @@ jobs:
           stamp packages/runtime "$RUNTIME_VER"
           stamp packages/cli     "$CLI_VER"
           stamp packages/agent   "$AGENT_VER"
+          stamp packages/broker  "$BROKER_VER"
           stamp packages/ui      "$UI_VER"
 
           echo "dist_tag=${DIST_TAG}"            >> "$GITHUB_OUTPUT"
@@ -195,6 +201,7 @@ jobs:
           echo "runtime_version=${RUNTIME_VER}"  >> "$GITHUB_OUTPUT"
           echo "cli_version=${CLI_VER}"          >> "$GITHUB_OUTPUT"
           echo "agent_version=${AGENT_VER}"      >> "$GITHUB_OUTPUT"
+          echo "broker_version=${BROKER_VER}"    >> "$GITHUB_OUTPUT"
           echo "ui_version=${UI_VER}"            >> "$GITHUB_OUTPUT"
 
       - name: Build all packages
@@ -221,6 +228,13 @@ jobs:
       - name: Publish @clef-sh/agent (alpha)
         if: github.ref_name == 'dev'
         working-directory: packages/agent
+        run: npm publish --tag alpha --access restricted --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/broker (alpha)
+        if: github.ref_name == 'dev'
+        working-directory: packages/broker
         run: npm publish --tag alpha --access restricted --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -257,6 +271,13 @@ jobs:
       - name: Publish @clef-sh/agent (beta)
         if: github.ref_name == 'staging'
         working-directory: packages/agent
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/broker (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/broker
         run: npm publish --tag beta --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -306,6 +327,7 @@ jobs:
             packages/runtime/package.json \
             packages/cli/package.json \
             packages/agent/package.json \
+            packages/broker/package.json \
             packages/ui/package.json
 
           PRE="${{ steps.ver.outputs.prerelease }}"
@@ -324,6 +346,7 @@ jobs:
           echo "| \`@clef-sh/core\` | \`${{ steps.ver.outputs.core_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/runtime\` | \`${{ steps.ver.outputs.runtime_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/agent\` | \`${{ steps.ver.outputs.agent_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/broker\` | \`${{ steps.ver.outputs.broker_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/cli\` | \`${{ steps.ver.outputs.cli_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/ui\` | \`${{ steps.ver.outputs.ui_version }}\` (GitHub Packages only) |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,15 @@
+{
+  "name": "@clef-sh/registry",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4",
+    "vue": "^3.4.0",
+    "yaml": "^2.4.0"
+  }
+}

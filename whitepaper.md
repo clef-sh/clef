@@ -367,56 +367,113 @@ In KMS envelope mode, the security model reduces to IAM permissions on a single 
 
 ---
 
-## 7. Dynamic Credentials via Customer Lambda
+## 7. Dynamic Credentials
 
-### 7.1 The Envelope Contract
+### 7.1 The Contract
 
-The artifact envelope specification — `version`, `identity`, `environment`, `ciphertext`, `ciphertextHash`, `expiresAt`, `revokedAt`, optional KMS `envelope` — is a universal interface between credential generation and credential consumption. Anything that can produce a conforming JSON document can serve as a credential source. Anything running the Clef agent can consume it.
+A broker is any HTTP endpoint that returns a valid Clef artifact envelope. The agent polls it. The agent does not know or care what generated the credential — it validates the envelope, decrypts, and serves. The envelope specification (`version`, `identity`, `environment`, `ciphertext`, `ciphertextHash`, `expiresAt`, `revokedAt`, optional KMS `envelope`) is the only interface between credential generation and credential consumption.
 
-This decoupling is the architectural contribution. The agent does not know or care how the credential was generated. It polls a URL, validates the envelope, decrypts, and serves. The credential producer does not know or care how the credential is consumed. It generates, encrypts, and publishes a conforming envelope. The contract is the boundary between the two.
+### 7.2 The Broker SDK
 
-The envelope is a message format contract — standardize it, and the systems on both sides can evolve independently.
+Building a conforming envelope from scratch requires age key generation, age encryption, KMS wrapping, SHA-256 hashing, and JSON construction. The `@clef-sh/broker` package handles all of it. A broker author implements one function:
 
-### 7.2 Credential Producers
+```typescript
+import type { BrokerHandler } from "@clef-sh/broker";
+import { Signer } from "@aws-sdk/rds-signer";
 
-Any system that returns a valid envelope over HTTP is a credential producer. The simplest implementation is a serverless function behind an HTTP endpoint:
+export const handler: BrokerHandler = {
+  create: async (config) => ({
+    data: {
+      DB_TOKEN: await new Signer({
+        hostname: config.DB_ENDPOINT,
+        port: Number(config.DB_PORT ?? "5432"),
+        username: config.DB_USER,
+      }).getAuthToken(),
+    },
+    ttl: 900,
+  }),
+};
+```
 
-1. The function is invoked when the agent polls its URL
-2. It generates or fetches a short-lived credential from the target system
-3. It encrypts the credential into a Clef envelope (age + optional KMS wrapping)
-4. It returns the envelope as the HTTP response
+The SDK's `createHandler()` wraps this into a stateful invoker with envelope construction, KMS wrapping, response caching (80% of TTL), and graceful shutdown with Tier 2 credential revocation:
 
-The agent's existing HTTP polling works unchanged — no new agent code, no intermediate storage, no scheduler. The function executes on demand when the agent polls. The agent's adaptive polling refreshes at 80% of `expiresAt`, so the credential is always fresh when the application reads it.
+```typescript
+import { createHandler } from "@clef-sh/broker";
+import { handler } from "./handler";
 
-Valid credential producers include:
+const broker = createHandler(handler);
+export const lambdaHandler = () => broker.invoke();
+process.on("SIGTERM", () => broker.shutdown());
+```
 
-- A Lambda function URL or Cloud Function that generates database IAM tokens
-- A Kubernetes CronJob that mints short-lived service credentials
-- A GitHub Action that packs and publishes artifacts on push
-- A shell script on a bastion host that wraps a vendor CLI
-- A SaaS vendor that adopts the envelope format natively
-- `clef pack` in CI (the static credential path described in Section 4)
+This works in any JavaScript context — Lambda, Cloud Functions, Azure Functions, containers, plain Node processes. The SDK does not start an HTTP server; it returns a `{ statusCode, headers, body }` response that the caller adapts to their platform. A `serve()` convenience wrapper is provided for long-running processes that need an HTTP server.
 
-The contract is the standard. The implementation is the producer's choice.
+### 7.3 Broker Tiers
 
-### 7.3 What Clef Provides vs. What the Customer Owns
+Credential sources divide into three tiers based on lifecycle complexity:
 
-**Clef provides** the envelope specification, the agent, and the Lambda extension. **The customer provides** the credential generation logic. Today, most teams adopting Clef's dynamic credentials will write broker logic — a serverless function that calls the target system's API and returns an envelope. This is real engineering work. It is also the expected state of a new contract standard: the value accrues as more reference implementations exist, and the contract is designed so that producing implementations is low-friction.
+| Tier  | Lifecycle                                                        | Broker implements                      | Examples                                                               |
+| ----- | ---------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------- |
+| **1** | Self-expiring — credentials expire naturally, no cleanup needed  | `create()`                             | STS AssumeRole, RDS IAM tokens, OAuth access tokens, GCP access tokens |
+| **2** | Stateful — new credential replaces previous, old must be revoked | `create()` + `revoke()`                | SQL database users, MongoDB users, Redis ACL users                     |
+| **3** | Complex — multi-step teardown or external coordination           | `create()` + `revoke()` + custom state | IAM users (detach policies, delete keys), LDAP, K8s RBAC               |
 
-The Clef Broker Registry (Section 10.2) provides community-maintained reference implementations for common credential sources. These are starting points, not dependencies — the architecture is useful the moment a team writes their first conforming producer.
+Tier 1 brokers are pure functions. Tier 2 brokers implement an additional `revoke(entityId, config)` method; the SDK calls it automatically before each rotation and on `shutdown()`. State tracking is in-memory — if the process dies ungracefully, the credential expires at its natural TTL.
 
-### 7.4 Why This Matters
+### 7.4 The Broker Registry
 
-Vault tightly couples credential generation, storage, delivery, and access control into one system. This is convenient — configure a database secrets engine and credentials flow immediately. But it means the credential lifecycle is bound to Vault's availability, Vault's release cycle, and Vault's integration maintenance. Clef standardizes only the delivery interface and leaves credential generation to the implementer. The tradeoff is upfront implementation work in exchange for independence from any single system's maintenance and availability.
+The Clef Broker Registry is an open catalog of broker templates. `clef install` downloads a handler into the user's project:
 
-Concrete implications of the decoupled model:
+```bash
+$ clef install rds-iam
+  Name:        rds-iam
+  Provider:    aws
+  Tier:        1 (self-expiring)
+  Created:     brokers/rds-iam/broker.yaml, handler.ts, README.md
+```
 
-1. **No vendor dependency for credential logic.** If Clef disappears tomorrow, the customer's function still generates credentials. They just need a different delivery mechanism.
-2. **No maintenance burden on Clef.** SDK changes, driver updates, and API deprecations are the customer's concern for their own producer. Clef's contract (the envelope schema) is stable.
-3. **Bounded blast radius.** A bug in a Vault database secrets engine affects every Vault user. A bug in a customer's producer affects only that customer.
-4. **Full auditability.** The customer's execution logs, IAM audit logs, and KMS usage logs provide a complete audit trail within their own cloud account.
+Official brokers cover the most common credential sources:
 
-### 7.5 The Agent in Lambda
+| Broker                     | Provider | Tier | Handler                                                                                                                                    |
+| -------------------------- | -------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sts-assume-role`          | AWS      | 1    | 25 lines — calls `sts:AssumeRole`, returns access key + secret key + session token                                                         |
+| `rds-iam`                  | AWS      | 1    | 15 lines — calls `rds-signer:GetAuthToken`, returns a 15-minute database token                                                             |
+| `oauth-client-credentials` | Agnostic | 1    | 30 lines — POSTs to any OAuth2 token endpoint, returns `access_token`. One broker for Stripe, Twilio, Auth0, Salesforce, and hundreds more |
+| `sql-database`             | Agnostic | 2    | 40 lines — executes Handlebars SQL templates (`CREATE ROLE`, `DROP ROLE`). One handler for Postgres, MySQL, MSSQL, Oracle                  |
+
+The SQL database broker deserves specific mention. Instead of building per-database integrations, it accepts parameterized SQL statements:
+
+```yaml
+# broker.yaml — works for any SQL database
+CREATE_STATEMENT: |
+  CREATE ROLE "{{username}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
+  GRANT SELECT ON ALL TABLES IN SCHEMA public TO "{{username}}";
+REVOKE_STATEMENT: |
+  DROP ROLE IF EXISTS "{{username}}";
+```
+
+The handler generates a random username and password, executes the template, and returns `DB_USER` + `DB_PASSWORD`. On the next rotation, it drops the previous user and creates a new one. Switching from Postgres to MySQL is a YAML change, not a code change.
+
+Each broker is validated by a standard test harness (`validateBroker()`) that checks the `broker.yaml` schema, handler exports, and README structure. Community contributions follow the same validation — fork the registry, add a directory, pass the harness, open a PR.
+
+### 7.5 Architecture
+
+```
+Agent (polls at 80% of TTL)          Broker (any HTTP endpoint)
+┌──────────────────────┐              ┌──────────────────────┐
+│                      │  GET         │  handler.create()    │
+│  Polls broker URL    │─────────────►│  age-encrypt         │
+│  Validates envelope  │              │  KMS-wrap            │
+│  Unwraps via KMS     │◄─────────────│  Return envelope     │
+│  Decrypts via age    │  200 (JSON)  │                      │
+│  Serves to app       │              │  (SDK handles all    │
+│  127.0.0.1:7779      │              │   except create())   │
+└──────────────────────┘              └──────────────────────┘
+```
+
+The agent is unchanged from Section 5. It fetches a URL, receives a JSON envelope, and processes it identically to a static packed artifact. The broker is the only new component, and the customer owns it.
+
+### 7.6 The Agent in Lambda
 
 For serverless workloads, the Clef agent operates as a Lambda extension:
 
@@ -449,17 +506,13 @@ Lambda Execution Environment
 └──────────────────────────────────────────────────┘
 ```
 
-The extension registers for `INVOKE` and `SHUTDOWN` events via the Lambda Extensions API. On each invocation, it checks whether the refresh TTL has elapsed; if so, it fetches and decrypts the latest artifact before the function handler reads secrets. On `SHUTDOWN`, it flushes telemetry and releases resources.
+The extension registers for `INVOKE` and `SHUTDOWN` events. On each invocation, it refreshes if the TTL has elapsed. Lambda functions access secrets via a local HTTP call — no SDK, no environment variable parsing, no cold-start credential bootstrapping.
 
-Lambda functions access secrets via a local HTTP call. No SDK, no environment variable parsing, no cold-start credential bootstrapping. The extension handles all of it.
+### 7.7 The Static Root Credential Reality
 
-### 7.6 The Static Root Credential Reality
+Dynamic credentials do not eliminate static secrets. A broker that generates short-lived database tokens still needs a root credential — the database master password, the IAM principal that calls `rds-generate-db-auth-token`, the OAuth client secret. That root credential is static.
 
-Dynamic credentials do not eliminate static secrets. They add a logic layer in front of them. A broker that generates short-lived database tokens still needs a root credential — the database master password, the IAM user that calls `rds-generate-db-auth-token`, the OAuth client secret that issues access tokens. That root credential is static, long-lived, and must be stored somewhere.
-
-This is how credential systems work today. The value of the dynamic broker pattern is that it **contains** the static credential rather than distributing it. The static root credential lives in the broker's Clef namespace, encrypted at rest, delivered via the same KMS envelope + IAM model described in Section 6. The broker itself runs with a Clef agent sidecar and reads its root credentials from `127.0.0.1:7779`. The same protections that secure application secrets — per-service scoping, KMS envelope encryption, IAM-only authentication, audit logging — secure the broker's bootstrapping credentials.
-
-The result is a layered architecture:
+The value of the broker pattern is not that it eliminates static secrets — it **contains** them. The root credential lives in the broker's Clef namespace, encrypted at rest, delivered via KMS envelope + IAM. The broker reads it from the Clef agent at `127.0.0.1:7779`. The same protections that secure application secrets secure the broker's bootstrapping credentials.
 
 ```
 Application                  Broker                       Static Credential
@@ -474,36 +527,27 @@ Application                  Broker                       Static Credential
 └──────────────┘            └──────────────┘             └──────────────┘
 ```
 
-The application never sees the root credential. The broker sees it briefly, in memory, to generate the short-lived token. The root credential is protected by the same zero-static-credential KMS model as everything else. If the broker's execution environment is compromised, the attacker gets the root credential for the duration of the compromise — but the blast radius is one credential source, not the entire secrets store.
+The application never sees the root credential. If the broker's execution environment is compromised, the blast radius is one credential source for the duration of the compromise — not the entire secrets store.
 
-### 7.7 What Dynamic Credentials Achieve
+### 7.8 What Dynamic Credentials Achieve
 
-Given the static root credential reality, the dynamic pattern still provides meaningful security improvements over direct static credential distribution:
+- **Time-bounded blast radius**: A leaked short-lived token expires in minutes. A leaked static credential is valid until someone rotates it.
+- **Automatic rotation**: Rotation is the next broker invocation, not a manual procedure.
+- **Reduced distribution surface**: The root credential exists in one place. Applications receive only ephemeral tokens.
+- **Separation of exposure**: Root credentials are KMS-encrypted in git. Application-facing credentials are ephemeral. Compromising git history yields ciphertext (useless without KMS) and expired tokens (useless by design).
 
-- **Time-bounded blast radius**: A leaked short-lived token expires in minutes. A leaked static credential is valid until someone notices and rotates it.
-- **Automatic rotation**: Rotation is the next broker invocation, not a manual operational procedure.
-- **Reduced distribution surface**: The root credential exists in one place (the broker's Clef namespace, encrypted in git). The short-lived tokens are delivered to applications via the agent. No application ever holds or stores the root credential.
-- **Separation of exposure**: The root credential is encrypted in git history — accessible only via KMS, auditable, scoped to the broker's service identity. The application-facing credential is ephemeral. Even if git history is compromised, the attacker gets encrypted root credentials (useless without KMS) and expired short-lived tokens (useless by design).
+### 7.9 The Path Forward
 
-### 7.8 Limitations and the Path Forward
+Every dynamic credential system today requires a static bootstrapping credential because target platforms haven't universally adopted tokenless access. IAM auth for RDS exists, but most databases require a password. Workload identity federation exists on GCP, but most SaaS APIs issue static keys.
 
-Every dynamic credential system today requires a static bootstrapping credential because the target platforms haven't adopted tokenless access patterns universally. IAM auth for RDS exists, but most databases still require a password. Workload identity federation exists on GCP, but most SaaS APIs still issue static API keys. The industry is moving toward tokenless — slowly, unevenly.
+The envelope contract positions ahead of this curve:
 
-The Clef envelope contract positions ahead of that curve. Four properties make this work:
+1. **Platform-agnostic.** The envelope doesn't care if the credential was generated from a static root credential or from a tokenless IAM call.
+2. **The agent doesn't care about the source.** It polls, validates, decrypts, serves.
+3. **The migration path is a deletion.** When a platform adopts tokenless access, update the broker's `create()` function and delete the root credential from the Clef namespace. Nothing downstream changes.
+4. **The hybrid model works indefinitely.** Static secrets via `clef pack` and dynamic credentials via brokers flow through the same agent and the same envelope format.
 
-1. **The envelope is platform-agnostic.** It doesn't care if the credential inside was generated from a static root credential or from a tokenless IAM call. The contract is: ciphertext, integrity hash, expiry, optional KMS envelope. What produced the credential is irrelevant to the consumer.
-
-2. **The agent doesn't care about the source.** It polls, validates, decrypts, serves. Whether the artifact came from a broker that used a static database password or from a broker that used workload identity federation — same consumption path.
-
-3. **The migration path is a deletion, not a migration.** When a platform adopts tokenless access, you update the broker logic (remove the static credential, use the native IAM/identity mechanism), and nothing downstream changes. No application code changes, no agent changes, no envelope format changes. You delete a secret from a Clef namespace.
-
-4. **The hybrid model works indefinitely.** Dynamic credentials for systems that support them, static encrypted secrets via `clef set` for the long tail that doesn't. Both flow through the same agent and the same envelope format. The architecture does not require the industry to catch up to be useful today.
-
-The honest caveat: Clef cannot force platform adoption. But by standardizing on the envelope contract now, organizations avoid re-architecting when platforms do catch up. The worst case is that the broker pattern continues working as-is with the static root credential. The best case is that the root credential drops out and the broker simplifies to a thin IAM call — with zero changes to the consuming infrastructure.
-
-The transition from "static root + broker logic" to "native tokenless" is designed to be a deletion, not a migration.
-
-The architecture accommodates both through the same agent and the same envelope format. A single Clef agent can serve static secrets from a packed artifact alongside dynamic credentials from a Lambda endpoint. The consumption interface is identical. The investment in the agent, the envelope contract, and the adaptive polling machinery is amortized across every secret type.
+The worst case: the broker pattern continues with the static root credential. The best case: the root credential drops out and the broker simplifies to a thin IAM call — with zero changes to the consuming infrastructure.
 
 ---
 
@@ -621,11 +665,11 @@ Cloud-native secret managers (AWS Secrets Manager, GCP Secret Manager, Azure Key
 
 ### 9.3 Dynamic Credentials
 
-| Solution                  | Credential generation     | Maintenance burden            | Blast radius of bug |
-| ------------------------- | ------------------------- | ----------------------------- | ------------------- |
-| Vault secrets engines     | Vault-maintained plugins  | High (Vault team)             | All Vault users     |
-| Infisical dynamic secrets | Infisical-maintained      | Medium                        | All Infisical users |
-| **Clef**                  | **Customer-owned Lambda** | **Customer's responsibility** | **One customer**    |
+| Solution                  | Credential generation               | Adoption cost                       | Blast radius of bug |
+| ------------------------- | ----------------------------------- | ----------------------------------- | ------------------- |
+| Vault secrets engines     | Vault-maintained plugins            | Operate Vault cluster               | All Vault users     |
+| Infisical dynamic secrets | Infisical-maintained (enterprise)   | Operate Infisical server            | All Infisical users |
+| **Clef**                  | **Broker SDK + registry templates** | **`clef install` + deploy handler** | **One customer**    |
 
 ### 9.4 When to Use What
 
@@ -653,16 +697,16 @@ Observability — is the agent healthy, are credentials fresh, are any artifacts
 
 ### 10.2 The Broker Registry
 
-Section 7 describes dynamic credentials as a framework where Clef defines the envelope contract and customers implement the credential logic. This is architecturally correct, but building and maintaining broker functions for each credential source is real engineering work.
-
-The **Clef Broker Registry** is an open, community-driven catalog of broker templates, similar to Homebrew formulas or Terraform modules:
+Section 7 describes the broker SDK and the three-tier handler model. The `@clef-sh/broker` package reduces broker implementation to a `create()` function, but the function must still be written. The **Clef Broker Registry** eliminates that step for common credential sources.
 
 ```bash
-clef install rds-iam-broker
-# Pulls from registry, scaffolds Lambda + IAM role + EventBridge rule
+clef install rds-iam
+# Downloads broker.yaml + handler.ts + README.md into brokers/rds-iam/
 ```
 
-Community and vendor-maintained templates for common patterns (RDS IAM, STS AssumeRole, OAuth token refresh) are published to the registry. `clef install` scaffolds the broker into the customer's own infrastructure: their Lambda, their IAM roles, their KMS keys. The brokers are free and open — they reduce adoption friction for the dynamic credentials pattern described in Section 7. The zero-custody property is preserved because the broker executes in the customer's environment.
+The registry ships official brokers for the highest-value patterns: AWS STS AssumeRole (25 lines), RDS IAM tokens (15 lines), OAuth client credentials (30 lines — covers any OAuth2 SaaS API), and ephemeral SQL database users via Handlebars templates (40 lines — one handler for Postgres, MySQL, MSSQL, Oracle). Community contributions follow the same pattern: fork the registry, add a directory with `broker.yaml` + `handler.ts` + `README.md`, pass the validation harness, open a PR.
+
+The registry is browsable at `registry.clef.sh` with provider and tier filtering. `clef search` provides the same index from the terminal. The zero-custody property is preserved because the broker executes in the customer's environment — the registry distributes code, not a service.
 
 ### 10.3 Scaling Across Repositories
 

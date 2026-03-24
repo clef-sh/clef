@@ -1,0 +1,11 @@
+{
+  "compatibility_date": "2026-03-10",
+  "compatibility_flags": ["global_fetch_strictly_public"],
+  "name": "registry-clef",
+  "assets": {
+    "directory": "./.vitepress/dist",
+  },
+  "observability": {
+    "enabled": true,
+  },
+}

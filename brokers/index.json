@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "generatedAt": "2026-03-24T19:54:25.651Z",
+  "brokers": [
+    {
+      "name": "oauth-client-credentials",
+      "version": "1.0.0",
+      "description": "Refresh OAuth2 access tokens from client credentials",
+      "author": "clef-sh",
+      "provider": "agnostic",
+      "tier": 1,
+      "path": "agnostic/oauth-client-credentials",
+      "outputKeys": ["ACCESS_TOKEN"]
+    },
+    {
+      "name": "rds-iam",
+      "version": "1.0.0",
+      "description": "Generate RDS IAM authentication tokens with 15-minute TTL",
+      "author": "clef-sh",
+      "provider": "aws",
+      "tier": 1,
+      "path": "aws/rds-iam",
+      "outputKeys": ["DB_TOKEN"]
+    },
+    {
+      "name": "sql-database",
+      "version": "1.0.0",
+      "description": "Dynamic SQL database credentials via Handlebars statement templates",
+      "author": "clef-sh",
+      "provider": "agnostic",
+      "tier": 2,
+      "path": "agnostic/sql-database",
+      "outputKeys": ["DB_USER", "DB_PASSWORD"]
+    },
+    {
+      "name": "sts-assume-role",
+      "version": "1.0.0",
+      "description": "Generate temporary AWS credentials via STS AssumeRole",
+      "author": "clef-sh",
+      "provider": "aws",
+      "tier": 1,
+      "path": "aws/sts-assume-role",
+      "outputKeys": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"]
+    }
+  ]
+}
