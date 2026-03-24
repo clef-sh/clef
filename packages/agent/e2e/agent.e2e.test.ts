@@ -11,6 +11,20 @@ import * as http from "http";
 import { scaffoldFixture, agentFetch, type TestFixture } from "./harness";
 import { startAgent, type AgentProcess } from "./agent-process";
 
+// On Windows, killing the agent subprocess severs stdio pipes, causing
+// ECONNRESET as an uncaught exception after all tests pass. Swallow it
+// so Jest can exit with code 0.
+process.on("uncaughtException", (err) => {
+  if (
+    err.message?.includes("ECONNRESET") ||
+    err.message?.includes("EPIPE") ||
+    err.message?.includes("read ECONNRESET")
+  ) {
+    return;
+  }
+  throw err;
+});
+
 const TEST_SECRETS = {
   DATABASE_URL: "postgres://localhost:5432/mydb",
   API_KEY: "sk_live_test_12345",
