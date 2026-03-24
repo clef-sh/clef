@@ -202,9 +202,11 @@ describe("broker e2e — real HTTP server", () => {
 
   it("plaintext secrets do not appear in the response body", async () => {
     const res = await httpGet(brokerUrl + "/");
-    assert.ok(!res.body.includes("e2e-rds-token-xyz"));
-    assert.ok(!res.body.includes("e2e-rds.example.com"));
-    // Key names should be present
+    // Verify plaintext secret VALUES are not in the encrypted envelope
+    for (const value of Object.values(TEST_SECRETS)) {
+      assert.equal(res.body.indexOf(value), -1, `plaintext value "${value}" leaked into envelope`);
+    }
+    // Key NAMES should be present (they are listed in the keys array)
     assert.ok(res.body.includes("DB_TOKEN"));
     assert.ok(res.body.includes("DB_HOST"));
   });
