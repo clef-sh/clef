@@ -321,18 +321,15 @@ async function handleFullSetup(
   const initParser = new ManifestParser();
   initParser.validate(manifest);
 
-  // Write clef.yaml
-  fs.writeFileSync(manifestPath, YAML.stringify(manifest), "utf-8");
-  formatter.success("Created clef.yaml");
-
   // Handle age backend: generate a fresh key + label and store securely
   let ageKeyFile: string | undefined;
   let ageKey: string | undefined;
+  let publicKey: string | undefined;
   if (backend === "age") {
     const label = generateKeyLabel();
     const identity = await generateAgeIdentity();
     const privateKey = identity.privateKey;
-    const publicKey = identity.publicKey;
+    publicKey = identity.publicKey;
 
     // Try to store in keychain
     const storedInKeychain = await setKeychainKey(deps.runner, privateKey, label);
@@ -402,22 +399,21 @@ async function handleFullSetup(
     }
 
     formatter.success(`Key label: ${label}`);
+  }
 
-    // Write recipient into clef.yaml (single source of truth)
-    const rawDoc = YAML.parse(fs.readFileSync(manifestPath, "utf-8")) as Record<string, unknown>;
-    const sopsDoc = rawDoc.sops as Record<string, unknown>;
+  // Write clef.yaml — include age recipients if age backend
+  const manifestDoc = YAML.parse(YAML.stringify(manifest)) as Record<string, unknown>;
+  if (backend === "age" && publicKey) {
+    const sopsDoc = manifestDoc.sops as Record<string, unknown>;
     sopsDoc.age = { recipients: [publicKey] };
-    fs.writeFileSync(manifestPath, YAML.stringify(rawDoc), "utf-8");
+  }
+  fs.writeFileSync(manifestPath, YAML.stringify(manifestDoc), "utf-8");
+  formatter.success("Created clef.yaml");
 
-    // Generate .sops.yaml (derived from manifest)
+  // Generate .sops.yaml (derived from manifest)
+  {
     const sopsYamlPath = path.join(repoRoot, ".sops.yaml");
     const sopsConfig = buildSopsYaml(manifest, repoRoot, publicKey);
-    fs.writeFileSync(sopsYamlPath, YAML.stringify(sopsConfig), "utf-8");
-    formatter.success("Created .sops.yaml");
-  } else {
-    // Non-age backend: generate .sops.yaml without a key
-    const sopsYamlPath = path.join(repoRoot, ".sops.yaml");
-    const sopsConfig = buildSopsYaml(manifest, repoRoot, undefined);
     fs.writeFileSync(sopsYamlPath, YAML.stringify(sopsConfig), "utf-8");
     formatter.success("Created .sops.yaml");
   }

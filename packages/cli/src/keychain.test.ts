@@ -82,7 +82,7 @@ describe("keychain – darwin", () => {
   });
 
   describe("setKeychainKey", () => {
-    it("deletes, adds via stdin, and verifies by reading back", async () => {
+    it("deletes, adds with -w argument, and verifies by reading back", async () => {
       const calls: { args: string[]; opts?: Record<string, unknown> }[] = [];
       const runner = mockRunner(async (_cmd, args, opts) => {
         calls.push({ args, opts: opts as Record<string, unknown> | undefined });
@@ -96,9 +96,9 @@ describe("keychain – darwin", () => {
       expect(calls[0].args[0]).toBe("delete-generic-password");
       expect(calls[0].args).toContain(`age-private-key:${TEST_LABEL}`);
       expect(calls[1].args[0]).toBe("add-generic-password");
-      // Key passed via stdin, NOT as a command-line argument
-      expect(calls[1].args).not.toContain(FAKE_KEY);
-      expect(calls[1].opts).toEqual({ stdin: FAKE_KEY });
+      // Key passed as -w argument
+      expect(calls[1].args).toContain("-w");
+      expect(calls[1].args).toContain(FAKE_KEY);
       expect(calls[2].args[0]).toBe("find-generic-password"); // verification
     });
 

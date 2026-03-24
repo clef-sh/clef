@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import * as YAML from "yaml";
 import { ClefManifest, MatrixCell, MatrixIssue, MatrixStatus } from "../types";
 import { EncryptionBackend } from "../types";
 import { getPendingKeys } from "../pending/metadata";
@@ -83,10 +84,18 @@ export class MatrixManager {
   async getMatrixStatus(
     manifest: ClefManifest,
     repoRoot: string,
-    sopsClient: EncryptionBackend,
+    _sopsClient: EncryptionBackend,
   ): Promise<MatrixStatus[]> {
     const cells = this.resolveMatrix(manifest, repoRoot);
     const statuses: MatrixStatus[] = [];
+
+    // First pass: read key names from plaintext YAML (no decryption)
+    const cellKeys = new Map<string, string[]>();
+    for (const cell of cells) {
+      if (cell.exists) {
+        cellKeys.set(cell.filePath, this.readKeyNames(cell.filePath));
+      }
+    }
 
     for (const cell of cells) {
       if (!cell.exists) {
@@ -114,54 +123,61 @@ export class MatrixManager {
         // Metadata file missing or unreadable — 0 pending
       }
 
-      try {
-        const decrypted = await sopsClient.decrypt(cell.filePath);
-        const keyCount = Object.keys(decrypted.values).length;
-        const lastModified = decrypted.metadata.lastModified;
-        const issues: MatrixIssue[] = [];
+      const keys = cellKeys.get(cell.filePath) ?? [];
+      const keyCount = keys.length;
+      const lastModified = this.readLastModified(cell.filePath);
+      const issues: MatrixIssue[] = [];
 
-        // Check for key count discrepancies within the namespace
-        const siblingCells = cells.filter(
-          (c) => c.namespace === cell.namespace && c.environment !== cell.environment && c.exists,
-        );
-
-        for (const sibling of siblingCells) {
-          try {
-            const siblingDecrypted = await sopsClient.decrypt(sibling.filePath);
-            const siblingKeys = Object.keys(siblingDecrypted.values);
-            const currentKeys = Object.keys(decrypted.values);
-            const missingKeys = siblingKeys.filter((k) => !currentKeys.includes(k));
-
-            for (const mk of missingKeys) {
-              issues.push({
-                type: "missing_keys",
-                message: `Key '${mk}' exists in ${sibling.environment} but is missing here.`,
-                key: mk,
-              });
-            }
-          } catch {
-            // Cannot decrypt sibling — skip comparison
-          }
+      // Cross-environment key drift (using plaintext key names, no decrypt)
+      const siblingCells = cells.filter(
+        (c) => c.namespace === cell.namespace && c.environment !== cell.environment && c.exists,
+      );
+      for (const sibling of siblingCells) {
+        const siblingKeys = cellKeys.get(sibling.filePath) ?? [];
+        const missingKeys = siblingKeys.filter((k) => !keys.includes(k));
+        for (const mk of missingKeys) {
+          issues.push({
+            type: "missing_keys",
+            message: `Key '${mk}' exists in ${sibling.environment} but is missing here.`,
+            key: mk,
+          });
         }
-
-        statuses.push({ cell, keyCount, pendingCount, lastModified, issues });
-      } catch {
-        statuses.push({
-          cell,
-          keyCount: 0,
-          pendingCount: 0,
-          lastModified: null,
-          issues: [
-            {
-              type: "sops_error",
-              message: `Could not decrypt '${cell.filePath}'. Check your key configuration.`,
-            },
-          ],
-        });
       }
+
+      statuses.push({ cell, keyCount, pendingCount, lastModified, issues });
     }
 
     return statuses;
+  }
+
+  /**
+   * Read top-level key names from a SOPS file without decryption.
+   * SOPS stores key names in plaintext — only values are encrypted.
+   */
+  private readKeyNames(filePath: string): string[] {
+    try {
+      const raw = fs.readFileSync(filePath, "utf-8");
+      const parsed = YAML.parse(raw);
+      if (!parsed || typeof parsed !== "object") return [];
+      return Object.keys(parsed as Record<string, unknown>).filter((k) => k !== "sops");
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Read the lastModified timestamp from SOPS metadata without decryption.
+   */
+  private readLastModified(filePath: string): Date | null {
+    try {
+      const raw = fs.readFileSync(filePath, "utf-8");
+      const parsed = YAML.parse(raw) as Record<string, unknown>;
+      const sops = parsed?.sops as Record<string, unknown> | undefined;
+      if (sops?.lastmodified) return new Date(String(sops.lastmodified));
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   /**

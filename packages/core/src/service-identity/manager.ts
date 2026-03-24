@@ -150,6 +150,54 @@ export class ServiceIdentityManager {
   }
 
   /**
+   * Delete a service identity: remove its recipients from scoped SOPS files
+   * and remove it from the manifest.
+   */
+  async delete(name: string, manifest: ClefManifest, repoRoot: string): Promise<void> {
+    const identity = this.get(manifest, name);
+    if (!identity) {
+      throw new Error(`Service identity '${name}' not found.`);
+    }
+
+    // Remove age recipients from scoped files
+    const cells = this.matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
+    for (const cell of cells) {
+      if (!identity.namespaces.includes(cell.namespace)) continue;
+      const envConfig = identity.environments[cell.environment];
+      if (!envConfig?.recipient) continue;
+      if (isKmsEnvelope(envConfig)) continue;
+
+      try {
+        await this.encryption.removeRecipient(cell.filePath, envConfig.recipient);
+      } catch {
+        // May not be a current recipient
+      }
+    }
+
+    // Remove from manifest on disk
+    const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
+    const raw = fs.readFileSync(manifestPath, "utf-8");
+    const doc = YAML.parse(raw) as Record<string, unknown>;
+    const identities = doc.service_identities as Record<string, unknown>[];
+    if (Array.isArray(identities)) {
+      doc.service_identities = identities.filter(
+        (si) => (si as Record<string, unknown>).name !== name,
+      );
+    }
+    const tmp = path.join(os.tmpdir(), `clef-manifest-${process.pid}-${Date.now()}.tmp`);
+    try {
+      fs.writeFileSync(tmp, YAML.stringify(doc), "utf-8");
+      fs.renameSync(tmp, manifestPath);
+    } finally {
+      try {
+        fs.unlinkSync(tmp);
+      } catch {
+        // Already renamed or never written — ignore
+      }
+    }
+  }
+
+  /**
    * Update environment backends on an existing service identity.
    * Switches age → KMS (removes old recipient) or updates KMS config.
    * Returns new private keys for any environments switched from KMS → age.
