@@ -119,7 +119,7 @@ describe("ArtifactPacker", () => {
     expect(written.version).toBe(1);
     expect(written.identity).toBe("api-gateway");
     expect(written.environment).toBe("dev");
-    expect(written.ciphertext).toContain("BEGIN AGE ENCRYPTED FILE");
+    expect(written.ciphertext).toBeTruthy();
     expect(written.keys).toEqual(["DATABASE_URL", "API_KEY"]);
     expect(written.ciphertextHash).toMatch(/^[0-9a-f]{64}$/);
     expect(written.packedAt).toBeTruthy();
@@ -238,6 +238,45 @@ describe("ArtifactPacker", () => {
     expect(written.keys).toContain("database__DB_HOST");
   });
 
+  it("should serialize ciphertext as a string when age-encryption returns Uint8Array", async () => {
+    // age-encryption >=0.3 returns Uint8Array from encrypt(), not a string.
+    // Verify the packer converts it so the artifact JSON has a string field,
+    // not a byte-indexed object like {"0":97,"1":103,...}.
+    const ageText = "age-encryption.org/v1\n-> X25519 test\nencrypted-data\n";
+    const ageModule = await import("age-encryption");
+    const origImpl = (ageModule.Encrypter as jest.Mock).getMockImplementation();
+    const encryptMock = jest.fn().mockResolvedValue(new TextEncoder().encode(ageText));
+    (ageModule.Encrypter as jest.Mock).mockImplementation(() => ({
+      addRecipient: jest.fn(),
+      encrypt: encryptMock,
+    }));
+
+    const decrypted: DecryptedFile = {
+      values: { KEY: "val" },
+      metadata: { backend: "age", recipients: ["age1devkey"], lastModified: new Date() },
+    };
+    encryption.decrypt.mockResolvedValue(decrypted);
+
+    const config: PackConfig = {
+      identity: "api-gateway",
+      environment: "dev",
+      outputPath: "/output/artifact.json",
+    };
+
+    await packer.pack(config, baseManifest(), "/repo");
+
+    const writtenJson = String(mockFs.writeFileSync.mock.calls[0][1]);
+    const written: PackedArtifact = JSON.parse(writtenJson);
+    expect(typeof written.ciphertext).toBe("string");
+    // Uint8Array is base64-encoded for JSON-safe transport
+    expect(written.ciphertext).toBe(Buffer.from(ageText).toString("base64"));
+    // Must not contain byte-indexed keys from raw Uint8Array serialization
+    expect(writtenJson).not.toContain('"0":');
+
+    // Restore original mock for subsequent tests
+    if (origImpl) (ageModule.Encrypter as jest.Mock).mockImplementation(origImpl);
+  });
+
   it("should not contain plaintext secret values in the artifact", async () => {
     const decrypted: DecryptedFile = {
       values: { DATABASE_URL: "postgres://secret-host:5432/db", API_KEY: "sk-secret123" },
@@ -256,7 +295,8 @@ describe("ArtifactPacker", () => {
     const writtenJson = String(mockFs.writeFileSync.mock.calls[0][1]);
     expect(writtenJson).not.toContain("postgres://secret-host");
     expect(writtenJson).not.toContain("sk-secret123");
-    expect(writtenJson).toContain("BEGIN AGE ENCRYPTED FILE");
+    // Ciphertext should be present (base64-encoded)
+    expect(JSON.parse(writtenJson).ciphertext).toBeTruthy();
   });
 
   describe("KMS envelope encryption", () => {

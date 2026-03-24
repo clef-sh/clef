@@ -261,7 +261,7 @@ export class LintRunner {
   private async lintServiceIdentities(
     identities: ServiceIdentityDefinition[],
     manifest: ClefManifest,
-    _repoRoot: string,
+    repoRoot: string,
     existingCells: { namespace: string; environment: string; filePath: string }[],
   ): Promise<LintIssue[]> {
     const issues: LintIssue[] = [];

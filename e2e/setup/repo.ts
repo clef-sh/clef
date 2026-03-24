@@ -14,8 +14,24 @@ export interface TestRepo {
  * Scaffold a minimal Clef test repo with a manifest and encrypted files.
  * Mirrors the integration test scaffold so the SEA binary has a real repo to serve.
  */
-export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
+export function scaffoldTestRepo(keys: AgeKeyPair, serviceIdentityKeys?: AgeKeyPair): TestRepo {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-e2e-repo-"));
+
+  // Generate service identity key pair if not provided
+  let siKeys = serviceIdentityKeys;
+  if (!siKeys) {
+    const helperPath = path.resolve(__dirname, "age-keygen-helper.mjs");
+    const siDevResult = JSON.parse(
+      execFileSync(process.execPath, [helperPath], { encoding: "utf-8" }),
+    ) as { privateKey: string; publicKey: string };
+    const siTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-e2e-si-"));
+    siKeys = {
+      publicKey: siDevResult.publicKey,
+      privateKey: siDevResult.privateKey,
+      keyFilePath: path.join(siTmpDir, "si-key.txt"),
+      tmpDir: siTmpDir,
+    };
+  }
 
   const manifest = {
     version: 1,
@@ -29,6 +45,17 @@ export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
       age: { recipients: [keys.publicKey] },
     },
     file_pattern: "{namespace}/{environment}.enc.yaml",
+    service_identities: [
+      {
+        name: "web-app",
+        description: "Web application service",
+        namespaces: ["payments"],
+        environments: {
+          dev: { recipient: siKeys.publicKey },
+          production: { recipient: siKeys.publicKey },
+        },
+      },
+    ],
   };
 
   fs.writeFileSync(path.join(dir, "clef.yaml"), YAML.stringify(manifest));

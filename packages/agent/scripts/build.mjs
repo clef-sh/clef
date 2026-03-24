@@ -19,6 +19,12 @@ const BASE_CONFIG = {
   target: "node18",
   nodePaths: [resolve(repoRoot, "node_modules")],
   external: ["fsevents", "@aws-sdk/client-kms"],
+  // Alias @clef-sh/runtime to TypeScript source so esbuild can see the raw
+  // import("age-encryption") before tsc obscures it with a template-literal
+  // trick that hides the string from static analysis.
+  alias: {
+    "@clef-sh/runtime": resolve(repoRoot, "packages/runtime/src/index.ts"),
+  },
 };
 
 // ── age-encryption CJS pre-bundle ─────────────────────────────────────────────

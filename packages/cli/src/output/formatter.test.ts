@@ -266,6 +266,7 @@ describe("formatter", () => {
 
   describe("confirm", () => {
     it("should return true when user answers 'y'", async () => {
+      const stdinPause = jest.spyOn(process.stdin, "pause").mockReturnValue(process.stdin);
       const mockRl = {
         question: jest.fn((_prompt: string, cb: (answer: string) => void) => {
           cb("y");
@@ -277,6 +278,22 @@ describe("formatter", () => {
       const result = await formatter.confirm("Are you sure?");
       expect(result).toBe(true);
       expect(mockRl.close).toHaveBeenCalled();
+      stdinPause.mockRestore();
+    });
+
+    it("should pause stdin after confirm to prevent process hang", async () => {
+      const stdinPause = jest.spyOn(process.stdin, "pause").mockReturnValue(process.stdin);
+      const mockRl = {
+        question: jest.fn((_prompt: string, cb: (answer: string) => void) => {
+          cb("n");
+        }),
+        close: jest.fn(),
+      };
+      mockCreateInterface.mockReturnValue(mockRl);
+
+      await formatter.confirm("Continue?");
+      expect(stdinPause).toHaveBeenCalled();
+      stdinPause.mockRestore();
     });
 
     it("should return true when user answers 'yes'", async () => {
@@ -546,6 +563,40 @@ describe("formatter", () => {
       const result = await promise;
       expect(result).toBe("x");
 
+      Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
+    });
+
+    it("should pause stdin after input to prevent process hang", async () => {
+      const origIsTTY = process.stdin.isTTY;
+      Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+
+      const stdinPause = jest.spyOn(process.stdin, "pause").mockReturnValue(process.stdin);
+
+      const listeners: Map<string, (chunk: Buffer) => void> = new Map();
+      stdinOnSpy = jest
+        .spyOn(process.stdin, "on")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- overloaded signature
+        .mockImplementation((event: any, handler: any) => {
+          listeners.set(event, handler);
+          return process.stdin;
+        });
+      stdinRemoveListenerSpy = jest
+        .spyOn(process.stdin, "removeListener")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- overloaded signature
+        .mockImplementation((_event: any, _handler: any) => {
+          return process.stdin;
+        });
+
+      const promise = formatter.secretPrompt("Enter secret");
+
+      const dataHandler = listeners.get("data")!;
+      dataHandler(Buffer.from("v"));
+      dataHandler(Buffer.from("\n"));
+
+      await promise;
+      expect(stdinPause).toHaveBeenCalled();
+
+      stdinPause.mockRestore();
       Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
     });
 

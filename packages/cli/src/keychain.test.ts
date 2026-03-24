@@ -1,5 +1,18 @@
 import { SubprocessRunner } from "@clef-sh/core";
 import { getKeychainKey, setKeychainKey } from "./keychain";
+import { formatter } from "./output/formatter";
+
+jest.mock("./output/formatter", () => ({
+  formatter: {
+    success: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    info: jest.fn(),
+    failure: jest.fn(),
+  },
+}));
+
+const mockWarn = formatter.warn as jest.Mock;
 
 const FAKE_KEY = "AGE-SECRET-KEY-1QFNJ04MG0GY93XAGNHXQ4RCSSMNDCZPLGUXK9TLMD0Z4MRAWEQSZ9J7NF";
 const TEST_LABEL = "coral-tiger";
@@ -7,6 +20,8 @@ const TEST_LABEL = "coral-tiger";
 function mockRunner(impl?: SubprocessRunner["run"]): SubprocessRunner {
   return { run: jest.fn(impl) };
 }
+
+beforeEach(() => mockWarn.mockClear());
 
 function setPlatform(value: string): string {
   const orig = process.platform;
@@ -48,13 +63,14 @@ describe("keychain – darwin", () => {
       expect(await getKeychainKey(runner, TEST_LABEL)).toBeNull();
     });
 
-    it("returns null when output is not a valid age key", async () => {
+    it("returns null and warns when output is not a valid age key", async () => {
       const runner = mockRunner(async () => ({
         stdout: "not-an-age-key",
         stderr: "",
         exitCode: 0,
       }));
       expect(await getKeychainKey(runner, TEST_LABEL)).toBeNull();
+      expect(mockWarn).toHaveBeenCalledWith(expect.stringContaining("invalid key data"));
     });
 
     it("returns null when the command throws", async () => {
@@ -66,24 +82,32 @@ describe("keychain – darwin", () => {
   });
 
   describe("setKeychainKey", () => {
-    it("deletes then adds the key, returning true on success", async () => {
-      const calls: string[][] = [];
-      const runner = mockRunner(async (_cmd, args) => {
-        calls.push(args);
+    it("deletes, adds via stdin, and verifies by reading back", async () => {
+      const calls: { args: string[]; opts?: Record<string, unknown> }[] = [];
+      const runner = mockRunner(async (_cmd, args, opts) => {
+        calls.push({ args, opts: opts as Record<string, unknown> | undefined });
+        if (args[0] === "find-generic-password") {
+          return { stdout: `${FAKE_KEY}\n`, stderr: "", exitCode: 0 };
+        }
         return { stdout: "", stderr: "", exitCode: 0 };
       });
       expect(await setKeychainKey(runner, FAKE_KEY, TEST_LABEL)).toBe(true);
-      expect(calls).toHaveLength(2);
-      expect(calls[0][0]).toBe("delete-generic-password");
-      expect(calls[0]).toContain(`age-private-key:${TEST_LABEL}`);
-      expect(calls[1][0]).toBe("add-generic-password");
-      expect(calls[1]).toContain(FAKE_KEY);
-      expect(calls[1]).toContain(`age-private-key:${TEST_LABEL}`);
+      expect(calls).toHaveLength(3); // delete, add, verify
+      expect(calls[0].args[0]).toBe("delete-generic-password");
+      expect(calls[0].args).toContain(`age-private-key:${TEST_LABEL}`);
+      expect(calls[1].args[0]).toBe("add-generic-password");
+      // Key passed via stdin, NOT as a command-line argument
+      expect(calls[1].args).not.toContain(FAKE_KEY);
+      expect(calls[1].opts).toEqual({ stdin: FAKE_KEY });
+      expect(calls[2].args[0]).toBe("find-generic-password"); // verification
     });
 
     it("succeeds even if delete fails (no existing entry)", async () => {
       const runner = mockRunner(async (_cmd, args) => {
         if (args[0] === "delete-generic-password") throw new Error("not found");
+        if (args[0] === "find-generic-password") {
+          return { stdout: `${FAKE_KEY}\n`, stderr: "", exitCode: 0 };
+        }
         return { stdout: "", stderr: "", exitCode: 0 };
       });
       expect(await setKeychainKey(runner, FAKE_KEY, TEST_LABEL)).toBe(true);
@@ -95,6 +119,24 @@ describe("keychain – darwin", () => {
         return { stdout: "", stderr: "error", exitCode: 1 };
       });
       expect(await setKeychainKey(runner, FAKE_KEY, TEST_LABEL)).toBe(false);
+    });
+
+    it("returns false and cleans up when verification detects truncation", async () => {
+      const calls: string[][] = [];
+      const runner = mockRunner(async (_cmd, args) => {
+        calls.push(args);
+        if (args[0] === "add-generic-password") return { stdout: "", stderr: "", exitCode: 0 };
+        // Verification returns truncated key (does not start with AGE-SECRET-KEY-)
+        if (args[0] === "find-generic-password") {
+          return { stdout: "AGE-SECRET-\n", stderr: "", exitCode: 0 };
+        }
+        return { stdout: "", stderr: "", exitCode: 0 };
+      });
+      expect(await setKeychainKey(runner, FAKE_KEY, TEST_LABEL)).toBe(false);
+      // Should have 4 calls: delete, add, verify, cleanup delete
+      expect(calls).toHaveLength(4);
+      expect(calls[3][0]).toBe("delete-generic-password");
+      expect(mockWarn).toHaveBeenCalledWith(expect.stringContaining("read-back verification"));
     });
   });
 });
@@ -134,13 +176,14 @@ describe("keychain – linux", () => {
       expect(await getKeychainKey(runner, TEST_LABEL)).toBeNull();
     });
 
-    it("returns null when output is not a valid age key", async () => {
+    it("returns null and warns when output is not a valid age key", async () => {
       const runner = mockRunner(async () => ({
         stdout: "garbage",
         stderr: "",
         exitCode: 0,
       }));
       expect(await getKeychainKey(runner, TEST_LABEL)).toBeNull();
+      expect(mockWarn).toHaveBeenCalledWith(expect.stringContaining("invalid key data"));
     });
   });
 
@@ -268,7 +311,7 @@ describe("keychain – win32", () => {
       expect(await getKeychainKey(runner, TEST_LABEL)).toBeNull();
     });
 
-    it("returns null when output is not a valid age key", async () => {
+    it("returns null and warns when output is not a valid age key", async () => {
       const runner = mockRunner(async (cmd, args) => {
         if (cmd === "pwsh" && args.includes("1")) {
           return { stdout: "1", stderr: "", exitCode: 0 };
@@ -276,6 +319,7 @@ describe("keychain – win32", () => {
         return { stdout: "not-a-key", stderr: "", exitCode: 0 };
       });
       expect(await getKeychainKey(runner, TEST_LABEL)).toBeNull();
+      expect(mockWarn).toHaveBeenCalledWith(expect.stringContaining("Windows Credential Manager"));
     });
   });
 

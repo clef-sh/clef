@@ -834,6 +834,49 @@ export function createApiRouter(deps: ApiDeps): Router {
     }
   });
 
+  // GET /api/service-identities
+  router.get("/service-identities", (_req: Request, res: Response) => {
+    try {
+      setNoCacheHeaders(res);
+      const manifest = loadManifest();
+      const identities = manifest.service_identities ?? [];
+
+      const result = identities.map((si) => {
+        const environments: Record<
+          string,
+          { type: string; publicKey?: string; kms?: unknown; protected?: boolean }
+        > = {};
+        for (const [envName, envConfig] of Object.entries(si.environments)) {
+          const env = manifest.environments.find((e) => e.name === envName);
+          if (envConfig.kms) {
+            environments[envName] = {
+              type: "kms",
+              kms: envConfig.kms,
+              protected: env?.protected ?? false,
+            };
+          } else {
+            environments[envName] = {
+              type: "age",
+              publicKey: envConfig.recipient,
+              protected: env?.protected ?? false,
+            };
+          }
+        }
+        return {
+          name: si.name,
+          description: si.description,
+          namespaces: si.namespaces,
+          environments,
+        };
+      });
+
+      res.json({ identities: result });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to load service identities";
+      res.status(500).json({ error: message, code: "SERVICE_IDENTITY_ERROR" });
+    }
+  });
+
   function dispose(): void {
     lastScanResult = null;
     lastScanAt = null;

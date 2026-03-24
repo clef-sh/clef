@@ -1,4 +1,5 @@
 import { SubprocessRunner } from "@clef-sh/core";
+import { formatter } from "./output/formatter";
 
 const SERVICE = "clef";
 
@@ -140,10 +141,34 @@ async function getDarwin(runner: SubprocessRunner, account: string): Promise<str
     if (result.exitCode === 0) {
       const key = result.stdout.trim();
       if (key.startsWith("AGE-SECRET-KEY-")) return key;
+      if (key) {
+        formatter.warn(
+          "OS keychain entry exists but contains invalid key data\n" +
+            "  (expected AGE-SECRET-KEY-... format). The entry may be corrupted.\n" +
+            "  Delete the 'clef' entry in Keychain Access and re-run clef init.",
+        );
+      }
     }
     return null;
   } catch {
     return null;
+  }
+}
+
+/** Raw read-back for verification — no warnings, no format validation. */
+async function readDarwinRaw(runner: SubprocessRunner, account: string): Promise<string> {
+  try {
+    const result = await runner.run("security", [
+      "find-generic-password",
+      "-a",
+      account,
+      "-s",
+      SERVICE,
+      "-w",
+    ]);
+    return result.exitCode === 0 ? result.stdout.trim() : "";
+  } catch {
+    return "";
   }
 }
 
@@ -157,16 +182,37 @@ async function setDarwin(
     .run("security", ["delete-generic-password", "-a", account, "-s", SERVICE])
     .catch(() => {});
 
-  const result = await runner.run("security", [
-    "add-generic-password",
-    "-a",
-    account,
-    "-s",
-    SERVICE,
-    "-w",
-    privateKey,
-  ]);
-  return result.exitCode === 0;
+  try {
+    // Pass the password via stdin to avoid truncation on newer macOS versions
+    // (Darwin 25+). When -w has no trailing argument, `security` reads the
+    // password from stdin if stdin is a pipe.
+    const result = await runner.run(
+      "security",
+      ["add-generic-password", "-a", account, "-s", SERVICE, "-w"],
+      { stdin: privateKey },
+    );
+
+    if (result.exitCode !== 0) return false;
+
+    // Verify the stored value matches — macOS security CLI can silently
+    // truncate or mangle the password on certain OS versions.
+    const stored = await readDarwinRaw(runner, account);
+    if (stored === privateKey) return true;
+
+    // Verification failed — delete the bogus entry and report failure
+    // so the caller falls back to file-based key storage.
+    formatter.warn(
+      "Keychain write succeeded but read-back verification failed —\n" +
+        "  the stored value may be truncated or corrupted.\n" +
+        "  Falling back to file-based key storage.",
+    );
+    await runner
+      .run("security", ["delete-generic-password", "-a", account, "-s", SERVICE])
+      .catch(() => {});
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 // ── Linux (libsecret / GNOME Keyring / KWallet) ───────────────────────────────
@@ -183,6 +229,12 @@ async function getLinux(runner: SubprocessRunner, account: string): Promise<stri
     if (result.exitCode === 0) {
       const key = result.stdout.trim();
       if (key.startsWith("AGE-SECRET-KEY-")) return key;
+      if (key) {
+        formatter.warn(
+          "OS keychain entry exists but contains invalid key data\n" +
+            "  (expected AGE-SECRET-KEY-... format). The entry may be corrupted.",
+        );
+      }
     }
     return null;
   } catch {
@@ -240,6 +292,12 @@ async function getWindows(runner: SubprocessRunner, account: string): Promise<st
     if (result.exitCode === 0) {
       const key = result.stdout.trim();
       if (key.startsWith("AGE-SECRET-KEY-")) return key;
+      if (key) {
+        formatter.warn(
+          "Windows Credential Manager entry exists but contains invalid key data\n" +
+            "  (expected AGE-SECRET-KEY-... format). The entry may be corrupted.",
+        );
+      }
     }
     return null;
   } catch {

@@ -10,6 +10,7 @@ export type ViewName =
   | "scan"
   | "import"
   | "recipients"
+  | "identities"
   | "history";
 
 interface SidebarProps {
@@ -145,6 +146,18 @@ export function Sidebar({
           label="Recipients"
           active={activeView === "recipients"}
           onClick={() => setView("recipients")}
+        />
+        <NavItem
+          icon={"\u2699"}
+          label="Service IDs"
+          active={activeView === "identities"}
+          onClick={() => setView("identities")}
+          badge={
+            manifest?.service_identities?.length
+              ? String(manifest.service_identities.length)
+              : undefined
+          }
+          badgeColor={theme.purple}
         />
         <NavItem
           icon={"\u23F1"}

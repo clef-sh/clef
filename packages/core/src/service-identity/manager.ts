@@ -150,6 +150,76 @@ export class ServiceIdentityManager {
   }
 
   /**
+   * Update environment backends on an existing service identity.
+   * Switches age → KMS (removes old recipient) or updates KMS config.
+   * Returns new private keys for any environments switched from KMS → age.
+   */
+  async updateEnvironments(
+    name: string,
+    kmsEnvConfigs: Record<string, KmsConfig>,
+    manifest: ClefManifest,
+    repoRoot: string,
+  ): Promise<{ privateKeys: Record<string, string> }> {
+    const identity = this.get(manifest, name);
+    if (!identity) {
+      throw new Error(`Service identity '${name}' not found.`);
+    }
+
+    const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
+    const raw = fs.readFileSync(manifestPath, "utf-8");
+    const doc = YAML.parse(raw) as Record<string, unknown>;
+    const identities = doc.service_identities as Record<string, unknown>[];
+    const siDoc = identities.find((si) => (si as Record<string, unknown>).name === name) as Record<
+      string,
+      unknown
+    >;
+    const envs = siDoc.environments as Record<string, Record<string, unknown>>;
+
+    const cells = this.matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
+    const privateKeys: Record<string, string> = {};
+
+    for (const [envName, kmsConfig] of Object.entries(kmsEnvConfigs)) {
+      const oldConfig = identity.environments[envName];
+      if (!oldConfig) {
+        throw new Error(`Environment '${envName}' not found on identity '${name}'.`);
+      }
+
+      // If switching from age → KMS, remove the old age recipient from scoped files
+      if (oldConfig.recipient) {
+        const scopedCells = cells.filter(
+          (c) => identity.namespaces.includes(c.namespace) && c.environment === envName,
+        );
+        for (const cell of scopedCells) {
+          try {
+            await this.encryption.removeRecipient(cell.filePath, oldConfig.recipient);
+          } catch {
+            // May not be a current recipient
+          }
+        }
+      }
+
+      // Update manifest entry to KMS
+      envs[envName] = { kms: kmsConfig };
+      identity.environments[envName] = { kms: kmsConfig };
+    }
+
+    // Write updated manifest
+    const tmp = path.join(os.tmpdir(), `clef-manifest-${process.pid}-${Date.now()}.tmp`);
+    try {
+      fs.writeFileSync(tmp, YAML.stringify(doc), "utf-8");
+      fs.renameSync(tmp, manifestPath);
+    } finally {
+      try {
+        fs.unlinkSync(tmp);
+      } catch {
+        // Already renamed or never written — ignore
+      }
+    }
+
+    return { privateKeys };
+  }
+
+  /**
    * Register a service identity's public keys as SOPS recipients on scoped matrix files.
    */
   async registerRecipients(

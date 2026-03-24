@@ -6,6 +6,10 @@ import { SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 
 jest.mock("fs");
+jest.mock("../clipboard", () => ({
+  copyToClipboard: jest.fn().mockReturnValue(true),
+  maskedPlaceholder: jest.fn().mockReturnValue("\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"),
+}));
 jest.mock(
   "age-encryption",
   () => ({
@@ -190,8 +194,7 @@ describe("clef service", () => {
       ]);
 
       expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("new-svc"));
-      expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("ONCE"));
-      expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("AGE-SECRET-KEY-"));
+      expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("clipboard"));
     });
 
     it("should error when namespace not found", async () => {
@@ -229,7 +232,7 @@ describe("clef service", () => {
       await program.parseAsync(["node", "clef", "service", "rotate", "existing-svc"]);
 
       expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("rotated"));
-      expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("ONCE"));
+      expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("clipboard"));
     });
 
     it("should error on unknown identity", async () => {
@@ -257,6 +260,76 @@ describe("clef service", () => {
       ]);
 
       expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("rotated"));
+    });
+  });
+
+  describe("update", () => {
+    it("should update an environment to KMS", async () => {
+      mockFs.existsSync.mockReturnValue(false);
+      const runner = makeRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync([
+        "node",
+        "clef",
+        "service",
+        "update",
+        "existing-svc",
+        "--kms-env",
+        "dev=aws:arn:aws:kms:us-east-1:123:key/test",
+      ]);
+
+      expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("updated"));
+    });
+
+    it("should error with no --kms-env flags", async () => {
+      const runner = makeRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync(["node", "clef", "service", "update", "existing-svc"]);
+
+      expect(mockFormatter.error).toHaveBeenCalledWith(
+        expect.stringContaining("Nothing to update"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+
+    it("should error on duplicate --kms-env for same environment", async () => {
+      const runner = makeRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync([
+        "node",
+        "clef",
+        "service",
+        "update",
+        "existing-svc",
+        "--kms-env",
+        "production=aws:arn:aws:kms:key1",
+        "--kms-env",
+        "production=aws:arn:aws:kms:key2",
+      ]);
+
+      expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("Duplicate"));
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+
+    it("should error on unknown identity", async () => {
+      const runner = makeRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync([
+        "node",
+        "clef",
+        "service",
+        "update",
+        "nonexistent",
+        "--kms-env",
+        "production=aws:arn:aws:kms:key1",
+      ]);
+
+      expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("not found"));
+      expect(mockExit).toHaveBeenCalledWith(1);
     });
   });
 });

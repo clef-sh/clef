@@ -8,6 +8,7 @@ import {
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { createSopsClient } from "../age-credential";
+import { copyToClipboard, maskedPlaceholder } from "../clipboard";
 
 export function registerGetCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -16,11 +17,14 @@ export function registerGetCommand(program: Command, deps: { runner: SubprocessR
       "Get a single decrypted value.\n\n" +
         "  target: namespace/environment (e.g. payments/production)\n" +
         "  key:    the key name to retrieve\n\n" +
+        "By default, the value is copied to clipboard and obfuscated on screen.\n" +
+        "Use --raw to print the plaintext value to stdout.\n\n" +
         "Exit codes:\n" +
-        "  0  Value found and printed\n" +
+        "  0  Value found\n" +
         "  1  Key not found or decryption error",
     )
-    .action(async (target: string, key: string) => {
+    .option("--raw", "Print the plaintext value to stdout (for piping/scripting)")
+    .action(async (target: string, key: string, opts: { raw?: boolean }) => {
       try {
         const [namespace, environment] = parseTarget(target);
         const repoRoot = (program.opts().dir as string) || process.cwd();
@@ -46,7 +50,17 @@ export function registerGetCommand(program: Command, deps: { runner: SubprocessR
           return;
         }
 
-        formatter.keyValue(key, decrypted.values[key]);
+        const val = decrypted.values[key];
+        if (opts.raw) {
+          formatter.raw(val);
+        } else {
+          const copied = copyToClipboard(val);
+          if (copied) {
+            formatter.print(`  ${key}: ${maskedPlaceholder()} (copied to clipboard)`);
+          } else {
+            formatter.keyValue(key, val);
+          }
+        }
       } catch (err) {
         if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
           formatter.formatDependencyError(err);

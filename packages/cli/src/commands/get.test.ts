@@ -6,6 +6,10 @@ import { SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 
 jest.mock("fs");
+jest.mock("../clipboard", () => ({
+  copyToClipboard: jest.fn().mockReturnValue(true),
+  maskedPlaceholder: jest.fn().mockReturnValue("\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"),
+}));
 jest.mock("../output/formatter", () => ({
   formatter: {
     success: jest.fn(),
@@ -82,7 +86,7 @@ describe("clef get", () => {
 
     await program.parseAsync(["node", "clef", "get", "database/dev", "DB_URL"]);
 
-    expect(mockFormatter.keyValue).toHaveBeenCalledWith("DB_URL", "postgres://localhost");
+    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("clipboard"));
   });
 
   it("should exit 1 when key does not exist", async () => {
