@@ -124,8 +124,12 @@ describe("security headers", () => {
           method: "GET",
           headers: { Host: "evil.example.com" },
         },
-        (res) => resolve(res.statusCode ?? 0),
+        (res) => {
+          res.resume(); // drain the response body
+          resolve(res.statusCode ?? 0);
+        },
       );
+      req.on("error", () => {}); // swallow socket reset on Windows
       req.end();
     });
     assert.equal(status, 403);
