@@ -603,7 +603,14 @@ The trust chain is: git write access → manifest control → recipient list →
 
 ### 8.4 No Single Point of Failure
 
-Unlike centralized vault architectures, there is no central server to attack, DDoS, or compromise. There is no shared database to breach. There is no root key or master secret that unlocks everything. The git repository is the source of truth, protected by existing git access controls. KMS keys are per-service, per-environment, so compromise of one key affects only that scope.
+Unlike centralized vault architectures, there is no central server to attack, DDoS, or compromise. There is no shared database to breach. There is no root key or master secret that unlocks everything. The git repository is the source of truth, protected by existing git access controls.
+
+The blast radius of a key compromise depends on the KMS key topology. Clef supports two configurations:
+
+- **Single KMS key** (SOPS backend and service identity envelope use the same key): Compromise of the key exposes all SOPS files and all artifacts encrypted with that key. This is operationally simpler — one key, one IAM policy — and is the recommended starting point.
+- **Separate KMS keys** (SOPS backend uses key A, each service identity's envelope uses key B): Compromise of a service identity's envelope key (B) exposes only that identity's artifact — the attacker cannot decrypt the source SOPS files (key A) or other identities' artifacts (their own keys). This is the configuration that delivers per-service, per-environment blast radius containment.
+
+The "per-service, per-environment" blast radius claim in this paper assumes the separate-key configuration. With a single shared key, the blast radius is scoped to everything encrypted with that key. Organizations should choose based on their threat model: single key for simplicity, separate keys when a compromised runtime must not be able to escalate to source file decryption.
 
 ### 8.5 Defense in Depth
 
@@ -661,13 +668,13 @@ A clarification on "zero ops": Clef requires no Clef-specific infrastructure bec
 
 ### 9.2 Custody Model
 
-| Solution            | Who holds secrets?                  | Default blast radius             | Granular scoping available?                       |
-| ------------------- | ----------------------------------- | -------------------------------- | ------------------------------------------------- |
-| Vault (self-hosted) | Customer's Vault cluster            | All secrets in that cluster      | Yes, via policies and namespaces                  |
-| Vault (HCP)         | HashiCorp                           | All secrets in that tenant       | Yes, via policies                                 |
-| Doppler             | Doppler                             | All secrets in that org          | Yes, via projects and environments                |
-| AWS Secrets Manager | AWS                                 | Per-account                      | Yes, via per-secret IAM policies                  |
-| **Clef**            | **Customer's git + customer's KMS** | **Per-service, per-environment** | **Yes, git-controlled cryptographic enforcement** |
+| Solution            | Who holds secrets?                  | Default blast radius                                                       | Granular scoping available?                       |
+| ------------------- | ----------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------- |
+| Vault (self-hosted) | Customer's Vault cluster            | All secrets in that cluster                                                | Yes, via policies and namespaces                  |
+| Vault (HCP)         | HashiCorp                           | All secrets in that tenant                                                 | Yes, via policies                                 |
+| Doppler             | Doppler                             | All secrets in that org                                                    | Yes, via projects and environments                |
+| AWS Secrets Manager | AWS                                 | Per-account                                                                | Yes, via per-secret IAM policies                  |
+| **Clef**            | **Customer's git + customer's KMS** | **Per-service, per-environment (with separate KMS keys; see Section 8.4)** | **Yes, git-controlled cryptographic enforcement** |
 
 Most tools support granular access control when configured correctly. The difference is where the access control lives. Vault and Doppler evaluate policies on a central server — a separate system to configure and secure. Clef's access control is the git repository itself: the manifest declares recipients, SOPS enforces the cryptography, and git branch protection controls who can change the manifest. This is simpler (one system, not two) but it means the git repository carries the combined risk profile of a secrets store and an access control system. Organizations should protect it accordingly.
 
@@ -740,7 +747,7 @@ Clef's architecture delivers four properties that no existing secrets manager pr
 
 4. **Dynamic credentials without vendor lock-in**: The artifact envelope is an open contract. Customers implement credential generation in their own serverless functions, using their own IAM roles, against their own data sources. Clef provides the delivery and lifecycle machinery, not the credential logic.
 
-The result is a secrets management system where the blast radius of any single compromise is bounded to one service identity in one environment, where operational burden is limited to existing platform engineering, and where the vendor relationship is one of tooling, not custody.
+The result is a secrets management system where the blast radius of a runtime compromise is bounded to one service identity in one environment (when separate KMS keys are used for SOPS and envelope encryption; see Section 8.4), where operational burden is limited to existing platform engineering, and where the vendor relationship is one of tooling, not custody.
 
 ---
 
