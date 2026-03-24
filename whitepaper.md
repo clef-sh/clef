@@ -70,7 +70,7 @@ The namespace × environment cross-product forms the **matrix**. Each cell maps 
 
 ### 2.3 Git as Source of Truth
 
-Clef treats the git repository as the authoritative store for secrets state. This is a deliberate architectural choice, not a convenient default. Git is not a database, and it carries limitations: repository size grows as encrypted files accumulate, branch-heavy workflows multiply encrypted file variants, and git hosting availability affects the automation of secret updates — though any clone of the repository can be used to update, pack, and deploy independently. Every developer's checkout is a full copy of the secrets state. The git host coordinates collaboration; it is not required for operations. Section 5.5 covers runtime resilience during outages.
+Clef treats the git repository as the authoritative store for secrets state. This is deliberate. Git is not a database, and it carries limitations: repository size grows as encrypted files accumulate, branch-heavy workflows multiply encrypted file variants, and git hosting availability affects the automation of secret updates — though any clone of the repository can be used to update, pack, and deploy independently. Every developer's checkout is a full copy of the secrets state. The git host coordinates collaboration; it is not required for operations. Section 5.5 covers runtime resilience during outages.
 
 These trade-offs are acceptable because the alternative is worse. A dedicated secrets database introduces a second source of truth: the code references secrets by name, the database holds the values, and the two must be kept in sync across every deployment. When secrets and code are versioned separately, drift between them — a key the code expects but the database doesn't have, a database entry nothing references — is a class of bug with no single place to diagnose. With git, the encrypted values and the code that uses them are versioned together. A single commit is the complete state. And because SOPS stores key names in plaintext, a static analysis pass can cross-reference code usage (`process.env.DB_URL`, `secrets.get("API_KEY")`) against the keys present in the encrypted files — no decryption required. This makes it possible to prove at lint time that every secret the code references exists in the matrix, and that every secret in the matrix is referenced by code. A separate secrets database cannot offer this without a live connection to the database at analysis time.
 
@@ -375,7 +375,7 @@ The artifact envelope specification — `version`, `identity`, `environment`, `c
 
 This decoupling is the architectural contribution. The agent does not know or care how the credential was generated. It polls a URL, validates the envelope, decrypts, and serves. The credential producer does not know or care how the credential is consumed. It generates, encrypts, and publishes a conforming envelope. The contract is the boundary between the two.
 
-This is the same kind of architectural insight as REST defining a uniform interface between clients and servers: standardize the interface, and the systems on both sides can evolve independently.
+The envelope is a message format contract — standardize it, and the systems on both sides can evolve independently.
 
 ### 7.2 Credential Producers
 
@@ -457,7 +457,7 @@ Lambda functions access secrets via a local HTTP call. No SDK, no environment va
 
 Dynamic credentials do not eliminate static secrets. They add a logic layer in front of them. A broker that generates short-lived database tokens still needs a root credential — the database master password, the IAM user that calls `rds-generate-db-auth-token`, the OAuth client secret that issues access tokens. That root credential is static, long-lived, and must be stored somewhere.
 
-This is not a deficiency of the architecture. It is an honest description of how credential systems work today. The value of the dynamic broker pattern is not that it eliminates static secrets — it is that it **contains them**. The static root credential lives in the broker's Clef namespace, encrypted at rest, delivered via the same KMS envelope + IAM model described in Section 6. The broker itself runs with a Clef agent sidecar and reads its root credentials from `127.0.0.1:7779`. The same protections that secure application secrets — per-service scoping, KMS envelope encryption, IAM-only authentication, audit logging — secure the broker's bootstrapping credentials.
+This is how credential systems work today. The value of the dynamic broker pattern is that it **contains** the static credential rather than distributing it. The static root credential lives in the broker's Clef namespace, encrypted at rest, delivered via the same KMS envelope + IAM model described in Section 6. The broker itself runs with a Clef agent sidecar and reads its root credentials from `127.0.0.1:7779`. The same protections that secure application secrets — per-service scoping, KMS envelope encryption, IAM-only authentication, audit logging — secure the broker's bootstrapping credentials.
 
 The result is a layered architecture:
 
@@ -645,26 +645,11 @@ Not every team needs zero-custody. Not every team has the cloud-native maturity 
 
 The architecture described in this paper leaves two practical concerns that grow with organizational scale: visibility across many repositories, and the engineering burden of building dynamic credential brokers. Both are addressed with open infrastructure.
 
-### 10.1 OTLP Telemetry Contract
+### 10.1 Telemetry
 
-The Clef agent emits structured telemetry as OTLP (OpenTelemetry Protocol) log records, delivered via HTTP to any OTLP-compatible backend:
+Audit and observability are different concerns, handled by different infrastructure. Audit — who accessed what, when, and with what authorization — is the responsibility of the systems that perform the access: KMS audit logs for decryption events, VCS history for authorship, CI logs for packaging (Section 8.6). Clef does not duplicate this; the audit trail lives in infrastructure the organization already operates and monitors.
 
-| Event                | Severity | Fields                           |
-| -------------------- | -------- | -------------------------------- |
-| `agent.started`      | INFO     | version, agentId                 |
-| `agent.stopped`      | INFO     | reason, uptimeSeconds            |
-| `artifact.refreshed` | INFO     | revision, keyCount, kmsEnvelope  |
-| `artifact.revoked`   | WARN     | revokedAt                        |
-| `artifact.expired`   | WARN     | expiresAt                        |
-| `fetch.failed`       | WARN     | error, diskCacheAvailable        |
-| `cache.expired`      | ERROR    | cacheTtl, diskCachePurged        |
-| `artifact.invalid`   | ERROR    | reason (integrity/decrypt/parse) |
-
-Telemetry is fire-and-forget — it never blocks the critical path. Events are buffered in memory and flushed periodically (default: every 10 seconds or 50 events). A failed telemetry export does not affect secret delivery.
-
-The OTLP contract means the agent's telemetry flows directly into the observability stack the organization already operates — Datadog, Grafana, New Relic, Splunk, or any OTEL-compatible collector. No Clef-specific backend is required. An organization with 200 repos running Clef agents can build rotation dashboards, freshness alerts, and revocation monitors using their existing tooling and their existing on-call workflows.
-
-Combined with the `clef report` command (which publishes manifest structure, policy evaluation results, and matrix metadata as structured JSON), the full secrets posture is observable through standard infrastructure. KMS audit logs cover the access events (Section 8.6). OTLP covers the agent lifecycle. Git history covers the authorship. The data is open; the aggregation tool is the customer's choice.
+Observability — is the agent healthy, are credentials fresh, are any artifacts expired or revoked — is handled by OTLP (OpenTelemetry Protocol) telemetry emitted by the Clef agent to any compatible backend. No Clef-specific backend is required. Combined with `clef report` (which publishes manifest structure, policy evaluation, and matrix metadata as structured JSON), the full secrets posture is observable through the organization's existing tooling.
 
 ### 10.2 The Broker Registry
 
