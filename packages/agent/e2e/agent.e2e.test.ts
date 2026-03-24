@@ -1,29 +1,16 @@
 /**
  * Agent E2E tests — black-box subprocess testing.
  *
- * Spawns `node dist/agent.cjs` as a real subprocess with env vars,
- * waits for readiness, and hits the HTTP API from the outside.
- * No in-process imports of agent code except the subprocess launcher.
+ * Uses Node's built-in test runner (node:test) instead of Jest to avoid
+ * Windows subprocess cleanup issues (ECONNRESET on stdio pipes).
  *
- * Run: npm run test:e2e -w packages/agent
+ * Run: npx tsx --test packages/agent/e2e/agent.e2e.test.ts
  */
-import * as http from "http";
+import { describe, it, before, after } from "node:test";
+import assert from "node:assert/strict";
+import http from "node:http";
 import { scaffoldFixture, agentFetch, type TestFixture } from "./harness";
 import { startAgent, type AgentProcess } from "./agent-process";
-
-// On Windows, killing the agent subprocess severs stdio pipes, causing
-// ECONNRESET as an uncaught exception after all tests pass. Swallow it
-// so Jest can exit with code 0.
-process.on("uncaughtException", (err) => {
-  if (
-    err.message?.includes("ECONNRESET") ||
-    err.message?.includes("EPIPE") ||
-    err.message?.includes("read ECONNRESET")
-  ) {
-    return;
-  }
-  throw err;
-});
 
 const TEST_SECRETS = {
   DATABASE_URL: "postgres://localhost:5432/mydb",
@@ -34,12 +21,12 @@ const TEST_SECRETS = {
 let fixture: TestFixture;
 let agent: AgentProcess;
 
-beforeAll(async () => {
+before(async () => {
   fixture = scaffoldFixture(TEST_SECRETS);
   agent = await startAgent(fixture.artifactPath, fixture.keys.privateKey);
-}, 30_000);
+});
 
-afterAll(async () => {
+after(async () => {
   if (agent) await agent.stop();
   if (fixture) fixture.cleanup();
 });
@@ -49,26 +36,25 @@ afterAll(async () => {
 describe("health and readiness", () => {
   it("GET /v1/health returns ok with revision", async () => {
     const { status, body } = await agentFetch(agent.url, "/v1/health");
-    expect(status).toBe(200);
+    assert.equal(status, 200);
     const b = body as Record<string, unknown>;
-    expect(b.status).toBe("ok");
-    expect(b.revision).toBe("rev-001");
-    expect(b.lastRefreshAt).toEqual(expect.any(Number));
-    expect(b.expired).toBe(false);
+    assert.equal(b.status, "ok");
+    assert.equal(b.revision, "rev-001");
+    assert.equal(typeof b.lastRefreshAt, "number");
+    assert.equal(b.expired, false);
   });
 
   it("GET /v1/ready returns 200", async () => {
     const { status, body } = await agentFetch(agent.url, "/v1/ready");
-    expect(status).toBe(200);
-    expect(body).toEqual({ ready: true });
+    assert.equal(status, 200);
+    assert.deepEqual(body, { ready: true });
   });
 
   it("health and ready do not require auth", async () => {
-    // No token — should still succeed
     const health = await agentFetch(agent.url, "/v1/health");
-    expect(health.status).toBe(200);
+    assert.equal(health.status, 200);
     const ready = await agentFetch(agent.url, "/v1/ready");
-    expect(ready.status).toBe(200);
+    assert.equal(ready.status, 200);
   });
 });
 
@@ -77,17 +63,17 @@ describe("health and readiness", () => {
 describe("authentication", () => {
   it("GET /v1/secrets returns 401 without token", async () => {
     const { status } = await agentFetch(agent.url, "/v1/secrets");
-    expect(status).toBe(401);
+    assert.equal(status, 401);
   });
 
   it("GET /v1/secrets returns 401 with wrong token", async () => {
     const { status } = await agentFetch(agent.url, "/v1/secrets", "wrong-token");
-    expect(status).toBe(401);
+    assert.equal(status, 401);
   });
 
   it("GET /v1/keys returns 401 without token", async () => {
     const { status } = await agentFetch(agent.url, "/v1/keys");
-    expect(status).toBe(401);
+    assert.equal(status, 401);
   });
 });
 
@@ -96,25 +82,27 @@ describe("authentication", () => {
 describe("secrets retrieval", () => {
   it("GET /v1/secrets returns all decrypted secrets", async () => {
     const { status, body } = await agentFetch(agent.url, "/v1/secrets", agent.token);
-    expect(status).toBe(200);
-    expect(body).toEqual(TEST_SECRETS);
+    assert.equal(status, 200);
+    assert.deepEqual(body, TEST_SECRETS);
   });
 
   it("GET /v1/secrets/:key returns individual secret", async () => {
     const { status, body } = await agentFetch(agent.url, "/v1/secrets/DATABASE_URL", agent.token);
-    expect(status).toBe(200);
-    expect(body).toEqual({ value: TEST_SECRETS.DATABASE_URL });
+    assert.equal(status, 200);
+    assert.deepEqual(body, { value: TEST_SECRETS.DATABASE_URL });
   });
 
   it("GET /v1/secrets/:key returns 404 for missing key", async () => {
     const { status } = await agentFetch(agent.url, "/v1/secrets/NONEXISTENT", agent.token);
-    expect(status).toBe(404);
+    assert.equal(status, 404);
   });
 
   it("GET /v1/keys returns key names", async () => {
     const { status, body } = await agentFetch(agent.url, "/v1/keys", agent.token);
-    expect(status).toBe(200);
-    expect(new Set(body as string[])).toEqual(new Set(Object.keys(TEST_SECRETS)));
+    assert.equal(status, 200);
+    const keys = new Set(body as string[]);
+    const expected = new Set(Object.keys(TEST_SECRETS));
+    assert.deepEqual(keys, expected);
   });
 });
 
@@ -123,7 +111,7 @@ describe("secrets retrieval", () => {
 describe("security headers", () => {
   it("GET /v1/secrets includes Cache-Control: no-store", async () => {
     const { headers } = await agentFetch(agent.url, "/v1/secrets", agent.token);
-    expect(headers["cache-control"]).toBe("no-store");
+    assert.equal(headers["cache-control"], "no-store");
   });
 
   it("rejects requests with invalid Host header", async () => {
@@ -140,29 +128,26 @@ describe("security headers", () => {
       );
       req.end();
     });
-    expect(status).toBe(403);
+    assert.equal(status, 403);
   });
 });
 
 // ── Fresh Agent with Updated Artifact ─────────────────────────────────────────
 
 describe("artifact update", () => {
-  let agent2: AgentProcess;
-  let fixture2: TestFixture;
-
-  afterEach(async () => {
-    if (agent2) await agent2.stop();
-    if (fixture2) fixture2.cleanup();
-  });
-
   it("serves new secrets after artifact is replaced and agent restarted", async () => {
     const updatedSecrets = { UPDATED_KEY: "updated_value", ANOTHER: "val2" };
-    fixture2 = scaffoldFixture(updatedSecrets);
-    agent2 = await startAgent(fixture2.artifactPath, fixture2.keys.privateKey);
+    const fixture2 = scaffoldFixture(updatedSecrets);
+    const agent2 = await startAgent(fixture2.artifactPath, fixture2.keys.privateKey);
 
-    const { status, body } = await agentFetch(agent2.url, "/v1/secrets", agent2.token);
-    expect(status).toBe(200);
-    expect(body).toEqual(updatedSecrets);
+    try {
+      const { status, body } = await agentFetch(agent2.url, "/v1/secrets", agent2.token);
+      assert.equal(status, 200);
+      assert.deepEqual(body, updatedSecrets);
+    } finally {
+      await agent2.stop();
+      fixture2.cleanup();
+    }
   });
 });
 
@@ -170,7 +155,8 @@ describe("artifact update", () => {
 
 describe("startup errors", () => {
   it("agent exits with code 1 when no source is configured", async () => {
-    await expect(startAgent("/nonexistent/artifact.json", "invalid-key")).rejects.toThrow(
+    await assert.rejects(
+      () => startAgent("/nonexistent/artifact.json", "invalid-key"),
       /exited prematurely/,
     );
   });
