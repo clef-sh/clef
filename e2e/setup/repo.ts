@@ -39,13 +39,7 @@ export function scaffoldTestRepo(keys: AgeKeyPair, serviceIdentityKeys?: AgeKeyP
       { name: "dev", description: "Development" },
       { name: "production", description: "Production", protected: true },
     ],
-    namespaces: [
-      { name: "payments", description: "Payment secrets" },
-      {
-        name: "_keystore",
-        description: "System-managed namespace for service identity private keys.",
-      },
-    ],
+    namespaces: [{ name: "payments", description: "Payment secrets" }],
     sops: {
       default_backend: "age",
       age: { recipients: [keys.publicKey] },
@@ -110,39 +104,6 @@ export function scaffoldTestRepo(keys: AgeKeyPair, serviceIdentityKeys?: AgeKeyP
     { STRIPE_KEY: "sk_live_prod456", STRIPE_WEBHOOK_SECRET: "whsec_prod_abc" },
     "production",
   );
-
-  // Scaffold _keystore namespace with service identity private keys
-  fs.mkdirSync(path.join(dir, "_keystore"), { recursive: true });
-
-  const encryptKeystoreFile = (values: Record<string, string>, envName: string): void => {
-    const plaintext = YAML.stringify(values);
-    const plaintextFile = path.join(dir, "_keystore", `${envName}.plain.yaml`);
-    fs.writeFileSync(plaintextFile, plaintext);
-
-    const encrypted = execFileSync(
-      "sops",
-      [
-        "encrypt",
-        "--input-type",
-        "yaml",
-        "--output-type",
-        "yaml",
-        "--filename-override",
-        `_keystore/${envName}.enc.yaml`,
-        plaintextFile,
-      ],
-      {
-        cwd: dir,
-        env: { ...process.env, SOPS_AGE_KEY_FILE: keys.keyFilePath },
-      },
-    );
-
-    fs.unlinkSync(plaintextFile);
-    fs.writeFileSync(path.join(dir, "_keystore", `${envName}.enc.yaml`), encrypted);
-  };
-
-  encryptKeystoreFile({ "web-app": siKeys.privateKey }, "dev");
-  encryptKeystoreFile({ "web-app": siKeys.privateKey }, "production");
 
   // Init a git repo so the UI's git-status and git-log endpoints don't error.
   const gitEnv = {

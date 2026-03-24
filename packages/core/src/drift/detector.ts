@@ -3,7 +3,7 @@ import * as path from "path";
 import * as YAML from "yaml";
 import { ManifestParser, CLEF_MANIFEST_FILENAME } from "../manifest/parser";
 import { MatrixManager } from "../matrix/manager";
-import { CLEF_KEYSTORE_NAMESPACE, DriftIssue, DriftResult } from "../types";
+import { DriftIssue, DriftResult } from "../types";
 
 /**
  * Compares key sets across two local Clef repositories without decryption.
@@ -39,9 +39,7 @@ export class DriftDetector {
     // Find shared namespaces
     const localNsNames = new Set(localManifest.namespaces.map((n) => n.name));
     const remoteNsNames = new Set(remoteManifest.namespaces.map((n) => n.name));
-    let sharedNamespaces = [...localNsNames]
-      .filter((n) => remoteNsNames.has(n))
-      .filter((n) => n !== CLEF_KEYSTORE_NAMESPACE);
+    let sharedNamespaces = [...localNsNames].filter((n) => remoteNsNames.has(n));
 
     if (namespaceFilter && namespaceFilter.length > 0) {
       const filterSet = new Set(namespaceFilter);

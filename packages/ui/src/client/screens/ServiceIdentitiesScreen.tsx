@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { theme } from "../theme";
 import { apiFetch } from "../api";
 import { TopBar } from "../components/TopBar";
 import { EnvBadge } from "../components/EnvBadge";
-import { CopyButton } from "../components/CopyButton";
 import type { ClefManifest } from "@clef-sh/core";
 
 interface EnvInfo {
@@ -11,7 +10,6 @@ interface EnvInfo {
   publicKey?: string;
   kms?: { provider: string; keyId: string };
   protected?: boolean;
-  hasKey?: boolean;
 }
 
 interface IdentityInfo {
@@ -25,18 +23,10 @@ interface ServiceIdentitiesScreenProps {
   manifest: ClefManifest | null;
 }
 
-const REVEAL_TIMEOUT_MS = 5 * 60 * 1000;
-
 export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenProps) {
   const [identities, setIdentities] = useState<IdentityInfo[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [revealedKeys, setRevealedKeys] = useState<Record<string, string>>({});
-  const [confirmEnv, setConfirmEnv] = useState<string | null>(null);
-  const [loading, setLoading] = useState<string | null>(null);
-  const revealTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
-
-  useEffect(() => () => clearTimeout(revealTimeoutRef.current), []);
 
   const load = useCallback(async () => {
     try {
@@ -55,48 +45,6 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
   }, [load]);
 
   const selectedIdentity = identities.find((i) => i.name === selected);
-
-  const resetTimeout = () => {
-    clearTimeout(revealTimeoutRef.current);
-    revealTimeoutRef.current = setTimeout(() => {
-      setRevealedKeys({});
-    }, REVEAL_TIMEOUT_MS);
-  };
-
-  const revealKey = async (name: string, env: string, isProtected: boolean) => {
-    const cacheKey = `${name}:${env}`;
-
-    if (revealedKeys[cacheKey]) {
-      const next = { ...revealedKeys };
-      delete next[cacheKey];
-      setRevealedKeys(next);
-      return;
-    }
-
-    if (isProtected && confirmEnv !== env) {
-      setConfirmEnv(env);
-      return;
-    }
-
-    setLoading(cacheKey);
-    setConfirmEnv(null);
-    try {
-      const qs = isProtected ? "?confirmed=true" : "";
-      const res = await apiFetch(`/api/service-identities/${name}/key/${env}${qs}`);
-      if (res.ok) {
-        const data = await res.json();
-        setRevealedKeys((prev) => ({ ...prev, [cacheKey]: data.privateKey }));
-        resetTimeout();
-      } else {
-        const errData = await res.json();
-        setError(errData.error ?? "Failed to retrieve key");
-      }
-    } catch {
-      setError("Failed to retrieve key");
-    } finally {
-      setLoading(null);
-    }
-  };
 
   // List view
   if (!selected) {
@@ -158,8 +106,6 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                 data-testid={`si-${si.name}`}
                 onClick={() => {
                   setSelected(si.name);
-                  setRevealedKeys({});
-                  setConfirmEnv(null);
                   setError("");
                 }}
                 onKeyDown={(e) => {
@@ -204,8 +150,22 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                   Scoped to: <span style={{ color: theme.text }}>{si.namespaces.join(", ")}</span>
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {Object.keys(si.environments).map((envName) => (
-                    <EnvBadge key={envName} env={envName} small />
+                  {Object.entries(si.environments).map(([envName, envInfo]) => (
+                    <span
+                      key={envName}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                    >
+                      <EnvBadge env={envName} small />
+                      <span
+                        style={{
+                          fontFamily: theme.mono,
+                          fontSize: 9,
+                          color: envInfo.type === "kms" ? theme.purple : theme.textDim,
+                        }}
+                      >
+                        {envInfo.type === "kms" ? "KMS" : "age"}
+                      </span>
+                    </span>
                   ))}
                 </div>
               </div>
@@ -227,8 +187,6 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
             data-testid="back-button"
             onClick={() => {
               setSelected(null);
-              setRevealedKeys({});
-              setConfirmEnv(null);
               setError("");
             }}
             style={{
@@ -249,23 +207,6 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
       />
       <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
         <div style={{ maxWidth: 620, margin: "0 auto" }}>
-          {error && (
-            <div
-              style={{
-                background: theme.redDim,
-                border: `1px solid ${theme.red}44`,
-                borderRadius: 8,
-                padding: "12px 16px",
-                marginBottom: 16,
-                fontFamily: theme.sans,
-                fontSize: 13,
-                color: theme.red,
-              }}
-            >
-              {error}
-            </div>
-          )}
-
           {selectedIdentity && (
             <>
               <div style={{ marginBottom: 20 }}>
@@ -295,9 +236,6 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
               {manifest?.environments.map((env) => {
                 const envInfo = selectedIdentity.environments[env.name];
                 if (!envInfo) return null;
-                const cacheKey = `${selectedIdentity.name}:${env.name}`;
-                const revealed = revealedKeys[cacheKey];
-                const isLoading = loading === cacheKey;
                 const isProtected = envInfo.protected ?? false;
 
                 return (
@@ -343,36 +281,43 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
 
                     {envInfo.type === "kms" && envInfo.kms && (
                       <div style={{ fontFamily: theme.mono, fontSize: 11, color: theme.textMuted }}>
+                        <div style={{ marginBottom: 8 }}>
+                          Authentication: <span style={{ color: theme.purple }}>IAM + KMS</span>
+                        </div>
                         <div>
                           Provider:{" "}
                           <span style={{ color: theme.text }}>{envInfo.kms.provider}</span>
                         </div>
                         <div style={{ marginTop: 4 }}>
-                          Key ID: <span style={{ color: theme.text }}>{envInfo.kms.keyId}</span>
+                          Key ID:{" "}
+                          <span style={{ color: theme.text, wordBreak: "break-all" }}>
+                            {envInfo.kms.keyId}
+                          </span>
                         </div>
                         <div
                           style={{
-                            marginTop: 8,
+                            marginTop: 10,
+                            padding: "8px 12px",
+                            background: theme.purpleDim,
+                            border: `1px solid ${theme.purple}33`,
+                            borderRadius: 4,
                             fontSize: 11,
-                            color: theme.textDim,
+                            color: theme.purple,
                             fontFamily: theme.sans,
                           }}
                         >
-                          No age private key — decryption via KMS at runtime.
+                          No keys to provision. CI and runtime authenticate via IAM role with
+                          kms:Decrypt permission.
                         </div>
                       </div>
                     )}
 
                     {envInfo.type === "age" && (
-                      <>
-                        <div
-                          style={{
-                            fontFamily: theme.mono,
-                            fontSize: 11,
-                            color: theme.textMuted,
-                            marginBottom: 10,
-                          }}
-                        >
+                      <div style={{ fontFamily: theme.mono, fontSize: 11, color: theme.textMuted }}>
+                        <div style={{ marginBottom: 8 }}>
+                          Authentication: <span style={{ color: theme.green }}>age key</span>
+                        </div>
+                        <div>
                           Public key:{" "}
                           <span style={{ color: theme.text }}>
                             {envInfo.publicKey
@@ -380,103 +325,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                               : "unknown"}
                           </span>
                         </div>
-
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 10,
-                            fontFamily: theme.mono,
-                            fontSize: 11,
-                          }}
-                        >
-                          <span style={{ color: theme.textMuted }}>Private key:</span>
-                          <span
-                            style={{
-                              flex: 1,
-                              color: revealed ? theme.text : theme.textDim,
-                              wordBreak: "break-all",
-                            }}
-                          >
-                            {revealed
-                              ? revealed
-                              : envInfo.hasKey
-                                ? "\u2022".repeat(20)
-                                : "not stored"}
-                          </span>
-
-                          {envInfo.hasKey && (
-                            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                              {revealed && <CopyButton text={revealed} />}
-                              <button
-                                data-testid={`reveal-${env.name}`}
-                                onClick={() =>
-                                  revealKey(selectedIdentity.name, env.name, isProtected)
-                                }
-                                disabled={isLoading}
-                                style={{
-                                  background: "none",
-                                  border: `1px solid ${theme.borderLight}`,
-                                  borderRadius: 4,
-                                  cursor: isLoading ? "wait" : "pointer",
-                                  color: revealed ? theme.accent : theme.textDim,
-                                  fontFamily: theme.mono,
-                                  fontSize: 10,
-                                  padding: "2px 8px",
-                                  transition: "all 0.15s",
-                                }}
-                              >
-                                {isLoading ? "..." : revealed ? "hide" : "reveal"}
-                              </button>
-                            </div>
-                          )}
-                        </div>
-
-                        {isProtected && confirmEnv === env.name && !revealed && (
-                          <div
-                            style={{
-                              marginTop: 12,
-                              padding: "10px 14px",
-                              background: theme.redDim,
-                              border: `1px solid ${theme.red}44`,
-                              borderRadius: 6,
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 10,
-                            }}
-                          >
-                            <span
-                              style={{
-                                fontFamily: theme.sans,
-                                fontSize: 12,
-                                color: theme.red,
-                                flex: 1,
-                              }}
-                            >
-                              Protected environment. Confirm to reveal key.
-                            </span>
-                            <button
-                              data-testid={`confirm-${env.name}`}
-                              onClick={() =>
-                                revealKey(selectedIdentity.name, env.name, isProtected)
-                              }
-                              style={{
-                                background: theme.redDim,
-                                border: `1px solid ${theme.red}66`,
-                                borderRadius: 4,
-                                cursor: "pointer",
-                                color: theme.red,
-                                fontFamily: theme.sans,
-                                fontSize: 11,
-                                fontWeight: 600,
-                                padding: "4px 12px",
-                              }}
-                            >
-                              Confirm
-                            </button>
-                          </div>
-                        )}
-                      </>
+                      </div>
                     )}
                   </div>
                 );

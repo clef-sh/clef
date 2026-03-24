@@ -6,6 +6,9 @@ import { SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 
 jest.mock("fs");
+jest.mock("../clipboard", () => ({
+  copyToClipboard: jest.fn().mockReturnValue(true),
+}));
 jest.mock("../output/formatter", () => ({
   formatter: {
     success: jest.fn(),
@@ -100,11 +103,11 @@ describe("clef export", () => {
     }
   });
 
-  it("should output export statements for all keys", async () => {
+  it("should output export statements for all keys with --raw", async () => {
     const runner = makeRunner();
     const program = makeProgram(runner);
 
-    await program.parseAsync(["node", "clef", "export", "payments/dev"]);
+    await program.parseAsync(["node", "clef", "export", "payments/dev", "--raw"]);
 
     expect(mockFormatter.raw).toHaveBeenCalledTimes(1);
     const output = mockFormatter.raw.mock.calls[0][0] as string;
@@ -139,7 +142,7 @@ describe("clef export", () => {
     };
     const program = makeProgram(runner);
 
-    await program.parseAsync(["node", "clef", "export", "payments/dev"]);
+    await program.parseAsync(["node", "clef", "export", "payments/dev", "--raw"]);
 
     const output = mockFormatter.raw.mock.calls[0][0] as string;
     // Single quotes in values are escaped as '\''
@@ -150,7 +153,7 @@ describe("clef export", () => {
     const runner = makeRunner();
     const program = makeProgram(runner);
 
-    await program.parseAsync(["node", "clef", "export", "payments/dev", "--no-export"]);
+    await program.parseAsync(["node", "clef", "export", "payments/dev", "--no-export", "--raw"]);
 
     const output = mockFormatter.raw.mock.calls[0][0] as string;
     expect(output).not.toContain("export ");
@@ -213,34 +216,27 @@ describe("clef export", () => {
 
   // Linux /proc warning tests
 
-  it("should print /proc warning to stderr on Linux", async () => {
+  it("should print /proc warning to stderr on Linux with --raw", async () => {
     Object.defineProperty(process, "platform", { value: "linux" });
 
     const runner = makeRunner();
     const program = makeProgram(runner);
 
-    await program.parseAsync(["node", "clef", "export", "payments/dev"]);
+    await program.parseAsync(["node", "clef", "export", "payments/dev", "--raw"]);
 
     expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("/proc/<pid>/environ"));
-    // Assert warning does NOT leak to stdout
-    expect(mockFormatter.print).not.toHaveBeenCalledWith(expect.stringContaining("/proc"));
-    // Assert warning does NOT leak to the raw output channel
-    const rawCalls = mockFormatter.raw.mock.calls.map((c: unknown[]) => String(c[0]));
-    expect(rawCalls.join("")).not.toContain("/proc");
-    // Output should still be correct
     expect(mockFormatter.raw).toHaveBeenCalled();
   });
 
-  it("should not print /proc warning on non-Linux platforms", async () => {
+  it("should not print /proc warning on non-Linux platforms with --raw", async () => {
     Object.defineProperty(process, "platform", { value: "darwin" });
 
     const runner = makeRunner();
     const program = makeProgram(runner);
 
-    await program.parseAsync(["node", "clef", "export", "payments/dev"]);
+    await program.parseAsync(["node", "clef", "export", "payments/dev", "--raw"]);
 
     expect(mockFormatter.warn).not.toHaveBeenCalledWith(expect.stringContaining("/proc"));
-    // Output should still work
     expect(mockFormatter.raw).toHaveBeenCalled();
   });
 

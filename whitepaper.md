@@ -107,11 +107,23 @@ Because SOPS stores key names in plaintext, Clef can detect **key-set drift** ac
 
 ## 4. CI/CD: Pack and Distribute
 
-### 4.1 The Artifact Packing Pipeline
+### 4.1 CI Key Management
+
+A CI pipeline that runs `clef pack` needs to decrypt SOPS files. How the decryption key is provided depends on the environment's security requirements:
+
+| Tier            | Key Storage                                 | Authentication                              | Use Case                                      |
+| --------------- | ------------------------------------------- | ------------------------------------------- | --------------------------------------------- |
+| **Quick-start** | Age key as CI secret (`CLEF_AGE_KEY`)       | CI platform's secret store                  | Development, staging, small teams             |
+| **Production**  | Age key wrapped with KMS, committed to repo | IAM role with `kms:Decrypt`                 | Production CI, no external secrets            |
+| **KMS-native**  | No age key — full KMS envelope mode         | IAM role with `kms:Encrypt` + `kms:Decrypt` | Highest security, per-artifact ephemeral keys |
+
+The **production tier** is the recommended approach. The developer's age key is encrypted using a KMS key and stored in the repository (e.g., `.clef/ci-key.enc`). The CI runner's IAM role grants `kms:Decrypt` on that specific key. At pack time, CI unwraps the age key via KMS and uses it to decrypt SOPS files — no external secret manager in the critical path. The repository is fully self-contained.
+
+The **KMS-native tier** goes further: SOPS files are encrypted directly with KMS (not age), and `clef pack` uses KMS envelope encryption for the output artifact. CI needs only `kms:Encrypt` and `kms:Decrypt` permissions — no age keys exist anywhere in the pipeline.
+
+### 4.2 The Artifact Packing Pipeline
 
 For production workloads, Clef introduces the concept of **packed artifacts** — self-contained JSON envelopes that bundle encrypted secrets for a specific service identity and environment.
-
-The packing process runs in CI (where SOPS decryption keys are available):
 
 ```bash
 clef pack api-gateway production --output ./artifact.json
@@ -189,21 +201,21 @@ The Clef agent (`@clef-sh/agent`) wraps the runtime in an HTTP API designed for 
 ```
 Application Container          Agent Sidecar
 ┌──────────────────┐           ┌──────────────────┐
-│                  │  HTTP     │  Express API      │
+│                  │  HTTP     │  Express API     │
 │  Your app code   │◄────────►│  127.0.0.1:7779   │
-│                  │  Bearer   │                   │
-│  fetch secrets   │  token    │  ArtifactPoller   │
-│  from localhost  │           │  SecretsCache     │
-│                  │           │  DiskCache         │
+│                  │  Bearer   │                  │
+│  fetch secrets   │  token    │  ArtifactPoller  │
+│  from localhost  │           │  SecretsCache    │
+│                  │           │  DiskCache       │
 └──────────────────┘           └──────────────────┘
                                       │
                                       │ HTTPS
                                       ▼
-                               ┌──────────────────┐
+                               ┌───────────────────┐
                                │  VCS API / HTTP   │
                                │  (GitHub, GitLab, │
                                │   Bitbucket, S3)  │
-                               └──────────────────┘
+                               └───────────────────┘
 ```
 
 The agent exposes:
@@ -289,11 +301,11 @@ Each `clef pack` invocation generates a fresh ephemeral age key pair. This means
 
 ### 6.3 IAM as the Authentication Layer
 
-In KMS envelope mode, the security model reduces to:
+In KMS envelope mode, the security model reduces to IAM permissions on a single KMS key:
 
-1. **Who can call `kms:Encrypt`?** — CI pipelines that run `clef pack`
-2. **Who can call `kms:Decrypt`?** — Production workloads that consume the artifact
-3. **Who can read the artifact?** — Anyone with VCS API access or HTTP access to the storage location
+1. **Who can call `kms:Decrypt`?** — CI pipelines (to unwrap the age key for packing) and production workloads (to unwrap the ephemeral key for consumption). These can be different KMS keys with different IAM policies for separation of duty.
+2. **Who can call `kms:Encrypt`?** — CI pipelines that wrap the ephemeral key during `clef pack`. In KMS-native mode, also used for SOPS encryption.
+3. **Who can read the artifact?** — Anyone with VCS API access or HTTP access to the storage location — but the artifact is useless without `kms:Decrypt` on the correct key.
 
 Even if an attacker obtains the artifact (which contains only ciphertext and a KMS-wrapped key), they cannot decrypt it without the `kms:Decrypt` permission on the specific KMS key. The wrapped ephemeral key is useless without KMS.
 
@@ -321,22 +333,22 @@ A typical dynamic credential flow uses a customer-owned Lambda function (or equi
 │  Lambda: credential-broker                                   │
 │  ┌────────────────────────────────────────────────────────┐  │
 │  │ 1. Generate short-lived DB credentials                 │  │
-│  │    (RDS IAM auth token, or STS AssumeRole,            │  │
+│  │    (RDS IAM auth token, or STS AssumeRole,             │  │
 │  │     or any custom credential source)                   │  │
 │  │                                                        │  │
 │  │ 2. Pack into Clef artifact envelope:                   │  │
 │  │    { ciphertext: age_encrypt(credentials),             │  │
-│  │      expiresAt: now + 60min,                          │  │
-│  │      envelope: { wrappedKey: kms_wrap(ephemeral) } }  │  │
+│  │      expiresAt: now + 60min,                           │  │
+│  │      envelope: { wrappedKey: kms_wrap(ephemeral) } }   │  │
 │  │                                                        │  │
-│  │ 3. Write to S3 / commit to git / push to HTTP store   │  │
+│  │ 3. Write to S3 / commit to git / push to HTTP store    │  │
 │  └────────────────────────────────────────────────────────┘  │
 │                                                              │
 │  Agent Sidecar (in ECS/EKS/Lambda)                           │
 │  ┌────────────────────────────────────────────────────────┐  │
 │  │ Polls artifact source                                  │  │
 │  │ Adaptive interval: 80% of expiresAt remaining          │  │
-│  │ → Unwraps via KMS → decrypts → atomic cache swap      │  │
+│  │ → Unwraps via KMS → decrypts → atomic cache swap       │  │
 │  │ → Serves to app via localhost HTTP                     │  │
 │  └────────────────────────────────────────────────────────┘  │
 │                                                              │
@@ -417,14 +429,14 @@ This model means Lambda functions access secrets via a local HTTP call — no SD
 
 Clef's architecture ensures that no Clef-operated system ever has access to customer secrets:
 
-| Component                | Sees plaintext?       | Sees ciphertext?      | Has decryption keys? |
-| ------------------------ | --------------------- | --------------------- | -------------------- |
-| Git repository           | No                    | Yes (encrypted files) | No                   |
-| CI pipeline              | Briefly (during pack) | Yes                   | Yes (scoped)         |
-| Artifact store (S3/HTTP) | No                    | Yes (packed artifact) | No                   |
-| Clef agent               | Briefly (in memory)   | Yes                   | Yes (age key or KMS) |
-| Clef Pro control plane   | No                    | No                    | No                   |
-| Application code         | Yes (via agent API)   | No                    | No                   |
+| Component                | Sees plaintext?       | Sees ciphertext?      | Has decryption keys?            |
+| ------------------------ | --------------------- | --------------------- | ------------------------------- |
+| Git repository           | No                    | Yes (encrypted files) | No (KMS-wrapped key in repo)    |
+| CI pipeline              | Briefly (during pack) | Yes                   | Via KMS unwrap (no static keys) |
+| Artifact store (S3/HTTP) | No                    | Yes (packed artifact) | No                              |
+| Clef agent               | Briefly (in memory)   | Yes                   | Via KMS unwrap (no static keys) |
+| Clef Pro control plane   | No                    | No                    | No                              |
+| Application code         | Yes (via agent API)   | No                    | No                              |
 
 The Clef Pro control plane (if used) operates on **metadata only**: rotation timestamps, recipient fingerprints, policy evaluation results, and git event data. It never receives ciphertext, plaintext, or decryption keys.
 
@@ -502,39 +514,49 @@ Clef requires no infrastructure because secrets live in git (infrastructure the 
 ```
 Developer Machine
 ├── clef.yaml (manifest)
+├── .clef/config.yaml (local config, gitignored — points to keychain or key file)
 ├── database/
 │   ├── development.enc.yaml  ← SOPS-encrypted
 │   ├── staging.enc.yaml
 │   └── production.enc.yaml
-└── .age/key.txt (developer's private key)
 
 $ clef exec database/development -- npm start
 # Secrets injected as env vars, process runs
 ```
 
-**Requirements**: Clef CLI, age private key (or access to KMS).
+**Requirements**: Clef CLI, age private key (stored in OS keychain or key file).
 **Infrastructure**: None.
 
 ### 10.2 CI/CD Pipeline
 
 ```yaml
-# GitHub Actions example
+# GitHub Actions — production tier (KMS-wrapped age key in repo)
 - name: Pack artifact
   run: clef pack api-gateway production -o artifact.json --ttl 3600
-  env:
-    SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+  # Age key is stored in the repo, encrypted with KMS.
+  # CI runner's IAM role has kms:Decrypt — no GitHub secrets needed.
 
 - name: Upload artifact
   run: aws s3 cp artifact.json s3://clef-artifacts/api-gateway/production.age.json
 ```
 
-**Requirements**: Clef CLI, SOPS decryption key (for the environments being packed), artifact storage destination.
+```yaml
+# GitHub Actions — quick-start tier (age key as CI secret)
+- name: Pack artifact
+  run: clef pack api-gateway production -o artifact.json --ttl 3600
+  env:
+    CLEF_AGE_KEY: ${{ secrets.CLEF_AGE_KEY }}
+```
+
+**Requirements (production tier)**: Clef CLI, KMS-wrapped age key in repo, IAM role with `kms:Decrypt`.
+**Requirements (quick-start)**: Clef CLI, age key as CI platform secret.
 **Infrastructure**: None (runs in existing CI).
 
 ### 10.3 Container Sidecar
 
 ```yaml
-# docker-compose or ECS task definition
+# ECS task definition — KMS envelope mode (recommended)
+# No age keys, no external secrets. IAM role is the authentication.
 services:
   app:
     image: my-app:latest
@@ -546,13 +568,21 @@ services:
     image: clef-agent:latest
     environment:
       CLEF_AGENT_SOURCE: https://s3.amazonaws.com/bucket/api-gw/production.age.json
-      CLEF_AGENT_AGE_KEY: ${AGE_PRIVATE_KEY}
-      # Or for KMS envelope mode (no age key needed):
-      # CLEF_AGENT_SOURCE: https://...
-      # AWS_ROLE_ARN: arn:aws:iam::role/clef-agent
+      # KMS envelope: task IAM role has kms:Decrypt — no age key needed
 ```
 
-**Requirements**: Agent binary, artifact URL, decryption capability (age key or KMS IAM role).
+```yaml
+# docker-compose — age key mode (development / quick-start)
+services:
+  agent:
+    image: clef-agent:latest
+    environment:
+      CLEF_AGENT_SOURCE: https://s3.amazonaws.com/bucket/api-gw/staging.age.json
+      CLEF_AGENT_AGE_KEY: ${AGE_PRIVATE_KEY}
+```
+
+**Requirements (KMS envelope)**: Agent binary, artifact URL, IAM role with `kms:Decrypt`.
+**Requirements (age key)**: Agent binary, artifact URL, age private key.
 **Infrastructure**: None beyond the existing container orchestrator.
 
 ### 10.4 Lambda with Extension
@@ -597,7 +627,7 @@ Clef's architecture delivers four properties that no existing secrets manager pr
 
 2. **Zero ops**: No servers to deploy, databases to maintain, or clusters to scale. Secrets live in git. Runtime delivery uses the customer's existing compute and storage.
 
-3. **Pure tokenless access**: KMS envelope encryption eliminates the token bootstrapping problem. IAM roles are the authentication layer. No static credentials to provision, rotate, or leak.
+3. **Pure tokenless access**: KMS envelope encryption eliminates the token bootstrapping problem across the entire pipeline — from CI (where the age key is KMS-wrapped in the repo) to production (where the agent unwraps via IAM). No static credentials to provision, rotate, or leak at any stage.
 
 4. **Dynamic credentials without vendor lock-in**: The artifact envelope is an open contract. Customers implement credential generation in their own serverless functions, using their own IAM roles, against their own data sources. Clef provides the delivery and lifecycle machinery — not the credential logic.
 

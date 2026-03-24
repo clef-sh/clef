@@ -3,8 +3,6 @@ import * as os from "os";
 import * as path from "path";
 import * as YAML from "yaml";
 import {
-  CLEF_KEYSTORE_NAMESPACE,
-  CLEF_KEYSTORE_DESCRIPTION,
   ClefManifest,
   EncryptionBackend,
   KmsConfig,
@@ -108,11 +106,6 @@ export class ServiceIdentityManager {
     // (Only for age-only environments — KMS envs have no recipient to register.)
     await this.registerRecipients(definition, manifest, repoRoot);
 
-    // Store private keys in the _keystore namespace
-    if (Object.keys(privateKeys).length > 0) {
-      await this.storeKeys(name, privateKeys, manifest, repoRoot);
-    }
-
     // Update manifest on disk
     const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
     const raw = fs.readFileSync(manifestPath, "utf-8");
@@ -157,28 +150,60 @@ export class ServiceIdentityManager {
   }
 
   /**
-   * Ensure the _keystore namespace exists in the manifest and on disk.
-   * Creates the namespace entry and scaffolds empty encrypted files for each environment.
+   * Update environment backends on an existing service identity.
+   * Switches age → KMS (removes old recipient) or updates KMS config.
+   * Returns new private keys for any environments switched from KMS → age.
    */
-  async ensureKeystoreNamespace(manifest: ClefManifest, repoRoot: string): Promise<void> {
-    const exists = manifest.namespaces.some((ns) => ns.name === CLEF_KEYSTORE_NAMESPACE);
-    if (exists) return;
-
-    manifest.namespaces.push({
-      name: CLEF_KEYSTORE_NAMESPACE,
-      description: CLEF_KEYSTORE_DESCRIPTION,
-    });
+  async updateEnvironments(
+    name: string,
+    kmsEnvConfigs: Record<string, KmsConfig>,
+    manifest: ClefManifest,
+    repoRoot: string,
+  ): Promise<{ privateKeys: Record<string, string> }> {
+    const identity = this.get(manifest, name);
+    if (!identity) {
+      throw new Error(`Service identity '${name}' not found.`);
+    }
 
     const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
     const raw = fs.readFileSync(manifestPath, "utf-8");
     const doc = YAML.parse(raw) as Record<string, unknown>;
-    if (!Array.isArray(doc.namespaces)) {
-      doc.namespaces = [];
+    const identities = doc.service_identities as Record<string, unknown>[];
+    const siDoc = identities.find((si) => (si as Record<string, unknown>).name === name) as Record<
+      string,
+      unknown
+    >;
+    const envs = siDoc.environments as Record<string, Record<string, unknown>>;
+
+    const cells = this.matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
+    const privateKeys: Record<string, string> = {};
+
+    for (const [envName, kmsConfig] of Object.entries(kmsEnvConfigs)) {
+      const oldConfig = identity.environments[envName];
+      if (!oldConfig) {
+        throw new Error(`Environment '${envName}' not found on identity '${name}'.`);
+      }
+
+      // If switching from age → KMS, remove the old age recipient from scoped files
+      if (oldConfig.recipient) {
+        const scopedCells = cells.filter(
+          (c) => identity.namespaces.includes(c.namespace) && c.environment === envName,
+        );
+        for (const cell of scopedCells) {
+          try {
+            await this.encryption.removeRecipient(cell.filePath, oldConfig.recipient);
+          } catch {
+            // May not be a current recipient
+          }
+        }
+      }
+
+      // Update manifest entry to KMS
+      envs[envName] = { kms: kmsConfig };
+      identity.environments[envName] = { kms: kmsConfig };
     }
-    (doc.namespaces as unknown[]).push({
-      name: CLEF_KEYSTORE_NAMESPACE,
-      description: CLEF_KEYSTORE_DESCRIPTION,
-    });
+
+    // Write updated manifest
     const tmp = path.join(os.tmpdir(), `clef-manifest-${process.pid}-${Date.now()}.tmp`);
     try {
       fs.writeFileSync(tmp, YAML.stringify(doc), "utf-8");
@@ -191,140 +216,7 @@ export class ServiceIdentityManager {
       }
     }
 
-    const keystoreCells = this.matrixManager
-      .resolveMatrix(manifest, repoRoot)
-      .filter((c) => c.namespace === CLEF_KEYSTORE_NAMESPACE && !c.exists);
-    for (const cell of keystoreCells) {
-      await this.matrixManager.scaffoldCell(cell, this.encryption, manifest);
-    }
-  }
-
-  /**
-   * Store private keys in the _keystore namespace.
-   * For each environment with a private key, decrypts the keystore file,
-   * adds/updates the key, and re-encrypts.
-   */
-  async storeKeys(
-    identityName: string,
-    privateKeys: Record<string, string>,
-    manifest: ClefManifest,
-    repoRoot: string,
-  ): Promise<void> {
-    await this.ensureKeystoreNamespace(manifest, repoRoot);
-
-    for (const [envName, privateKey] of Object.entries(privateKeys)) {
-      const relativePath = manifest.file_pattern
-        .replace("{namespace}", CLEF_KEYSTORE_NAMESPACE)
-        .replace("{environment}", envName);
-      const filePath = path.join(repoRoot, relativePath);
-
-      let existingValues: Record<string, string> = {};
-      if (fs.existsSync(filePath)) {
-        try {
-          const decrypted = await this.encryption.decrypt(filePath);
-          existingValues = decrypted.values;
-        } catch {
-          // File exists but cannot be decrypted — start fresh
-        }
-      }
-
-      existingValues[identityName] = privateKey;
-      await this.encryption.encrypt(filePath, existingValues, manifest, envName);
-    }
-  }
-
-  /**
-   * Retrieve a service identity's private key from the _keystore namespace.
-   */
-  async getKey(
-    identityName: string,
-    environment: string,
-    manifest: ClefManifest,
-    repoRoot: string,
-  ): Promise<string | undefined> {
-    const keystoreNs = manifest.namespaces.find((ns) => ns.name === CLEF_KEYSTORE_NAMESPACE);
-    if (!keystoreNs) return undefined;
-
-    const relativePath = manifest.file_pattern
-      .replace("{namespace}", CLEF_KEYSTORE_NAMESPACE)
-      .replace("{environment}", environment);
-    const filePath = path.join(repoRoot, relativePath);
-
-    if (!fs.existsSync(filePath)) return undefined;
-
-    try {
-      const decrypted = await this.encryption.decrypt(filePath);
-      return decrypted.values[identityName];
-    } catch {
-      return undefined;
-    }
-  }
-
-  /**
-   * Remove a service identity's private keys from the _keystore namespace.
-   * Decrypts each keystore file, removes the identity's entry, and re-encrypts.
-   */
-  async deleteKeys(identityName: string, manifest: ClefManifest, repoRoot: string): Promise<void> {
-    const keystoreNs = manifest.namespaces.find((ns) => ns.name === CLEF_KEYSTORE_NAMESPACE);
-    if (!keystoreNs) return;
-
-    for (const env of manifest.environments) {
-      const relativePath = manifest.file_pattern
-        .replace("{namespace}", CLEF_KEYSTORE_NAMESPACE)
-        .replace("{environment}", env.name);
-      const filePath = path.join(repoRoot, relativePath);
-
-      if (!fs.existsSync(filePath)) continue;
-
-      try {
-        const decrypted = await this.encryption.decrypt(filePath);
-        if (!(identityName in decrypted.values)) continue;
-
-        delete decrypted.values[identityName];
-        await this.encryption.encrypt(filePath, decrypted.values, manifest, env.name);
-      } catch {
-        // Cannot decrypt — skip this environment
-      }
-    }
-  }
-
-  /**
-   * Check which environments have stored keys for a service identity.
-   * Returns a map of environment name → boolean.
-   */
-  async hasStoredKeys(
-    identityName: string,
-    manifest: ClefManifest,
-    repoRoot: string,
-  ): Promise<Record<string, boolean>> {
-    const result: Record<string, boolean> = {};
-    const keystoreNs = manifest.namespaces.find((ns) => ns.name === CLEF_KEYSTORE_NAMESPACE);
-
-    for (const env of manifest.environments) {
-      if (!keystoreNs) {
-        result[env.name] = false;
-        continue;
-      }
-
-      const relativePath = manifest.file_pattern
-        .replace("{namespace}", CLEF_KEYSTORE_NAMESPACE)
-        .replace("{environment}", env.name);
-      const filePath = path.join(repoRoot, relativePath);
-
-      if (!fs.existsSync(filePath)) {
-        result[env.name] = false;
-        continue;
-      }
-
-      try {
-        const decrypted = await this.encryption.decrypt(filePath);
-        result[env.name] = identityName in decrypted.values;
-      } catch {
-        result[env.name] = false;
-      }
-    }
-
-    return result;
+    return { privateKeys };
   }
 
   /**
@@ -437,13 +329,7 @@ export class ServiceIdentityManager {
         }
       }
     } catch (err) {
-      // Store any successfully rotated keys before throwing
       if (Object.keys(newPrivateKeys).length > 0) {
-        try {
-          await this.storeKeys(name, newPrivateKeys, manifest, repoRoot);
-        } catch {
-          // Best-effort — don't mask the original error
-        }
         const partialErr = new PartialRotationError(
           `Rotation failed after rotating ${Object.keys(newPrivateKeys).join(", ")}: ${(err as Error).message}`,
           newPrivateKeys,
@@ -451,11 +337,6 @@ export class ServiceIdentityManager {
         throw partialErr;
       }
       throw err;
-    }
-
-    // Store rotated keys in the _keystore namespace
-    if (Object.keys(newPrivateKeys).length > 0) {
-      await this.storeKeys(name, newPrivateKeys, manifest, repoRoot);
     }
 
     const tmpRotate = path.join(os.tmpdir(), `clef-manifest-${process.pid}-${Date.now()}.tmp`);

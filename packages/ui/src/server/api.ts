@@ -9,7 +9,6 @@ import { Router, Request, Response } from "express";
 // mocked and real subprocesses are never spawned).
 const _useStdinFifo = process.platform === "linux" && !process.env.JEST_WORKER_ID;
 import {
-  CLEF_KEYSTORE_NAMESPACE,
   ManifestParser,
   MatrixManager,
   SopsClient,
@@ -28,7 +27,6 @@ import {
   generateRandomValue,
   ImportRunner,
   RecipientManager,
-  ServiceIdentityManager,
   validateAgePublicKey,
 } from "@clef-sh/core";
 import type { ImportFormat } from "@clef-sh/core";
@@ -154,7 +152,7 @@ export function createApiRouter(deps: ApiDeps): Router {
     try {
       const manifest = loadManifest();
       const statuses = await matrix.getMatrixStatus(manifest, deps.repoRoot, sops);
-      res.json(statuses.filter((s) => s.cell.namespace !== CLEF_KEYSTORE_NAMESPACE));
+      res.json(statuses);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to get matrix status";
       res.status(500).json({ error: message, code: "MATRIX_ERROR" });
@@ -837,97 +835,45 @@ export function createApiRouter(deps: ApiDeps): Router {
   });
 
   // GET /api/service-identities
-  router.get("/service-identities", async (_req: Request, res: Response) => {
+  router.get("/service-identities", (_req: Request, res: Response) => {
     try {
       setNoCacheHeaders(res);
       const manifest = loadManifest();
       const identities = manifest.service_identities ?? [];
-      const siManager = new ServiceIdentityManager(sops, matrix);
 
-      const result = await Promise.all(
-        identities.map(async (si) => {
-          const environments: Record<
-            string,
-            {
-              type: string;
-              publicKey?: string;
-              kms?: unknown;
-              protected?: boolean;
-              hasKey?: boolean;
-            }
-          > = {};
-          for (const [envName, envConfig] of Object.entries(si.environments)) {
-            const env = manifest.environments.find((e) => e.name === envName);
-            if (envConfig.kms) {
-              environments[envName] = {
-                type: "kms",
-                kms: envConfig.kms,
-                protected: env?.protected ?? false,
-              };
-            } else {
-              let hasKey = false;
-              try {
-                const key = await siManager.getKey(si.name, envName, manifest, deps.repoRoot);
-                hasKey = !!key;
-              } catch {
-                // No key available
-              }
-              environments[envName] = {
-                type: "age",
-                publicKey: envConfig.recipient,
-                protected: env?.protected ?? false,
-                hasKey,
-              };
-            }
+      const result = identities.map((si) => {
+        const environments: Record<
+          string,
+          { type: string; publicKey?: string; kms?: unknown; protected?: boolean }
+        > = {};
+        for (const [envName, envConfig] of Object.entries(si.environments)) {
+          const env = manifest.environments.find((e) => e.name === envName);
+          if (envConfig.kms) {
+            environments[envName] = {
+              type: "kms",
+              kms: envConfig.kms,
+              protected: env?.protected ?? false,
+            };
+          } else {
+            environments[envName] = {
+              type: "age",
+              publicKey: envConfig.recipient,
+              protected: env?.protected ?? false,
+            };
           }
-          return {
-            name: si.name,
-            description: si.description,
-            namespaces: si.namespaces,
-            environments,
-          };
-        }),
-      );
+        }
+        return {
+          name: si.name,
+          description: si.description,
+          namespaces: si.namespaces,
+          environments,
+        };
+      });
 
       res.json({ identities: result });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load service identities";
       res.status(500).json({ error: message, code: "SERVICE_IDENTITY_ERROR" });
-    }
-  });
-
-  // GET /api/service-identities/:name/key/:env
-  router.get("/service-identities/:name/key/:env", async (req: Request, res: Response) => {
-    try {
-      setNoCacheHeaders(res);
-      const manifest = loadManifest();
-      const name = req.params.name as string;
-      const env = req.params.env as string;
-
-      const envDef = manifest.environments.find((e) => e.name === env);
-      if (envDef?.protected && req.query.confirmed !== "true") {
-        res.status(409).json({
-          error: `Environment '${env}' is protected. Confirm to reveal.`,
-          code: "PROTECTED_ENV",
-          protected: true,
-        });
-        return;
-      }
-
-      const siManager = new ServiceIdentityManager(sops, matrix);
-      const key = await siManager.getKey(name, env, manifest, deps.repoRoot);
-      if (!key) {
-        res.status(404).json({
-          error: `No private key found for '${name}' in environment '${env}'.`,
-          code: "KEY_NOT_FOUND",
-        });
-        return;
-      }
-
-      res.json({ privateKey: key });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to retrieve key";
-      res.status(500).json({ error: message, code: "SERVICE_IDENTITY_KEY_ERROR" });
     }
   });
 

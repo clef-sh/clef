@@ -15,6 +15,7 @@ import type { KmsConfig } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
+import { copyToClipboard, maskedPlaceholder } from "../clipboard";
 
 export function registerServiceCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   const serviceCmd = program
@@ -73,6 +74,9 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
                   `Invalid KMS provider '${provider}'. Must be one of: aws, gcp, azure.`,
                 );
               }
+              if (kmsEnvConfigs[envName]) {
+                throw new Error(`Duplicate --kms-env for environment '${envName}'.`);
+              }
               kmsEnvConfigs[envName] = {
                 provider: provider as "aws" | "gcp" | "azure",
                 keyId,
@@ -118,8 +122,25 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           );
 
           if (Object.keys(result.privateKeys).length > 0) {
-            formatter.success("Private keys encrypted and stored in _keystore namespace.");
-            formatter.print(`  Retrieve with: clef service get-key ${name} -e <environment>\n`);
+            const entries = Object.entries(result.privateKeys);
+            const block = entries.map(([env, key]) => `${env}: ${key}`).join("\n");
+            const copied = copyToClipboard(block);
+
+            if (copied) {
+              formatter.warn("Private keys copied to clipboard. Store them securely.\n");
+              for (const [envName] of entries) {
+                formatter.print(`  ${envName}: ${maskedPlaceholder()}`);
+              }
+              formatter.print("");
+            } else {
+              formatter.warn(
+                "Private keys are shown ONCE. Store them securely (e.g. AWS Secrets Manager, Vault).\n",
+              );
+              for (const [envName, privateKey] of entries) {
+                formatter.print(`  ${envName}:`);
+                formatter.print(`    ${privateKey}\n`);
+              }
+            }
             for (const k of Object.keys(result.privateKeys)) result.privateKeys[k] = "";
           }
 
@@ -133,7 +154,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           }
 
           formatter.hint(
-            `git add clef.yaml _keystore/ && git commit -m "feat: add service identity '${name}'"`,
+            `git add clef.yaml && git commit -m "feat: add service identity '${name}'"`,
           );
         } catch (err) {
           if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
@@ -292,6 +313,85 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
       }
     });
 
+  // --- update ---
+  serviceCmd
+    .command("update <name>")
+    .description("Update an existing service identity's environment backends.")
+    .option(
+      "--kms-env <mapping>",
+      "Switch an environment to KMS envelope encryption: env=provider:keyId (repeatable)",
+      (val: string, acc: string[]) => {
+        acc.push(val);
+        return acc;
+      },
+      [] as string[],
+    )
+    .action(async (name: string, opts: { kmsEnv: string[] }) => {
+      try {
+        if (opts.kmsEnv.length === 0) {
+          formatter.error("Nothing to update. Provide --kms-env to change environment backends.");
+          process.exit(1);
+          return;
+        }
+
+        const repoRoot = (program.opts().dir as string) || process.cwd();
+        const parser = new ManifestParser();
+        const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
+
+        // Parse --kms-env mappings (same format as create)
+        const kmsEnvConfigs: Record<string, KmsConfig> = {};
+        for (const mapping of opts.kmsEnv) {
+          const eqIdx = mapping.indexOf("=");
+          if (eqIdx === -1) {
+            throw new Error(`Invalid --kms-env format: '${mapping}'. Expected: env=provider:keyId`);
+          }
+          const envName = mapping.slice(0, eqIdx);
+          const rest = mapping.slice(eqIdx + 1);
+          const colonIdx = rest.indexOf(":");
+          if (colonIdx === -1) {
+            throw new Error(`Invalid --kms-env format: '${mapping}'. Expected: env=provider:keyId`);
+          }
+          const provider = rest.slice(0, colonIdx);
+          const keyId = rest.slice(colonIdx + 1);
+          if (!["aws", "gcp", "azure"].includes(provider)) {
+            throw new Error(`Invalid KMS provider '${provider}'. Must be one of: aws, gcp, azure.`);
+          }
+          if (kmsEnvConfigs[envName]) {
+            throw new Error(`Duplicate --kms-env for environment '${envName}'.`);
+          }
+          kmsEnvConfigs[envName] = {
+            provider: provider as "aws" | "gcp" | "azure",
+            keyId,
+          };
+        }
+
+        const matrixManager = new MatrixManager();
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
+        const manager = new ServiceIdentityManager(sopsClient, matrixManager);
+
+        formatter.print(`${sym("working")}  Updating service identity '${name}'...`);
+
+        await manager.updateEnvironments(name, kmsEnvConfigs, manifest, repoRoot);
+
+        formatter.success(`Service identity '${name}' updated.`);
+        for (const [envName, kmsConfig] of Object.entries(kmsEnvConfigs)) {
+          formatter.print(`  ${envName}: switched to KMS envelope (${kmsConfig.provider})`);
+        }
+
+        formatter.hint(
+          `git add clef.yaml && git commit -m "chore: update service identity '${name}'"`,
+        );
+      } catch (err) {
+        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
+          formatter.formatDependencyError(err);
+          process.exit(1);
+          return;
+        }
+        formatter.error((err as Error).message);
+        process.exit(1);
+      }
+    });
+
   // --- rotate ---
   serviceCmd
     .command("rotate <name>")
@@ -337,12 +437,29 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
 
         const newKeys = await manager.rotateKey(name, manifest, repoRoot, opts.environment);
 
-        formatter.success(`Key rotated for '${name}'. New keys stored in _keystore namespace.`);
-        formatter.print(`  Retrieve with: clef service get-key ${name} -e <environment>\n`);
+        formatter.success(`Key rotated for '${name}'.`);
+
+        const entries = Object.entries(newKeys);
+        const block = entries.map(([env, key]) => `${env}: ${key}`).join("\n");
+        const copied = copyToClipboard(block);
+
+        if (copied) {
+          formatter.warn("New private keys copied to clipboard. Store them securely.\n");
+          for (const [envName] of entries) {
+            formatter.print(`  ${envName}: ${maskedPlaceholder()}`);
+          }
+          formatter.print("");
+        } else {
+          formatter.warn("New private keys are shown ONCE. Store them securely.\n");
+          for (const [envName, privateKey] of entries) {
+            formatter.print(`  ${envName}:`);
+            formatter.print(`    ${privateKey}\n`);
+          }
+        }
         for (const k of Object.keys(newKeys)) newKeys[k] = "";
 
         formatter.hint(
-          `git add clef.yaml _keystore/ && git commit -m "chore: rotate service identity '${name}'"`,
+          `git add clef.yaml && git commit -m "chore: rotate service identity '${name}'"`,
         );
       } catch (err) {
         if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
@@ -352,74 +469,29 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         }
         if (err instanceof PartialRotationError) {
           formatter.error(err.message);
-          formatter.warn(
-            "Partial rotation completed. Successfully rotated keys are in the _keystore namespace.",
-          );
-          formatter.print(`  Retrieve with: clef service get-key ${name} -e <environment>\n`);
+          const partialEntries = Object.entries(err.rotatedKeys);
+          const partialBlock = partialEntries.map(([env, key]) => `${env}: ${key}`).join("\n");
+          const partialCopied = copyToClipboard(partialBlock);
+
+          if (partialCopied) {
+            formatter.warn(
+              "Partial rotation succeeded. Rotated keys copied to clipboard — store them NOW.\n",
+            );
+            for (const [envName] of partialEntries) {
+              formatter.print(`  ${envName}: ${maskedPlaceholder()}`);
+            }
+          } else {
+            formatter.warn(
+              "Partial rotation succeeded. New private keys below — store them NOW.\n",
+            );
+            for (const [envName, privateKey] of partialEntries) {
+              formatter.print(`  ${envName}:`);
+              formatter.print(`    ${privateKey}\n`);
+            }
+          }
           for (const k of Object.keys(err.rotatedKeys)) {
             (err.rotatedKeys as Record<string, string>)[k] = "";
           }
-          process.exit(1);
-          return;
-        }
-        formatter.error((err as Error).message);
-        process.exit(1);
-      }
-    });
-
-  // --- get-key ---
-  serviceCmd
-    .command("get-key <name>")
-    .description("Retrieve a service identity's private key from the keystore.")
-    .requiredOption("-e, --environment <env>", "Environment to retrieve the key for")
-    .action(async (name: string, opts: { environment: string }) => {
-      try {
-        const repoRoot = (program.opts().dir as string) || process.cwd();
-        const parser = new ManifestParser();
-        const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
-
-        const identity = manifest.service_identities?.find((si) => si.name === name);
-        if (!identity) {
-          formatter.error(`Service identity '${name}' not found.`);
-          process.exit(1);
-          return;
-        }
-
-        const env = manifest.environments.find((e) => e.name === opts.environment);
-        if (!env) {
-          formatter.error(`Environment '${opts.environment}' not found.`);
-          process.exit(1);
-          return;
-        }
-
-        if (env.protected) {
-          const confirmed = await formatter.confirm(
-            `Protected environment '${opts.environment}'. Reveal private key?`,
-          );
-          if (!confirmed) {
-            formatter.error("Aborted.");
-            process.exit(1);
-            return;
-          }
-        }
-
-        const matrixManager = new MatrixManager();
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const manager = new ServiceIdentityManager(sopsClient, matrixManager);
-
-        const key = await manager.getKey(name, opts.environment, manifest, repoRoot);
-        if (!key) {
-          formatter.error(
-            `No private key found for '${name}' in environment '${opts.environment}'.`,
-          );
-          process.exit(1);
-          return;
-        }
-
-        formatter.raw(key + "\n");
-      } catch (err) {
-        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-          formatter.formatDependencyError(err);
           process.exit(1);
           return;
         }
