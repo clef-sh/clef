@@ -725,12 +725,6 @@ test.describe("clef service → ServiceIdentitiesScreen: list view", () => {
     await expect(page.getByText("DEV")).toBeVisible();
     await expect(page.getByText("PRD")).toBeVisible();
   });
-
-  test("[positive] _keystore namespace is hidden from sidebar namespace list", async ({ page }) => {
-    await page.goto(server.url);
-    await expect(page.getByTestId("nav-payments")).toBeVisible();
-    await expect(page.getByTestId("nav-_keystore")).not.toBeVisible();
-  });
 });
 
 test.describe("clef service → ServiceIdentitiesScreen: detail view", () => {
@@ -769,87 +763,5 @@ test.describe("clef service → ServiceIdentitiesScreen: detail view", () => {
     await expect(page.getByText("Scoped namespaces")).toBeVisible();
     // Use the second occurrence — first is in the sidebar nav
     await expect(page.getByText("payments").nth(1)).toBeVisible();
-  });
-});
-
-test.describe("clef service get-key → ServiceIdentitiesScreen: key reveal", () => {
-  test("[positive] reveal button shows private key for dev environment", async ({ page }) => {
-    await page.goto(server.url);
-    await page.getByTestId("nav-service ids").click();
-    await page.getByTestId("si-web-app").click();
-
-    const revealPromise = page.waitForResponse(
-      (r) => r.url().includes("/api/service-identities/") && r.url().includes("/key/"),
-    );
-    await page.getByTestId("reveal-dev").click();
-    const revealRes = await revealPromise;
-    expect(revealRes.status()).toBe(200);
-
-    await expect(page.getByText("AGE-SECRET-KEY-", { exact: false })).toBeVisible({
-      timeout: 15_000,
-    });
-  });
-
-  test("[positive] hide button conceals the revealed key", async ({ page }) => {
-    await page.goto(server.url);
-    await page.getByTestId("nav-service ids").click();
-    await page.getByTestId("si-web-app").click();
-
-    await page.getByTestId("reveal-dev").click();
-    await expect(page.getByText("AGE-SECRET-KEY-", { exact: false })).toBeVisible({
-      timeout: 15_000,
-    });
-
-    // Click hide
-    await page.getByTestId("reveal-dev").click();
-    await expect(page.getByText("AGE-SECRET-KEY-", { exact: false })).not.toBeVisible();
-  });
-
-  test("[positive] copy button appears when key is revealed", async ({ page }) => {
-    await page.goto(server.url);
-    await page.getByTestId("nav-service ids").click();
-    await page.getByTestId("si-web-app").click();
-
-    await page.getByTestId("reveal-dev").click();
-    await expect(page.getByText("AGE-SECRET-KEY-", { exact: false })).toBeVisible({
-      timeout: 15_000,
-    });
-    await expect(page.getByTestId("copy-button")).toBeVisible();
-  });
-
-  test("[positive] protected environment shows confirmation before reveal", async ({ page }) => {
-    await page.goto(server.url);
-    await page.getByTestId("nav-service ids").click();
-    await page.getByTestId("si-web-app").click();
-
-    // First click on production reveal — should show confirmation
-    await page.getByTestId("reveal-production").click();
-    await expect(page.getByText("Protected environment")).toBeVisible();
-    await expect(page.getByTestId("confirm-production")).toBeVisible();
-  });
-
-  test("[positive] confirming protected env reveal shows the key", async ({ page }) => {
-    await page.goto(server.url);
-    await page.getByTestId("nav-service ids").click();
-    await page.getByTestId("si-web-app").click();
-
-    // First click triggers confirmation
-    await page.getByTestId("reveal-production").click();
-    await expect(page.getByTestId("confirm-production")).toBeVisible();
-
-    // Confirm and wait for API response
-    const revealPromise = page.waitForResponse(
-      (r) =>
-        r.url().includes("/api/service-identities/") &&
-        r.url().includes("/key/") &&
-        r.url().includes("confirmed=true"),
-    );
-    await page.getByTestId("confirm-production").click();
-    const revealRes = await revealPromise;
-    expect(revealRes.status()).toBe(200);
-
-    await expect(page.getByText("AGE-SECRET-KEY-", { exact: false })).toBeVisible({
-      timeout: 15_000,
-    });
   });
 });

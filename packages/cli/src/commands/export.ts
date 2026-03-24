@@ -9,22 +9,26 @@ import {
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { createSopsClient } from "../age-credential";
+import { copyToClipboard } from "../clipboard";
 
 export function registerExportCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
     .command("export <target>")
     .description(
-      "Print decrypted secrets as shell export statements to stdout.\n\n" +
+      "Export decrypted secrets as shell export statements.\n\n" +
         "  target: namespace/environment (e.g. payments/production)\n\n" +
+        "By default, exports are copied to clipboard. Use --raw to print to stdout.\n\n" +
         "Usage:\n" +
-        "  eval $(clef export payments/production --format env)\n\n" +
+        "  clef export payments/production             (copies to clipboard)\n" +
+        "  eval $(clef export payments/production --raw)  (injects into shell)\n\n" +
         "Exit codes:\n" +
-        "  0  Values printed successfully\n" +
+        "  0  Values exported successfully\n" +
         "  1  Decryption error or invalid arguments",
     )
     .option("--format <format>", "Output format (only 'env' is supported)", "env")
     .option("--no-export", "Omit the 'export' keyword — output bare KEY=value pairs")
-    .action(async (target: string, options: { format: string; export: boolean }) => {
+    .option("--raw", "Print to stdout instead of clipboard (for eval/piping)")
+    .action(async (target: string, options: { format: string; export: boolean; raw?: boolean }) => {
       try {
         // Reject unsupported formats with a clear explanation
         if (options.format !== "env") {
@@ -69,15 +73,30 @@ export function registerExportCommand(program: Command, deps: { runner: Subproce
         const consumption = new ConsumptionClient();
         const output = consumption.formatExport(decrypted, "env", !options.export);
 
-        // Warn on Linux about /proc visibility
-        if (process.platform === "linux") {
-          formatter.warn(
-            "Exported values will be visible in /proc/<pid>/environ to processes with ptrace access. Use clef exec when possible.",
-          );
+        if (options.raw) {
+          // Warn on Linux about /proc visibility
+          if (process.platform === "linux") {
+            formatter.warn(
+              "Exported values will be visible in /proc/<pid>/environ to processes with ptrace access. Use clef exec when possible.",
+            );
+          }
+          formatter.raw(output);
+        } else {
+          const keyCount = Object.keys(decrypted.values).length;
+          const copied = copyToClipboard(output);
+          if (copied) {
+            formatter.success(`${keyCount} secret(s) copied to clipboard as env exports.`);
+            formatter.hint("eval $(clef export " + target + " --raw)  to inject into shell");
+          } else {
+            // Clipboard unavailable — fall back to raw output
+            if (process.platform === "linux") {
+              formatter.warn(
+                "Exported values will be visible in /proc/<pid>/environ to processes with ptrace access. Use clef exec when possible.",
+              );
+            }
+            formatter.raw(output);
+          }
         }
-
-        // Raw output — no labels, no colour
-        formatter.raw(output);
       } catch (err) {
         if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
           formatter.formatDependencyError(err);

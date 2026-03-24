@@ -2,9 +2,6 @@ import React from "react";
 import { theme } from "../theme";
 import type { ClefManifest, MatrixStatus, GitStatus as GitStatusType } from "@clef-sh/core";
 
-/** Must match CLEF_KEYSTORE_NAMESPACE from @clef-sh/core (runtime import not available in browser). */
-const KEYSTORE_NS = "_keystore";
-
 export type ViewName =
   | "matrix"
   | "editor"
@@ -43,7 +40,7 @@ export function Sidebar({
     ? gitStatus.staged.length + gitStatus.unstaged.length + gitStatus.untracked.length
     : 0;
 
-  const namespaces = (manifest?.namespaces ?? []).filter((ns) => ns.name !== KEYSTORE_NS);
+  const namespaces = manifest?.namespaces ?? [];
 
   return (
     <div
