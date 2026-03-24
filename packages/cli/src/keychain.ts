@@ -183,14 +183,17 @@ async function setDarwin(
     .catch(() => {});
 
   try {
-    // Pass the password via stdin to avoid truncation on newer macOS versions
-    // (Darwin 25+). When -w has no trailing argument, `security` reads the
-    // password from stdin if stdin is a pipe.
-    const result = await runner.run(
-      "security",
-      ["add-generic-password", "-a", account, "-s", SERVICE, "-w"],
-      { stdin: privateKey },
-    );
+    // Pass the password as -w argument. The read-back verification below
+    // catches any silent truncation on the current macOS version.
+    const result = await runner.run("security", [
+      "add-generic-password",
+      "-a",
+      account,
+      "-s",
+      SERVICE,
+      "-w",
+      privateKey,
+    ]);
 
     if (result.exitCode !== 0) return false;
 

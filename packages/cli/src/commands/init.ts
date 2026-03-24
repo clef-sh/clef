@@ -403,7 +403,13 @@ async function handleFullSetup(
 
     formatter.success(`Key label: ${label}`);
 
-    // Generate .sops.yaml using the public key
+    // Write recipient into clef.yaml (single source of truth)
+    const rawDoc = YAML.parse(fs.readFileSync(manifestPath, "utf-8")) as Record<string, unknown>;
+    const sopsDoc = rawDoc.sops as Record<string, unknown>;
+    sopsDoc.age = { recipients: [publicKey] };
+    fs.writeFileSync(manifestPath, YAML.stringify(rawDoc), "utf-8");
+
+    // Generate .sops.yaml (derived from manifest)
     const sopsYamlPath = path.join(repoRoot, ".sops.yaml");
     const sopsConfig = buildSopsYaml(manifest, repoRoot, publicKey);
     fs.writeFileSync(sopsYamlPath, YAML.stringify(sopsConfig), "utf-8");

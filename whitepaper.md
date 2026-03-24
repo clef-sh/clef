@@ -428,7 +428,7 @@ This inversion of responsibility has concrete implications:
 1. **No vendor dependency for credential logic.** If Clef disappears tomorrow, the customer's Lambda still generates credentials. They just need a different delivery mechanism.
 2. **No maintenance burden on Clef.** AWS SDK changes, database driver updates, and cloud API deprecations are the customer's concern for their own broker. Clef's contract (the envelope schema) is stable.
 3. **Bounded blast radius.** A bug in a Vault database secrets engine affects every Vault user. A bug in a customer's broker affects only that customer.
-4. **Full auditability.** The customer's Lambda execution logs, IAM CloudTrail events, and KMS usage logs provide a complete audit trail within their own AWS account.
+4. **Full auditability.** The customer's serverless execution logs, IAM audit logs, and KMS usage logs provide a complete audit trail within their own cloud account.
 
 ### 7.5 The Agent in Lambda
 
@@ -545,16 +545,14 @@ Multiple layers prevent secret exposure:
 
 In KMS envelope mode, the audit trail is comprehensive, distributed across infrastructure the customer already operates:
 
-1. **KMS CloudTrail**: Every `kms:Decrypt` call is logged with the caller's IAM principal, timestamp, and key ARN. Since each artifact has a unique ephemeral key, each decrypt event maps to a specific artifact revision. This answers: who exercised decryption capability, and when?
+1. **KMS audit logs**: Every `kms:Decrypt` call is logged by the cloud provider's audit system (CloudTrail, Cloud Audit Logs, Azure Monitor) with the caller's identity, timestamp, and key identifier. Since each artifact has a unique ephemeral key, each decrypt event maps to a specific artifact revision. This answers: who exercised decryption capability, and when?
 2. **VCS history**: Git log shows who changed which secrets (key names are visible in plaintext), when, and in which namespace/environment. The artifact's `revision` field ties runtime consumption back to a specific commit.
 3. **CI pipeline logs**: Show who triggered `clef pack`, for which service identity and environment, and when, creating the link from source change to published artifact.
 4. **Agent telemetry**: `artifact.refreshed` events with revision, key count, and KMS envelope usage log the consumption side. Delivered as OTLP log records to the customer's observability platform.
 
 The chain from git commit to CI pack to KMS unwrap to agent refresh provides complete provenance from secret authorship to consumption, all in systems the customer already monitors.
 
-**Per-key read granularity**: The agent does not log which individual keys the application reads from the `/v1/secrets/:key` endpoint. This is intentional. In envelope encryption, once the DEK is unwrapped, every key encrypted by that DEK should be assumed accessed since the entire plaintext is in memory. Logging individual key reads would imply false granularity. The correct audit boundary is the `kms:Decrypt` call in CloudTrail: it tells you who unwrapped the DEK, when, and for which artifact revision. That is the meaningful access event, and it lives in the customer's own CloudTrail.
-
-This is where Clef Pro adds value. The open-source audit trail is comprehensive but distributed; assembling the provenance chain across CloudTrail, git, CI, and telemetry requires manual correlation. Clef Pro ingests this metadata (never ciphertext or plaintext) and presents it as a single pane of glass: cross-repo visibility, policy evaluation over time, rotation compliance dashboards, and incident-ready audit reports.
+**Per-key read granularity**: The agent does not log which individual keys the application reads from the `/v1/secrets/:key` endpoint. This is intentional. In envelope encryption, once the DEK is unwrapped, every key encrypted by that DEK should be assumed accessed since the entire plaintext is in memory. Logging individual key reads would imply false granularity. The correct audit boundary is the KMS decrypt call in the cloud provider's audit logs: it tells you who unwrapped the DEK, when, and for which artifact revision. That is the meaningful access event, and it lives in the customer's own infrastructure.
 
 ### 8.7 Repository Integrity
 
@@ -565,7 +563,6 @@ This is mitigated by process controls:
 - **Branch protection**: Require pull request reviews for changes to `clef.yaml` and encrypted files.
 - **CODEOWNERS**: Assign security-sensitive files (`clef.yaml`, `.sops.yaml`, `*.enc.yaml`) to a security team that must approve changes.
 - **`clef lint` in CI**: Detects unexpected recipients, scope mismatches, and unregistered keys. A rogue recipient addition would surface as a lint warning.
-- **`clef report` to Clef Pro**: The control plane can enforce recipient policies, alerting or blocking when a new recipient is added outside an approved set.
 
 Repository write access is the trust boundary. But it is the same trust boundary that governs application code, infrastructure configuration, and CI pipeline definitions. Organizations that protect their `main` branch with reviews and approval gates extend the same protection to their secrets posture.
 
@@ -607,13 +604,34 @@ A fair comparison: most tools support granular access control when configured co
 
 ---
 
-## 10. Commercial Extensions
+## 10. Observability and Scaling
 
-The open-source architecture described in this paper leaves two practical concerns unaddressed. Both become commercial products, and both preserve the zero-custody property.
+The architecture described in this paper leaves two practical concerns that grow with organizational scale: visibility across many repositories, and the engineering burden of building dynamic credential brokers. Both are addressed with open infrastructure.
 
-### 10.1 The Broker Registry
+### 10.1 OTLP Telemetry Contract
 
-Section 7 describes dynamic credentials as a framework where Clef defines the envelope contract and customers implement the credential logic. This is architecturally correct, but it is also engineering work. Building a Lambda that generates RDS IAM auth tokens, handles errors gracefully, and publishes a valid Clef envelope is not trivial. Doing it for STS, OAuth, database tokens, and every other credential source compounds the effort.
+The Clef agent emits structured telemetry as OTLP (OpenTelemetry Protocol) log records, delivered via HTTP to any OTLP-compatible backend:
+
+| Event                | Severity | Fields                           |
+| -------------------- | -------- | -------------------------------- |
+| `agent.started`      | INFO     | version, agentId                 |
+| `agent.stopped`      | INFO     | reason, uptimeSeconds            |
+| `artifact.refreshed` | INFO     | revision, keyCount, kmsEnvelope  |
+| `artifact.revoked`   | WARN     | revokedAt                        |
+| `artifact.expired`   | WARN     | expiresAt                        |
+| `fetch.failed`       | WARN     | error, diskCacheAvailable        |
+| `cache.expired`      | ERROR    | cacheTtl, diskCachePurged        |
+| `artifact.invalid`   | ERROR    | reason (integrity/decrypt/parse) |
+
+Telemetry is fire-and-forget — it never blocks the critical path. Events are buffered in memory and flushed periodically (default: every 10 seconds or 50 events). A failed telemetry export does not affect secret delivery.
+
+The OTLP contract means the agent's telemetry flows directly into the observability stack the organization already operates — Datadog, Grafana, New Relic, Splunk, or any OTEL-compatible collector. No Clef-specific backend is required. An organization with 200 repos running Clef agents can build rotation dashboards, freshness alerts, and revocation monitors using their existing tooling and their existing on-call workflows.
+
+Combined with the `clef report` command (which publishes manifest structure, policy evaluation results, and matrix metadata as structured JSON), the full secrets posture is observable through standard infrastructure. KMS audit logs cover the access events (Section 8.6). OTLP covers the agent lifecycle. Git history covers the authorship. The data is open; the aggregation tool is the customer's choice.
+
+### 10.2 The Broker Registry
+
+Section 7 describes dynamic credentials as a framework where Clef defines the envelope contract and customers implement the credential logic. This is architecturally correct, but building and maintaining broker functions for each credential source is real engineering work.
 
 The **Clef Broker Registry** is an open, community-driven catalog of broker templates, similar to Homebrew formulas or Terraform modules:
 
@@ -622,21 +640,15 @@ clef install rds-iam-broker
 # Pulls from registry, scaffolds Lambda + IAM role + EventBridge rule
 ```
 
-Community and vendor-maintained templates for common patterns are published to the registry. `clef install` scaffolds the broker into the customer's own infrastructure: their Lambda, their IAM roles, their KMS keys. The zero-custody property is preserved because the broker executes in the customer's environment.
+Community and vendor-maintained templates for common patterns (RDS IAM, STS AssumeRole, OAuth token refresh) are published to the registry. `clef install` scaffolds the broker into the customer's own infrastructure: their Lambda, their IAM roles, their KMS keys. The brokers are free and open — they reduce adoption friction for the dynamic credentials pattern described in Section 7. The zero-custody property is preserved because the broker executes in the customer's environment.
 
-The brokers are free because they serve as the adoption mechanism. Every broker deployed is another repository flowing secrets through Clef, another team using the agent and envelope format. Charging for broker templates would shrink the ecosystem, which is counterproductive.
+### 10.3 Scaling Across Repositories
 
-### 10.2 Clef Pro
+A single team managing one or two repositories has everything they need in the open-source CLI, agent, and `clef report`. An organization managing secrets across 50 or 200 repositories needs to answer questions like: which repos have secrets that haven't been rotated in 90 days? Which service identities are drifted? Which agents are serving expired artifacts?
 
-A single team managing secrets across one or two repositories has everything they need in the open-source CLI and agent. An organization managing secrets across 50 or 200 repositories faces a different class of problem: visibility. Which repos have secrets that haven't been rotated in 90 days? Which service identities span which repos? Which environments are drifted? Which recipients are deprovisioned engineers?
+The answer is the OTLP telemetry contract. Every Clef agent already emits the events listed in Section 10.1 to whatever OTLP-compatible backend the organization runs. `clef report` already publishes manifest structure, policy evaluation results, and matrix metadata as structured JSON. The cloud provider's audit logs already capture every KMS access event.
 
-The data to answer these questions exists in git history, SOPS metadata, CI logs, and agent telemetry. Assembling it manually across hundreds of repos is not practical.
-
-**Clef Pro** is a zero-custody control plane that aggregates this metadata (never ciphertext, never plaintext, never key material) into a unified view: cross-repo matrix visibility, recipient management at org scale, policy enforcement and compliance evaluation, drift dashboards, rotation scheduling, and audit aggregation. The control plane receives only what `clef report` publishes: rotation timestamps, recipient fingerprints, policy evaluation results, and git event data. It operates on the same metadata boundary described in Section 8.1.
-
-### 10.3 Architectural Consistency
-
-The open-source ecosystem and the commercial control plane are consistent with the core thesis. The Broker Registry grows the ecosystem without taking custody: brokers run in the customer's account. Clef Pro monetizes visibility and governance without touching secrets: the control plane sees metadata, not ciphertext. The vendor relationship remains one of tooling, not custody.
+The scaling solution is not a new product — it is the aggregation and alerting capabilities the organization already has. The data sources are OTLP telemetry from agents, structured JSON from `clef report`, VCS history from git, CI pipeline logs, and KMS audit logs from the cloud provider. All are open, structured, and delivered via standard protocols. The tooling to aggregate them is the customer's choice.
 
 ---
 
