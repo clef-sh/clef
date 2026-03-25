@@ -29,7 +29,7 @@
     [
       "@semantic-release/exec",
       {
-        "publishCmd": "npm publish --provenance --access public -w packages/cli"
+        "publishCmd": "npm publish --provenance --access public"
       }
     ],
     [
