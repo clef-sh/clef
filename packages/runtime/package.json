@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/runtime",
-  "version": "0.1.10-beta.45",
+  "version": "0.1.10-beta.48",
   "description": "Lightweight runtime secrets engine for Clef — VCS-native fetch, age decrypt, in-memory cache",
   "repository": {
     "type": "git",
