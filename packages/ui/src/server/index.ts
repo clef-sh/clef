@@ -99,8 +99,9 @@ export async function startServer(
 
   app.use(express.json());
 
-  // Host header validation — block DNS rebinding attacks
-  app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+  // Host header validation — block DNS rebinding attacks.
+  // Applied to all routes (not just /api) to prevent probing via /_runtime or static assets.
+  app.use((req: Request, res: Response, next: NextFunction) => {
     const host = req.headers.host ?? "";
     const actualPort = (req.socket.address() as { port?: number })?.port ?? port;
     const allowedHosts = [`127.0.0.1:${actualPort}`, `127.0.0.1:${port}`];

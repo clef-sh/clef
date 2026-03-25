@@ -98,6 +98,21 @@ describe("resolveConfig", () => {
     expect(config.agentId).toBe("my-agent-001");
   });
 
+  describe("verify key", () => {
+    it("should resolve CLEF_AGENT_VERIFY_KEY when set", () => {
+      const config = resolveConfig({
+        ...baseEnv,
+        CLEF_AGENT_VERIFY_KEY: "MCowBQYDK2VwAyEA...",
+      });
+      expect(config.verifyKey).toBe("MCowBQYDK2VwAyEA...");
+    });
+
+    it("should leave verifyKey undefined when not set", () => {
+      const config = resolveConfig(baseEnv);
+      expect(config.verifyKey).toBeUndefined();
+    });
+  });
+
   describe("telemetry configuration", () => {
     it("should resolve telemetry when URL is set", () => {
       const config = resolveConfig({

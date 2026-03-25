@@ -46,6 +46,9 @@ See [Runtime Agent](/guide/agent) for the full guide, including Kubernetes and L
 | `CLEF_AGENT_AGE_KEY`         | —              | Inline age private key (optional for KMS envelope)                 |
 | `CLEF_AGENT_AGE_KEY_FILE`    | —              | Path to age key file (optional for KMS envelope)                   |
 | `CLEF_AGENT_TOKEN`           | auto-generated | Bearer token for API auth                                          |
+| `CLEF_AGENT_ID`              | auto-generated | Unique agent instance ID                                           |
+| `CLEF_AGENT_TELEMETRY_URL`   | —              | Telemetry endpoint URL                                             |
+| `CLEF_AGENT_VERIFY_KEY`      | —              | Public key for artifact signature verification (base64 DER SPKI)   |
 
 Either VCS config (`VCS_PROVIDER`, `VCS_REPO`, `VCS_TOKEN`, `VCS_IDENTITY`, `VCS_ENVIRONMENT`) **or** `SOURCE` is required.
 

@@ -38,6 +38,9 @@ export { HttpArtifactSource } from "./sources/http";
 export { FileArtifactSource } from "./sources/file";
 export { VcsArtifactSource } from "./sources/vcs";
 
+// Signature verification
+export { buildSigningPayload, verifySignature } from "./signature";
+
 // High-level API
 import { SecretsCache } from "./secrets-cache";
 import { DiskCache } from "./disk-cache";
@@ -88,6 +91,12 @@ export interface RuntimeConfig {
 
   /** Optional telemetry emitter for event reporting. */
   telemetry?: TelemetryEmitter;
+
+  /**
+   * Public key for artifact signature verification (base64-encoded DER SPKI).
+   * When set, unsigned or mis-signed artifacts are hard-rejected before decryption.
+   */
+  verifyKey?: string;
 }
 
 /**
@@ -130,6 +139,7 @@ export class ClefRuntime {
       diskCache,
       cacheTtl: config.cacheTtl,
       telemetry: config.telemetry,
+      verifyKey: config.verifyKey,
     });
   }
 

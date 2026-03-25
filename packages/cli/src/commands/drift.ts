@@ -49,6 +49,7 @@ export function registerDriftCommand(program: Command, _deps: { runner: Subproce
           if (options.json) {
             formatter.raw(JSON.stringify(result, null, 2) + "\n");
             process.exit(result.issues.length > 0 ? 1 : 0);
+            return;
           }
 
           formatDriftOutput(result);
