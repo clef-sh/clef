@@ -1,6 +1,6 @@
 # Security Architecture Review: Clef vs. Centralized Vault
 
-*Session date: March 25, 2026*
+_Session date: March 25, 2026_
 
 ---
 
@@ -68,11 +68,11 @@ A compromised workload with IAM permission to call `kms:Decrypt` on the service 
 
 ### Blast radius on workload compromise
 
-| Scenario | Centralized Vault | Clef KMS envelope |
-|---|---|---|
+| Scenario                        | Centralized Vault                                                                          | Clef KMS envelope                                                                                                            |
+| ------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
 | Attacker gets workload IAM role | Can call vault API for any secret the role's policy allows — policies are often over-broad | Can only `kms:Decrypt` on the service identity's key → recovers only the scoped, pre-packed secrets for that one environment |
-| Attacker gets network access | Can reach the vault endpoint (unless segmented) | No endpoint to reach — artifact is already local or fetched from a static store |
-| Attacker gets git repo access | N/A (secrets aren't in git) | Gets SOPS-encrypted files — useless without the SOPS backend KMS key, which is a different key than any workload has |
+| Attacker gets network access    | Can reach the vault endpoint (unless segmented)                                            | No endpoint to reach — artifact is already local or fetched from a static store                                              |
+| Attacker gets git repo access   | N/A (secrets aren't in git)                                                                | Gets SOPS-encrypted files — useless without the SOPS backend KMS key, which is a different key than any workload has         |
 
 ### Where Clef is more secure
 
@@ -96,9 +96,10 @@ A compromised workload with IAM permission to call `kms:Decrypt` on the service 
 
 ### Vault "revocation" — what actually happens
 
-**Revoking a token/lease**: `vault token revoke <token>` invalidates the auth token so the workload can't fetch *new* secrets. But the workload already has the secret value in memory. The running process still has `DB_PASSWORD=xyz` in its environment or config. Vault didn't reach into the process and wipe it.
+**Revoking a token/lease**: `vault token revoke <token>` invalidates the auth token so the workload can't fetch _new_ secrets. But the workload already has the secret value in memory. The running process still has `DB_PASSWORD=xyz` in its environment or config. Vault didn't reach into the process and wipe it.
 
 **Rotating a compromised secret** still requires:
+
 1. Rotate the credential at the source (e.g., change the DB password in RDS)
 2. Update the value in Vault
 3. Wait for the workload to re-fetch (restart, or rely on short polling interval)
@@ -150,12 +151,12 @@ interface ArtifactSource {
 
 ### Concrete broker examples in the repo
 
-| Broker | Tier | What it does |
-|---|---|---|
-| `brokers/aws/sts-assume-role` | 1 (self-expiring) | Calls `AssumeRole`, returns `AWS_ACCESS_KEY_ID` / `SECRET` / `SESSION_TOKEN` |
-| `brokers/aws/rds-iam` | 1 | Generates a 15-minute RDS IAM auth token |
-| `brokers/agnostic/oauth-client-credentials` | 1 | Exchanges client credentials for an access token |
-| `brokers/agnostic/sql-database` | 2 (stateful) | Creates ephemeral DB user via `CREATE ROLE`, implements `revoke()` to `DROP ROLE` on shutdown |
+| Broker                                      | Tier              | What it does                                                                                  |
+| ------------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------- |
+| `brokers/aws/sts-assume-role`               | 1 (self-expiring) | Calls `AssumeRole`, returns `AWS_ACCESS_KEY_ID` / `SECRET` / `SESSION_TOKEN`                  |
+| `brokers/aws/rds-iam`                       | 1                 | Generates a 15-minute RDS IAM auth token                                                      |
+| `brokers/agnostic/oauth-client-credentials` | 1                 | Exchanges client credentials for an access token                                              |
+| `brokers/agnostic/sql-database`             | 2 (stateful)      | Creates ephemeral DB user via `CREATE ROLE`, implements `revoke()` to `DROP ROLE` on shutdown |
 
 The Tier 2 SQL handler proactively `DROP ROLE`s the previous credential before issuing the next one — the SDK's `createHandler()` automatically calls `revoke()` before generating a new credential and on `shutdown()`.
 
@@ -185,13 +186,13 @@ Clef eliminates that service entirely. The things you depend on at runtime are:
 
 ### Threat model comparison
 
-| Threat | Vault | Clef |
-|---|---|---|
-| Compromised workload IAM | Calls Vault API → gets whatever the policy allows (policies drift, are often over-broad) | `kms:Decrypt` on one key → gets only the pre-scoped artifact for one identity + one environment |
-| Compromised source control | N/A | SOPS files encrypted with a different KMS key — useless |
-| Compromised network | Vault endpoint is reachable (mTLS helps but adds complexity) | No endpoint. S3 + KMS calls only |
-| Supply chain / operator | Vault operator can read any secret via root token or policy escalation | Pack-time operator sees plaintext, but blast radius is scoped to what they pack. No root token equivalent |
-| Infrastructure outage | Vault down = workloads can't fetch secrets | S3 down = stale artifact served from disk cache. KMS down = can't decrypt new artifacts, but current cache holds |
+| Threat                     | Vault                                                                                    | Clef                                                                                                             |
+| -------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Compromised workload IAM   | Calls Vault API → gets whatever the policy allows (policies drift, are often over-broad) | `kms:Decrypt` on one key → gets only the pre-scoped artifact for one identity + one environment                  |
+| Compromised source control | N/A                                                                                      | SOPS files encrypted with a different KMS key — useless                                                          |
+| Compromised network        | Vault endpoint is reachable (mTLS helps but adds complexity)                             | No endpoint. S3 + KMS calls only                                                                                 |
+| Supply chain / operator    | Vault operator can read any secret via root token or policy escalation                   | Pack-time operator sees plaintext, but blast radius is scoped to what they pack. No root token equivalent        |
+| Infrastructure outage      | Vault down = workloads can't fetch secrets                                               | S3 down = stale artifact served from disk cache. KMS down = can't decrypt new artifacts, but current cache holds |
 
 ### When you'd still pick Vault
 
@@ -206,7 +207,7 @@ Clef eliminates that service entirely. The things you depend on at runtime are:
 
 Yes. The whitepaper states it directly:
 
-> *"The git repository carries the combined risk profile of a secrets store and an access control system. Organizations should protect it accordingly."*
+> _"The git repository carries the combined risk profile of a secrets store and an access control system. Organizations should protect it accordingly."_
 
 ### Git becomes your secrets perimeter
 
@@ -232,13 +233,13 @@ The runner executing `clef pack` decrypts via the SOPS backend, sees plaintext, 
 
 ### What Clef already provides (activate these)
 
-| Feature | How to activate | What it catches |
-|---|---|---|
-| Pre-commit hook | `clef hooks install` (auto-runs on `clef init`) | Unencrypted `.enc.yaml` commits, plaintext secrets in staged files |
-| `clef scan --staged` | Runs via the pre-commit hook | Pattern matches (AWS keys, Stripe keys, etc.) + Shannon entropy detection |
-| `clef lint` | Add to CI as a required status check | Rogue recipients, missing matrix files, scope drift, SOPS corruption |
-| Protected environments | `protected: true` in manifest | Confirmation prompt on writes to production — prevents accidents |
-| Single-recipient warning | `clef lint` | Warns when a file has only one recipient (no recovery if key lost) |
+| Feature                  | How to activate                                 | What it catches                                                           |
+| ------------------------ | ----------------------------------------------- | ------------------------------------------------------------------------- |
+| Pre-commit hook          | `clef hooks install` (auto-runs on `clef init`) | Unencrypted `.enc.yaml` commits, plaintext secrets in staged files        |
+| `clef scan --staged`     | Runs via the pre-commit hook                    | Pattern matches (AWS keys, Stripe keys, etc.) + Shannon entropy detection |
+| `clef lint`              | Add to CI as a required status check            | Rogue recipients, missing matrix files, scope drift, SOPS corruption      |
+| Protected environments   | `protected: true` in manifest                   | Confirmation prompt on writes to production — prevents accidents          |
+| Single-recipient warning | `clef lint`                                     | Warns when a file has only one recipient (no recovery if key lost)        |
 
 ### Summary
 
