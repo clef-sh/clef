@@ -44,6 +44,21 @@ import Footer from "../components/Footer.astro";
       content="Structure, schema enforcement, and drift detection for SOPS. Your secrets stay in your repo, encrypted by your KMS — inheriting your existing access controls and audit logs."
     />
 
+    <!-- Google Tag Manager -->
+    <script is:inline>
+      (function (w, d, s, l, i) {
+        w[l] = w[l] || [];
+        w[l].push({ 'gtm.start': new Date().getTime(), event: 'gtm.js' });
+        var f = d.getElementsByTagName(s)[0],
+          j = d.createElement(s),
+          dl = l != 'dataLayer' ? '&l=' + l : '';
+        j.async = true;
+        j.src = 'https://www.googletagmanager.com/gtm.js?id=' + i + dl;
+        f.parentNode.insertBefore(j, f);
+      })(window, document, 'script', 'dataLayer', 'GTM-WZ3MH73K');
+    </script>
+    <!-- End Google Tag Manager -->
+
     <!-- Favicon -->
     <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -63,6 +78,15 @@ import Footer from "../components/Footer.astro";
     class="min-h-screen bg-clef-bg font-sans text-clef-text antialiased"
     style="background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.025) 1px, transparent 0); background-size: 24px 24px;"
   >
+    <!-- Google Tag Manager (noscript) -->
+    <noscript>
+      <iframe
+        src="https://www.googletagmanager.com/ns.html?id=GTM-WZ3MH73K"
+        height="0"
+        width="0"
+        style="display: none; visibility: hidden"></iframe>
+    </noscript>
+    <!-- End Google Tag Manager (noscript) -->
     <a
       href="#main-content"
       class="absolute -top-full left-2 z-9999 rounded bg-clef-accent px-4 py-2 text-sm font-semibold text-clef-bg no-underline focus:top-2"
@@ -213,7 +237,7 @@ import Footer from "../components/Footer.astro";
 
       <!-- Whitepaper callout -->
       <section class="border-t border-clef-border py-10" aria-label="Whitepaper">
-        <div class="mx-auto max-w-[1200px] px-6">
+        <div class="mx-auto max-w-300 px-6">
           <div
             class="grid items-center gap-8 rounded-[10px] border border-clef-borderMid bg-clef-panel px-8 py-7 sm:grid-cols-[1fr_auto]"
           >
