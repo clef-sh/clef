@@ -6,7 +6,7 @@
 
 ## Abstract
 
-Every secrets manager requires a server, and every server requires custody. Clef eliminates both. Secrets are encrypted files in git, delivered to production by a lightweight agent. No central infrastructure. No vendor with access to your keys. The question shifts from "who holds the secret key?" to "who has IAM permission?" — a policy question, not a custody question.
+Most secrets managers require a server, and every server creates a custodial relationship. Clef eliminates both. Secrets are encrypted files in git, delivered to production by a lightweight agent. No central infrastructure. No vendor with access to your keys. The question shifts from "who holds the secret key?" to "who has IAM permission?" — a policy question, not a custody question.
 
 This paper describes the architecture across four deployment contexts: local development, CI/CD, production workloads, and dynamic credential generation via customer-owned brokers.
 
@@ -20,9 +20,9 @@ Secrets management has three costs that compound:
 
 **Operations.** Vault requires an HA cluster, a storage backend, and unsealing on every restart. Infisical requires PostgreSQL, Redis, and an application server. This infrastructure must be monitored, patched, and scaled for what should be a primitive, not a project.
 
-**Token bootstrapping.** A secrets manager requires an authentication token. That token is itself a secret. Tokens end up baked into container images, hardcoded in CI, or stored in yet another secrets manager. Each is a static credential with broad access.
+**Token bootstrapping.** A secrets manager requires an authentication token. That token is itself a secret. Without deliberate configuration, tokens end up baked into container images, hardcoded in CI, or stored in yet another secrets manager. Vault, cloud-native managers, and others have answers — Vault's auth methods (AppRole, Kubernetes auth, AWS IAM auth) and cloud secret managers' native IAM integration both reduce or eliminate static bootstrap credentials. The cost is configuration complexity: Vault auth methods require their own setup, lifecycle management, and operational surface; cloud-native managers solve it at the expense of vendor custody. The question is not whether a solution exists but what it costs to operate one.
 
-Age-based encryption (Clef's quick-start path) addresses operations — no server — but not bootstrapping. An age key is still a static credential that something must hold. KMS envelope mode (Section 6) addresses all three: no server, no vendor custody, no static credential. The bootstrapping problem reduces to IAM policy.
+Age-based encryption (Clef's quick-start path) addresses operations — no server — but not bootstrapping. An age key is still a static credential that something must hold. KMS envelope mode (Section 6) addresses all three: no server, no vendor custody, no static credential. The bootstrapping problem reduces to an IAM policy — the same IAM the team already manages for compute.
 
 ---
 
@@ -356,7 +356,7 @@ Regardless of polling source, any machine with a local clone of the repository c
 
 ## 6. Tokenless Secrets: KMS Envelope Encryption
 
-### 6.1 The Token Bootstrapping Problem, Solved
+### 6.1 Token Bootstrapping Without a Second System
 
 As discussed in Section 1.3, age keys reduce the custody problem but don't eliminate it. **KMS envelope encryption breaks this cycle** — when the full KMS-native stack is in place (Section 4.1: SOPS backend is KMS, service identity uses KMS envelope, CI authenticates via IAM role). Under those conditions, no static credential exists anywhere in the pipeline:
 
