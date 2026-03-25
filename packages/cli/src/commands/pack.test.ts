@@ -127,7 +127,7 @@ describe("clef pack", () => {
     expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Artifact packed"));
     expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("/tmp/artifact.json"));
     expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("Revision"));
-    expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("Do NOT commit"));
+    expect(mockFormatter.hint).toHaveBeenCalledWith(expect.stringContaining("Upload the artifact"));
   });
 
   it("should write valid JSON artifact", async () => {

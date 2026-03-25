@@ -61,4 +61,21 @@ export class AwsKmsProvider implements KmsProvider {
 
     return Buffer.from(response.Plaintext);
   }
+
+  async sign(keyId: string, digest: Buffer): Promise<Buffer> {
+    await this.ensureClient();
+    const command = new this.sdk.SignCommand({
+      KeyId: keyId,
+      Message: digest,
+      MessageType: "DIGEST",
+      SigningAlgorithm: "ECDSA_SHA_256",
+    });
+
+    const response = await this.client.send(command);
+    if (!response.Signature) {
+      throw new Error("AWS KMS Sign returned no signature.");
+    }
+
+    return Buffer.from(response.Signature);
+  }
 }

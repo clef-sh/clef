@@ -8,6 +8,8 @@ Manage service identities for serverless and machine workloads.
 clef service create <name> --namespaces <ns> [--description <desc>] [--kms-env <mapping>...]
 clef service list
 clef service show <name>
+clef service update <name> --kms-env <mapping>...
+clef service delete <name>
 clef service rotate <name> [-e <environment>]
 clef service validate
 ```
@@ -110,6 +112,43 @@ Namespaces: api
   production: KMS (aws) — arn:aws:kms:us-west-2:333:key/prd-key
 ```
 
+### update
+
+Update an existing service identity's environment backends. Currently supports switching age-only environments to KMS envelope encryption.
+
+```bash
+# Switch staging to KMS envelope
+clef service update api-gateway \
+  --kms-env staging=aws:arn:aws:kms:us-east-1:222:key/stg-key
+
+# Switch multiple environments at once
+clef service update api-gateway \
+  --kms-env staging=aws:arn:aws:kms:us-east-1:222:key/stg-key \
+  --kms-env production=aws:arn:aws:kms:us-west-2:333:key/prd-key
+```
+
+At least one `--kms-env` mapping is required. The format is the same as `create`: `environment=provider:keyId`. Supported providers: `aws`, `gcp`, `azure`.
+
+### delete
+
+Delete a service identity and remove its recipients from all scoped files. Prompts for confirmation before proceeding.
+
+```bash
+clef service delete api-gateway
+```
+
+```
+Delete service identity 'api-gateway'? This will remove its recipients from all scoped files. (y/N) y
+⟳  Deleting service identity 'api-gateway'...
+✓ Service identity 'api-gateway' deleted.
+```
+
+After deletion:
+
+1. The identity is removed from `clef.yaml`
+2. Its public keys are removed as SOPS recipients from scoped files
+3. Commit the changes with `git add clef.yaml && git commit`
+
 ### rotate
 
 Rotate the age key for a service identity. Generates new keys, swaps recipients on scoped SOPS files, and prints new private keys.
@@ -159,6 +198,12 @@ KMS-backed environments skip recipient checks. Errors cause exit code 1. Warning
 | `--namespaces <ns>`   | string | Yes      | —       | Comma-separated namespace scopes              |
 | `--description <d>`   | string | No       | —       | Human-readable description for the identity   |
 | `--kms-env <mapping>` | string | No       | —       | KMS config: `env=provider:keyId` (repeatable) |
+
+### update
+
+| Flag                  | Type   | Required | Default | Description                                          |
+| --------------------- | ------ | -------- | ------- | ---------------------------------------------------- |
+| `--kms-env <mapping>` | string | Yes      | —       | KMS config: `env=provider:keyId` (repeatable, min 1) |
 
 ### rotate
 

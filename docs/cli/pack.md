@@ -27,11 +27,13 @@ See [Service Identities](/guide/service-identities) for the full guide.
 
 ## Flags
 
-| Flag                  | Type   | Required | Default | Description                                                                                                                                                   |
-| --------------------- | ------ | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-o, --output <path>` | string | Yes      | —       | Output file path for the artifact                                                                                                                             |
-| `--ttl <seconds>`     | number | No       | —       | Artifact TTL — embeds an `expiresAt` timestamp. Also relevant for [dynamic secret patterns](/guide/dynamic-secrets#example-static-secrets-with-ttl-bounding). |
-| `--dir <path>`        | string | No       | cwd     | Override repository root                                                                                                                                      |
+| Flag                        | Type   | Required | Default | Description                                                                                                                                                   |
+| --------------------------- | ------ | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-o, --output <path>`       | string | Yes      | —       | Output file path for the artifact                                                                                                                             |
+| `--ttl <seconds>`           | number | No       | —       | Artifact TTL — embeds an `expiresAt` timestamp. Also relevant for [dynamic secret patterns](/guide/dynamic-secrets#example-static-secrets-with-ttl-bounding). |
+| `--signing-key <key>`       | string | No       | —       | Ed25519 private key for artifact signing (base64 DER PKCS8). Falls back to `CLEF_SIGNING_KEY` env var. Mutually exclusive with `--signing-kms-key`.           |
+| `--signing-kms-key <keyId>` | string | No       | —       | KMS asymmetric signing key ARN/ID (ECDSA_SHA_256). Falls back to `CLEF_SIGNING_KMS_KEY` env var. Mutually exclusive with `--signing-key`.                     |
+| `--dir <path>`              | string | No       | cwd     | Override repository root                                                                                                                                      |
 
 ## Exit codes
 
@@ -95,6 +97,30 @@ clef pack api-gateway production \
   --output ./artifact.json \
   --ttl 3600  # expires in 1 hour
 ```
+
+### Sign with Ed25519
+
+Sign the artifact so the agent can verify provenance. Generate a keypair with `openssl`, store the private key as a CI secret, and configure the agent with the public key via `CLEF_AGENT_VERIFY_KEY`:
+
+```bash
+clef pack api-gateway production \
+  --output ./artifact.json \
+  --signing-key "$CLEF_SIGNING_KEY"
+```
+
+### Sign with KMS (ECDSA)
+
+Use an asymmetric KMS key (ECC_NIST_P256) for signing. The CI runner needs `kms:Sign` permission on this key:
+
+```bash
+clef pack api-gateway production \
+  --output ./artifact.json \
+  --signing-kms-key arn:aws:kms:us-east-1:123456789012:key/abcd-1234
+```
+
+::: warning Signing key is not the envelope key
+The `--signing-kms-key` is an **asymmetric** signing key (ECC_NIST_P256). It is separate from the **symmetric** KMS key used for envelope encryption. Do not use the same key for both.
+:::
 
 ## Related commands
 

@@ -201,7 +201,7 @@ describe("clef set", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
-  it("warns when encrypt succeeds but markPendingWithRetry fails", async () => {
+  it("exits 1 when encrypt succeeds but markPendingWithRetry fails", async () => {
     const mockMarkPendingWithRetry = markPendingWithRetry as jest.Mock;
     mockMarkPendingWithRetry.mockRejectedValueOnce(new Error("disk full"));
 
@@ -210,15 +210,13 @@ describe("clef set", () => {
 
     await program.parseAsync(["node", "clef", "set", "payments/dev", "KEY", "--random"]);
 
-    expect(mockFormatter.warn).toHaveBeenCalledWith(
+    expect(mockFormatter.error).toHaveBeenCalledWith(
       expect.stringContaining("encrypted but pending state could not be recorded"),
     );
-    // Should still report success
-    expect(mockFormatter.success).toHaveBeenCalledWith(
-      expect.stringContaining("KEY set in payments/dev"),
-    );
-    // Non-fatal intent: process.exit(1) should NOT have been called
-    expect(mockExit).not.toHaveBeenCalled();
+    // Must exit non-zero — the encrypted file has an untracked random placeholder
+    expect(mockExit).toHaveBeenCalledWith(1);
+    // Should NOT report success
+    expect(mockFormatter.success).not.toHaveBeenCalled();
   });
 
   it("does not call markPending when encrypt fails", async () => {

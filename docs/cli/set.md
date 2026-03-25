@@ -30,9 +30,10 @@ This is a protected environment (production). Confirm? (y/N)
 
 ## Flags
 
-| Flag       | Type    | Default | Description                                                                       |
-| ---------- | ------- | ------- | --------------------------------------------------------------------------------- |
-| `--random` | boolean | `false` | Generate a cryptographically random placeholder value and mark the key as pending |
+| Flag         | Type    | Default | Description                                                                       |
+| ------------ | ------- | ------- | --------------------------------------------------------------------------------- |
+| `--random`   | boolean | `false` | Generate a cryptographically random placeholder value and mark the key as pending |
+| `--all-envs` | boolean | `false` | Set the key in all environments for the namespace                                 |
 
 ## Examples
 

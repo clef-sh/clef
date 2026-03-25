@@ -25,7 +25,7 @@ Clef maintains a list of known secret formats and matches them against each line
 | Slack token                  | `xoxb-2048-352-1234...`                                                                                                                                                      |
 | Private key header           | `-----BEGIN RSA PRIVATE KEY-----`, `-----BEGIN EC PRIVATE KEY-----`, `-----BEGIN DSA PRIVATE KEY-----`, `-----BEGIN OPENSSH PRIVATE KEY-----`, `-----BEGIN PRIVATE KEY-----` |
 | Generic API key              | `API_KEY=...`, `SECRET_KEY=...`, `ACCESS_TOKEN=...`, `AUTH_TOKEN=...`                                                                                                        |
-| Database URL                 | `postgres://user:pass@host/db`                                                                                                                                               |
+| Database URL                 | `postgres://user:pass@host/db`, `mysql://...`, `mongodb://...`, `redis://...`                                                                                                |
 
 Pattern detection targets well-known secret formats with fixed prefixes. False positives on pattern matches are rare.
 

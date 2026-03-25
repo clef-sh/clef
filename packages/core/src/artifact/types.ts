@@ -10,6 +10,9 @@ export interface ArtifactEnvelope {
   algorithm: string;
 }
 
+/** Supported artifact signature algorithms. */
+export type SignatureAlgorithm = "Ed25519" | "ECDSA_SHA256";
+
 /** JSON envelope for a packed artifact. Language-agnostic, forward-compatible. */
 export interface PackedArtifact {
   version: 1;
@@ -31,6 +34,10 @@ export interface PackedArtifact {
   envelope?: ArtifactEnvelope;
   /** ISO-8601 expiry timestamp. Artifact is rejected after this time. */
   expiresAt?: string;
+  /** Base64-encoded cryptographic signature over the canonical artifact payload. */
+  signature?: string;
+  /** Algorithm used to produce the signature. */
+  signatureAlgorithm?: SignatureAlgorithm;
 }
 
 /** Configuration for the `pack` command. */
@@ -43,6 +50,10 @@ export interface PackConfig {
   outputPath: string;
   /** TTL in seconds — embeds an `expiresAt` timestamp in the artifact envelope. */
   ttl?: number;
+  /** Ed25519 private key for artifact signing (base64-encoded DER PKCS8). */
+  signingKey?: string;
+  /** KMS asymmetric signing key ARN/ID (ECDSA_SHA_256). Mutually exclusive with signingKey. */
+  signingKmsKeyId?: string;
 }
 
 /** Result of a pack operation. */

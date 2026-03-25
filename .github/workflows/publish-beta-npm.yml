@@ -1,8 +1,8 @@
 # Manual beta → npm promotion workflow
 #
-# Publishes the current staging versions to npm, tagged as both `latest`
-# and `beta`. Each package publishes whatever version is in its package.json
-# (stamped by the publish-prerelease workflow).
+# Publishes the current staging versions to npm under the `beta` dist-tag
+# with provenance attestations. Each package publishes whatever version is
+# in its package.json (stamped by the publish-prerelease workflow).
 #
 # This is a manual gate: beta versions land on GitHub Packages automatically,
 # and a human promotes them to npm when ready for open testing.
@@ -56,51 +56,37 @@ jobs:
       - name: Publish @clef-sh/core
         continue-on-error: true
         working-directory: packages/core
-        run: npm publish --tag latest --access public || echo "::warning::@clef-sh/core publish failed (may already exist)"
+        run: npm publish --tag beta --access public || echo "::warning::@clef-sh/core publish failed (may already exist)"
         env:
           NPM_CONFIG_PROVENANCE: "true"
 
       - name: Publish @clef-sh/runtime
         continue-on-error: true
         working-directory: packages/runtime
-        run: npm publish --tag latest --access public || echo "::warning::@clef-sh/runtime publish failed (may already exist)"
+        run: npm publish --tag beta --access public || echo "::warning::@clef-sh/runtime publish failed (may already exist)"
         env:
           NPM_CONFIG_PROVENANCE: "true"
 
       - name: Publish @clef-sh/agent
         continue-on-error: true
         working-directory: packages/agent
-        run: npm publish --tag latest --access public || echo "::warning::@clef-sh/agent publish failed (may already exist)"
+        run: npm publish --tag beta --access public || echo "::warning::@clef-sh/agent publish failed (may already exist)"
         env:
           NPM_CONFIG_PROVENANCE: "true"
 
-      # TODO: Remove NODE_AUTH_TOKEN after first successful publish.
-      # New scoped packages require an explicit npm token for the initial
-      # registry creation. OIDC provenance handles subsequent publishes.
       - name: Publish @clef-sh/broker
         continue-on-error: true
         working-directory: packages/broker
-        run: npm publish --tag latest --access public || echo "::warning::@clef-sh/broker publish failed (may already exist)"
+        run: npm publish --tag beta --access public || echo "::warning::@clef-sh/broker publish failed (may already exist)"
         env:
           NPM_CONFIG_PROVENANCE: "true"
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/cli
         continue-on-error: true
         working-directory: packages/cli
-        run: npm publish --tag latest --access public || echo "::warning::@clef-sh/cli publish failed (may already exist)"
+        run: npm publish --tag beta --access public || echo "::warning::@clef-sh/cli publish failed (may already exist)"
         env:
           NPM_CONFIG_PROVENANCE: "true"
-
-      # Also tag as beta so `npm install @clef-sh/cli@beta` still works
-      - name: Add beta dist-tag
-        continue-on-error: true
-        run: |
-          npm dist-tag add "@clef-sh/core@${{ steps.ver.outputs.core }}" beta || true
-          npm dist-tag add "@clef-sh/runtime@${{ steps.ver.outputs.runtime }}" beta || true
-          npm dist-tag add "@clef-sh/agent@${{ steps.ver.outputs.agent }}" beta || true
-          npm dist-tag add "@clef-sh/broker@${{ steps.ver.outputs.broker }}" beta || true
-          npm dist-tag add "@clef-sh/cli@${{ steps.ver.outputs.cli }}" beta || true
 
       # Tag the promoted commit so it's traceable from npm back to source
       - name: Tag promoted commit
@@ -140,4 +126,4 @@ jobs:
           echo "| \`@clef-sh/broker\` | \`${{ steps.ver.outputs.broker }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/cli\` | \`${{ steps.ver.outputs.cli }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Install: \`npm install @clef-sh/cli\` or \`npm install @clef-sh/cli@beta\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Install: \`npm install @clef-sh/cli@beta\`" >> "$GITHUB_STEP_SUMMARY"

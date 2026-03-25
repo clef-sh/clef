@@ -68,6 +68,7 @@ export function registerLintCommand(program: Command, deps: { runner: Subprocess
           formatter.raw(JSON.stringify(result, null, 2) + "\n");
           const hasErrors = result.issues.some((i) => i.severity === "error");
           process.exit(hasErrors ? 1 : 0);
+          return;
         }
 
         formatLintOutput(result);
