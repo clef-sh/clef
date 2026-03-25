@@ -29,6 +29,7 @@ export function MatrixView({ setView, setNs, manifest, matrixStatuses }: MatrixV
 
   const environments = manifest.environments;
   const namespaces = manifest.namespaces;
+  const matrixLoading = matrixStatuses.length === 0 && namespaces.length > 0;
 
   const healthyCount = matrixStatuses.filter((s) => s.cell.exists && s.issues.length === 0).length;
   const missingCount = matrixStatuses.filter(
@@ -54,7 +55,36 @@ export function MatrixView({ setView, setNs, manifest, matrixStatuses }: MatrixV
         }
       />
 
-      <div style={{ flex: 1, overflow: "auto", padding: 28 }}>
+      <div style={{ flex: 1, overflow: "auto", padding: 28, position: "relative" }}>
+        {matrixLoading && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: `${theme.bg}dd`,
+              zIndex: 10,
+              borderRadius: 8,
+            }}
+          >
+            <div
+              style={{
+                background: theme.surface,
+                border: `1px solid ${theme.border}`,
+                borderRadius: 10,
+                padding: "24px 36px",
+                textAlign: "center",
+              }}
+            >
+              <div style={{ fontSize: 20, color: theme.accent, marginBottom: 8 }}>{"\u266A"}</div>
+              <div style={{ fontFamily: theme.sans, fontSize: 13, color: theme.textMuted }}>
+                Loading...
+              </div>
+            </div>
+          </div>
+        )}
         {/* Summary pills */}
         <div style={{ display: "flex", gap: 10, marginBottom: 28 }}>
           {[

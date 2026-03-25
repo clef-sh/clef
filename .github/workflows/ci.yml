@@ -22,6 +22,7 @@ jobs:
       - run: npm ci
       - run: npm run build --workspace=packages/core
       - run: npm run build --workspace=packages/runtime
+      - run: npm run build --workspace=packages/broker
       - run: npm run build --workspace=packages/agent
       - run: npm run build --workspace=packages/ui
       - name: Test with coverage
@@ -32,7 +33,7 @@ jobs:
         if: always()
         run: |
           echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
-          for pkg in packages/core packages/cli packages/ui packages/runtime packages/agent; do
+          for pkg in packages/core packages/cli packages/ui packages/runtime packages/agent packages/broker; do
             if [ -f "$pkg/coverage/coverage-summary.json" ]; then
               echo "### $pkg" >> $GITHUB_STEP_SUMMARY
               cat "$pkg/coverage/coverage-summary.json" | \
@@ -98,6 +99,7 @@ jobs:
       - run: npm run build --workspace=packages/core
       - run: npm run build --workspace=packages/ui
       - run: npm run build --workspace=packages/runtime
+      - run: npm run build --workspace=packages/broker
       - run: npm run build --workspace=packages/agent
       - run: npm run build --workspace=packages/cli
 
@@ -124,6 +126,18 @@ jobs:
           cache: npm
       - run: cd www && npm ci
       - run: cd www && npm run build
+
+  registry-build:
+    name: Registry Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: cd registry && npm ci
+      - run: cd registry && npm run build
 
   install-script-lint:
     name: Install Script Lint
@@ -185,11 +199,16 @@ jobs:
       - run: npm run build --workspace=packages/core
       - run: npm run build --workspace=packages/ui
       - run: npm run build --workspace=packages/runtime
+      - run: npm run build --workspace=packages/broker
       - run: npm run build --workspace=packages/agent
       - run: npm run build --workspace=packages/cli
       - run: npm run test:integration
       - name: Agent integration tests
         run: npx jest --config packages/agent/jest.integration.config.js
+      - name: Broker integration tests
+        run: npx jest --config packages/broker/jest.integration.config.js
+      - name: Broker E2E
+        run: npx tsx --test packages/broker/e2e/broker.e2e.test.ts
 
   # Agent smoke: single SEA+Linux on every PR for fast feedback.
   agent-e2e-smoke:

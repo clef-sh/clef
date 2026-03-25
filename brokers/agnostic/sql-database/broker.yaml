@@ -1,0 +1,57 @@
+name: sql-database
+version: 1.0.0
+description: Dynamic SQL database credentials via Handlebars statement templates
+author: clef-sh
+license: MIT
+provider: agnostic
+tier: 2
+
+inputs:
+  - name: DB_CLIENT
+    description: "Knex database client: pg, mysql2, mssql, oracledb"
+    secret: false
+    default: pg
+  - name: DB_HOST
+    description: Database hostname
+    secret: false
+  - name: DB_PORT
+    description: Database port
+    secret: false
+    default: "5432"
+  - name: DB_NAME
+    description: Database name
+    secret: false
+  - name: DB_ADMIN_USER
+    description: Admin user for creating/dropping roles
+    secret: true
+  - name: DB_ADMIN_PASSWORD
+    description: Admin user password
+    secret: true
+  - name: TTL
+    description: Credential TTL in seconds
+    secret: false
+    default: "3600"
+  - name: CREATE_STATEMENT
+    description: "Handlebars SQL template for user creation. Variables: {{username}}, {{password}}, {{expiration}}"
+    secret: false
+    default: |
+      CREATE ROLE "{{username}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
+      GRANT SELECT ON ALL TABLES IN SCHEMA public TO "{{username}}";
+  - name: REVOKE_STATEMENT
+    description: "Handlebars SQL template for user revocation. Variables: {{username}}"
+    secret: false
+    default: |
+      REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM "{{username}}";
+      DROP ROLE IF EXISTS "{{username}}";
+
+output:
+  identity: db-ephemeral
+  ttl: 3600
+  keys: [DB_USER, DB_PASSWORD]
+
+runtime:
+  dependencies:
+    knex: "^3.0.0"
+    pg: "^8.0.0"
+    handlebars: "^4.7.0"
+  permissions: []

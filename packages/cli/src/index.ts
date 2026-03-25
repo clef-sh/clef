@@ -23,6 +23,8 @@ import { registerPackCommand } from "./commands/pack";
 import { registerRevokeCommand } from "./commands/revoke";
 import { registerDriftCommand } from "./commands/drift";
 import { registerReportCommand } from "./commands/report";
+import { registerInstallCommand } from "./commands/install";
+import { registerSearchCommand } from "./commands/search";
 import { formatter } from "./output/formatter";
 import { setPlainMode, isPlainMode, symbols } from "./output/symbols";
 import pkg from "../package.json";
@@ -97,6 +99,8 @@ registerPackCommand(program, deps);
 registerRevokeCommand(program, deps);
 registerDriftCommand(program, deps);
 registerReportCommand(program, deps);
+registerInstallCommand(program, deps);
+registerSearchCommand(program, deps);
 
 program.parseAsync(process.argv).catch((err) => {
   formatter.error(err.message);

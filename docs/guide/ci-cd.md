@@ -90,7 +90,17 @@ Store `AGE_PRIVATE_KEY` as a CircleCI project or context variable. Set `CLEF_AGE
 
 ## AWS KMS — Zero-Secret Pattern
 
-The runner's IAM role has `kms:Decrypt` permission. No long-lived secret is stored or passed.
+The zero-secret pattern eliminates all static credentials from CI. Three things must be true:
+
+1. **SOPS backend is KMS** — your `.sops.yaml` points to a KMS key ARN, not an age recipient. This is set at `clef init` time with `--backend awskms --kms-arn <arn>`.
+2. **Service identities use KMS envelope** — `clef.yaml` has `kms:` (not `recipient:`) for each environment. Set via `clef service create --kms-env production=aws:<arn>`.
+3. **CI authenticates via IAM role** — OIDC federation, not a stored access key.
+
+When all three hold, the runner's IAM role calls `kms:Decrypt` on the SOPS key to read encrypted files and `kms:Encrypt` on the envelope key to pack artifacts. No private key is stored, passed, or injected.
+
+::: tip Same key or different keys?
+The SOPS key and the service identity's envelope key can be the same KMS key (simpler setup) or different keys (separation of duty — a compromised runtime can unwrap its artifact but cannot decrypt the source SOPS files).
+:::
 
 ### GitHub Actions with OIDC
 
@@ -221,7 +231,61 @@ Build args are visible in the image's build history. Use multi-stage builds to a
 
 ## Packed Artifacts + Runtime Agent
 
-For serverless workloads that cannot run `sops` at deploy time, use [`clef pack`](/cli/pack) to create an encrypted artifact and the [runtime agent](/guide/agent) to serve secrets at runtime — instead of `clef exec`. Packed artifacts contain age-encrypted secrets in a JSON envelope — no git, no sops binary, no private keys in the deployment artifact. See the [Service Identities guide](/guide/service-identities) and [Agent guide](/guide/agent) for a full walkthrough.
+For production workloads, use [`clef pack`](/cli/pack) to create an encrypted artifact and the [runtime agent](/guide/agent) to serve secrets — instead of injecting via `clef exec`.
+
+### How `clef pack` works
+
+`clef pack` is a two-step operation:
+
+1. **Decrypt** the SOPS files scoped to the service identity (using the SOPS backend — age key or KMS)
+2. **Re-encrypt** the merged values into an artifact envelope (using the identity's per-environment config — age recipient or KMS envelope)
+
+```bash
+# Age path — CI needs CLEF_AGE_KEY
+CLEF_AGE_KEY=${{ secrets.AGE_PRIVATE_KEY }} \
+  clef pack api-gateway production -o .clef/packed/api-gateway/production.age.json
+
+# KMS path — CI needs IAM role only (no age key)
+clef pack api-gateway production -o .clef/packed/api-gateway/production.age.json
+```
+
+### Full KMS workflow in GitHub Actions
+
+```yaml
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Clef
+        run: npm install -g @clef-sh/cli
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/clef-ci
+          aws-region: us-east-1
+
+      - name: Pack artifact
+        run: clef pack api-gateway production -o artifact.json
+
+      - name: Upload to S3
+        run: aws s3 cp artifact.json s3://my-bucket/clef/api-gateway/production.age.json
+```
+
+The CI role needs:
+
+- `kms:Decrypt` on the SOPS key (to read the source encrypted files)
+- `kms:Encrypt` on the envelope key (to wrap the ephemeral key in the artifact)
+
+These can be the same KMS key. The runtime role needs only `kms:Decrypt` on the envelope key.
 
 ## Best Practices
 

@@ -177,7 +177,69 @@ export function LintView({ setView, setNs }: LintViewProps) {
       )}
 
       <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-        {loading && <p style={{ color: theme.textMuted, fontFamily: theme.sans }}>Loading...</p>}
+        {loading && (
+          <>
+            <style>{`
+              @keyframes clef-scan-line {
+                0% { transform: scaleX(0); opacity: 0; }
+                10% { opacity: 1; }
+                50% { transform: scaleX(1); opacity: 1; }
+                80% { transform: scaleX(1); opacity: 0.3; }
+                100% { transform: scaleX(0); opacity: 0; }
+              }
+              @keyframes clef-scan-glow {
+                0%, 100% { opacity: 0.4; }
+                50% { opacity: 1; }
+              }
+            `}</style>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "48px 24px",
+              }}
+            >
+              <div
+                style={{
+                  background: theme.surface,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: 10,
+                  padding: "28px 40px",
+                  textAlign: "center",
+                  minWidth: 200,
+                }}
+              >
+                <div style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {[0, 0.3, 0.6].map((delay, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        height: 3,
+                        borderRadius: 2,
+                        background: theme.accent,
+                        transformOrigin: "left",
+                        animation: `clef-scan-line 1.8s ease-in-out ${delay}s infinite`,
+                        opacity: 0,
+                        width: [120, 90, 105][i],
+                      }}
+                    />
+                  ))}
+                </div>
+                <div
+                  style={{
+                    fontFamily: theme.mono,
+                    fontSize: 11,
+                    color: theme.textMuted,
+                    animation: "clef-scan-glow 1.8s ease-in-out infinite",
+                  }}
+                >
+                  Linting...
+                </div>
+              </div>
+            </div>
+          </>
+        )}
 
         {!loading && allClear && (
           <div

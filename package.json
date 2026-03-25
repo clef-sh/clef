@@ -8,7 +8,8 @@
     "packages/cli",
     "packages/ui",
     "packages/runtime",
-    "packages/agent"
+    "packages/agent",
+    "packages/broker"
   ],
   "scripts": {
     "test": "npm test --workspaces --if-present",
@@ -19,10 +20,12 @@
     "format": "prettier --write . && npm run format --workspaces --if-present",
     "format:check": "prettier --check .",
     "lint": "eslint .",
-    "build": "npm run build -w packages/core && npm run build -w packages/ui && npm run build -w packages/runtime && npm run build -w packages/agent && npm run build -w packages/cli",
+    "build": "npm run build -w packages/core && npm run build -w packages/ui && npm run build -w packages/runtime && npm run build -w packages/broker && npm run build -w packages/agent && npm run build -w packages/cli",
     "docs:api": "typedoc",
     "docs:build": "npm run docs:api && vitepress build docs",
     "docs:dev": "npm run docs:api && vitepress dev docs",
+    "registry:dev": "cd registry && npm run dev",
+    "registry:build": "cd registry && npm run build",
     "prepublish": "npm run build",
     "publish": "npm publish --workspaces --if-present"
   },

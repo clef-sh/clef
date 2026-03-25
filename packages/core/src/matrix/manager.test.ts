@@ -233,31 +233,17 @@ describe("MatrixManager", () => {
 
     it("should report key counts and detect missing keys across siblings", async () => {
       mockFs.existsSync.mockReturnValue(true);
+      // SOPS files store key names in plaintext — mock the file content
+      mockFs.readFileSync.mockImplementation((filePath) => {
+        const p = String(filePath);
+        if (p.includes("dev")) {
+          return "DB_URL: ENC[...]\nDB_POOL: ENC[...]\nEXTRA_KEY: ENC[...]\nsops:\n  lastmodified: '2024-01-15T00:00:00Z'\n";
+        }
+        return "DB_URL: ENC[...]\nDB_POOL: ENC[...]\nsops:\n  lastmodified: '2024-01-14T00:00:00Z'\n";
+      });
 
-      const mockSopsClient = {
-        decrypt: jest.fn().mockImplementation(async (filePath: string) => {
-          if (filePath.includes("dev")) {
-            return {
-              values: { DB_URL: "dev-url", DB_POOL: "5", EXTRA_KEY: "val" },
-              metadata: {
-                backend: "age" as const,
-                recipients: ["age1test"],
-                lastModified: new Date("2024-01-15"),
-              },
-            };
-          }
-          return {
-            values: { DB_URL: "staging-url", DB_POOL: "10" },
-            metadata: {
-              backend: "age" as const,
-              recipients: ["age1test"],
-              lastModified: new Date("2024-01-14"),
-            },
-          };
-        }),
-      } as unknown as SopsClient;
+      const mockSopsClient = {} as unknown as SopsClient;
 
-      // Use a manifest with just one namespace so we can isolate
       const manifest = {
         ...testManifest(),
         namespaces: [{ name: "database", description: "DB" }],
@@ -271,7 +257,7 @@ describe("MatrixManager", () => {
 
       expect(statuses).toHaveLength(2);
 
-      // Dev has 3 keys
+      // Dev has 3 keys (excluding sops metadata key)
       expect(statuses[0].keyCount).toBe(3);
 
       // Staging should report EXTRA_KEY as missing
@@ -279,12 +265,13 @@ describe("MatrixManager", () => {
       expect(stagingIssues.some((i) => i.key === "EXTRA_KEY")).toBe(true);
     });
 
-    it("should handle decrypt errors gracefully", async () => {
+    it("should handle unreadable files gracefully", async () => {
       mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockImplementation(() => {
+        throw new Error("permission denied");
+      });
 
-      const mockSopsClient = {
-        decrypt: jest.fn().mockRejectedValue(new Error("Key not found")),
-      } as unknown as SopsClient;
+      const mockSopsClient = {} as unknown as SopsClient;
 
       const manifest = {
         ...testManifest(),
@@ -295,8 +282,7 @@ describe("MatrixManager", () => {
       const statuses = await manager.getMatrixStatus(manifest, "/repo", mockSopsClient);
 
       expect(statuses).toHaveLength(1);
-      expect(statuses[0].issues).toHaveLength(1);
-      expect(statuses[0].issues[0].type).toBe("sops_error");
+      expect(statuses[0].keyCount).toBe(0);
     });
   });
 
