@@ -83,6 +83,9 @@ jobs:
         env:
           NPM_CONFIG_PROVENANCE: "true"
 
+      # TODO: Remove NODE_AUTH_TOKEN after first successful publish.
+      # New scoped packages require an explicit npm token for the initial
+      # registry creation. OIDC provenance handles subsequent publishes.
       - name: Publish @clef-sh/broker
         continue-on-error: true
         working-directory: packages/broker
@@ -91,6 +94,7 @@ jobs:
           npm publish --tag beta --access public || echo "::warning::@clef-sh/broker publish failed (may already exist)"
         env:
           NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/cli
         continue-on-error: true
