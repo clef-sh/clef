@@ -1,18 +1,12 @@
-# Release workflow — publishes @clef-sh/core, @clef-sh/runtime, @clef-sh/agent, and @clef-sh/cli
-# to npm independently, each versioned by its own commits.
-# @clef-sh/ui is also semver'd here but publishes to GitHub Packages only (never npm).
+# Release workflow — strips prerelease suffix and publishes to npm.
 #
-# Triggers automatically when the CI workflow passes on main, or manually via
-# workflow_dispatch. semantic-release commits version bumps back with [skip ci],
-# so CI does not re-run and no release loop occurs.
+# By the time code reaches main (via staging merge), package.json versions are
+# already stamped as e.g. 0.1.8-beta.52. This workflow strips the -beta.N
+# suffix, publishes the stable version to npm, tags the release, and creates
+# a GitHub Release.
 #
-# Release order: core → runtime → agent → cli → ui.
-# If core publishes a new version, cli's @clef-sh/core devDependency is bumped
-# automatically, creating a commit that triggers cli's own semantic-release.
-#
-# Authentication: uses GitHub Actions OIDC for npm provenance (core/agent/cli).
-# UI uses GITHUB_TOKEN for GitHub Packages auth.
-# Each package has its own .releaserc.json extending semantic-release-monorepo.
+# Triggers automatically when the CI workflow passes on main, or manually.
+# Release order: core → runtime → broker → agent → cli → ui.
 
 name: Release
 
@@ -27,8 +21,6 @@ permissions:
   contents: write
   id-token: write
   packages: write
-  issues: write
-  pull-requests: write
 
 concurrency:
   group: release-main
@@ -36,10 +28,8 @@ concurrency:
 
 jobs:
   release:
-    name: Semantic Release
+    name: Publish Stable
     runs-on: ubuntu-latest
-    # For workflow_run: only proceed if CI succeeded.
-    # For workflow_dispatch: always proceed (no workflow_run context).
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
@@ -48,7 +38,6 @@ jobs:
         with:
           fetch-depth: 0
           ref: main
-          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
@@ -58,97 +47,156 @@ jobs:
 
       - run: npm ci
 
+      # Strip prerelease suffix from all packages and stamp stable versions.
+      # If a package has no prerelease suffix (already stable), it is skipped.
+      - name: Stamp stable versions
+        id: versions
+        run: |
+          stamp_stable() {
+            local DIR="$1"
+            local NAME="$2"
+            local CURRENT
+            CURRENT=$(node -p "require('./${DIR}/package.json').version")
+            local STABLE
+            STABLE=$(echo "$CURRENT" | sed 's/-.*//')
+
+            if [ "$CURRENT" = "$STABLE" ]; then
+              echo "${NAME}: ${CURRENT} (already stable, skipping)"
+              echo "${NAME}_released=false" >> "$GITHUB_OUTPUT"
+              return
+            fi
+
+            node -e "
+              const fs = require('fs');
+              const p = JSON.parse(fs.readFileSync('${DIR}/package.json', 'utf8'));
+              p.version = '${STABLE}';
+              fs.writeFileSync('${DIR}/package.json', JSON.stringify(p, null, 2) + '\n');
+            "
+            echo "${NAME}: ${CURRENT} → ${STABLE}"
+            echo "${NAME}_released=true" >> "$GITHUB_OUTPUT"
+            echo "${NAME}_version=${STABLE}" >> "$GITHUB_OUTPUT"
+          }
+
+          stamp_stable packages/core    core
+          stamp_stable packages/runtime runtime
+          stamp_stable packages/broker  broker
+          stamp_stable packages/agent   agent
+          stamp_stable packages/cli     cli
+          stamp_stable packages/ui      ui
+
       - name: Build all packages
         run: npm run build
 
       - name: Run tests
         run: npm test
 
-      - name: Release @clef-sh/core
-        id: core
-        run: |
-          BEFORE=$(node -p "require('./package.json').version")
-          npx semantic-release
-          AFTER=$(node -p "require('./package.json').version")
-          if [ "$BEFORE" != "$AFTER" ]; then
-            echo "released=true" >> "$GITHUB_OUTPUT"
-            echo "version=$AFTER" >> "$GITHUB_OUTPUT"
-          fi
+      # ── Publish to npm (public packages with provenance) ────────────────
+
+      - name: Publish @clef-sh/core
+        if: steps.versions.outputs.core_released == 'true'
         working-directory: packages/core
+        run: npm publish --provenance --access public
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Release @clef-sh/runtime
-        id: runtime
-        run: |
-          BEFORE=$(node -p "require('./package.json').version")
-          npx semantic-release
-          AFTER=$(node -p "require('./package.json').version")
-          if [ "$BEFORE" != "$AFTER" ]; then
-            echo "released=true" >> "$GITHUB_OUTPUT"
-            echo "version=$AFTER" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Publish @clef-sh/runtime
+        if: steps.versions.outputs.runtime_released == 'true'
         working-directory: packages/runtime
+        run: npm publish --provenance --access public
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Release @clef-sh/broker
-        id: broker
-        run: |
-          BEFORE=$(node -p "require('./package.json').version")
-          npx semantic-release
-          AFTER=$(node -p "require('./package.json').version")
-          if [ "$BEFORE" != "$AFTER" ]; then
-            echo "released=true" >> "$GITHUB_OUTPUT"
-            echo "version=$AFTER" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Publish @clef-sh/broker
+        if: steps.versions.outputs.broker_released == 'true'
         working-directory: packages/broker
+        run: npm publish --provenance --access public
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Release @clef-sh/agent
-        id: agent
-        run: |
-          BEFORE=$(node -p "require('./package.json').version")
-          npx semantic-release
-          AFTER=$(node -p "require('./package.json').version")
-          if [ "$BEFORE" != "$AFTER" ]; then
-            echo "released=true" >> "$GITHUB_OUTPUT"
-            echo "version=$AFTER" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Publish @clef-sh/agent
+        if: steps.versions.outputs.agent_released == 'true'
         working-directory: packages/agent
+        run: npm publish --provenance --access public
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Bump @clef-sh/core in cli
-        if: steps.core.outputs.released == 'true'
+      - name: Publish @clef-sh/cli
+        if: steps.versions.outputs.cli_released == 'true'
+        working-directory: packages/cli
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # UI publishes to GitHub Packages (restricted), not npm
+      - name: Publish @clef-sh/ui (GitHub Packages)
+        if: steps.versions.outputs.ui_released == 'true'
+        working-directory: packages/ui
+        run: npm publish --access restricted --registry https://npm.pkg.github.com
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Commit version stamps and tag ───────────────────────────────────
+
+      - name: Commit stable versions
         run: |
-          NEW_VERSION="${{ steps.core.outputs.version }}"
-          node -e "
-            const fs = require('fs');
-            const pkg = JSON.parse(fs.readFileSync('packages/cli/package.json', 'utf8'));
-            pkg.devDependencies['@clef-sh/core'] = '^${NEW_VERSION}';
-            fs.writeFileSync('packages/cli/package.json', JSON.stringify(pkg, null, 2) + '\n');
-          "
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add packages/cli/package.json
-          git commit -m "chore(cli): bump @clef-sh/core to ${NEW_VERSION} [skip ci]"
 
-      - name: Release @clef-sh/cli
-        run: npx semantic-release
-        working-directory: packages/cli
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
+          # Stage only package.json files that changed
+          git add packages/*/package.json
+          if git diff --cached --quiet; then
+            echo "No version changes to commit"
+            exit 0
+          fi
+          git commit -m "chore(release): stamp stable versions [skip ci]"
+          git push
 
-      - name: Release @clef-sh/ui (GitHub Packages)
-        run: npx semantic-release
-        working-directory: packages/ui
+      - name: Create git tags
+        run: |
+          tag_if_released() {
+            local NAME="$1"
+            local PKG="$2"
+            local RELEASED="$3"
+            local VERSION="$4"
+            if [ "$RELEASED" = "true" ]; then
+              local TAG="@clef-sh/${PKG}-v${VERSION}"
+              git tag "$TAG"
+              echo "Tagged: $TAG"
+            fi
+          }
+
+          tag_if_released core    core    "${{ steps.versions.outputs.core_released }}"    "${{ steps.versions.outputs.core_version }}"
+          tag_if_released runtime runtime "${{ steps.versions.outputs.runtime_released }}" "${{ steps.versions.outputs.runtime_version }}"
+          tag_if_released broker  broker  "${{ steps.versions.outputs.broker_released }}"  "${{ steps.versions.outputs.broker_version }}"
+          tag_if_released agent   agent   "${{ steps.versions.outputs.agent_released }}"   "${{ steps.versions.outputs.agent_version }}"
+          tag_if_released cli     cli     "${{ steps.versions.outputs.cli_released }}"     "${{ steps.versions.outputs.cli_version }}"
+          tag_if_released ui      ui      "${{ steps.versions.outputs.ui_released }}"      "${{ steps.versions.outputs.ui_version }}"
+
+          git push --tags
+
+      # ── GitHub Releases ─────────────────────────────────────────────────
+
+      - name: Create GitHub Releases
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          create_release() {
+            local PKG="$1"
+            local RELEASED="$2"
+            local VERSION="$3"
+            if [ "$RELEASED" = "true" ]; then
+              local TAG="@clef-sh/${PKG}-v${VERSION}"
+              gh release create "$TAG" \
+                --title "@clef-sh/${PKG} v${VERSION}" \
+                --generate-notes \
+                --latest
+              echo "Created release: $TAG"
+            fi
+          }
+
+          create_release core    "${{ steps.versions.outputs.core_released }}"    "${{ steps.versions.outputs.core_version }}"
+          create_release runtime "${{ steps.versions.outputs.runtime_released }}" "${{ steps.versions.outputs.runtime_version }}"
+          create_release broker  "${{ steps.versions.outputs.broker_released }}"  "${{ steps.versions.outputs.broker_version }}"
+          create_release agent   "${{ steps.versions.outputs.agent_released }}"   "${{ steps.versions.outputs.agent_version }}"
+          create_release cli     "${{ steps.versions.outputs.cli_released }}"     "${{ steps.versions.outputs.cli_version }}"
+          create_release ui      "${{ steps.versions.outputs.ui_released }}"      "${{ steps.versions.outputs.ui_version }}"
