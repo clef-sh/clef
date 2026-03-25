@@ -119,7 +119,11 @@ clef ui
 | `clef merge-driver` | SOPS-aware three-way merge driver for encrypted files                                |
 | `clef service`      | Manage service identities for serverless/machine workloads                           |
 | `clef pack`         | Pack an encrypted artifact for a service identity                                    |
+| `clef revoke`       | Revoke a packed artifact                                                             |
 | `clef drift`        | Detect secrets drift across repositories                                             |
+| `clef report`       | Generate a JSON posture report                                                       |
+| `clef install`      | Install a broker template from the registry                                          |
+| `clef search`       | Search the broker registry                                                           |
 | `clef ui`           | Launch the local web UI                                                              |
 
 ## Web UI
@@ -152,15 +156,16 @@ schemas/
 
 All encryption and decryption is performed by SOPS via subprocess — Clef never implements any cryptography. Decrypted values exist only in memory and are never written to disk.
 
-## Architecture
+## Packages
 
-Clef is a TypeScript monorepo with three packages:
-
-| Package         | Description                                                                                   |
-| --------------- | --------------------------------------------------------------------------------------------- |
-| `@clef-sh/core` | Manifest parsing, matrix management, schema validation, SOPS client, diff engine, lint runner |
-| `@clef-sh/cli`  | Commander.js CLI wrapping the core library                                                    |
-| `@clef-sh/ui`   | React + Vite local web interface served by Express                                            |
+| Package                                | npm                                                                                                         | Description                                                           |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| [`@clef-sh/cli`](packages/cli)         | [![npm](https://img.shields.io/npm/v/@clef-sh/cli.svg)](https://www.npmjs.com/package/@clef-sh/cli)         | CLI — init, get, set, diff, lint, exec, pack, install, search         |
+| [`@clef-sh/core`](packages/core)       | [![npm](https://img.shields.io/npm/v/@clef-sh/core.svg)](https://www.npmjs.com/package/@clef-sh/core)       | Core library — manifest, matrix, SOPS client, schema, diff, lint      |
+| [`@clef-sh/runtime`](packages/runtime) | [![npm](https://img.shields.io/npm/v/@clef-sh/runtime.svg)](https://www.npmjs.com/package/@clef-sh/runtime) | Lightweight runtime — artifact fetch, age decrypt, KMS, caching       |
+| [`@clef-sh/agent`](packages/agent)     | [![npm](https://img.shields.io/npm/v/@clef-sh/agent.svg)](https://www.npmjs.com/package/@clef-sh/agent)     | Sidecar agent — HTTP API on 127.0.0.1:7779, polling, Lambda extension |
+| [`@clef-sh/broker`](packages/broker)   | [![npm](https://img.shields.io/npm/v/@clef-sh/broker.svg)](https://www.npmjs.com/package/@clef-sh/broker)   | Broker SDK — dynamic credential envelope construction + serving       |
+| [`@clef-sh/ui`](packages/ui)           | —                                                                                                           | Local web UI — matrix view, editor, diff, lint, scan                  |
 
 ## Security
 
