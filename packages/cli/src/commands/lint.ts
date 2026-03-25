@@ -40,6 +40,11 @@ export function registerLintCommand(program: Command, deps: { runner: Subprocess
         const schemaValidator = new SchemaValidator();
         const lintRunner = new LintRunner(matrixManager, schemaValidator, sopsClient);
 
+        const cellCount = manifest.namespaces.length * manifest.environments.length;
+        formatter.print(
+          `${sym("working")}  Linting ${cellCount} file(s) across ${manifest.namespaces.length} namespace(s)...`,
+        );
+
         let result: LintResult;
         if (options.fix) {
           result = await lintRunner.fix(manifest, repoRoot);

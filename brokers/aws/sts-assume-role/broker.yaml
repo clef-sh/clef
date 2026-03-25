@@ -1,0 +1,31 @@
+name: sts-assume-role
+version: 1.0.0
+description: Generate temporary AWS credentials via STS AssumeRole
+author: clef-sh
+license: MIT
+provider: aws
+tier: 1
+
+inputs:
+  - name: ROLE_ARN
+    description: IAM role ARN to assume
+    secret: false
+  - name: SESSION_NAME
+    description: Session name for CloudTrail auditing
+    secret: false
+    default: clef-broker
+  - name: DURATION
+    description: Session duration in seconds (900-43200)
+    secret: false
+    default: "3600"
+
+output:
+  identity: sts-session
+  ttl: 3600
+  keys: [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN]
+
+runtime:
+  dependencies:
+    "@aws-sdk/client-sts": "^3.500.0"
+  permissions:
+    - sts:AssumeRole

@@ -392,6 +392,55 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
       }
     });
 
+  // --- delete ---
+  serviceCmd
+    .command("delete <name>")
+    .description("Delete a service identity and remove its recipients from scoped files.")
+    .action(async (name: string) => {
+      try {
+        const repoRoot = (program.opts().dir as string) || process.cwd();
+        const parser = new ManifestParser();
+        const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
+
+        const identity = manifest.service_identities?.find((si) => si.name === name);
+        if (!identity) {
+          formatter.error(`Service identity '${name}' not found.`);
+          process.exit(1);
+          return;
+        }
+
+        const confirmed = await formatter.confirm(
+          `Delete service identity '${name}'? This will remove its recipients from all scoped files.`,
+        );
+        if (!confirmed) {
+          formatter.error("Aborted.");
+          process.exit(1);
+          return;
+        }
+
+        const matrixManager = new MatrixManager();
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
+        const manager = new ServiceIdentityManager(sopsClient, matrixManager);
+
+        formatter.print(`${sym("working")}  Deleting service identity '${name}'...`);
+
+        await manager.delete(name, manifest, repoRoot);
+
+        formatter.success(`Service identity '${name}' deleted.`);
+        formatter.hint(
+          `git add clef.yaml && git commit -m "chore: delete service identity '${name}'"`,
+        );
+      } catch (err) {
+        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
+          formatter.formatDependencyError(err);
+          process.exit(1);
+          return;
+        }
+        formatter.error((err as Error).message);
+        process.exit(1);
+      }
+    });
+
   // --- rotate ---
   serviceCmd
     .command("rotate <name>")

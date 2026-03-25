@@ -1,0 +1,35 @@
+name: oauth-client-credentials
+version: 1.0.0
+description: Refresh OAuth2 access tokens from client credentials
+author: clef-sh
+license: MIT
+provider: agnostic
+tier: 1
+
+inputs:
+  - name: TOKEN_URL
+    description: OAuth2 token endpoint URL
+    secret: false
+  - name: CLIENT_ID
+    description: OAuth2 client ID
+    secret: true
+  - name: CLIENT_SECRET
+    description: OAuth2 client secret
+    secret: true
+  - name: SCOPE
+    description: OAuth2 scope (space-separated)
+    secret: false
+    default: ""
+  - name: AUDIENCE
+    description: OAuth2 audience parameter (Auth0, some providers)
+    secret: false
+    default: ""
+
+output:
+  identity: oauth-token
+  ttl: 3600
+  keys: [ACCESS_TOKEN]
+
+runtime:
+  dependencies: {}
+  permissions: []

@@ -1,0 +1,30 @@
+name: rds-iam
+version: 1.0.0
+description: Generate RDS IAM authentication tokens with 15-minute TTL
+author: clef-sh
+license: MIT
+provider: aws
+tier: 1
+
+inputs:
+  - name: DB_ENDPOINT
+    description: RDS cluster or instance endpoint hostname
+    secret: false
+  - name: DB_USER
+    description: IAM database user
+    secret: false
+  - name: DB_PORT
+    description: Database port
+    secret: false
+    default: "5432"
+
+output:
+  identity: rds-primary
+  ttl: 900
+  keys: [DB_TOKEN]
+
+runtime:
+  dependencies:
+    "@aws-sdk/rds-signer": "^3.500.0"
+  permissions:
+    - rds-db:connect

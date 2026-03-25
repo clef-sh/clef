@@ -151,6 +151,66 @@ import Footer from "../components/Footer.astro";
       <HowItWorks />
       <Features />
 
+      <!-- Broker Registry callout -->
+      <section class="border-t border-clef-border py-16" aria-label="Broker Registry">
+        <div class="mx-auto max-w-300 px-6">
+          <div class="mb-10">
+            <div
+              class="mb-3 font-mono text-[11px] font-medium uppercase tracking-widest text-clef-accent"
+            >
+              Dynamic Credentials
+            </div>
+            <h2 class="mb-2.5 text-[32px] font-bold tracking-tight text-clef-text">
+              Broker Registry
+            </h2>
+            <p class="max-w-prose text-[15px] leading-relaxed text-clef-textSecondary">
+              Short-lived credentials generated on demand. Install a broker template, deploy it as a
+              Lambda or container, and the Clef agent handles the rest &mdash; polling, KMS
+              unwrapping, caching, and serving. Your <code class="font-mono text-clef-accent">create()</code> function
+              is the only code you write.
+            </p>
+          </div>
+
+          <div class="grid gap-px overflow-hidden rounded-[10px] border border-clef-border bg-clef-border sm:grid-cols-2 lg:grid-cols-4">
+            <div class="bg-clef-panel p-6">
+              <div class="mb-1 font-mono text-[11px] font-medium text-clef-accent">AWS</div>
+              <div class="mb-1 text-sm font-semibold text-clef-text">sts-assume-role</div>
+              <p class="text-[12px] leading-relaxed text-clef-textSecondary">Temporary AWS credentials via STS. 25 lines.</p>
+            </div>
+            <div class="bg-clef-panel p-6">
+              <div class="mb-1 font-mono text-[11px] font-medium text-clef-accent">AWS</div>
+              <div class="mb-1 text-sm font-semibold text-clef-text">rds-iam</div>
+              <p class="text-[12px] leading-relaxed text-clef-textSecondary">RDS IAM auth tokens with 15-min TTL. 15 lines.</p>
+            </div>
+            <div class="bg-clef-panel p-6">
+              <div class="mb-1 font-mono text-[11px] font-medium text-clef-accent">Agnostic</div>
+              <div class="mb-1 text-sm font-semibold text-clef-text">oauth-client-credentials</div>
+              <p class="text-[12px] leading-relaxed text-clef-textSecondary">One broker for every OAuth2 SaaS API. 30 lines.</p>
+            </div>
+            <div class="bg-clef-panel p-6">
+              <div class="mb-1 font-mono text-[11px] font-medium text-clef-accent">Agnostic</div>
+              <div class="mb-1 text-sm font-semibold text-clef-text">sql-database</div>
+              <p class="text-[12px] leading-relaxed text-clef-textSecondary">Ephemeral SQL users for Postgres, MySQL, MSSQL. 40 lines.</p>
+            </div>
+          </div>
+
+          <div class="mt-6 flex flex-wrap items-center gap-4">
+            <a
+              href="https://registry.clef.sh"
+              class="inline-flex items-center gap-2 rounded-md border border-clef-accent px-5 py-2.5 text-sm font-semibold text-clef-accent no-underline transition-colors hover:bg-clef-accent hover:text-clef-bg"
+            >
+              Browse the registry
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"></path>
+              </svg>
+            </a>
+            <span class="text-[13px] text-clef-textSecondary">
+              or run <code class="rounded bg-clef-surface px-2 py-0.5 font-mono text-[12px] text-clef-accent">clef search</code> from the terminal
+            </span>
+          </div>
+        </div>
+      </section>
+
       <!-- Whitepaper callout -->
       <section class="border-t border-clef-border py-10" aria-label="Whitepaper">
         <div class="mx-auto max-w-[1200px] px-6">
