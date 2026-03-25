@@ -248,6 +248,122 @@ describe("SopsMergeDriver", () => {
       expect(result.merged.B).toBe("alice-B");
       expect(result.merged.C).toBe("bob-C");
     });
+
+    // ── Edge cases raised in whitepaper review ─────────────────────────────
+
+    it("should treat JSON-stringified nested values as atomic strings", () => {
+      // SOPS flattens all values to strings. If a value happens to be
+      // serialized JSON, the merge driver treats it as a single opaque string.
+      const config = JSON.stringify({ host: "db.example.com", port: 5432 });
+      const base = { DB_CONFIG: config, API_KEY: "key1" };
+      const ours = {
+        DB_CONFIG: JSON.stringify({ host: "db.example.com", port: 5433 }),
+        API_KEY: "key1",
+      };
+      const theirs = { DB_CONFIG: config, API_KEY: "key2" };
+
+      const result = driver.merge(base, ours, theirs);
+
+      expect(result.clean).toBe(true);
+      // DB_CONFIG changed only in ours, API_KEY changed only in theirs
+      expect(result.merged.DB_CONFIG).toBe(ours.DB_CONFIG);
+      expect(result.merged.API_KEY).toBe("key2");
+    });
+
+    it("should conflict when both sides change a JSON-stringified value differently", () => {
+      const base = { DB_CONFIG: JSON.stringify({ host: "db.example.com" }) };
+      const ours = { DB_CONFIG: JSON.stringify({ host: "db-ours.example.com" }) };
+      const theirs = { DB_CONFIG: JSON.stringify({ host: "db-theirs.example.com" }) };
+
+      const result = driver.merge(base, ours, theirs);
+
+      expect(result.clean).toBe(false);
+      expect(result.conflicts).toHaveLength(1);
+      expect(result.conflicts[0].key).toBe("DB_CONFIG");
+    });
+
+    it("should handle multiline string values (PEM certificates, etc.)", () => {
+      const cert = "-----BEGIN CERTIFICATE-----\nMIIBxTCCAW...\n-----END CERTIFICATE-----";
+      const base = { TLS_CERT: cert, API_KEY: "old" };
+      const ours = { TLS_CERT: cert, API_KEY: "new" };
+      const theirs = { TLS_CERT: cert, API_KEY: "old" };
+
+      const result = driver.merge(base, ours, theirs);
+
+      expect(result.clean).toBe(true);
+      expect(result.merged.TLS_CERT).toBe(cert);
+      expect(result.merged.API_KEY).toBe("new");
+    });
+
+    it("should conflict on multiline value changes from both sides", () => {
+      const base = { TLS_CERT: "cert-v1" };
+      const ours = { TLS_CERT: "cert-v2-ours" };
+      const theirs = { TLS_CERT: "cert-v2-theirs" };
+
+      const result = driver.merge(base, ours, theirs);
+
+      expect(result.clean).toBe(false);
+      expect(result.conflicts[0].oursValue).toBe("cert-v2-ours");
+      expect(result.conflicts[0].theirsValue).toBe("cert-v2-theirs");
+    });
+
+    it("should handle large key counts without issues", () => {
+      const base: Record<string, string> = {};
+      const ours: Record<string, string> = {};
+      const theirs: Record<string, string> = {};
+      for (let i = 0; i < 200; i++) {
+        base[`KEY_${i}`] = `base-${i}`;
+        ours[`KEY_${i}`] = i < 100 ? `ours-${i}` : `base-${i}`;
+        theirs[`KEY_${i}`] = i >= 100 ? `theirs-${i}` : `base-${i}`;
+      }
+
+      const result = driver.merge(base, ours, theirs);
+
+      expect(result.clean).toBe(true);
+      expect(Object.keys(result.merged)).toHaveLength(200);
+      // First 100 changed by ours, last 100 changed by theirs, no overlap
+      expect(result.merged.KEY_0).toBe("ours-0");
+      expect(result.merged.KEY_100).toBe("theirs-100");
+    });
+
+    it("should handle simultaneous additions and deletions across branches", () => {
+      const base = { A: "1", B: "2", C: "3" };
+      const ours = { A: "1", C: "3", D: "new-ours" }; // deleted B, added D
+      const theirs = { A: "1", B: "2", E: "new-theirs" }; // deleted C, added E
+
+      const result = driver.merge(base, ours, theirs);
+
+      expect(result.clean).toBe(true);
+      expect(result.merged).toEqual({ A: "1", D: "new-ours", E: "new-theirs" });
+      // B deleted by ours, C deleted by theirs — both clean
+      expect("B" in result.merged).toBe(false);
+      expect("C" in result.merged).toBe(false);
+    });
+
+    it("should conflict when one side deletes and other modifies same key", () => {
+      const base = { SHARED_SECRET: "original" };
+      const ours = {}; // deleted
+      const theirs = { SHARED_SECRET: "modified" };
+
+      const result = driver.merge(base, ours, theirs);
+
+      expect(result.clean).toBe(false);
+      expect(result.conflicts).toHaveLength(1);
+      expect(result.conflicts[0].oursValue).toBeNull();
+      expect(result.conflicts[0].theirsValue).toBe("modified");
+    });
+
+    it("should handle empty string values distinctly from missing keys", () => {
+      const base = { A: "value", B: "" };
+      const ours = { A: "", B: "" }; // A changed to empty string
+      const theirs = { A: "value", B: "filled" }; // B changed from empty to filled
+
+      const result = driver.merge(base, ours, theirs);
+
+      expect(result.clean).toBe(true);
+      expect(result.merged.A).toBe(""); // ours changed to empty
+      expect(result.merged.B).toBe("filled"); // theirs changed from empty
+    });
   });
 
   describe("mergeFiles", () => {

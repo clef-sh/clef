@@ -8,7 +8,13 @@ const tsConfigs = tsPlugin.configs["flat/recommended"];
 module.exports = [
   {
     // Global ignores — node_modules is ignored by default in ESLint 9
-    ignores: ["**/dist/**", "**/coverage/**", "www/**", "docs/.vitepress/**"],
+    ignores: [
+      "**/dist/**",
+      "**/coverage/**",
+      "www/**",
+      "docs/.vitepress/**",
+      "registry/.vitepress/**",
+    ],
   },
   {
     // Scope all linting to TypeScript files only, matching the original --ext .ts,.tsx behaviour

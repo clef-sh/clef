@@ -17,8 +17,8 @@ on:
     types: [published]
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Release tag to attach binaries to (e.g. v0.1.6-beta.18)"
+      version:
+        description: "Version to build (e.g. 0.1.6-beta.18) — same format as publish-beta-npm"
         required: true
         type: string
 
@@ -37,23 +37,30 @@ jobs:
     steps:
       - id: check
         run: |
-          TAG="${{ inputs.tag || github.event.release.tag_name }}"
+          # Manual dispatch: version input (no v prefix, e.g. 0.1.6-beta.18)
+          # Release event: tag_name (has v prefix, e.g. v0.1.6-beta.18)
+          RAW="${{ inputs.version || github.event.release.tag_name }}"
+
+          # Normalize: strip v prefix if present to get the version
+          VERSION="${RAW#v}"
+          # Normalize: ensure tag has v prefix for gh release upload
+          TAG="v${VERSION}"
+
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           BUILD_CLI=false
           BUILD_AGENT=false
-          VERSION=""
-          # Beta tags build both CLI and agent
-          if [[ "$TAG" =~ ^v(.+-beta\.[0-9]+)$ ]]; then
+
+          # Beta versions build both CLI and agent
+          if [[ "$VERSION" =~ ^.+-beta\.[0-9]+$ ]]; then
             BUILD_CLI=true
             BUILD_AGENT=true
-            VERSION="${BASH_REMATCH[1]}"
           fi
           # Stable tags build only the matching package
-          if [[ "$TAG" =~ ^@clef-sh/cli@(.+)$ ]]; then
+          if [[ "$RAW" =~ ^@clef-sh/cli@(.+)$ ]]; then
             BUILD_CLI=true
             VERSION="${BASH_REMATCH[1]}"
           fi
-          if [[ "$TAG" =~ ^@clef-sh/agent@(.+)$ ]]; then
+          if [[ "$RAW" =~ ^@clef-sh/agent@(.+)$ ]]; then
             BUILD_AGENT=true
             VERSION="${BASH_REMATCH[1]}"
           fi

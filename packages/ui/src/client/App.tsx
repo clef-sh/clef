@@ -9,12 +9,14 @@ import { LintView } from "./screens/LintView";
 import { ScanScreen } from "./screens/ScanScreen";
 import { ImportScreen } from "./screens/ImportScreen";
 import { RecipientsScreen } from "./screens/RecipientsScreen";
+import { ServiceIdentitiesScreen } from "./screens/ServiceIdentitiesScreen";
 import { GitLogView } from "./screens/GitLogView";
 import type { ClefManifest, MatrixStatus, GitStatus, LintResult } from "@clef-sh/core";
 
 export default function App() {
   const [view, setView] = useState<ViewName>("matrix");
   const [activeNs, setActiveNs] = useState("");
+  const [loading, setLoading] = useState(true);
   const [manifest, setManifest] = useState<ClefManifest | null>(null);
   const [matrixStatuses, setMatrixStatuses] = useState<MatrixStatus[]>([]);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
@@ -33,6 +35,8 @@ export default function App() {
       }
     } catch {
       // Will retry on next navigation
+    } finally {
+      setLoading(false);
     }
   }, [activeNs]);
 
@@ -109,6 +113,35 @@ export default function App() {
     }
   };
 
+  if (loading) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100vh",
+          background: theme.bg,
+          color: theme.textMuted,
+          fontFamily: theme.sans,
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <div
+            style={{
+              fontSize: 24,
+              color: theme.accent,
+              marginBottom: 12,
+            }}
+          >
+            {"\u266A"}
+          </div>
+          <div style={{ fontSize: 13 }}>Loading...</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -156,6 +189,7 @@ export default function App() {
         {view === "scan" && <ScanScreen />}
         {view === "import" && <ImportScreen manifest={manifest} setView={setView} />}
         {view === "recipients" && <RecipientsScreen manifest={manifest} setView={setView} />}
+        {view === "identities" && <ServiceIdentitiesScreen manifest={manifest} />}
         {view === "history" && <GitLogView manifest={manifest} />}
       </div>
     </div>

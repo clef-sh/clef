@@ -52,6 +52,10 @@ npm-debug.log*
 
 platforms/*/bin/sops
 
+# SEA config (generated during build:sea)
+packages/cli/sea-config.json
+packages/agent/sea-config.json
+
 # Blackbox test runs
 .blackbox-runs/
 

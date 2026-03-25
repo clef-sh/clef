@@ -19,7 +19,10 @@ export class AgeDecryptor {
     const { Decrypter } = await import("age-encryption" as any);
     const d = new Decrypter();
     d.addIdentity(privateKey);
-    return d.decrypt(ciphertext, "text");
+
+    // Ciphertext is base64-encoded binary age format. Decode to bytes
+    // before passing to the age library.
+    return d.decrypt(Buffer.from(ciphertext, "base64"), "text");
   }
 
   /**

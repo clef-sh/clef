@@ -84,6 +84,12 @@ test.describe("sidebar navigation", () => {
     await expect(page.getByText("clef recipients")).toBeVisible();
   });
 
+  test("[positive] Service IDs nav item opens the service identities view", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await expect(page.getByTestId("si-web-app")).toBeVisible();
+  });
+
   test("[positive] History nav item opens the history view", async ({ page }) => {
     await page.goto(server.url);
     await page.getByTestId("nav-history").click();
@@ -693,5 +699,69 @@ test.describe("clef set --random (existing key) → overflow menu reset to pendi
       page.getByText("PENDING").first(),
       `PENDING not found. API responses: ${apiResponses.join(" | ")}`,
     ).toBeVisible({ timeout: 15_000 });
+  });
+});
+
+// ── clef service → ServiceIdentitiesScreen: list and key retrieval ──────────
+
+test.describe("clef service → ServiceIdentitiesScreen: list view", () => {
+  test("[positive] service identities list shows the web-app identity", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await expect(page.getByTestId("si-web-app")).toBeVisible();
+  });
+
+  test("[positive] identity card shows scoped namespaces", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await expect(page.getByTestId("si-web-app")).toBeVisible();
+    await expect(page.getByTestId("si-web-app").getByText("payments")).toBeVisible();
+  });
+
+  test("[positive] identity card shows environment badges", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await expect(page.getByTestId("si-web-app")).toBeVisible();
+    await expect(page.getByText("DEV")).toBeVisible();
+    await expect(page.getByText("PRD")).toBeVisible();
+  });
+});
+
+test.describe("clef service → ServiceIdentitiesScreen: detail view", () => {
+  test("[positive] clicking an identity navigates to detail view", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByTestId("si-web-app").click();
+    await expect(page.getByText("Web application service")).toBeVisible();
+    await expect(page.getByTestId("back-button")).toBeVisible();
+  });
+
+  test("[positive] detail view shows environment cards with public key preview", async ({
+    page,
+  }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByTestId("si-web-app").click();
+    await expect(page.getByTestId("env-dev")).toBeVisible();
+    await expect(page.getByTestId("env-production")).toBeVisible();
+    await expect(page.getByTestId("env-dev").getByText("Public key:")).toBeVisible();
+  });
+
+  test("[positive] back button returns to the list view", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByTestId("si-web-app").click();
+    await expect(page.getByTestId("back-button")).toBeVisible();
+    await page.getByTestId("back-button").click();
+    await expect(page.getByTestId("si-web-app")).toBeVisible();
+  });
+
+  test("[positive] scoped namespaces are displayed with badges", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByTestId("si-web-app").click();
+    await expect(page.getByText("Scoped namespaces")).toBeVisible();
+    // Use the second occurrence — first is in the sidebar nav
+    await expect(page.getByText("payments").nth(1)).toBeVisible();
   });
 });

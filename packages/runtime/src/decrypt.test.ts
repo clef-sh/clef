@@ -37,12 +37,13 @@ describe("AgeDecryptor", () => {
       expect(latest.addIdentity).toHaveBeenCalledWith("AGE-SECRET-KEY-1TEST");
     });
 
-    it("should call decrypt with ciphertext and 'text' format", async () => {
+    it("should base64-decode ciphertext before passing to age", async () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { Decrypter } = require("age-encryption");
-      await decryptor.decrypt("age-ciphertext-payload", "AGE-SECRET-KEY-1TEST");
+      const b64 = Buffer.from("age-binary-data").toString("base64");
+      await decryptor.decrypt(b64, "AGE-SECRET-KEY-1TEST");
       const latest = Decrypter.mock.results[Decrypter.mock.results.length - 1].value;
-      expect(latest.decrypt).toHaveBeenCalledWith("age-ciphertext-payload", "text");
+      expect(latest.decrypt).toHaveBeenCalledWith(Buffer.from(b64, "base64"), "text");
     });
   });
 
