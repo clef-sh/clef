@@ -775,7 +775,7 @@ The architectural differences produce different security properties. Neither sys
 
 Not every team needs zero-custody. Not every team has the cloud-native maturity for KMS envelope mode. Honest guidance:
 
-**A small team on a PaaS with a handful of environment variables**: Doppler or the platform's native secrets. The overhead of git-native encryption, SOPS, and age keys may not be justified for five secrets. The hardening acheived by using separate KMS keys for VCS and CI may also be overkill for some. 
+**A small team on a PaaS with a handful of environment variables**: Doppler or the platform's native secrets. The overhead of git-native encryption, SOPS, and age keys may not be justified for five secrets. The hardening acheived by using separate KMS keys for VCS and CI may also be overkill for some.
 
 **A team already using a cloud provider's IAM extensively**: Cloud-native secret managers (AWS Secrets Manager, GCP Secret Manager, Azure Key Vault) are serious alternatives. They offer native IAM integration, managed rotation for supported services, and zero infrastructure — similar properties to Clef's KMS mode. The tradeoff: secrets are not versioned in git (no PR review, no drift detection, no cross-environment comparison), and each secret is a separate managed resource. Clef is stronger when the team values git-native workflows, namespace-level organization, and cross-environment consistency checking. Cloud secret managers are stronger when the team wants managed rotation and minimal tooling.
 
