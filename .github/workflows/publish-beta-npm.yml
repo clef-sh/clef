@@ -61,7 +61,7 @@ jobs:
         working-directory: packages/core
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public || echo "::warning::@clef-sh/core publish failed (may already exist)"
+          npm publish --access public || echo "::warning::@clef-sh/core publish failed (may already exist)"
         env:
           NPM_CONFIG_PROVENANCE: "true"
 
@@ -70,7 +70,7 @@ jobs:
         working-directory: packages/runtime
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public || echo "::warning::@clef-sh/runtime publish failed (may already exist)"
+          npm publish --access public || echo "::warning::@clef-sh/runtime publish failed (may already exist)"
         env:
           NPM_CONFIG_PROVENANCE: "true"
 
@@ -79,7 +79,7 @@ jobs:
         working-directory: packages/agent
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public || echo "::warning::@clef-sh/agent publish failed (may already exist)"
+          npm publish --access public || echo "::warning::@clef-sh/agent publish failed (may already exist)"
         env:
           NPM_CONFIG_PROVENANCE: "true"
 
@@ -91,7 +91,7 @@ jobs:
         working-directory: packages/broker
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public || echo "::warning::@clef-sh/broker publish failed (may already exist)"
+          npm publish --access public || echo "::warning::@clef-sh/broker publish failed (may already exist)"
         env:
           NPM_CONFIG_PROVENANCE: "true"
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -101,9 +101,18 @@ jobs:
         working-directory: packages/cli
         run: |
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ inputs.version }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
-          npm publish --tag beta --access public || echo "::warning::@clef-sh/cli publish failed (may already exist)"
+          npm publish --access public || echo "::warning::@clef-sh/cli publish failed (may already exist)"
         env:
           NPM_CONFIG_PROVENANCE: "true"
+
+      # Also tag as beta so `npm install @clef-sh/cli@beta` still works
+      - name: Add beta dist-tag
+        continue-on-error: true
+        run: |
+          VERSION="${{ inputs.version }}"
+          for pkg in core runtime agent broker cli; do
+            npm dist-tag add "@clef-sh/${pkg}@${VERSION}" beta || true
+          done
 
       # Tag the promoted commit so it's traceable from npm back to source
       - name: Tag promoted commit
