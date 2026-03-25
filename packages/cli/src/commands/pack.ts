@@ -28,8 +28,25 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
     )
     .requiredOption("-o, --output <path>", "Output file path for the artifact JSON")
     .option("--ttl <seconds>", "Artifact TTL — embeds an expiresAt timestamp in the envelope")
+    .option(
+      "--signing-key <key>",
+      "Ed25519 private key for artifact signing (base64 DER PKCS8, or env CLEF_SIGNING_KEY)",
+    )
+    .option(
+      "--signing-kms-key <keyId>",
+      "KMS asymmetric signing key ARN/ID (ECDSA_SHA_256, or env CLEF_SIGNING_KMS_KEY)",
+    )
     .action(
-      async (identity: string, environment: string, opts: { output: string; ttl?: string }) => {
+      async (
+        identity: string,
+        environment: string,
+        opts: {
+          output: string;
+          ttl?: string;
+          signingKey?: string;
+          signingKmsKey?: string;
+        },
+      ) => {
         try {
           const repoRoot = (program.opts().dir as string) || process.cwd();
           const parser = new ManifestParser();
@@ -59,12 +76,24 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
             return;
           }
 
+          // Resolve signing key: flag > env var
+          const signingKey = opts.signingKey ?? process.env.CLEF_SIGNING_KEY;
+          const signingKmsKeyId = opts.signingKmsKey ?? process.env.CLEF_SIGNING_KMS_KEY;
+
+          if (signingKey && signingKmsKeyId) {
+            formatter.error(
+              "Cannot specify both --signing-key (Ed25519) and --signing-kms-key (KMS). Choose one.",
+            );
+            process.exit(1);
+            return;
+          }
+
           formatter.print(
             `${sym("working")}  Packing artifact for '${identity}/${environment}'...`,
           );
 
           const result = await packer.pack(
-            { identity, environment, outputPath, ttl },
+            { identity, environment, outputPath, ttl, signingKey, signingKmsKeyId },
             manifest,
             repoRoot,
           );
@@ -80,11 +109,15 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
             formatter.print(`  Envelope: KMS (${envConfig.kms.provider})`);
           }
 
-          formatter.warn(
-            "\nThe artifact contains encrypted secrets. Do NOT commit it to version control.",
-          );
+          if (signingKey) {
+            formatter.print(`  Signed:   Ed25519`);
+          } else if (signingKmsKeyId) {
+            formatter.print(`  Signed:   KMS ECDSA_SHA256`);
+          }
+
           formatter.hint(
-            "Upload the artifact to an HTTP-accessible store (S3, GCS, etc.) using your CI tools.",
+            "\nUpload the artifact to an HTTP-accessible store (S3, GCS, etc.) or commit to\n" +
+              "  .clef/packed/ for VCS-based delivery. See: clef.sh/guide/service-identities",
           );
         } catch (err) {
           if (err instanceof SopsMissingError || err instanceof SopsVersionError) {

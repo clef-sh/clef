@@ -5,6 +5,7 @@ import { ArtifactSource } from "./sources/types";
 import { DiskCache } from "./disk-cache";
 import { createKmsProvider } from "./kms";
 import { TelemetryEmitter } from "./telemetry";
+import { buildSigningPayload, verifySignature } from "./signature";
 
 /** KMS envelope metadata for artifacts using KMS envelope encryption. */
 export interface ArtifactKmsEnvelope {
@@ -29,6 +30,10 @@ export interface ArtifactEnvelope {
   expiresAt?: string;
   /** ISO-8601 revocation timestamp. Present when the artifact has been revoked. */
   revokedAt?: string;
+  /** Base64-encoded cryptographic signature over the canonical artifact payload. */
+  signature?: string;
+  /** Algorithm used to produce the signature (e.g. "Ed25519", "ECDSA_SHA256"). */
+  signatureAlgorithm?: string;
 }
 
 export interface PollerOptions {
@@ -48,6 +53,11 @@ export interface PollerOptions {
   cacheTtl?: number;
   /** Optional telemetry emitter for event reporting. */
   telemetry?: TelemetryEmitter;
+  /**
+   * Public key for artifact signature verification (base64-encoded DER SPKI).
+   * When set, artifacts without a valid signature are hard-rejected before decryption.
+   */
+  verifyKey?: string;
 }
 
 /**
@@ -212,6 +222,48 @@ export class ArtifactPoller {
       throw err;
     }
 
+    // Verify signature when a verify key is configured (hard reject)
+    if (this.options.verifyKey) {
+      if (!artifact.signature) {
+        const err = new Error(
+          "Artifact signature verification failed: artifact is unsigned but a verify key is configured. " +
+            "Only signed artifacts are accepted when signature verification is enabled.",
+        );
+        this.telemetry?.artifactInvalid({
+          reason: "signature_missing",
+          error: err.message,
+        });
+        throw err;
+      }
+
+      const payload = buildSigningPayload(artifact);
+      let valid: boolean;
+      try {
+        valid = verifySignature(payload, artifact.signature, this.options.verifyKey);
+      } catch (sigErr) {
+        const err = new Error(
+          `Artifact signature verification error: ${sigErr instanceof Error ? sigErr.message : String(sigErr)}`,
+        );
+        this.telemetry?.artifactInvalid({
+          reason: "signature_error",
+          error: err.message,
+        });
+        throw err;
+      }
+
+      if (!valid) {
+        const err = new Error(
+          "Artifact signature verification failed: signature does not match the verify key. " +
+            "The artifact may have been tampered with or signed by a different key.",
+        );
+        this.telemetry?.artifactInvalid({
+          reason: "signature_invalid",
+          error: err.message,
+        });
+        throw err;
+      }
+    }
+
     // Resolve the age private key
     let agePrivateKey: string;
     if (artifact.envelope) {
@@ -363,5 +415,6 @@ function classifyValidationError(err: unknown): string {
   if (msg.includes("Unsupported artifact version")) return "unsupported_version";
   if (msg.includes("missing required fields")) return "missing_fields";
   if (msg.includes("incomplete envelope")) return "incomplete_envelope";
+  if (msg.includes("signature")) return "signature";
   return "unknown";
 }

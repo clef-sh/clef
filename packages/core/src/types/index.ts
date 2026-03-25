@@ -484,6 +484,8 @@ export interface ServiceIdentityEnvironmentConfig {
   recipient?: string;
   /** KMS envelope encryption config. Mutually exclusive with `recipient`. */
   kms?: KmsConfig;
+  /** Public key for artifact signature verification (base64-encoded DER SPKI). */
+  verifyKey?: string;
 }
 
 /** Type guard: returns true when the environment config uses KMS envelope encryption. */

@@ -511,6 +511,11 @@ Check:
   no temp file is created during decryption
 - SHA256 of the fetched artifact is verified against the
   `ciphertextHash` field in the envelope before decryption
+- When `verifyKey` is configured, signature verification
+  occurs after the integrity check and before decryption —
+  a failed signature must prevent decryption entirely, not
+  just log a warning. See section 1.18 for full signing
+  audit
 - On decryption failure the error message does not contain any
   artifact contents — only a generic failure indication
 - Cache swap is atomic — concurrent readers never see a
@@ -601,6 +606,17 @@ Check:
 - Encrypted artifact JSON contains only ciphertext, key names,
   and metadata — no plaintext values anywhere in the envelope
 
+Check — Signing key handling:
+
+- `--signing-key` value and `CLEF_SIGNING_KEY` env var must
+  not appear in any CLI output, error message, or log line
+- The signing key must not be written to the artifact JSON —
+  only `signature` and `signatureAlgorithm` appear
+- When `--signing-kms-key` is used, the KMS key ARN appears
+  in the `Signed:` status line — this is fine (it is not a
+  secret). But the KMS signature bytes must not be logged
+  beyond the base64 encoding in the artifact
+
 Check — KMS envelope path:
 
 - When `isKmsEnvelope(envConfig)` is true, the packer
@@ -616,7 +632,182 @@ Check — KMS envelope path:
   from `@clef-sh/runtime` only when the identity uses KMS —
   confirm the import is conditional, not top-level
 
-### 1.18 Install script — download integrity
+### 1.18 Artifact signing — provenance and verification
+
+Read in full:
+
+- `packages/core/src/artifact/signer.ts`
+- `packages/core/src/artifact/packer.ts`
+- `packages/runtime/src/signature.ts`
+- `packages/runtime/src/poller.ts`
+- `packages/cli/src/commands/pack.ts`
+- `packages/runtime/src/kms/aws.ts`
+
+This section covers the entire signing surface. Without
+signing, the artifact store and transport layer are in the
+trust boundary — anyone who can write to S3 or MITM the
+fetch can replace the artifact. With signing, the trust
+boundary reduces to git (who controls what gets packed)
+and the CI runner (which holds the signing key). A defect
+in any check below re-expands the boundary.
+
+Check — Canonical payload consistency:
+
+- `buildSigningPayload` exists in TWO independent files:
+  `packages/core/src/artifact/signer.ts` (pack-time) and
+  `packages/runtime/src/signature.ts` (verify-time). These
+  are not shared — they must produce byte-identical output
+  for the same artifact. Any divergence silently breaks
+  verification or, worse, allows bypass
+- Both implementations must use the same domain prefix
+  (`clef-sig-v1`), same newline separator, same field
+  ordering, and same key sorting (`[...keys].sort()`)
+- Both must include all security-relevant fields: version,
+  identity, environment, revision, packedAt,
+  ciphertextHash, sorted keys, expiresAt, and all four
+  envelope fields (provider, keyId, wrappedKey, algorithm)
+- Missing optional fields must be represented as empty
+  strings in both implementations — not `undefined`, not
+  omitted. Omitting a field would shorten the payload and
+  change the signature
+- Write a test that constructs the same artifact object
+  in both packages and asserts the payloads are identical.
+  If this test does not exist, that is a Medium issue
+
+Check — Algorithm derivation:
+
+- `verifySignature` in `packages/runtime/src/signature.ts`
+  must derive the verification algorithm from the public
+  key's ASN.1 type (`keyObj.asymmetricKeyType`), NOT from
+  the artifact's `signatureAlgorithm` field. The
+  `signatureAlgorithm` field in the artifact is
+  informational — an attacker controls it. If the runtime
+  uses it to select the verification path, that is a
+  Critical issue (algorithm downgrade attack)
+- Ed25519 verification must use `crypto.verify(null, ...)`
+  — passing a hash algorithm to Ed25519 is an error
+- ECDSA verification must use `crypto.verify("sha256", ...)`
+- Any key type other than `ed25519` or `ec` must throw —
+  not silently return `false`
+
+Check — Hard reject behaviour:
+
+- When `options.verifyKey` is configured on the poller,
+  an artifact WITHOUT a `signature` field must be rejected
+  with a thrown error — not a warning, not a log, not a
+  graceful fallback to unsigned mode. Any permissive
+  handling is a Critical issue (the entire signing feature
+  is defeated if unsigned artifacts are accepted)
+- An artifact with an INVALID signature (wrong key, or
+  tampered payload) must be rejected with a thrown error
+- Both rejection paths must emit `artifact.invalid`
+  telemetry with distinctive reason codes
+  (`signature_missing`, `signature_invalid`) so ops teams
+  can distinguish the attack vector from operational errors
+- When `options.verifyKey` is NOT configured, unsigned
+  artifacts must be accepted normally — signing is opt-in.
+  If the absence of a verify key causes a crash or
+  rejection, that is a High issue (breaks all existing
+  deployments)
+
+Check — Verify key provenance:
+
+- The `verifyKey` must come from `PollerOptions` (injected
+  at construction time from the deployment config), NOT
+  from the artifact JSON. If the poller reads a public key
+  from the fetched artifact and uses it for verification,
+  that is a Critical issue — an attacker signs with their
+  own key and embeds it in the artifact
+- Trace the verify key from `RuntimeConfig.verifyKey`
+  through to `ArtifactPoller` options and confirm it is
+  the same value used in the `verifySignature` call — no
+  overrides, no fallbacks to artifact fields
+- Confirm `ArtifactEnvelope` in the runtime does NOT have
+  a `verifyKey` field that the poller reads — the verify
+  key lives exclusively in config, never in the artifact
+
+Check — Signing key handling:
+
+- The Ed25519 signing private key arrives via
+  `--signing-key` CLI flag or `CLEF_SIGNING_KEY` env var.
+  It must NOT be read from the manifest (`clef.yaml`)
+  because the manifest is in the git repo — the signing
+  key is a CI secret, not a versioned config
+- The signing private key must NOT appear in the artifact
+  JSON — only the `signature` (output) and
+  `signatureAlgorithm` (metadata) are written. Search the
+  packer for any assignment of the signing key to the
+  artifact object
+- The CLI must NOT echo the signing key in its output. The
+  `Signed: Ed25519` or `Signed: KMS ECDSA_SHA256` status
+  line is fine; printing the key value is a Critical issue
+- The signing private key must NOT be logged by any
+  telemetry or error handler
+
+Check — Mutual exclusion:
+
+- Providing both `signingKey` (Ed25519) and
+  `signingKmsKeyId` (KMS) must throw before any
+  decryption occurs — not after secrets have been loaded
+  into memory. Check that the guard is at the top of
+  `ArtifactPacker.pack()`, before `resolveIdentitySecrets`
+- The CLI must validate mutual exclusion before calling
+  `packer.pack()` — double-guarding is acceptable
+
+Check — Signing order:
+
+- `expiresAt` must be set on the artifact BEFORE
+  `buildSigningPayload` is called. If expiresAt is set
+  after signing, the signature does not cover the TTL and
+  an attacker who intercepts the artifact can extend its
+  lifetime by modifying `expiresAt`. Verify the ordering
+  in `packer.ts`: `expiresAt` assignment → signing block
+- Confirm this ordering is tested — a test should sign
+  with TTL and verify the signature covers the expiresAt
+  value
+
+Check — KMS signing specifics:
+
+- `signKms` in `signer.ts` must pass a SHA-256 digest to
+  `kms.sign()`, not the raw payload. AWS KMS `SignCommand`
+  with `MessageType: "DIGEST"` expects a 32-byte digest.
+  Passing the raw payload would produce incorrect signatures
+  that only work with `MessageType: "RAW"` — which Clef
+  does not use
+- The AWS KMS provider's `sign()` method must use
+  `SigningAlgorithm: "ECDSA_SHA_256"` and
+  `MessageType: "DIGEST"` — not `"RAW"`, not
+  `"RSASSA_PKCS1_V1_5_SHA_256"`
+- The KMS signing key ARN (`signingKmsKeyId`) is a
+  DIFFERENT key from the envelope wrapping key
+  (`kms.keyId`). The signing key is asymmetric
+  (ECC_NIST_P256); the envelope key is symmetric
+  (SYMMETRIC_DEFAULT). Using the wrong key type will fail
+  at the KMS API level, not silently — but confirm this
+  distinction is documented. If `signingKmsKeyId` silently
+  falls through to the envelope key, that is a High issue
+- `kms.sign` is an optional method on `KmsProvider`. If
+  the provider does not implement it, `signKms` must throw
+  a clear error — not produce an undefined signature
+
+Check — What signing does NOT protect against:
+
+- A compromised CI runner has both the signing key and
+  access to plaintext during pack. Signing does not
+  protect against this — it protects against artifact
+  store compromise and transport-layer attacks
+- An insider with merge permissions can change the
+  manifest to point to a different verify key, then sign
+  artifacts with the corresponding private key. This is
+  mitigated by CODEOWNERS and branch protection, not by
+  signing itself
+- The `ciphertextHash` is inside the signed payload, so
+  ciphertext tampering is caught. But if the signing key
+  is compromised, the attacker can produce valid artifacts
+  with arbitrary content. Signing does not substitute for
+  KMS envelope protection of the ciphertext
+
+### 1.19 Install script — download integrity
 
 Read:
 
@@ -1008,6 +1199,27 @@ Check:
 - `--output` is required — omitting it produces a clear error
 - Exits 0 on success, 1 on any error
 
+Check — Signing correctness:
+
+- `--signing-key` and `--signing-kms-key` are mutually
+  exclusive — providing both produces a clear error before
+  any decryption occurs
+- `CLEF_SIGNING_KEY` env var is used when `--signing-key`
+  flag is absent — confirm flag takes precedence
+- `CLEF_SIGNING_KMS_KEY` env var is used when
+  `--signing-kms-key` flag is absent
+- When a signing key is provided, the artifact JSON contains
+  `signature` (base64 string) and `signatureAlgorithm`
+  (`"Ed25519"` or `"ECDSA_SHA256"`)
+- When no signing key is provided, the artifact has no
+  `signature` or `signatureAlgorithm` fields — backward
+  compatible with pre-signing deployments
+- `expiresAt` is set before signing — the signing payload
+  must include the TTL. Check ordering in `packer.ts`
+- Signed artifact with TTL: verify the signature is valid
+  when verified with the matching public key (round-trip
+  test exists)
+
 ### 2.15 Runtime — ClefRuntime correctness
 
 Read:
@@ -1313,6 +1525,12 @@ Check:
 - `init()` convenience function is exported
 - `createVcsProvider()` factory function is exported
 - `createKmsProvider()` factory function is exported
+- Signing exports from core: `buildSigningPayload`,
+  `generateSigningKeyPair`, `signEd25519`, `signKms`,
+  `verifySignature`, `detectAlgorithm`, `SignatureAlgorithm`
+- Runtime config supports `verifyKey` — `RuntimeConfig`
+  interface includes `verifyKey?: string` and it is passed
+  through to `PollerOptions`
 
 ### 3.10 Agent package completeness
 
@@ -1342,7 +1560,8 @@ Check:
   `CLEF_AGENT_VCS_API_URL`, `CLEF_AGENT_CACHE_PATH`,
   `CLEF_AGENT_SOURCE`, `CLEF_AGENT_PORT`,
   `CLEF_AGENT_CACHE_TTL`, `CLEF_AGENT_AGE_KEY`,
-  `CLEF_AGENT_AGE_KEY_FILE`, `CLEF_AGENT_TOKEN`
+  `CLEF_AGENT_AGE_KEY_FILE`, `CLEF_AGENT_TOKEN`,
+  `CLEF_AGENT_VERIFY_KEY`
 - `docs/guide/agent.md` exists covering: concept, env var
   reference, deployment workflow, `@clef-sh/runtime` direct
   import examples
@@ -1361,8 +1580,9 @@ Check:
 - `ArtifactPacker` and `DriftDetector` are exported from
   `packages/core/src/index.ts`
 - Artifact envelope type (version, identity, environment,
-  revision, ciphertextHash, ciphertext, keys, envelope) is
-  exported from `packages/core/src/index.ts`
+  revision, ciphertextHash, ciphertext, keys, envelope,
+  signature, signatureAlgorithm) is exported from
+  `packages/core/src/index.ts`
 - `docs/cli/pack.md` and `docs/cli/drift.md` exist
 - Two artifact delivery backends are documented:
   - VCS (default): `pack` → commit to `.clef/packed/` →
@@ -1643,6 +1863,10 @@ Check — Poller:
   the provider from the artifact's `envelope`
 - Age-only artifact without private key: throws clear error
 - Incomplete envelope fields: throws validation error
+- Signature verification: valid signature accepted, unsigned
+  artifact rejected when verify key configured, wrong key
+  rejected, unsigned accepted when no verify key (see
+  section 4.10 for full signing test coverage)
 
 Check — KMS providers:
 
@@ -1718,6 +1942,94 @@ Check:
 - Drift: a test asserts that no SOPS subprocess is invoked —
   the command must not call `SubprocessRunner.run()` with
   sops as the executable
+
+### 4.10 Artifact signing test coverage
+
+Read:
+
+- `packages/core/src/artifact/signer.test.ts`
+- `packages/core/src/artifact/packer.test.ts` — the
+  "artifact signing" describe block
+- `packages/runtime/src/signature.test.ts`
+- `packages/runtime/src/poller.test.ts` — the
+  "signature verification" describe block
+
+Check — Signer module:
+
+- `buildSigningPayload` determinism: same artifact input
+  produces the same output on repeated calls
+- `buildSigningPayload` key sorting: different key orderings
+  produce the same payload
+- `buildSigningPayload` includes all fields — a test
+  asserts the payload string contains version, identity,
+  environment, revision, packedAt, ciphertextHash, sorted
+  keys, expiresAt, and envelope fields
+- `buildSigningPayload` empty optional fields: a test
+  asserts empty strings appear for missing expiresAt and
+  envelope fields
+- Ed25519 round-trip: sign with private key, verify with
+  matching public key — passes
+- Ed25519 wrong key: sign with one key, verify with a
+  different key — fails
+- Ed25519 tampered payload: sign, modify payload, verify —
+  fails
+- Ed25519 tampered signature: sign, flip bits in signature,
+  verify — fails
+- KMS signing: `signKms` calls `kms.sign` with SHA-256
+  digest (not raw payload)
+- KMS missing sign method: `signKms` throws if `kms.sign`
+  is undefined
+- `detectAlgorithm`: Ed25519 key → `"Ed25519"`, EC P-256
+  key → `"ECDSA_SHA256"`
+- ECDSA round-trip: sign with EC P-256 private key, verify
+  via `verifySignature` — passes
+
+Check — Packer signing:
+
+- Ed25519 signing: when `signingKey` is provided, artifact
+  JSON contains `signature` and `signatureAlgorithm`
+  `"Ed25519"`, and the signature verifies with the matching
+  public key
+- No signing: when neither signing option is provided,
+  artifact has no `signature` or `signatureAlgorithm`
+- TTL + signing: when both `ttl` and `signingKey` are
+  provided, the signature covers the `expiresAt` field
+  (the payload contains the expiresAt string, and the
+  signature verifies)
+- Mutual exclusion: both `signingKey` and `signingKmsKeyId`
+  throws before any decryption
+- KMS signing: when `signingKmsKeyId` is provided, artifact
+  has `signature` and `signatureAlgorithm` `"ECDSA_SHA256"`,
+  and `kms.sign` is called with the correct key ARN
+- KMS without provider: `signingKmsKeyId` without a KMS
+  provider throws clearly
+
+Check — Runtime signature verification:
+
+- Valid signature accepted: signed artifact + correct verify
+  key → cache populated
+- Unsigned artifact rejected: verify key configured but
+  artifact has no signature → throws
+- Wrong key rejected: artifact signed with key A, verify
+  key is key B → throws
+- No verify key: unsigned artifact accepted normally when
+  `verifyKey` is not configured (backward compatible)
+- Tampered ciphertextHash: fails integrity check before
+  reaching signature verification
+- ECDSA verification: artifact signed with EC P-256 key +
+  correct verify key → accepted
+- Telemetry: signature_missing and signature_invalid
+  reasons emitted on respective failure paths
+
+Check — Cross-package payload consistency:
+
+- A test must exist (in either package) that constructs
+  the same artifact and verifies both `buildSigningPayload`
+  implementations produce identical output. If no such
+  test exists, the two implementations can silently drift,
+  which would either break verification (false rejects)
+  or weaken it (false accepts if a field is omitted from
+  one side). This is a Medium issue if missing
 
 ---
 
@@ -1914,7 +2226,10 @@ Read `packages/cli/src/commands/pack.ts` and
 Check:
 
 - Every flag shown in pack docs exists in `pack.ts`;
-  every flag in `pack.ts` is documented
+  every flag in `pack.ts` is documented — including
+  `--signing-key`, `--signing-kms-key`, and
+  corresponding env vars `CLEF_SIGNING_KEY`,
+  `CLEF_SIGNING_KMS_KEY`
 - Every flag shown in drift docs exists in `drift.ts`;
   every flag in `drift.ts` is documented
 - Installation guide documents both install methods:

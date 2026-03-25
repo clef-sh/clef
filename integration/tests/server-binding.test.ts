@@ -61,12 +61,19 @@ describe("Server binding", () => {
   it("refuses connections on non-loopback interface", async () => {
     const nonLoopbackIP = getLocalNetworkIP();
     if (!nonLoopbackIP) {
-      // Skip gracefully in headless CI containers with no network interfaces
-      // eslint-disable-next-line no-console
-      console.log("Skipping: no non-loopback network interface found");
+      // No non-loopback network interface available (common in headless CI containers)
       return;
     }
     const addr = server.address();
     await expect(fetch(`http://${nonLoopbackIP}:${addr.port}/api/manifest`)).rejects.toThrow();
+  });
+
+  it("server address is unconditionally 127.0.0.1", () => {
+    // This test always runs, even in headless CI containers without a
+    // non-loopback interface, guaranteeing the binding assertion is never skipped.
+    const addr = server.address();
+    expect(addr.address).toBe("127.0.0.1");
+    expect(addr.address).not.toBe("0.0.0.0");
+    expect(addr.address).not.toBe("::");
   });
 });

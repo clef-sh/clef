@@ -39,6 +39,8 @@ export interface AgentConfig {
   agentId: string;
   /** Telemetry configuration. Present when CLEF_AGENT_TELEMETRY_URL is set. Token is read from packed secrets (CLEF_TELEMETRY_TOKEN key). */
   telemetry?: TelemetryConfig;
+  /** Public key for artifact signature verification (base64-encoded DER SPKI). When set, unsigned or invalid artifacts are hard-rejected. */
+  verifyKey?: string;
 }
 
 /** Errors describing missing or invalid configuration. */
@@ -70,6 +72,7 @@ export class ConfigError extends Error {
  * | CLEF_AGENT_TOKEN               | auto-generated | Bearer token for API auth            |
  * | CLEF_AGENT_ID                  | auto-generated | Unique agent instance ID             |
  * | CLEF_AGENT_TELEMETRY_URL       | —              | Telemetry endpoint URL               |
+ * | CLEF_AGENT_VERIFY_KEY          | —              | Public key for artifact signature verification (base64 DER SPKI) |
  */
 export function resolveConfig(env: Record<string, string | undefined> = process.env): AgentConfig {
   const source = env.CLEF_AGENT_SOURCE;
@@ -147,5 +150,19 @@ export function resolveConfig(env: Record<string, string | undefined> = process.
   const telemetryUrl = env.CLEF_AGENT_TELEMETRY_URL;
   const telemetry: TelemetryConfig | undefined = telemetryUrl ? { url: telemetryUrl } : undefined;
 
-  return { source, vcs, cachePath, port, cacheTtl, ageKey, ageKeyFile, token, agentId, telemetry };
+  const verifyKey = env.CLEF_AGENT_VERIFY_KEY;
+
+  return {
+    source,
+    vcs,
+    cachePath,
+    port,
+    cacheTtl,
+    ageKey,
+    ageKeyFile,
+    token,
+    agentId,
+    telemetry,
+    verifyKey,
+  };
 }
