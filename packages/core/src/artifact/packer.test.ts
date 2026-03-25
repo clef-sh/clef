@@ -4,6 +4,7 @@ import { ClefManifest, EncryptionBackend, DecryptedFile } from "../types";
 import { KmsProvider, KmsWrapResult } from "../kms";
 import { MatrixManager } from "../matrix/manager";
 import { PackConfig, PackedArtifact } from "./types";
+import { generateSigningKeyPair, buildSigningPayload, verifySignature } from "./signer";
 
 jest.mock("fs");
 
@@ -406,6 +407,154 @@ describe("ArtifactPacker", () => {
       expect(written.version).toBe(1);
       expect(written.envelope).toBeUndefined();
       expect(kms.wrap).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("artifact signing", () => {
+    it("should sign artifact with Ed25519 when signingKey is provided", async () => {
+      const { publicKey, privateKey } = generateSigningKeyPair();
+      const decrypted: DecryptedFile = {
+        values: { KEY: "val" },
+        metadata: { backend: "age", recipients: ["age1devkey"], lastModified: new Date() },
+      };
+      encryption.decrypt.mockResolvedValue(decrypted);
+
+      const config: PackConfig = {
+        identity: "api-gateway",
+        environment: "dev",
+        outputPath: "/output/artifact.json",
+        signingKey: privateKey,
+      };
+
+      await packer.pack(config, baseManifest(), "/repo");
+
+      const written: PackedArtifact = JSON.parse(String(mockFs.writeFileSync.mock.calls[0][1]));
+      expect(written.signature).toBeTruthy();
+      expect(written.signatureAlgorithm).toBe("Ed25519");
+
+      // Verify the signature is valid
+      const payload = buildSigningPayload(written);
+      const valid = verifySignature(payload, written.signature!, publicKey);
+      expect(valid).toBe(true);
+    });
+
+    it("should not include signature when no signing key is provided", async () => {
+      const decrypted: DecryptedFile = {
+        values: { KEY: "val" },
+        metadata: { backend: "age", recipients: ["age1devkey"], lastModified: new Date() },
+      };
+      encryption.decrypt.mockResolvedValue(decrypted);
+
+      const config: PackConfig = {
+        identity: "api-gateway",
+        environment: "dev",
+        outputPath: "/output/artifact.json",
+      };
+
+      await packer.pack(config, baseManifest(), "/repo");
+
+      const written: PackedArtifact = JSON.parse(String(mockFs.writeFileSync.mock.calls[0][1]));
+      expect(written.signature).toBeUndefined();
+      expect(written.signatureAlgorithm).toBeUndefined();
+    });
+
+    it("should sign after setting expiresAt so TTL is covered by signature", async () => {
+      const { publicKey, privateKey } = generateSigningKeyPair();
+      const decrypted: DecryptedFile = {
+        values: { KEY: "val" },
+        metadata: { backend: "age", recipients: ["age1devkey"], lastModified: new Date() },
+      };
+      encryption.decrypt.mockResolvedValue(decrypted);
+
+      const config: PackConfig = {
+        identity: "api-gateway",
+        environment: "dev",
+        outputPath: "/output/artifact.json",
+        ttl: 3600,
+        signingKey: privateKey,
+      };
+
+      await packer.pack(config, baseManifest(), "/repo");
+
+      const written: PackedArtifact = JSON.parse(String(mockFs.writeFileSync.mock.calls[0][1]));
+      expect(written.expiresAt).toBeTruthy();
+      expect(written.signature).toBeTruthy();
+
+      // Verify the signature covers the expiresAt field
+      const payload = buildSigningPayload(written);
+      expect(payload.toString("utf-8")).toContain(written.expiresAt!);
+      const valid = verifySignature(payload, written.signature!, publicKey);
+      expect(valid).toBe(true);
+    });
+
+    it("should throw when both signingKey and signingKmsKeyId are provided", async () => {
+      const { privateKey } = generateSigningKeyPair();
+      const config: PackConfig = {
+        identity: "api-gateway",
+        environment: "dev",
+        outputPath: "/output/artifact.json",
+        signingKey: privateKey,
+        signingKmsKeyId: "arn:aws:kms:us-east-1:111:key/sign",
+      };
+
+      await expect(packer.pack(config, baseManifest(), "/repo")).rejects.toThrow(
+        "Cannot specify both",
+      );
+    });
+
+    it("should sign artifact with KMS when signingKmsKeyId is provided", async () => {
+      const mockSignature = Buffer.from("kms-ecdsa-signature-bytes");
+      const kms: jest.Mocked<KmsProvider> = {
+        wrap: jest.fn().mockResolvedValue({
+          wrappedKey: Buffer.from("wrapped"),
+          algorithm: "SYMMETRIC_DEFAULT",
+        } as KmsWrapResult),
+        unwrap: jest.fn(),
+        sign: jest.fn().mockResolvedValue(mockSignature),
+      };
+      const kmsPacker = new ArtifactPacker(encryption, matrixManager, kms);
+
+      const decrypted: DecryptedFile = {
+        values: { KEY: "val" },
+        metadata: { backend: "age", recipients: ["age1devkey"], lastModified: new Date() },
+      };
+      encryption.decrypt.mockResolvedValue(decrypted);
+
+      const config: PackConfig = {
+        identity: "api-gateway",
+        environment: "dev",
+        outputPath: "/output/artifact.json",
+        signingKmsKeyId: "arn:aws:kms:us-east-1:111:key/sign",
+      };
+
+      await kmsPacker.pack(config, baseManifest(), "/repo");
+
+      const written: PackedArtifact = JSON.parse(String(mockFs.writeFileSync.mock.calls[0][1]));
+      expect(written.signature).toBe(mockSignature.toString("base64"));
+      expect(written.signatureAlgorithm).toBe("ECDSA_SHA256");
+      expect(kms.sign).toHaveBeenCalledWith(
+        "arn:aws:kms:us-east-1:111:key/sign",
+        expect.any(Buffer),
+      );
+    });
+
+    it("should throw when signingKmsKeyId is set but no KMS provider", async () => {
+      const decrypted: DecryptedFile = {
+        values: { KEY: "val" },
+        metadata: { backend: "age", recipients: ["age1devkey"], lastModified: new Date() },
+      };
+      encryption.decrypt.mockResolvedValue(decrypted);
+
+      const config: PackConfig = {
+        identity: "api-gateway",
+        environment: "dev",
+        outputPath: "/output/artifact.json",
+        signingKmsKeyId: "arn:aws:kms:us-east-1:111:key/sign",
+      };
+
+      await expect(packer.pack(config, baseManifest(), "/repo")).rejects.toThrow(
+        "KMS provider required for KMS signing",
+      );
     });
   });
 });

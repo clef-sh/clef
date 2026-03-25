@@ -207,12 +207,14 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
             try {
               await markPendingWithRetry(filePath, [key], "clef set --random");
             } catch {
-              formatter.warn(
+              formatter.error(
                 `${key} was encrypted but pending state could not be recorded.\n` +
-                  "  WARNING: The encrypted file contains a random placeholder value.\n" +
+                  "  The encrypted file contains a random placeholder value with no tracking metadata.\n" +
                   "  This key MUST be set to a real value before deploying.\n" +
                   `  Run: clef set ${namespace}/${environment} ${key}`,
               );
+              process.exit(1);
+              return;
             }
             formatter.success(`${key} set in ${namespace}/${environment} ${sym("locked")}`);
             formatter.print(

@@ -4,6 +4,7 @@ import { SecretsCache } from "./secrets-cache";
 import { ArtifactSource } from "./sources/types";
 import { DiskCache } from "./disk-cache";
 import { TelemetryEmitter } from "./telemetry";
+import { buildSigningPayload } from "./signature";
 
 jest.mock(
   "age-encryption",
@@ -806,7 +807,11 @@ describe("ArtifactPoller", () => {
       });
     });
 
-    it("should emit artifact.invalid with reason json_parse on malformed JSON", async () => {
+    it("should not emit artifact.invalid for malformed JSON (parse fails before validation)", async () => {
+      // Malformed JSON triggers a SyntaxError at the revocation-check JSON.parse
+      // in fetchAndDecrypt, which is OUTSIDE validateDecryptAndCache. Since
+      // artifactInvalid is only emitted inside validateDecryptAndCache, the
+      // json_parse telemetry path is unreachable through the public API.
       const source: ArtifactSource = {
         fetch: jest.fn().mockResolvedValue({ raw: "not valid json{{{" }),
         describe: () => "mock",
@@ -818,11 +823,11 @@ describe("ArtifactPoller", () => {
         telemetry: telemetry as unknown as TelemetryEmitter,
       });
 
-      await expect(poller.fetchAndDecrypt()).rejects.toThrow();
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow(SyntaxError);
 
-      // The JSON.parse at the revocation check (line ~153) will throw first
-      // But since it's outside validateDecryptAndCache, let's test with valid
-      // JSON that fails parseAndValidate
+      // The SyntaxError occurs at the revocation-check parse, before
+      // validateDecryptAndCache is entered — so artifactInvalid is NOT emitted.
+      expect(telemetry.artifactInvalid).not.toHaveBeenCalled();
     });
 
     it("should not emit artifact.invalid for missing private key (config error)", async () => {
@@ -899,6 +904,265 @@ describe("ArtifactPoller", () => {
 
       expect(onError).toHaveBeenCalledWith(expect.any(Error));
       poller.stop();
+    });
+  });
+
+  describe("signature verification", () => {
+    function makeSignedArtifact(
+      overrides: Partial<{
+        revision: string;
+        keys: string[];
+      }> = {},
+    ): { raw: string; publicKeyBase64: string } {
+      const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
+      const publicKeyBase64 = (
+        publicKey.export({ type: "spki", format: "der" }) as Buffer
+      ).toString("base64");
+
+      const ciphertext =
+        "-----BEGIN AGE ENCRYPTED FILE-----\nmock\n-----END AGE ENCRYPTED FILE-----";
+      const ciphertextHash = crypto.createHash("sha256").update(ciphertext).digest("hex");
+
+      const artifact = {
+        version: 1,
+        identity: "api-gateway",
+        environment: "production",
+        packedAt: "2024-01-15T00:00:00.000Z",
+        revision: overrides.revision ?? "signed-rev-1",
+        ciphertextHash,
+        ciphertext,
+        keys: overrides.keys ?? ["DB_URL", "API_KEY"],
+      };
+
+      const payload = buildSigningPayload(artifact);
+      const signature = crypto.sign(null, payload, privateKey).toString("base64");
+
+      return {
+        raw: JSON.stringify({
+          ...artifact,
+          signature,
+          signatureAlgorithm: "Ed25519",
+        }),
+        publicKeyBase64,
+      };
+    }
+
+    it("should accept a correctly signed artifact", async () => {
+      const { raw, publicKeyBase64 } = makeSignedArtifact();
+      const source = mockSource(raw);
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        verifyKey: publicKeyBase64,
+      });
+
+      await poller.fetchAndDecrypt();
+      expect(cache.isReady()).toBe(true);
+    });
+
+    it("should reject an unsigned artifact when verifyKey is configured", async () => {
+      const { publicKeyBase64 } = makeSignedArtifact();
+      // Use a regular unsigned artifact
+      const source = mockSource(makeArtifact({ revision: "unsigned-rev" }));
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        verifyKey: publicKeyBase64,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("artifact is unsigned");
+      expect(cache.isReady()).toBe(false);
+    });
+
+    it("should reject an artifact signed with a different key", async () => {
+      const { raw } = makeSignedArtifact();
+      // Generate a different key pair for verification
+      const { publicKey: differentKey } = crypto.generateKeyPairSync("ed25519");
+      const differentPubBase64 = (
+        differentKey.export({ type: "spki", format: "der" }) as Buffer
+      ).toString("base64");
+
+      const source = mockSource(raw);
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        verifyKey: differentPubBase64,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("signature does not match");
+    });
+
+    it("should accept unsigned artifacts when no verifyKey is configured", async () => {
+      const source = mockSource(makeArtifact());
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        // no verifyKey — signature verification is opt-in
+      });
+
+      await poller.fetchAndDecrypt();
+      expect(cache.isReady()).toBe(true);
+    });
+
+    it("should reject an artifact with a tampered ciphertextHash", async () => {
+      const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
+      const publicKeyBase64 = (
+        publicKey.export({ type: "spki", format: "der" }) as Buffer
+      ).toString("base64");
+
+      const ciphertext =
+        "-----BEGIN AGE ENCRYPTED FILE-----\nmock\n-----END AGE ENCRYPTED FILE-----";
+      const realHash = crypto.createHash("sha256").update(ciphertext).digest("hex");
+
+      const artifact = {
+        version: 1,
+        identity: "api-gateway",
+        environment: "production",
+        packedAt: "2024-01-15T00:00:00.000Z",
+        revision: "tampered-rev",
+        ciphertextHash: realHash,
+        ciphertext,
+        keys: ["DB_URL"],
+      };
+
+      const payload = buildSigningPayload(artifact);
+      const signature = crypto.sign(null, payload, privateKey).toString("base64");
+
+      // Tamper with the ciphertextHash after signing
+      const tampered = {
+        ...artifact,
+        ciphertextHash: "0000000000000000000000000000000000000000000000000000000000000000",
+        signature,
+        signatureAlgorithm: "Ed25519",
+      };
+
+      const source = mockSource(JSON.stringify(tampered));
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        verifyKey: publicKeyBase64,
+      });
+
+      // Should fail integrity check before reaching signature verification
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("integrity check failed");
+    });
+
+    it("should emit artifact.invalid with signature_missing reason", async () => {
+      const telemetry = {
+        artifactRefreshed: jest.fn(),
+        fetchFailed: jest.fn(),
+        artifactRevoked: jest.fn(),
+        artifactExpired: jest.fn(),
+        cacheExpired: jest.fn(),
+        artifactInvalid: jest.fn(),
+      };
+
+      const { publicKeyBase64 } = makeSignedArtifact();
+      const source = mockSource(makeArtifact({ revision: "no-sig" }));
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        verifyKey: publicKeyBase64,
+        telemetry: telemetry as unknown as TelemetryEmitter,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("unsigned");
+
+      expect(telemetry.artifactInvalid).toHaveBeenCalledWith({
+        reason: "signature_missing",
+        error: expect.stringContaining("unsigned"),
+      });
+    });
+
+    it("should emit artifact.invalid with signature_invalid reason", async () => {
+      const telemetry = {
+        artifactRefreshed: jest.fn(),
+        fetchFailed: jest.fn(),
+        artifactRevoked: jest.fn(),
+        artifactExpired: jest.fn(),
+        cacheExpired: jest.fn(),
+        artifactInvalid: jest.fn(),
+      };
+
+      const { raw } = makeSignedArtifact();
+      const { publicKey: wrongKey } = crypto.generateKeyPairSync("ed25519");
+      const wrongPubBase64 = (wrongKey.export({ type: "spki", format: "der" }) as Buffer).toString(
+        "base64",
+      );
+
+      const source = mockSource(raw);
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        verifyKey: wrongPubBase64,
+        telemetry: telemetry as unknown as TelemetryEmitter,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("signature does not match");
+
+      expect(telemetry.artifactInvalid).toHaveBeenCalledWith({
+        reason: "signature_invalid",
+        error: expect.stringContaining("signature does not match"),
+      });
+    });
+
+    it("should verify ECDSA_SHA256 signatures with EC P-256 key", async () => {
+      const { publicKey, privateKey } = crypto.generateKeyPairSync("ec", {
+        namedCurve: "P-256",
+      });
+      const publicKeyBase64 = (
+        publicKey.export({ type: "spki", format: "der" }) as Buffer
+      ).toString("base64");
+
+      const ciphertext =
+        "-----BEGIN AGE ENCRYPTED FILE-----\nmock\n-----END AGE ENCRYPTED FILE-----";
+      const ciphertextHash = crypto.createHash("sha256").update(ciphertext).digest("hex");
+
+      const artifact = {
+        version: 1,
+        identity: "api-gateway",
+        environment: "production",
+        packedAt: "2024-01-15T00:00:00.000Z",
+        revision: "ecdsa-rev",
+        ciphertextHash,
+        ciphertext,
+        keys: ["DB_URL"],
+      };
+
+      const payload = buildSigningPayload(artifact);
+      const signature = crypto.sign("sha256", payload, privateKey).toString("base64");
+
+      const raw = JSON.stringify({
+        ...artifact,
+        signature,
+        signatureAlgorithm: "ECDSA_SHA256",
+      });
+
+      const source = mockSource(raw);
+
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+        verifyKey: publicKeyBase64,
+      });
+
+      await poller.fetchAndDecrypt();
+      expect(cache.isReady()).toBe(true);
     });
   });
 });

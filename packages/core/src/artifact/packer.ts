@@ -6,6 +6,7 @@ import { KmsProvider } from "../kms";
 import { MatrixManager } from "../matrix/manager";
 import { PackConfig, PackResult, PackedArtifact } from "./types";
 import { resolveIdentitySecrets } from "./resolve";
+import { buildSigningPayload, signEd25519, signKms } from "./signer";
 
 /**
  * Packs an encrypted artifact for a service identity + environment.
@@ -25,6 +26,12 @@ export class ArtifactPacker {
    * values to the service identity's recipient, and write a JSON envelope.
    */
   async pack(config: PackConfig, manifest: ClefManifest, repoRoot: string): Promise<PackResult> {
+    if (config.signingKey && config.signingKmsKeyId) {
+      throw new Error(
+        "Cannot specify both signingKey (Ed25519) and signingKmsKeyId (KMS). Choose one.",
+      );
+    }
+
     const resolved = await resolveIdentitySecrets(
       config.identity,
       config.environment,
@@ -118,8 +125,23 @@ export class ArtifactPacker {
       fs.mkdirSync(outputDir, { recursive: true });
     }
 
+    // Set expiresAt before signing — the signature covers this field
     if (config.ttl && config.ttl > 0) {
       artifact.expiresAt = new Date(Date.now() + config.ttl * 1000).toISOString();
+    }
+
+    // Sign the artifact if a signing key is provided
+    if (config.signingKey) {
+      const payload = buildSigningPayload(artifact);
+      artifact.signature = signEd25519(payload, config.signingKey);
+      artifact.signatureAlgorithm = "Ed25519";
+    } else if (config.signingKmsKeyId) {
+      if (!this.kms) {
+        throw new Error("KMS provider required for KMS signing but none was provided.");
+      }
+      const payload = buildSigningPayload(artifact);
+      artifact.signature = await signKms(payload, this.kms, config.signingKmsKeyId);
+      artifact.signatureAlgorithm = "ECDSA_SHA256";
     }
 
     const json = JSON.stringify(artifact, null, 2);

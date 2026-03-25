@@ -8,4 +8,6 @@ export interface KmsWrapResult {
 export interface KmsProvider {
   wrap(keyId: string, plaintext: Buffer): Promise<KmsWrapResult>;
   unwrap(keyId: string, wrappedKey: Buffer, algorithm: string): Promise<Buffer>;
+  /** Sign a SHA-256 digest with an asymmetric KMS key (ECDSA_SHA_256). Optional. */
+  sign?(keyId: string, digest: Buffer): Promise<Buffer>;
 }

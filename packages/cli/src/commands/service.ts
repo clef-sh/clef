@@ -520,7 +520,13 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           formatter.error(err.message);
           const partialEntries = Object.entries(err.rotatedKeys);
           const partialBlock = partialEntries.map(([env, key]) => `${env}: ${key}`).join("\n");
-          const partialCopied = copyToClipboard(partialBlock);
+
+          let partialCopied = false;
+          try {
+            partialCopied = copyToClipboard(partialBlock);
+          } catch {
+            // Clipboard failed — fall through to print keys to stderr
+          }
 
           if (partialCopied) {
             formatter.warn(

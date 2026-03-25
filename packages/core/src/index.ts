@@ -68,5 +68,19 @@ export { ServiceIdentityManager, PartialRotationError } from "./service-identity
 export { resolveIdentitySecrets } from "./artifact/resolve";
 export type { ResolvedSecrets } from "./artifact/resolve";
 export { ArtifactPacker } from "./artifact/packer";
-export type { PackedArtifact, PackConfig, PackResult, ArtifactEnvelope } from "./artifact/types";
+export type {
+  PackedArtifact,
+  PackConfig,
+  PackResult,
+  ArtifactEnvelope,
+  SignatureAlgorithm,
+} from "./artifact/types";
+export {
+  buildSigningPayload,
+  generateSigningKeyPair,
+  signEd25519,
+  signKms,
+  verifySignature,
+  detectAlgorithm,
+} from "./artifact/signer";
 export type { KmsProvider, KmsWrapResult, KmsProviderType } from "./kms";

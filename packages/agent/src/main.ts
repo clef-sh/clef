@@ -67,6 +67,7 @@ async function main(): Promise<void> {
     cache,
     diskCache,
     cacheTtl: config.cacheTtl,
+    verifyKey: config.verifyKey,
     onError: (err) => console.error(`[clef-agent] poll error: ${err.message}`),
   });
 
@@ -118,7 +119,7 @@ async function main(): Promise<void> {
   });
 
   telemetry?.agentStarted({ version: agentVersion });
-  console.log(`[clef-agent] token: ${config.token.slice(0, 8)}...`);
+  console.log(`[clef-agent] token: [${config.token.length} chars]`);
   await daemon.start();
 }
 
