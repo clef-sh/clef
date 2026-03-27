@@ -154,6 +154,23 @@ describe("Agent HTTP server", () => {
       });
       expect(status).toBe(403);
     });
+
+    it("should accept bare 127.0.0.1 without port suffix", async () => {
+      const status = await new Promise<number>((resolve) => {
+        const req = http.request(
+          {
+            hostname: "127.0.0.1",
+            port: TEST_PORT,
+            path: "/v1/health",
+            method: "GET",
+            headers: { Host: "127.0.0.1" },
+          },
+          (res) => resolve(res.statusCode ?? 0),
+        );
+        req.end();
+      });
+      expect(status).toBe(200);
+    });
   });
 
   describe("cache TTL guard", () => {

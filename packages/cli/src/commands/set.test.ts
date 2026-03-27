@@ -201,7 +201,7 @@ describe("clef set", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
-  it("exits 1 when encrypt succeeds but markPendingWithRetry fails", async () => {
+  it("rolls back and exits 1 when encrypt succeeds but markPendingWithRetry fails", async () => {
     const mockMarkPendingWithRetry = markPendingWithRetry as jest.Mock;
     mockMarkPendingWithRetry.mockRejectedValueOnce(new Error("disk full"));
 
@@ -211,12 +211,20 @@ describe("clef set", () => {
     await program.parseAsync(["node", "clef", "set", "payments/dev", "KEY", "--random"]);
 
     expect(mockFormatter.error).toHaveBeenCalledWith(
-      expect.stringContaining("encrypted but pending state could not be recorded"),
+      expect.stringContaining("pending state could not be recorded"),
     );
-    // Must exit non-zero — the encrypted file has an untracked random placeholder
+    expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("rolled back"));
+    // Must exit non-zero
     expect(mockExit).toHaveBeenCalledWith(1);
     // Should NOT report success
     expect(mockFormatter.success).not.toHaveBeenCalled();
+    // Rollback reuses in-scope decrypted values — only one decrypt call needed
+    const runCalls = (runner.run as jest.Mock).mock.calls;
+    const encryptCalls = runCalls.filter(
+      ([_cmd, args]: [string, string[]]) => args?.[0] === "encrypt",
+    );
+    // Two encrypt calls: one for original set, one for rollback
+    expect(encryptCalls.length).toBe(2);
   });
 
   it("does not call markPending when encrypt fails", async () => {

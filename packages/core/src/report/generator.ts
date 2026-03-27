@@ -1,6 +1,4 @@
-import * as fs from "fs";
 import * as path from "path";
-import * as YAML from "yaml";
 import {
   ClefManifest,
   ClefReport,
@@ -22,6 +20,7 @@ import { LintRunner } from "../lint/runner";
 import { getPendingKeys } from "../pending/metadata";
 import { checkDependency } from "../dependencies/checker";
 import { ReportSanitizer } from "./sanitizer";
+import { readSopsKeyNames } from "../sops/keys";
 
 /**
  * Orchestrates all data-gathering for a `clef report` invocation.
@@ -240,15 +239,7 @@ export class ReportGenerator {
   }
 
   private readKeyCount(filePath: string): number {
-    try {
-      if (!fs.existsSync(filePath)) return 0;
-      const raw = fs.readFileSync(filePath, "utf-8");
-      const parsed: unknown = YAML.parse(raw);
-      if (parsed === null || parsed === undefined || typeof parsed !== "object") return 0;
-      return Object.keys(parsed as Record<string, unknown>).filter((k) => k !== "sops").length;
-    } catch {
-      return 0;
-    }
+    return readSopsKeyNames(filePath)?.length ?? 0;
   }
 
   private async buildPolicy(manifest: ClefManifest, repoRoot: string): Promise<ReportPolicy> {

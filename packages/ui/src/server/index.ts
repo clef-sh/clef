@@ -172,9 +172,12 @@ export async function startServer(
     const resolvedClientDir = clientDir ?? path.resolve(__dirname, "../client");
     app.use(staticLimiter, express.static(resolvedClientDir));
 
-    // SPA fallback — serve index.html for non-API routes
+    // SPA fallback — serve index.html for non-API routes.
+    // Use { root } so the send package's dotfile check applies only to the
+    // relative filename ("index.html") and not the full absolute path, which
+    // can include dotfile directories such as ~/.nvm or ~/.local.
     app.get("/{*splat}", staticLimiter, (_req, res) => {
-      res.sendFile(path.join(resolvedClientDir, "index.html"));
+      res.sendFile("index.html", { root: resolvedClientDir });
     });
   }
 

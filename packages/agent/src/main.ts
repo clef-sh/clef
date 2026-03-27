@@ -119,7 +119,7 @@ async function main(): Promise<void> {
   });
 
   telemetry?.agentStarted({ version: agentVersion });
-  console.log(`[clef-agent] token: [${config.token.length} chars]`);
+  console.log(`[clef-agent] token: [set]`);
   await daemon.start();
 }
 

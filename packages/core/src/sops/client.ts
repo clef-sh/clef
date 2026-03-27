@@ -246,22 +246,7 @@ export class SopsClient implements EncryptionBackend {
    * @throws {@link SopsEncryptionError} On failure.
    */
   async reEncrypt(filePath: string, newKey: string): Promise<void> {
-    await assertSops(this.runner, this.sopsCommand);
-    const env = this.buildSopsEnv();
-    const result = await this.runner.run(
-      this.sopsCommand,
-      ["rotate", "-i", "--add-age", newKey, filePath],
-      {
-        ...(env ? { env } : {}),
-      },
-    );
-
-    if (result.exitCode !== 0) {
-      throw new SopsEncryptionError(
-        `Failed to re-encrypt '${filePath}': ${result.stderr.trim()}`,
-        filePath,
-      );
-    }
+    await this.addRecipient(filePath, newKey);
   }
 
   /**

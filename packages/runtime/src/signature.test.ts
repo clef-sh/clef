@@ -16,6 +16,8 @@ function makeArtifact(
       keyId: string;
       wrappedKey: string;
       algorithm: string;
+      iv?: string;
+      authTag?: string;
     };
   }> = {},
 ) {
@@ -39,7 +41,7 @@ describe("buildSigningPayload (runtime)", () => {
     const artifact = makeArtifact();
     const payload = buildSigningPayload(artifact);
 
-    expect(payload.toString("utf-8")).toContain("clef-sig-v1");
+    expect(payload.toString("utf-8")).toContain("clef-sig-v2");
     expect(payload.toString("utf-8")).toContain("api-gateway");
     expect(payload.toString("utf-8")).toContain("production");
   });
@@ -122,5 +124,48 @@ describe("verifySignature (runtime)", () => {
     const payload = buildSigningPayload(makeArtifact());
 
     expect(() => verifySignature(payload, "dGVzdA==", pubBase64)).toThrow("Unsupported key type");
+  });
+});
+
+describe("cross-package payload contract", () => {
+  it("produces canonical payload matching core signer specification", () => {
+    // Uses the EXACT same artifact and expected output as
+    // core/src/artifact/signer.test.ts "produces canonical payload matching runtime specification".
+    // If either implementation drifts, both this test and the core test will fail.
+    const artifact = makeArtifact({
+      keys: ["DB_URL", "API_KEY", "STRIPE_SECRET"],
+      expiresAt: "2026-03-22T12:00:00.000Z",
+      envelope: {
+        provider: "aws",
+        keyId: "arn:aws:kms:us-east-1:123456789012:key/abcd-1234",
+        wrappedKey: "d3JhcHBlZC1hZ2Uta2V5LWhlcmU=",
+        algorithm: "SYMMETRIC_DEFAULT",
+        iv: "dGVzdC1pdi0xMjM0",
+        authTag: "dGVzdC1hdXRoLXRhZy0xMjM0NTY=",
+      },
+    });
+
+    const payload = buildSigningPayload(artifact).toString("utf-8");
+
+    const expected = [
+      "clef-sig-v2",
+      "1",
+      "api-gateway",
+      "production",
+      "1711101600000-a1b2c3d4",
+      "2026-03-22T10:00:00.000Z",
+      "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      "API_KEY,DB_URL,STRIPE_SECRET",
+      "2026-03-22T12:00:00.000Z",
+      "aws",
+      "arn:aws:kms:us-east-1:123456789012:key/abcd-1234",
+      "d3JhcHBlZC1hZ2Uta2V5LWhlcmU=",
+      "SYMMETRIC_DEFAULT",
+      "dGVzdC1pdi0xMjM0",
+      "dGVzdC1hdXRoLXRhZy0xMjM0NTY=",
+    ].join("\n");
+
+    expect(payload).toBe(expected);
+    expect(payload.split("\n")).toHaveLength(15);
   });
 });

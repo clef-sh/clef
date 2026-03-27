@@ -28,12 +28,12 @@ The installer downloads the Clef binary and sops for your platform, verifies che
 
 Both installers support the same environment variables:
 
-| Variable           | Default (Unix)   | Default (Windows) | Description                      |
-| ------------------ | ---------------- | ----------------- | -------------------------------- |
-| `CLEF_VERSION`     | latest           | latest            | Install a specific version       |
-| `CLEF_INSTALL_DIR` | `/usr/local/bin` | `$HOME\.clef\bin` | Installation directory           |
-| `SOPS_VERSION`     | `3.9.4`          | `3.9.4`           | Override bundled sops version    |
-| `SOPS_SKIP`        | `0`              | `0`               | Set to `1` to skip sops download |
+| Variable           | Default (Unix) | Default (Windows) | Description                      |
+| ------------------ | -------------- | ----------------- | -------------------------------- |
+| `CLEF_VERSION`     | latest         | latest            | Install a specific version       |
+| `CLEF_INSTALL_DIR` | `~/.local/bin` | `$HOME\.clef\bin` | Installation directory           |
+| `SOPS_VERSION`     | `3.9.4`        | `3.9.4`           | Override bundled sops version    |
+| `SOPS_SKIP`        | `0`            | `0`               | Set to `1` to skip sops download |
 
 ::: code-group
 
@@ -174,7 +174,7 @@ Missing `manifest` or `.sops.yaml` is expected before `clef init`.
 ```bash [macOS / Linux]
 which sops
 # If installed but not on PATH:
-export PATH="/usr/local/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 # Restart your terminal or run: source ~/.zshrc
 ```
 

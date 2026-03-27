@@ -326,7 +326,9 @@ describe("ReportGenerator", () => {
   });
 
   it("readKeyCount returns 0 for missing files", async () => {
-    mockFs.existsSync.mockReturnValue(false);
+    mockFs.readFileSync.mockImplementation(() => {
+      throw new Error("ENOENT: no such file or directory");
+    });
     const cells = [existingCell("database", "dev")];
     const generator = new ReportGenerator(
       makeRunner(),

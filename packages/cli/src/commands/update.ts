@@ -1,14 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
 import { Command } from "commander";
-import {
-  ManifestParser,
-  MatrixManager,
-  SopsClient,
-  SubprocessRunner,
-  SopsMissingError,
-  SopsVersionError,
-} from "@clef-sh/core";
+import { ManifestParser, MatrixManager, SopsClient, SubprocessRunner } from "@clef-sh/core";
+import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
 import { resolveAgeCredential, prepareSopsClientArgs } from "../age-credential";
 
@@ -70,20 +64,13 @@ export function registerUpdateCommand(program: Command, deps: { runner: Subproce
         }
 
         if (failedCount === 0) {
-          process.exit(0);
           return;
         }
 
         formatter.error(`${failedCount} cell(s) could not be scaffolded.`);
         process.exit(1);
       } catch (err) {
-        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-          formatter.formatDependencyError(err);
-          process.exit(1);
-          return;
-        }
-        formatter.error((err as Error).message);
-        process.exit(1);
+        handleCommandError(err);
       }
     });
 }

@@ -11,7 +11,7 @@ export class HttpArtifactSource implements ArtifactSource {
   async fetch(): Promise<ArtifactFetchResult> {
     const res = await fetch(this.url);
     if (!res.ok) {
-      throw new Error(`Failed to fetch artifact from ${this.url}: ${res.status}`);
+      throw new Error(`Failed to fetch artifact from ${this.describe()}: ${res.status}`);
     }
     const raw = await res.text();
     const etag = res.headers.get("etag") ?? undefined;
@@ -19,6 +19,15 @@ export class HttpArtifactSource implements ArtifactSource {
   }
 
   describe(): string {
-    return `HTTP ${this.url}`;
+    try {
+      const parsed = new URL(this.url);
+      if (parsed.username || parsed.password) {
+        parsed.username = "***";
+        parsed.password = "";
+      }
+      return `HTTP ${parsed.href}`;
+    } catch {
+      return "HTTP <invalid-url>";
+    }
   }
 }

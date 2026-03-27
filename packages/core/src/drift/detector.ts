@@ -1,8 +1,7 @@
-import * as fs from "fs";
 import * as path from "path";
-import * as YAML from "yaml";
 import { ManifestParser, CLEF_MANIFEST_FILENAME } from "../manifest/parser";
 import { MatrixManager } from "../matrix/manager";
+import { readSopsKeyNames } from "../sops/keys";
 import { DriftIssue, DriftResult } from "../types";
 
 /**
@@ -49,53 +48,41 @@ export class DriftDetector {
     const issues: DriftIssue[] = [];
     let namespacesClean = 0;
 
+    // Compute shared environments so drift detection only compares environments
+    // present in both repos. Without this, an environment that exists in only
+    // one repo would cause false-positive "missing key" reports.
+    const remoteEnvSet = new Set(remoteEnvNames);
+    const sharedEnvSet = new Set(localEnvNames.filter((e) => remoteEnvSet.has(e)));
+
     for (const ns of sharedNamespaces) {
-      // Collect key → environment sets across both repos
-      const keyEnvs = new Map<string, Set<string>>();
-      const allEnvs = new Set<string>();
+      const localKeyEnvs = this.collectKeyEnvs(localCells, ns, sharedEnvSet);
+      const remoteKeyEnvs = this.collectKeyEnvs(remoteCells, ns, sharedEnvSet);
 
-      // Read keys from local cells
-      const localNsCells = localCells.filter((c) => c.namespace === ns);
-      for (const cell of localNsCells) {
-        const keys = this.readKeysFromFile(cell.filePath);
-        if (keys === null) continue;
-        allEnvs.add(cell.environment);
-        for (const key of keys) {
-          if (!keyEnvs.has(key)) keyEnvs.set(key, new Set());
-          keyEnvs.get(key)!.add(cell.environment);
-        }
-      }
-
-      // Read keys from remote cells
-      const remoteNsCells = remoteCells.filter((c) => c.namespace === ns);
-      for (const cell of remoteNsCells) {
-        const keys = this.readKeysFromFile(cell.filePath);
-        if (keys === null) continue;
-        allEnvs.add(cell.environment);
-        for (const key of keys) {
-          if (!keyEnvs.has(key)) keyEnvs.set(key, new Set());
-          keyEnvs.get(key)!.add(cell.environment);
-        }
-      }
-
-      // Compare: a key must exist in every environment that has a readable file
-      const envList = [...allEnvs];
       let nsClean = true;
 
-      for (const [key, envSet] of keyEnvs) {
-        const missingFrom = envList.filter((e) => !envSet.has(e));
-        if (missingFrom.length > 0) {
-          nsClean = false;
-          const presentIn = [...envSet].sort();
-          issues.push({
-            namespace: ns,
-            key,
-            presentIn,
-            missingFrom: missingFrom.sort(),
-            message: `Key '${key}' in namespace '${ns}' exists in [${presentIn.join(", ")}] but is missing from [${missingFrom.sort().join(", ")}]`,
-          });
+      const reportDrift = (
+        sourceMap: Map<string, Set<string>>,
+        targetMap: Map<string, Set<string>>,
+        direction: string,
+      ) => {
+        for (const [key, sourceEnvs] of sourceMap) {
+          const targetEnvs = targetMap.get(key);
+          const missingFrom = [...sourceEnvs].filter((e) => !targetEnvs?.has(e)).sort();
+          if (missingFrom.length > 0) {
+            nsClean = false;
+            issues.push({
+              namespace: ns,
+              key,
+              presentIn: [...sourceEnvs].sort(),
+              missingFrom,
+              message: `Key '${key}' in namespace '${ns}' exists in ${direction} [${[...sourceEnvs].sort().join(", ")}] but is missing from [${missingFrom.join(", ")}]`,
+            });
+          }
         }
-      }
+      };
+
+      reportDrift(remoteKeyEnvs, localKeyEnvs, "remote");
+      reportDrift(localKeyEnvs, remoteKeyEnvs, "local");
 
       if (nsClean) namespacesClean++;
     }
@@ -109,21 +96,21 @@ export class DriftDetector {
     };
   }
 
-  /**
-   * Read top-level key names from an encrypted SOPS YAML file,
-   * filtering out the `sops` metadata key.
-   *
-   * @returns Array of key names, or `null` if the file cannot be read.
-   */
-  private readKeysFromFile(filePath: string): string[] | null {
-    try {
-      if (!fs.existsSync(filePath)) return null;
-      const raw = fs.readFileSync(filePath, "utf-8");
-      const parsed = YAML.parse(raw);
-      if (parsed === null || parsed === undefined || typeof parsed !== "object") return null;
-      return Object.keys(parsed).filter((k) => k !== "sops");
-    } catch {
-      return null;
+  private collectKeyEnvs(
+    cells: { namespace: string; environment: string; filePath: string; exists: boolean }[],
+    ns: string,
+    sharedEnvSet: Set<string>,
+  ): Map<string, Set<string>> {
+    const keyEnvs = new Map<string, Set<string>>();
+    for (const cell of cells) {
+      if (cell.namespace !== ns || !sharedEnvSet.has(cell.environment)) continue;
+      const keys = readSopsKeyNames(cell.filePath);
+      if (keys === null) continue;
+      for (const key of keys) {
+        if (!keyEnvs.has(key)) keyEnvs.set(key, new Set());
+        keyEnvs.get(key)!.add(cell.environment);
+      }
     }
+    return keyEnvs;
   }
 }

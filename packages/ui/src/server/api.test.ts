@@ -7,11 +7,28 @@ import * as YAML from "yaml";
 
 jest.mock("fs");
 
-// Mock the pending metadata functions from core
+const mockServiceIdCreate = jest.fn().mockResolvedValue({
+  identity: {
+    name: "test-id",
+    namespaces: ["database"],
+    environments: { dev: { recipient: "age1testpubkey" } },
+  },
+  privateKeys: { dev: "AGE-SECRET-KEY-MOCK-VALUE" },
+});
+const mockServiceIdRotate = jest.fn().mockResolvedValue({ dev: "AGE-SECRET-KEY-ROTATED" });
+
+// Mock the pending metadata functions and ServiceIdentityManager from core
 jest.mock("@clef-sh/core", () => {
   const actual = jest.requireActual("@clef-sh/core");
   return {
     ...actual,
+    ServiceIdentityManager: jest.fn().mockImplementation(() => ({
+      create: mockServiceIdCreate,
+      rotateKey: mockServiceIdRotate,
+      delete: jest.fn().mockResolvedValue(undefined),
+      updateEnvironments: jest.fn().mockResolvedValue(undefined),
+      validate: jest.fn().mockReturnValue([]),
+    })),
     getPendingKeys: jest.fn().mockResolvedValue([]),
     markResolved: jest.fn().mockResolvedValue(undefined),
     markPendingWithRetry: jest.fn().mockResolvedValue(undefined),
@@ -1444,6 +1461,73 @@ describe("API routes", () => {
       const res = await request(app).get("/api/namespace/database/dev");
       expect(res.status).toBe(200);
       expect(res.body.pending).toContain("DB_PASSWORD");
+    });
+  });
+
+  // Service identity create — private key security headers
+  describe("POST /api/service-identities — private key security", () => {
+    it("should set Cache-Control: no-store on create response containing private keys", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/service-identities")
+        .send({ name: "my-svc", namespaces: ["database"] });
+
+      expect(res.status).toBe(200);
+      expect(res.headers["cache-control"]).toContain("no-store");
+      expect(res.headers["pragma"]).toBe("no-cache");
+    });
+
+    it("should return private keys in the response body", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/service-identities")
+        .send({ name: "my-svc", namespaces: ["database"] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.privateKeys).toBeDefined();
+      expect(res.body.identity).toBeDefined();
+    });
+  });
+
+  // Service identity rotate — private key security headers
+  describe("POST /api/service-identities/:name/rotate — private key security", () => {
+    it("should set Cache-Control: no-store on rotate response containing private keys", async () => {
+      const manifest = {
+        ...validManifest,
+        service_identities: [
+          {
+            name: "my-svc",
+            namespaces: ["database"],
+            environments: { dev: { recipient: "age1old" } },
+          },
+        ],
+      };
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(manifest));
+      const app = createApp();
+      const res = await request(app).post("/api/service-identities/my-svc/rotate").send({});
+
+      expect(res.status).toBe(200);
+      expect(res.headers["cache-control"]).toContain("no-store");
+      expect(res.headers["pragma"]).toBe("no-cache");
+    });
+
+    it("should return private keys in the rotate response body", async () => {
+      const manifest = {
+        ...validManifest,
+        service_identities: [
+          {
+            name: "my-svc",
+            namespaces: ["database"],
+            environments: { dev: { recipient: "age1old" } },
+          },
+        ],
+      };
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(manifest));
+      const app = createApp();
+      const res = await request(app).post("/api/service-identities/my-svc/rotate").send({});
+
+      expect(res.status).toBe(200);
+      expect(res.body.privateKeys).toBeDefined();
     });
   });
 });

@@ -4,8 +4,8 @@
 # staging → beta packages  → GitHub Packages (public) + GitHub pre-release
 #
 # Version scheme: the prerelease base is the *next* semver computed by
-# analyzing commits since the last release tag, using the same bump rules
-# as .releaserc.json (breaking → minor, feat/fix/perf → patch).
+# analyzing commits since the last release tag (breaking → minor,
+# feat/fix/perf → patch).
 # The base is always derived from main's current version so branch divergence
 # does not corrupt the stamp.
 # e.g. main@0.1.5, feat commit in dev → alpha: 0.1.6-alpha.42
@@ -115,16 +115,16 @@ jobs:
             || cp packages/ui/package.json /tmp/ui-main.json
 
           # Compute the next semver for a package by replaying the same bump rules
-          # used in .releaserc.json against commits since the last release tag.
+          # used by the release workflow against commits since the last release tag.
           #
-          # Rules (matching .releaserc.json releaseRules):
+          # Rules:
           #   breaking change (! suffix or BREAKING CHANGE footer) → minor bump
           #   feat / fix / perf                                     → patch bump
           #
           # Falls back to a patch bump when there are no conventional commits,
           # so the prerelease label always sits ahead of the last stable release.
           #
-          # semantic-release-monorepo tags commits as: @clef-sh/<name>@<version>
+          # Release tags follow the pattern: @clef-sh/<name>-v<version>
           next_version() {
             local PKG_NAME="$1"  # e.g. @clef-sh/core
             local PKG_DIR="$2"   # e.g. packages/core

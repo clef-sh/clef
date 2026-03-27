@@ -232,6 +232,7 @@ All configuration via environment variables (universal for containers and Lambda
 | `CLEF_AGENT_AGE_KEY`         | —              | Inline age private key (optional for KMS envelope)         |
 | `CLEF_AGENT_AGE_KEY_FILE`    | —              | Path to age key file (optional for KMS envelope)           |
 | `CLEF_AGENT_TOKEN`           | auto-generated | Bearer token for API auth                                  |
+| `CLEF_AGENT_VERIFY_KEY`      | —              | Public key for artifact signature verification (PEM/DER)   |
 | `CLEF_AGENT_TELEMETRY_URL`   | —              | OTLP endpoint for [telemetry](/guide/telemetry)            |
 | `CLEF_AGENT_ID`              | auto-generated | Unique agent instance ID (UUID)                            |
 

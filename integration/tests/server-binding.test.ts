@@ -61,7 +61,12 @@ describe("Server binding", () => {
   it("refuses connections on non-loopback interface", async () => {
     const nonLoopbackIP = getLocalNetworkIP();
     if (!nonLoopbackIP) {
-      // No non-loopback network interface available (common in headless CI containers)
+      // No non-loopback network interface available (common in headless CI containers).
+      // Log explicitly so CI visibility is not lost.
+      console.warn(
+        "[server-binding] SKIPPED: no non-loopback interface available. " +
+          "The binding assertion at 127.0.0.1 is still covered by the unconditional test below.",
+      );
       return;
     }
     const addr = server.address();

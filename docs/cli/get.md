@@ -15,9 +15,19 @@ clef get <target> <key>
 | `target` | Namespace and environment in the format `namespace/environment` (e.g., `payments/production`) |
 | `key`    | The key name to retrieve from the encrypted file                                              |
 
+## Flags
+
+| Flag    | Type    | Default | Description                                                |
+| ------- | ------- | ------- | ---------------------------------------------------------- |
+| `--raw` | boolean | `false` | Print the plaintext value to stdout (for piping/scripting) |
+
+> `--dir` is a global option. See [Global options](overview.md#global-options).
+
 ## Description
 
-`clef get` decrypts the specified namespace/environment file, extracts the value for the given key, and prints it to stdout in a formatted key-value line. The output includes a key icon and arrow separator (e.g., `KEY  →  value`).
+By default, `clef get` copies the decrypted value to the system clipboard and prints a masked placeholder on screen. This is safe for screen sharing and terminal recordings.
+
+Use `--raw` to print the plaintext value to stdout instead — useful for piping or scripting.
 
 If the key does not exist in the file, Clef prints an error listing the available keys and exits with code 1.
 
@@ -32,14 +42,24 @@ The decrypted file contents exist only in memory during the operation. No plaint
 
 ## Examples
 
-### Basic retrieval
+### Default (clipboard)
 
 ```bash
 clef get payments/production STRIPE_SECRET_KEY
 ```
 
 ```
-🔑  STRIPE_SECRET_KEY  →  sk_live_abc123xyz
+  STRIPE_SECRET_KEY: ●●●●●●●● (copied to clipboard)
+```
+
+### Raw output (for piping)
+
+```bash
+clef get payments/production STRIPE_SECRET_KEY --raw
+```
+
+```
+sk_live_abc123xyz
 ```
 
 ### Key not found

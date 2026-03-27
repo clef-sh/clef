@@ -4,6 +4,7 @@ import * as YAML from "yaml";
 import { ClefManifest, MatrixCell, MatrixIssue, MatrixStatus } from "../types";
 import { EncryptionBackend } from "../types";
 import { getPendingKeys } from "../pending/metadata";
+import { readSopsKeyNames } from "../sops/keys";
 
 /**
  * Resolves and manages the namespace × environment matrix of encrypted files.
@@ -155,14 +156,7 @@ export class MatrixManager {
    * SOPS stores key names in plaintext — only values are encrypted.
    */
   private readKeyNames(filePath: string): string[] {
-    try {
-      const raw = fs.readFileSync(filePath, "utf-8");
-      const parsed = YAML.parse(raw);
-      if (!parsed || typeof parsed !== "object") return [];
-      return Object.keys(parsed as Record<string, unknown>).filter((k) => k !== "sops");
-    } catch {
-      return [];
-    }
+    return readSopsKeyNames(filePath) ?? [];
   }
 
   /**
