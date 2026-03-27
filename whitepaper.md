@@ -428,6 +428,26 @@ In KMS envelope mode, the security model reduces to IAM permissions on a single 
 2. **Who can call `kms:Encrypt`?** CI pipelines that wrap the ephemeral key during `clef pack`. In KMS-native mode, also used for SOPS encryption.
 3. **Who can read the artifact?** Anyone with VCS API access or HTTP access to the storage location. But the artifact is useless without `kms:Decrypt` on the correct key. The wrapped ephemeral key is inert without KMS.
 
+### 6.4 Just-In-Time Decryption: IAM as a Live Authorization Gate
+
+In the default cached mode, the agent decrypts the artifact once and serves plaintext from memory until the next poll. If a workload is compromised and its IAM policy is revoked, secrets continue to be served from cache until the TTL expires — up to 5 minutes with the default configuration. For most workloads this is acceptable. For high-security environments where a compromise demands immediate credential cutoff, it is not.
+
+**Just-in-time mode** (`CLEF_AGENT_CACHE_TTL=0`) eliminates this window. Instead of caching decrypted plaintext, the agent calls `kms:Decrypt` on every `GET /v1/secrets` request. No plaintext is held between requests. KMS becomes the live authorization gate — revoking the workload's IAM policy causes the next request to fail immediately with a 503, because the `kms:Decrypt` call returns Access Denied.
+
+The agent still polls for fresh encrypted artifacts (every 5 seconds in JIT mode), but the poll only fetches and validates — no decryption occurs until a client requests secrets. Key names (`GET /v1/keys`) and health checks are served from the encrypted artifact's metadata without touching KMS.
+
+**Incident response flow:**
+
+1. **Revoke** the workload's IAM policy → next `GET /v1/secrets` fails instantly (KMS denies unwrap)
+2. **Rotate** the compromised secrets → `clef set` + `clef pack` + push
+3. **Re-enable** IAM → agent picks up the new artifact within 5 seconds, next request decrypts successfully
+
+The total recovery window is bounded by the artifact poll interval (5 seconds) plus the time to rotate and push — typically under 30 seconds end to end. Revocation itself is instant.
+
+**Trade-off: latency.** Each `GET /v1/secrets` request incurs a KMS round-trip (~10–50ms depending on region and provider). This is negligible for workloads that read secrets at startup or on config reload. For workloads that read secrets on every inbound request, the cached mode with a short TTL (e.g., 30 seconds) may be more appropriate. The two modes serve different points on the security-latency spectrum — JIT mode is not universally better, it is the right choice when instant revocation outweighs the per-request KMS cost.
+
+**Audit visibility improves.** In cached mode, a single KMS decrypt event covers an entire TTL window of secret reads. In JIT mode, every application read maps to a distinct KMS audit log entry. CloudTrail (or the equivalent) shows exactly when secrets were accessed, not just when the cache was last refreshed.
+
 ---
 
 ## 7. Dynamic Credentials
@@ -593,7 +613,7 @@ Multiple layers prevent secret exposure:
 4. **Pre-commit scanning**: Pattern and entropy analysis catches accidental plaintext commits.
 5. **Integrity verification**: SHA-256 hash in the artifact envelope detects tampering or corruption.
 6. **Provenance signing**: Ed25519 or KMS ECDSA signatures prove the artifact was produced by the authorized CI pipeline, not injected by an attacker with artifact store write access (see Section 4.3). The signature covers all security-relevant fields including `expiresAt`, preventing TTL extension attacks.
-7. **TTL and revocation**: Short-lived artifacts limit the window of exposure; revocation provides instant invalidation.
+7. **TTL and revocation**: Short-lived artifacts limit the window of exposure; revocation provides instant invalidation. In JIT mode (Section 6.4), KMS authorization is checked on every request — revoking IAM kills access immediately with no TTL delay.
 8. **Localhost binding**: Agent API never exposed to the network.
 9. **Timing-safe auth**: Bearer token comparison resists timing attacks.
 10. **Host header validation**: DNS rebinding protection on all server routes.
@@ -609,7 +629,7 @@ In KMS envelope mode, the audit trail is comprehensive, distributed across infra
 
 The chain from git commit to CI pack to KMS unwrap to agent refresh provides complete provenance from secret authorship to consumption, all in systems the customer already monitors.
 
-**Per-key read granularity**: The agent does not log which individual keys the application reads from the `/v1/secrets/:key` endpoint. In envelope encryption, once the DEK is unwrapped, every key encrypted by that DEK should be assumed accessed since the entire plaintext is in memory. Logging individual key reads would imply false granularity. The correct audit boundary is the KMS decrypt call in the cloud provider's audit logs: it tells you who unwrapped the DEK, when, and for which artifact revision. That is the meaningful access event, and it lives in the customer's own infrastructure.
+**Per-key read granularity**: The agent serves secrets as a complete bundle via `GET /v1/secrets` — there is no per-key endpoint. In envelope encryption, one KMS unwrap decrypts the entire namespace payload. Logging individual key reads would imply false granularity since all values are decrypted together. The correct audit boundary is the KMS decrypt call in the cloud provider's audit logs: it tells you who unwrapped the DEK, when, and for which artifact revision. That is the meaningful access event, and it lives in the customer's own infrastructure. In JIT mode (Section 6.4), each `GET /v1/secrets` request maps to a distinct KMS audit log entry.
 
 ### 8.7 Repository Integrity and CI Hardening
 
