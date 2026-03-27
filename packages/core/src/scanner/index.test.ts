@@ -455,6 +455,24 @@ describe("ScanRunner.scan", () => {
       expect(result.filesSkipped).toBeGreaterThan(0);
       expect(result.filesScanned).toBe(0);
     });
+
+    it("skips .sops.yaml files", async () => {
+      const runner = makeRunner([], [".sops.yaml"]);
+      const scanner = new ScanRunner(runner);
+      const manifest = makeManifest();
+
+      mockFs.existsSync.mockImplementation((p: unknown) => {
+        const s = String(p);
+        if (s === path.join(REPO_ROOT, "database/dev.enc.yaml")) return false;
+        if (s === path.join(REPO_ROOT, ".sops.yaml")) return true;
+        return false;
+      });
+      mockFs.readFileSync.mockImplementation(() => "");
+
+      const result = await scanner.scan(REPO_ROOT, manifest, {});
+      expect(result.filesSkipped).toBeGreaterThan(0);
+      expect(result.filesScanned).toBe(0);
+    });
   });
 
   describe("file not found after listing", () => {
