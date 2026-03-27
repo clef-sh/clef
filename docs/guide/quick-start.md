@@ -8,7 +8,7 @@ From an existing git repository to a fully managed secrets setup. Every command 
 curl -fsSL https://clef.sh/install.sh | sh
 ```
 
-This installs both `clef` and `sops` to `/usr/local/bin`. Alternatively, install via npm: `npm install -g @clef-sh/cli`.
+This installs both `clef` and `sops` to `~/.local/bin`. Alternatively, install via npm: `npm install -g @clef-sh/cli`.
 
 Verify:
 
