@@ -13,6 +13,10 @@ export interface ArtifactKmsEnvelope {
   keyId: string;
   wrappedKey: string;
   algorithm: string;
+  /** Base64-encoded 12-byte AES-GCM initialization vector. */
+  iv: string;
+  /** Base64-encoded 16-byte AES-GCM authentication tag. */
+  authTag: string;
 }
 
 /** Shape of a packed artifact JSON envelope. */
@@ -264,28 +268,40 @@ export class ArtifactPoller {
       }
     }
 
-    // Resolve the age private key
-    let agePrivateKey: string;
+    // Decrypt — KMS envelope uses AES-256-GCM, age-only uses the age decryptor
+    let plaintext: string;
     if (artifact.envelope) {
-      // KMS envelope: unwrap the ephemeral private key via KMS
+      // KMS envelope: unwrap DEK via KMS, then AES-256-GCM decrypt
+      let dek: Buffer;
       try {
         const kms = createKmsProvider(artifact.envelope.provider);
         const wrappedKey = Buffer.from(artifact.envelope.wrappedKey, "base64");
-        const unwrapped = await kms.unwrap(
-          artifact.envelope.keyId,
-          wrappedKey,
-          artifact.envelope.algorithm,
-        );
-        // Note: unwrapped Buffer is zeroed below, but the resulting JS string is
-        // immutable and cannot be cleared (inherent V8/Node.js limitation). Accepted risk.
-        agePrivateKey = unwrapped.toString("utf-8");
-        unwrapped.fill(0);
+        dek = await kms.unwrap(artifact.envelope.keyId, wrappedKey, artifact.envelope.algorithm);
       } catch (err) {
         this.telemetry?.artifactInvalid({
           reason: "kms_unwrap",
           error: err instanceof Error ? err.message : String(err),
         });
         throw err;
+      }
+
+      try {
+        const iv = Buffer.from(artifact.envelope.iv, "base64");
+        const authTag = Buffer.from(artifact.envelope.authTag, "base64");
+        const ciphertextBuf = Buffer.from(artifact.ciphertext, "base64");
+        const decipher = crypto.createDecipheriv("aes-256-gcm", dek, iv);
+        decipher.setAuthTag(authTag);
+        plaintext = Buffer.concat([decipher.update(ciphertextBuf), decipher.final()]).toString(
+          "utf-8",
+        );
+      } catch (err) {
+        this.telemetry?.artifactInvalid({
+          reason: "decrypt",
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      } finally {
+        dek.fill(0);
       }
     } else {
       // Age-only: use the static private key (config error, not artifact.invalid)
@@ -294,12 +310,19 @@ export class ArtifactPoller {
           "Artifact requires an age private key. Set CLEF_AGENT_AGE_KEY or use KMS envelope encryption.",
         );
       }
-      agePrivateKey = this.options.privateKey;
+
+      try {
+        plaintext = await this.decryptor.decrypt(artifact.ciphertext, this.options.privateKey);
+      } catch (err) {
+        this.telemetry?.artifactInvalid({
+          reason: err instanceof SyntaxError ? "payload_parse" : "decrypt",
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
     }
 
-    // Decrypt
     try {
-      const plaintext = await this.decryptor.decrypt(artifact.ciphertext, agePrivateKey);
       const values: Record<string, string> = JSON.parse(plaintext);
 
       // Atomic swap
@@ -398,7 +421,9 @@ export class ArtifactPoller {
         !artifact.envelope.provider ||
         !artifact.envelope.keyId ||
         !artifact.envelope.wrappedKey ||
-        !artifact.envelope.algorithm
+        !artifact.envelope.algorithm ||
+        !artifact.envelope.iv ||
+        !artifact.envelope.authTag
       ) {
         throw new Error("Invalid artifact: incomplete envelope fields.");
       }

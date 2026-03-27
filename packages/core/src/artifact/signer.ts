@@ -18,7 +18,7 @@ import type { KmsProvider } from "../kms";
  */
 export function buildSigningPayload(artifact: PackedArtifact): Buffer {
   const fields = [
-    "clef-sig-v1",
+    "clef-sig-v2",
     String(artifact.version),
     artifact.identity,
     artifact.environment,
@@ -31,6 +31,8 @@ export function buildSigningPayload(artifact: PackedArtifact): Buffer {
     artifact.envelope?.keyId ?? "",
     artifact.envelope?.wrappedKey ?? "",
     artifact.envelope?.algorithm ?? "",
+    artifact.envelope?.iv ?? "",
+    artifact.envelope?.authTag ?? "",
   ];
   return Buffer.from(fields.join("\n"), "utf-8");
 }

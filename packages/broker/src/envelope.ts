@@ -7,6 +7,10 @@ export interface ArtifactEnvelopeField {
   keyId: string;
   wrappedKey: string;
   algorithm: string;
+  /** Base64-encoded 12-byte AES-GCM initialization vector. */
+  iv: string;
+  /** Base64-encoded 16-byte AES-GCM authentication tag. */
+  authTag: string;
 }
 
 /** JSON envelope produced by the broker. Matches the runtime's expected artifact shape. */
@@ -44,8 +48,8 @@ export interface PackEnvelopeOptions {
 /**
  * Pack credentials into a Clef artifact envelope with KMS envelope encryption.
  *
- * 1. age-encrypt plaintext with an ephemeral key
- * 2. Wrap the ephemeral private key via KMS
+ * 1. AES-256-GCM encrypt plaintext with a random DEK
+ * 2. Wrap the DEK via KMS
  * 3. Return the complete JSON envelope string
  */
 export async function packEnvelope(options: PackEnvelopeOptions): Promise<string> {
@@ -53,22 +57,20 @@ export async function packEnvelope(options: PackEnvelopeOptions): Promise<string
 
   const plaintext = JSON.stringify(data);
 
-  // Generate ephemeral age key pair
-  const { generateIdentity, identityToRecipient, Encrypter } = await import(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic ESM import of CJS-incompatible package
-    "age-encryption" as any
-  );
-  const ephemeralPrivateKey = (await generateIdentity()) as string;
-  const ephemeralPublicKey = (await identityToRecipient(ephemeralPrivateKey)) as string;
+  const dek = crypto.randomBytes(32);
+  const iv = crypto.randomBytes(12);
 
-  // age-encrypt plaintext to ephemeral public key
-  const e = new Encrypter();
-  e.addRecipient(ephemeralPublicKey);
-  const encrypted = await e.encrypt(plaintext);
-  const ciphertext = Buffer.from(encrypted as Uint8Array).toString("base64");
+  const cipher = crypto.createCipheriv("aes-256-gcm", dek, iv);
+  const ciphertextBuf = Buffer.concat([
+    cipher.update(Buffer.from(plaintext, "utf-8")),
+    cipher.final(),
+  ]);
+  const authTag = cipher.getAuthTag();
+  const ciphertext = ciphertextBuf.toString("base64");
 
-  // Wrap the ephemeral private key with KMS
-  const wrapped = await kmsProvider.wrap(kmsKeyId, Buffer.from(ephemeralPrivateKey));
+  // Wrap the DEK with KMS
+  const wrapped = await kmsProvider.wrap(kmsKeyId, dek);
+  dek.fill(0);
 
   const revision = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
   const ciphertextHash = crypto.createHash("sha256").update(ciphertext).digest("hex");
@@ -89,6 +91,8 @@ export async function packEnvelope(options: PackEnvelopeOptions): Promise<string
       keyId: kmsKeyId,
       wrappedKey: wrapped.wrappedKey.toString("base64"),
       algorithm: wrapped.algorithm,
+      iv: iv.toString("base64"),
+      authTag: authTag.toString("base64"),
     },
     expiresAt,
   };

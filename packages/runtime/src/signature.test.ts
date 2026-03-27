@@ -16,6 +16,8 @@ function makeArtifact(
       keyId: string;
       wrappedKey: string;
       algorithm: string;
+      iv?: string;
+      authTag?: string;
     };
   }> = {},
 ) {
@@ -39,7 +41,7 @@ describe("buildSigningPayload (runtime)", () => {
     const artifact = makeArtifact();
     const payload = buildSigningPayload(artifact);
 
-    expect(payload.toString("utf-8")).toContain("clef-sig-v1");
+    expect(payload.toString("utf-8")).toContain("clef-sig-v2");
     expect(payload.toString("utf-8")).toContain("api-gateway");
     expect(payload.toString("utf-8")).toContain("production");
   });

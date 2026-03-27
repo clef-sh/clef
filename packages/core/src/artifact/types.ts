@@ -2,12 +2,16 @@
 export interface ArtifactEnvelope {
   /** KMS provider that wrapped the DEK (e.g. "aws", "gcp", "azure"). */
   provider: string;
-  /** KMS key ARN/ID used to wrap the ephemeral age private key. */
+  /** KMS key ARN/ID used to wrap the AES-256 DEK. */
   keyId: string;
-  /** Base64-encoded wrapped ephemeral age private key (DEK). */
+  /** Base64-encoded KMS-wrapped AES-256 data encryption key (DEK). */
   wrappedKey: string;
   /** KMS encryption algorithm (e.g. "SYMMETRIC_DEFAULT"). */
   algorithm: string;
+  /** Base64-encoded 12-byte AES-GCM initialization vector. */
+  iv: string;
+  /** Base64-encoded 16-byte AES-GCM authentication tag. */
+  authTag: string;
 }
 
 /** Supported artifact signature algorithms. */
@@ -26,7 +30,7 @@ export interface PackedArtifact {
   revision: string;
   /** SHA-256 hex digest of the ciphertext for integrity verification. */
   ciphertextHash: string;
-  /** PEM-armored age ciphertext containing the encrypted secrets blob. */
+  /** Base64-encoded ciphertext. Age format for age-only artifacts; AES-256-GCM for KMS envelope artifacts. */
   ciphertext: string;
   /** Secret key names for introspection (not the values). */
   keys: string[];

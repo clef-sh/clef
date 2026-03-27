@@ -11,7 +11,8 @@ import { buildSigningPayload, signEd25519, signKms } from "./signer";
 /**
  * Packs an encrypted artifact for a service identity + environment.
  *
- * The artifact is a JSON envelope containing age-encrypted secrets that can
+ * The artifact is a JSON envelope containing encrypted secrets (age for
+ * age-only identities, AES-256-GCM for KMS envelope identities) that can
  * be fetched by the runtime agent via HTTP or local file.
  */
 export class ArtifactPacker {
@@ -47,51 +48,50 @@ export class ArtifactPacker {
     let artifact: PackedArtifact;
 
     if (isKmsEnvelope(resolved.envConfig)) {
-      // KMS envelope path
+      // KMS envelope path — AES-256-GCM with KMS-wrapped DEK
       if (!this.kms) {
         throw new Error("KMS provider required for envelope encryption but none was provided.");
       }
 
-      // Generate ephemeral age key pair
-      const { generateIdentity, identityToRecipient, Encrypter } = await import(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic ESM import of CJS-incompatible package
-        "age-encryption" as any
-      );
-      const ephemeralPrivateKey = (await generateIdentity()) as string;
-      const ephemeralPublicKey = (await identityToRecipient(ephemeralPrivateKey)) as string;
+      const dek = crypto.randomBytes(32);
+      const iv = crypto.randomBytes(12);
 
       try {
-        const e = new Encrypter();
-        e.addRecipient(ephemeralPublicKey);
-        const encrypted = await e.encrypt(plaintext);
-        ciphertext = Buffer.from(encrypted as Uint8Array).toString("base64");
-      } catch {
-        throw new Error("Failed to age-encrypt artifact with ephemeral key.");
+        const cipher = crypto.createCipheriv("aes-256-gcm", dek, iv);
+        const ciphertextBuf = Buffer.concat([
+          cipher.update(Buffer.from(plaintext, "utf-8")),
+          cipher.final(),
+        ]);
+        const authTag = cipher.getAuthTag();
+        ciphertext = ciphertextBuf.toString("base64");
+
+        const kmsConfig = resolved.envConfig.kms;
+        const wrapped = await this.kms.wrap(kmsConfig.keyId, dek);
+
+        const revision = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+        const ciphertextHash = crypto.createHash("sha256").update(ciphertext).digest("hex");
+
+        artifact = {
+          version: 1,
+          identity: config.identity,
+          environment: config.environment,
+          packedAt: new Date().toISOString(),
+          revision,
+          ciphertextHash,
+          ciphertext,
+          keys: Object.keys(resolved.values),
+          envelope: {
+            provider: kmsConfig.provider,
+            keyId: kmsConfig.keyId,
+            wrappedKey: wrapped.wrappedKey.toString("base64"),
+            algorithm: wrapped.algorithm,
+            iv: iv.toString("base64"),
+            authTag: authTag.toString("base64"),
+          },
+        };
+      } finally {
+        dek.fill(0);
       }
-
-      // Wrap the ephemeral private key with KMS
-      const kmsConfig = resolved.envConfig.kms;
-      const wrapped = await this.kms.wrap(kmsConfig.keyId, Buffer.from(ephemeralPrivateKey));
-
-      const revision = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-      const ciphertextHash = crypto.createHash("sha256").update(ciphertext).digest("hex");
-
-      artifact = {
-        version: 1,
-        identity: config.identity,
-        environment: config.environment,
-        packedAt: new Date().toISOString(),
-        revision,
-        ciphertextHash,
-        ciphertext,
-        keys: Object.keys(resolved.values),
-        envelope: {
-          provider: kmsConfig.provider,
-          keyId: kmsConfig.keyId,
-          wrappedKey: wrapped.wrappedKey.toString("base64"),
-          algorithm: wrapped.algorithm,
-        },
-      };
     } else {
       // Age-only path (v1, unchanged)
       try {
