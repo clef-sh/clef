@@ -4,6 +4,9 @@ export { DiskCache } from "./disk-cache";
 export { AgeDecryptor } from "./decrypt";
 export { ArtifactPoller } from "./poller";
 export type { PollerOptions, ArtifactEnvelope } from "./poller";
+export { ArtifactDecryptor } from "./artifact-decryptor";
+export type { DecryptedArtifact, ArtifactDecryptorOptions } from "./artifact-decryptor";
+export { EncryptedArtifactStore } from "./encrypted-artifact-store";
 
 // Telemetry
 export { TelemetryEmitter } from "./telemetry";

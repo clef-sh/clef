@@ -1,9 +1,9 @@
 import * as crypto from "crypto";
 import { SecretsCache } from "./secrets-cache";
-import { AgeDecryptor } from "./decrypt";
 import { ArtifactSource } from "./sources/types";
 import { DiskCache } from "./disk-cache";
-import { createKmsProvider } from "./kms";
+import { EncryptedArtifactStore } from "./encrypted-artifact-store";
+import { ArtifactDecryptor } from "./artifact-decryptor";
 import { TelemetryEmitter } from "./telemetry";
 import { buildSigningPayload, verifySignature } from "./signature";
 
@@ -53,7 +53,7 @@ export interface PollerOptions {
   onRefresh?: (revision: string) => void;
   /** Optional error callback for logging. */
   onError?: (err: Error) => void;
-  /** Max seconds the cache may be served without a successful refresh. */
+  /** Max seconds the cache may be served without a successful refresh. 0 = JIT mode. */
   cacheTtl?: number;
   /** Optional telemetry emitter for event reporting. */
   telemetry?: TelemetryEmitter;
@@ -62,11 +62,17 @@ export interface PollerOptions {
    * When set, artifacts without a valid signature are hard-rejected before decryption.
    */
   verifyKey?: string;
+  /** Encrypted artifact store for JIT mode. When set, enables fetch-only polling. */
+  encryptedStore?: EncryptedArtifactStore;
 }
 
 /**
  * Periodically fetches a published artifact, decrypts it, and swaps the
  * secrets cache when a new revision is detected.
+ *
+ * In JIT mode (cacheTtl=0 with encryptedStore), the poller fetches and
+ * validates the artifact but does NOT decrypt. The encrypted artifact is
+ * stored for on-demand decryption by the request handler.
  */
 /** Minimum poll interval in milliseconds (floor for all scheduling). */
 const MIN_POLL_MS = 5_000;
@@ -76,25 +82,78 @@ export class ArtifactPoller {
   private lastContentHash: string | null = null;
   private lastRevision: string | null = null;
   private lastExpiresAt: string | null = null;
-  private readonly decryptor = new AgeDecryptor();
+  private readonly decryptor: ArtifactDecryptor;
   private readonly options: PollerOptions;
+  private readonly jitMode: boolean;
   private telemetryOverride?: TelemetryEmitter;
 
   constructor(options: PollerOptions) {
     this.options = options;
+    this.jitMode = !!options.encryptedStore;
+    this.decryptor = new ArtifactDecryptor({
+      privateKey: options.privateKey,
+      telemetry: options.telemetry,
+    });
+  }
+
+  /** Get the decryptor instance (for JIT mode server wiring). */
+  getDecryptor(): ArtifactDecryptor {
+    return this.decryptor;
   }
 
   /** Set or replace the telemetry emitter (e.g. after resolving token from secrets). */
   setTelemetry(emitter: TelemetryEmitter): void {
     this.telemetryOverride = emitter;
+    this.decryptor.setTelemetry(emitter);
   }
 
   private get telemetry(): TelemetryEmitter | undefined {
     return this.telemetryOverride ?? this.options.telemetry;
   }
 
-  /** Fetch, validate, decrypt, and cache the artifact. */
+  /**
+   * Fetch, validate, decrypt, and cache the artifact.
+   * Used in cached mode (cacheTtl > 0).
+   */
   async fetchAndDecrypt(): Promise<void> {
+    const result = await this.fetchRaw();
+    if (!result) return; // short-circuited (unchanged hash)
+    await this.validateDecryptAndCache(result.artifact, result.contentHash);
+  }
+
+  /**
+   * Fetch and validate the artifact without decrypting.
+   * Stores the validated envelope in the encryptedStore for on-demand decryption.
+   * Used in JIT mode (cacheTtl = 0).
+   */
+  async fetchAndValidate(): Promise<void> {
+    const result = await this.fetchRaw();
+    if (!result) return; // short-circuited (unchanged hash)
+
+    const artifact = this.validateArtifact(result.artifact);
+
+    this.options.encryptedStore!.swap(artifact);
+    this.lastRevision = artifact.revision;
+    this.lastContentHash = result.contentHash ?? null;
+    this.lastExpiresAt = artifact.expiresAt ?? null;
+    this.options.onRefresh?.(artifact.revision);
+    this.telemetry?.artifactRefreshed({
+      revision: artifact.revision,
+      keyCount: artifact.keys.length,
+      kmsEnvelope: !!artifact.envelope,
+    });
+  }
+
+  /**
+   * Fetch the raw artifact from the source (with disk cache fallback),
+   * parse JSON, and check for revocation.
+   *
+   * Returns null when the content hash is unchanged (short-circuit).
+   */
+  private async fetchRaw(): Promise<{
+    artifact: ArtifactEnvelope;
+    contentHash: string | undefined;
+  } | null> {
     let raw: string;
     let contentHash: string | undefined;
 
@@ -104,7 +163,7 @@ export class ArtifactPoller {
       contentHash = result.contentHash;
 
       // Content-hash short-circuit: skip parse+decrypt if unchanged
-      if (contentHash && contentHash === this.lastContentHash) return;
+      if (contentHash && contentHash === this.lastContentHash) return null;
 
       // Write to disk cache on successful fetch
       this.options.diskCache?.write(raw, contentHash);
@@ -119,8 +178,8 @@ export class ArtifactPoller {
       if (this.options.diskCache) {
         const cached = this.options.diskCache.read();
         if (cached) {
-          // Check if disk cache has also expired
-          if (ttl !== undefined) {
+          // Check if disk cache has also expired (skip TTL check in JIT mode)
+          if (ttl !== undefined && ttl > 0) {
             const fetchedAt = this.options.diskCache.getFetchedAt();
             if (fetchedAt && (Date.now() - new Date(fetchedAt).getTime()) / 1000 > ttl) {
               this.options.cache.wipe();
@@ -135,10 +194,10 @@ export class ArtifactPoller {
           raw = cached;
           contentHash = this.options.diskCache.getCachedSha();
           // If the cached hash matches, still skip
-          if (contentHash && contentHash === this.lastContentHash) return;
+          if (contentHash && contentHash === this.lastContentHash) return null;
         } else {
-          // No disk cache content — check in-memory TTL
-          if (ttl !== undefined && this.options.cache.isExpired(ttl)) {
+          // No disk cache content — check in-memory TTL (skip in JIT mode)
+          if (ttl !== undefined && ttl > 0 && this.options.cache.isExpired(ttl)) {
             this.options.cache.wipe();
             this.telemetry?.cacheExpired({
               cacheTtlSeconds: ttl,
@@ -149,8 +208,8 @@ export class ArtifactPoller {
           throw err;
         }
       } else {
-        // No disk cache configured — check in-memory TTL
-        if (ttl !== undefined && this.options.cache.isExpired(ttl)) {
+        // No disk cache configured — check in-memory TTL (skip in JIT mode)
+        if (ttl !== undefined && ttl > 0 && this.options.cache.isExpired(ttl)) {
           this.options.cache.wipe();
           this.telemetry?.cacheExpired({
             cacheTtlSeconds: ttl,
@@ -162,14 +221,12 @@ export class ArtifactPoller {
       }
     }
 
-    // Parse once and pass the result through — avoids double JSON.parse
-    // (previously parsed here and again in parseAndValidate).
     const parsed = JSON.parse(raw) as Record<string, unknown>;
 
-    // Check for revocation before full validation — a revoked artifact
-    // won't have ciphertext/revision fields.
+    // Check for revocation before full validation
     if (parsed.revokedAt) {
       this.options.cache.wipe();
+      this.options.encryptedStore?.wipe();
       this.options.diskCache?.purge();
       this.lastRevision = null;
       this.lastContentHash = null;
@@ -181,19 +238,16 @@ export class ArtifactPoller {
       );
     }
 
-    // Validate, decrypt, and cache — emit artifact.invalid on any failure
-    await this.validateDecryptAndCache(parsed as unknown as ArtifactEnvelope, contentHash);
+    return { artifact: parsed as unknown as ArtifactEnvelope, contentHash };
   }
 
   /**
-   * Validate the artifact, decrypt it, and swap the cache.
-   * Emits `artifact.invalid` on any validation or decryption failure,
-   * and `artifact.expired` / `artifact.refreshed` on their respective paths.
+   * Validate the artifact envelope: version, required fields, expiry,
+   * revision dedup, integrity hash, and signature.
+   * Emits `artifact.invalid` / `artifact.expired` telemetry on failure.
+   * Returns the validated artifact, or throws.
    */
-  private async validateDecryptAndCache(
-    parsed: ArtifactEnvelope,
-    contentHash: string | undefined,
-  ): Promise<void> {
+  private validateArtifact(parsed: ArtifactEnvelope): ArtifactEnvelope {
     let artifact: ArtifactEnvelope;
     try {
       artifact = this.validateEnvelope(parsed);
@@ -208,13 +262,14 @@ export class ArtifactPoller {
     // Check artifact-level expiry
     if (artifact.expiresAt && Date.now() > new Date(artifact.expiresAt).getTime()) {
       this.options.cache.wipe();
+      this.options.encryptedStore?.wipe();
       this.options.diskCache?.purge();
       this.telemetry?.artifactExpired({ expiresAt: artifact.expiresAt });
       throw new Error(`Artifact expired at ${artifact.expiresAt}`);
     }
 
     // Skip if revision unchanged
-    if (artifact.revision === this.lastRevision) return;
+    if (artifact.revision === this.lastRevision) return artifact;
 
     // Verify integrity
     const hash = crypto.createHash("sha256").update(artifact.ciphertext).digest("hex");
@@ -271,91 +326,44 @@ export class ArtifactPoller {
       }
     }
 
-    // Decrypt — KMS envelope uses AES-256-GCM, age-only uses the age decryptor
-    let plaintext: string;
-    if (artifact.envelope) {
-      // KMS envelope: unwrap DEK via KMS, then AES-256-GCM decrypt
-      let dek: Buffer;
-      try {
-        const kms = createKmsProvider(artifact.envelope.provider);
-        const wrappedKey = Buffer.from(artifact.envelope.wrappedKey, "base64");
-        dek = await kms.unwrap(artifact.envelope.keyId, wrappedKey, artifact.envelope.algorithm);
-      } catch (err) {
-        this.telemetry?.artifactInvalid({
-          reason: "kms_unwrap",
-          error: err instanceof Error ? err.message : String(err),
-        });
-        throw err;
-      }
+    return artifact;
+  }
 
-      try {
-        const iv = Buffer.from(artifact.envelope.iv, "base64");
-        const authTag = Buffer.from(artifact.envelope.authTag, "base64");
-        const ciphertextBuf = Buffer.from(artifact.ciphertext, "base64");
-        const decipher = crypto.createDecipheriv("aes-256-gcm", dek, iv);
-        decipher.setAuthTag(authTag);
-        plaintext = Buffer.concat([decipher.update(ciphertextBuf), decipher.final()]).toString(
-          "utf-8",
-        );
-      } catch (err) {
-        this.telemetry?.artifactInvalid({
-          reason: "decrypt",
-          error: err instanceof Error ? err.message : String(err),
-        });
-        throw err;
-      } finally {
-        dek.fill(0);
-      }
-    } else {
-      // Age-only: use the static private key (config error, not artifact.invalid)
-      if (!this.options.privateKey) {
-        throw new Error(
-          "Artifact requires an age private key. Set CLEF_AGENT_AGE_KEY or use KMS envelope encryption.",
-        );
-      }
+  /**
+   * Validate then decrypt and cache. Used by fetchAndDecrypt (cached mode).
+   */
+  private async validateDecryptAndCache(
+    parsed: ArtifactEnvelope,
+    contentHash: string | undefined,
+  ): Promise<void> {
+    const artifact = this.validateArtifact(parsed);
 
-      try {
-        plaintext = await this.decryptor.decrypt(artifact.ciphertext, this.options.privateKey);
-      } catch (err) {
-        this.telemetry?.artifactInvalid({
-          reason: err instanceof SyntaxError ? "payload_parse" : "decrypt",
-          error: err instanceof Error ? err.message : String(err),
-        });
-        throw err;
-      }
-    }
+    // Skip if revision unchanged (validateArtifact returns but doesn't throw)
+    if (artifact.revision === this.lastRevision) return;
 
-    try {
-      const values: Record<string, string> = JSON.parse(plaintext);
-      plaintext = "";
+    // Delegate decryption to the ArtifactDecryptor
+    const { values } = await this.decryptor.decrypt(artifact);
 
-      // Atomic swap
-      this.options.cache.swap(values, artifact.keys, artifact.revision);
-      this.lastRevision = artifact.revision;
-      this.lastContentHash = contentHash ?? null;
-      this.lastExpiresAt = artifact.expiresAt ?? null;
-      this.options.onRefresh?.(artifact.revision);
-      this.telemetry?.artifactRefreshed({
-        revision: artifact.revision,
-        keyCount: artifact.keys.length,
-        kmsEnvelope: !!artifact.envelope,
-      });
-    } catch (err) {
-      // Don't double-emit for errors already classified above
-      if (err instanceof Error && !err.message.includes("integrity check failed")) {
-        this.telemetry?.artifactInvalid({
-          reason: err instanceof SyntaxError ? "payload_parse" : "decrypt",
-          error: err.message,
-        });
-      }
-      throw err;
-    }
+    // Atomic swap
+    this.options.cache.swap(values, artifact.keys, artifact.revision);
+    this.lastRevision = artifact.revision;
+    this.lastContentHash = contentHash ?? null;
+    this.lastExpiresAt = artifact.expiresAt ?? null;
+    this.options.onRefresh?.(artifact.revision);
+    this.telemetry?.artifactRefreshed({
+      revision: artifact.revision,
+      keyCount: artifact.keys.length,
+      kmsEnvelope: !!artifact.envelope,
+    });
   }
 
   /** Start the polling loop. Performs an initial fetch immediately. */
   async start(): Promise<void> {
-    // Initial fetch — fail fast if source is unreachable
-    await this.fetchAndDecrypt();
+    if (this.jitMode) {
+      await this.fetchAndValidate();
+    } else {
+      await this.fetchAndDecrypt();
+    }
     this.scheduleNext();
   }
 
@@ -384,7 +392,11 @@ export class ArtifactPoller {
     this.timer = setTimeout(async () => {
       this.timer = null;
       try {
-        await this.fetchAndDecrypt();
+        if (this.jitMode) {
+          await this.fetchAndValidate();
+        } else {
+          await this.fetchAndDecrypt();
+        }
       } catch (err) {
         this.options.onError?.(err instanceof Error ? err : new Error(String(err)));
       }
@@ -403,6 +415,8 @@ export class ArtifactPoller {
       // Already expired — poll immediately (with floor)
       return MIN_POLL_MS;
     }
+    // JIT mode: 5s interval for fast recovery after rotate + re-enable IAM
+    if (this.jitMode) return MIN_POLL_MS;
     // Fallback: derive from cacheTtl (default 30s if no TTL configured)
     const ttl = this.options.cacheTtl;
     if (ttl !== undefined) {
