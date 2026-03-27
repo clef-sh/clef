@@ -143,7 +143,6 @@ describe("security headers", () => {
     expect(headers["cache-control"]).toBe("no-store");
   });
 
-
   it("rejects requests with invalid Host header", async () => {
     const status = await new Promise<number>((resolve) => {
       const req = http.request(
