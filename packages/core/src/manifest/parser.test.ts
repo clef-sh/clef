@@ -442,6 +442,35 @@ describe("ManifestParser", () => {
       expect(() => parser.validate(manifest)).toThrow(/Duplicate environment name 'dev'/);
     });
 
+    it("should reject namespace names with invalid characters", () => {
+      const manifest = {
+        ...validManifest(),
+        namespaces: [{ name: "My.Namespace", description: "Invalid" }],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/Namespace name 'My.Namespace' is invalid/);
+    });
+
+    it("should reject namespace names starting with a digit", () => {
+      const manifest = {
+        ...validManifest(),
+        namespaces: [{ name: "1database", description: "Starts with digit" }],
+      };
+      expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+      expect(() => parser.validate(manifest)).toThrow(/Namespace name '1database' is invalid/);
+    });
+
+    it("should accept valid namespace names with hyphens and underscores", () => {
+      const manifest = {
+        ...validManifest(),
+        namespaces: [
+          { name: "my-database", description: "Valid hyphen" },
+          { name: "auth_keys", description: "Valid underscore" },
+        ],
+      };
+      expect(() => parser.validate(manifest)).not.toThrow();
+    });
+
     it("should reject duplicate namespace names", () => {
       const manifest = {
         ...validManifest(),

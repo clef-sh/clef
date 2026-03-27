@@ -162,9 +162,12 @@ export class ArtifactPoller {
       }
     }
 
+    // Parse once and pass the result through — avoids double JSON.parse
+    // (previously parsed here and again in parseAndValidate).
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+
     // Check for revocation before full validation — a revoked artifact
     // won't have ciphertext/revision fields.
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (parsed.revokedAt) {
       this.options.cache.wipe();
       this.options.diskCache?.purge();
@@ -179,7 +182,7 @@ export class ArtifactPoller {
     }
 
     // Validate, decrypt, and cache — emit artifact.invalid on any failure
-    await this.validateDecryptAndCache(raw, contentHash);
+    await this.validateDecryptAndCache(parsed as unknown as ArtifactEnvelope, contentHash);
   }
 
   /**
@@ -188,12 +191,12 @@ export class ArtifactPoller {
    * and `artifact.expired` / `artifact.refreshed` on their respective paths.
    */
   private async validateDecryptAndCache(
-    raw: string,
+    parsed: ArtifactEnvelope,
     contentHash: string | undefined,
   ): Promise<void> {
     let artifact: ArtifactEnvelope;
     try {
-      artifact = this.parseAndValidate(raw);
+      artifact = this.validateEnvelope(parsed);
     } catch (err) {
       this.telemetry?.artifactInvalid({
         reason: classifyValidationError(err),
@@ -324,6 +327,7 @@ export class ArtifactPoller {
 
     try {
       const values: Record<string, string> = JSON.parse(plaintext);
+      plaintext = "";
 
       // Atomic swap
       this.options.cache.swap(values, artifact.keys, artifact.revision);
@@ -407,9 +411,7 @@ export class ArtifactPoller {
     return 30_000;
   }
 
-  private parseAndValidate(raw: string): ArtifactEnvelope {
-    const artifact: ArtifactEnvelope = JSON.parse(raw) as ArtifactEnvelope;
-
+  private validateEnvelope(artifact: ArtifactEnvelope): ArtifactEnvelope {
     if (artifact.version !== 1) {
       throw new Error(`Unsupported artifact version: ${artifact.version}`);
     }

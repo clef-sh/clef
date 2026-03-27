@@ -84,3 +84,4 @@ export {
   detectAlgorithm,
 } from "./artifact/signer";
 export type { KmsProvider, KmsWrapResult, KmsProviderType } from "./kms";
+export { VALID_KMS_PROVIDERS } from "./kms";

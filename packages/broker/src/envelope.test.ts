@@ -134,6 +134,20 @@ describe("packEnvelope", () => {
     await expect(packEnvelope(baseOptions(kms))).rejects.toThrow("KMS unavailable");
   });
 
+  it("zeroes the DEK even when kms.wrap() throws", async () => {
+    let capturedDek: Buffer | null = null;
+    kms.wrap.mockImplementation((_keyId: string, dek: Buffer) => {
+      capturedDek = dek; // Capture the actual buffer reference (not a copy)
+      return Promise.reject(new Error("KMS wrap failure"));
+    });
+
+    await expect(packEnvelope(baseOptions(kms))).rejects.toThrow("KMS wrap failure");
+
+    // The DEK buffer should have been zeroed in the finally block
+    expect(capturedDek).not.toBeNull();
+    expect(Buffer.alloc(32).equals(capturedDek!)).toBe(true);
+  });
+
   it("produces AES-256-GCM ciphertext that can be round-tripped", async () => {
     let capturedDek: Buffer | null = null;
     kms.wrap.mockImplementation((_keyId: string, dek: Buffer) => {

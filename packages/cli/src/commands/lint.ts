@@ -7,10 +7,9 @@ import {
   ManifestParser,
   MatrixManager,
   SchemaValidator,
-  SopsMissingError,
-  SopsVersionError,
   SubprocessRunner,
 } from "@clef-sh/core";
+import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
@@ -76,13 +75,7 @@ export function registerLintCommand(program: Command, deps: { runner: Subprocess
         const hasErrors = result.issues.some((i) => i.severity === "error");
         process.exit(hasErrors ? 1 : 0);
       } catch (err) {
-        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-          formatter.formatDependencyError(err);
-          process.exit(1);
-          return;
-        }
-        formatter.error((err as Error).message);
-        process.exit(1);
+        handleCommandError(err);
       }
     });
 }

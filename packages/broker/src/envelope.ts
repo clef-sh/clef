@@ -60,17 +60,24 @@ export async function packEnvelope(options: PackEnvelopeOptions): Promise<string
   const dek = crypto.randomBytes(32);
   const iv = crypto.randomBytes(12);
 
-  const cipher = crypto.createCipheriv("aes-256-gcm", dek, iv);
-  const ciphertextBuf = Buffer.concat([
-    cipher.update(Buffer.from(plaintext, "utf-8")),
-    cipher.final(),
-  ]);
-  const authTag = cipher.getAuthTag();
-  const ciphertext = ciphertextBuf.toString("base64");
+  let ciphertext: string;
+  let authTag: Buffer;
+  let wrapped: Awaited<ReturnType<KmsProvider["wrap"]>>;
 
-  // Wrap the DEK with KMS
-  const wrapped = await kmsProvider.wrap(kmsKeyId, dek);
-  dek.fill(0);
+  try {
+    const cipher = crypto.createCipheriv("aes-256-gcm", dek, iv);
+    const ciphertextBuf = Buffer.concat([
+      cipher.update(Buffer.from(plaintext, "utf-8")),
+      cipher.final(),
+    ]);
+    authTag = cipher.getAuthTag();
+    ciphertext = ciphertextBuf.toString("base64");
+
+    // Wrap the DEK with KMS
+    wrapped = await kmsProvider.wrap(kmsKeyId, dek);
+  } finally {
+    dek.fill(0);
+  }
 
   const revision = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
   const ciphertextHash = crypto.createHash("sha256").update(ciphertext).digest("hex");

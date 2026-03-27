@@ -101,8 +101,10 @@ export class ArtifactPacker {
         e.addRecipient(resolved.recipient!);
         const encrypted = await e.encrypt(plaintext);
         ciphertext = Buffer.from(encrypted as Uint8Array).toString("base64");
-      } catch {
-        throw new Error("Failed to age-encrypt artifact. Check recipient key.");
+      } catch (err) {
+        throw new Error(
+          `Failed to age-encrypt artifact: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
 
       const revision = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;

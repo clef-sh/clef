@@ -32,14 +32,12 @@ export function startAgentServer(options: AgentServerOptions): Promise<AgentServ
   const { port, token, cache, cacheTtl } = options;
   const app = express();
 
-  app.use(express.json());
-
-  // Host header validation — block DNS rebinding attacks
+  // Host header validation — block DNS rebinding attacks.
+  // Allowed hosts are static after startup; compute once.
+  const allowedHosts = new Set([`127.0.0.1:${port}`, "127.0.0.1"]);
   app.use("/v1", (req: Request, res: Response, next: NextFunction) => {
     const host = req.headers.host ?? "";
-    const actualPort = (req.socket.address() as { port?: number })?.port ?? port;
-    const allowedHosts = [`127.0.0.1:${actualPort}`, `127.0.0.1:${port}`];
-    if (!allowedHosts.includes(host)) {
+    if (!allowedHosts.has(host)) {
       res.status(403).json({ error: "Forbidden: invalid Host header" });
       return;
     }
@@ -125,11 +123,11 @@ export function startAgentServer(options: AgentServerOptions): Promise<AgentServ
 }
 
 function authMiddleware(token: string) {
+  const expectedBuf = Buffer.from(token);
   return (req: Request, res: Response, next: NextFunction): void => {
     const authHeader = req.headers.authorization ?? "";
     const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
     const providedBuf = Buffer.from(provided);
-    const expectedBuf = Buffer.from(token);
     if (
       !provided ||
       providedBuf.length !== expectedBuf.length ||

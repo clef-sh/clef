@@ -87,20 +87,16 @@ describe("DriftDetector", () => {
   });
 
   describe("key in remote but missing in local", () => {
-    it("reports drift when remote has a key that local environments lack", () => {
-      const localManifest = makeManifest({
-        environments: [{ name: "dev", description: "Dev" }],
-        namespaces: [{ name: "database", description: "DB" }],
-      });
-      const remoteManifest = makeManifest({
+    it("reports drift when remote has a key that local lacks in a shared environment", () => {
+      const manifest = makeManifest({
         environments: [{ name: "production", description: "Prod" }],
         namespaces: [{ name: "database", description: "DB" }],
       });
       const files: Record<string, Record<string, string>> = {
-        "/local/secrets/database/dev.enc.yaml": { DB_URL: "enc" },
+        "/local/secrets/database/production.enc.yaml": { DB_URL: "enc" },
         "/remote/secrets/database/production.enc.yaml": { DB_URL: "enc", DB_PASS: "enc" },
       };
-      setupManifests(localManifest, remoteManifest, files);
+      setupManifests(manifest, manifest, files);
 
       const detector = new DriftDetector();
       const result = detector.detect("/local", "/remote");
@@ -108,33 +104,30 @@ describe("DriftDetector", () => {
       expect(result.issues).toHaveLength(1);
       expect(result.issues[0].namespace).toBe("database");
       expect(result.issues[0].key).toBe("DB_PASS");
-      expect(result.issues[0].missingFrom).toContain("dev");
+      expect(result.issues[0].missingFrom).toContain("production");
       expect(result.issues[0].presentIn).toContain("production");
     });
   });
 
   describe("key in local but missing in remote", () => {
-    it("reports drift for the key missing from remote environments", () => {
-      const localManifest = makeManifest({
+    it("reports drift for the key missing from remote in a shared environment", () => {
+      const manifest = makeManifest({
         environments: [{ name: "dev", description: "Dev" }],
-      });
-      const remoteManifest = makeManifest({
-        environments: [{ name: "production", description: "Prod" }],
       });
       const files: Record<string, Record<string, string>> = {
         "/local/secrets/database/dev.enc.yaml": { DB_URL: "enc", EXTRA_KEY: "enc" },
         "/local/secrets/auth/dev.enc.yaml": { AUTH_KEY: "enc" },
-        "/remote/secrets/database/production.enc.yaml": { DB_URL: "enc" },
-        "/remote/secrets/auth/production.enc.yaml": { AUTH_KEY: "enc" },
+        "/remote/secrets/database/dev.enc.yaml": { DB_URL: "enc" },
+        "/remote/secrets/auth/dev.enc.yaml": { AUTH_KEY: "enc" },
       };
-      setupManifests(localManifest, remoteManifest, files);
+      setupManifests(manifest, manifest, files);
 
       const detector = new DriftDetector();
       const result = detector.detect("/local", "/remote");
 
       const dbIssue = result.issues.find((i) => i.key === "EXTRA_KEY");
       expect(dbIssue).toBeDefined();
-      expect(dbIssue!.missingFrom).toContain("production");
+      expect(dbIssue!.missingFrom).toContain("dev");
       expect(dbIssue!.presentIn).toContain("dev");
     });
   });
@@ -283,7 +276,7 @@ describe("DriftDetector", () => {
   });
 
   describe("different environments across repos", () => {
-    it("compares across all environments from both repos", () => {
+    it("reports no drift when repos have no shared environments", () => {
       const localManifest = makeManifest({
         environments: [
           { name: "dev", description: "Dev" },
@@ -306,11 +299,46 @@ describe("DriftDetector", () => {
       const detector = new DriftDetector();
       const result = detector.detect("/local", "/remote");
 
+      // No shared environments — nothing to compare, so no false drift
       expect(result.localEnvironments).toEqual(["dev", "staging"]);
       expect(result.remoteEnvironments).toEqual(["production"]);
-      const passIssue = result.issues.find((i) => i.key === "DB_PASS");
-      expect(passIssue).toBeDefined();
-      expect(passIssue!.missingFrom).toContain("production");
+      expect(result.issues).toHaveLength(0);
+    });
+
+    it("only compares keys within shared environments", () => {
+      const localManifest = makeManifest({
+        environments: [
+          { name: "dev", description: "Dev" },
+          { name: "production", description: "Prod" },
+        ],
+        namespaces: [{ name: "database", description: "DB" }],
+      });
+      const remoteManifest = makeManifest({
+        environments: [
+          { name: "staging", description: "Staging" },
+          { name: "production", description: "Prod" },
+        ],
+        namespaces: [{ name: "database", description: "DB" }],
+      });
+
+      const files: Record<string, Record<string, string>> = {
+        "/local/secrets/database/dev.enc.yaml": { LOCAL_ONLY: "enc" },
+        "/local/secrets/database/production.enc.yaml": { DB_URL: "enc", DB_PASS: "enc" },
+        "/remote/secrets/database/staging.enc.yaml": { REMOTE_ONLY: "enc" },
+        "/remote/secrets/database/production.enc.yaml": { DB_URL: "enc" },
+      };
+      setupManifests(localManifest, remoteManifest, files);
+
+      const detector = new DriftDetector();
+      const result = detector.detect("/local", "/remote");
+
+      // Only production is shared — DB_PASS missing from remote production is drift
+      expect(result.issues).toHaveLength(1);
+      expect(result.issues[0].key).toBe("DB_PASS");
+      expect(result.issues[0].presentIn).toContain("production");
+      // LOCAL_ONLY and REMOTE_ONLY are in non-shared envs — not drift
+      expect(result.issues.find((i) => i.key === "LOCAL_ONLY")).toBeUndefined();
+      expect(result.issues.find((i) => i.key === "REMOTE_ONLY")).toBeUndefined();
     });
   });
 

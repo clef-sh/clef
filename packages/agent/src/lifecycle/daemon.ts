@@ -20,6 +20,8 @@ export class Daemon {
   private shutdownResolve?: () => void;
   private readonly shutdownPromise: Promise<void>;
   private readonly startedAt: number;
+  private sigTermHandler?: () => void;
+  private sigIntHandler?: () => void;
 
   constructor(options: DaemonOptions) {
     this.options = options;
@@ -37,6 +39,8 @@ export class Daemon {
       if (this.shutdownRequested) return;
       this.shutdownRequested = true;
       onLog?.("Shutting down...");
+      if (this.sigTermHandler) process.off("SIGTERM", this.sigTermHandler);
+      if (this.sigIntHandler) process.off("SIGINT", this.sigIntHandler);
       poller.stop();
       telemetry?.agentStopped({
         reason: "signal",
@@ -56,12 +60,14 @@ export class Daemon {
       this.shutdownResolve?.();
     };
 
-    process.on("SIGTERM", () => {
+    this.sigTermHandler = () => {
       shutdown().catch(() => {});
-    });
-    process.on("SIGINT", () => {
+    };
+    this.sigIntHandler = () => {
       shutdown().catch(() => {});
-    });
+    };
+    process.on("SIGTERM", this.sigTermHandler);
+    process.on("SIGINT", this.sigIntHandler);
 
     onLog?.(`Agent server listening at ${server.url}`);
     // main.ts already calls fetchAndDecrypt() — only start the polling schedule.

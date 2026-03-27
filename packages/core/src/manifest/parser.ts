@@ -38,6 +38,7 @@ const VALID_TOP_LEVEL_KEYS = [
   "service_identities",
   "cloud",
 ];
+/** Shared pattern for environment and namespace names. */
 const ENV_NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
 const FILE_PATTERN_REQUIRED_TOKENS = ["{namespace}", "{environment}"];
 
@@ -325,6 +326,12 @@ export class ManifestParser {
       if (!nsObj.name || typeof nsObj.name !== "string") {
         throw new ManifestValidationError(
           `Namespace at index ${i} is missing a 'name' string.`,
+          "namespaces",
+        );
+      }
+      if (!ENV_NAME_PATTERN.test(nsObj.name)) {
+        throw new ManifestValidationError(
+          `Namespace name '${nsObj.name}' is invalid. Names must start with a lowercase letter and contain only lowercase letters, digits, hyphens, and underscores.`,
           "namespaces",
         );
       }

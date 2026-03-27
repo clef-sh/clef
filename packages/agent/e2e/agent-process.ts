@@ -73,7 +73,8 @@ export async function startAgent(
   }
 
   const port = options?.port ?? (await findFreePort());
-  const token = options?.token ?? "e2e-agent-token-" + Math.random().toString(36).slice(2);
+  const { randomBytes } = await import("crypto");
+  const token = options?.token ?? "e2e-agent-token-" + randomBytes(16).toString("hex");
 
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),

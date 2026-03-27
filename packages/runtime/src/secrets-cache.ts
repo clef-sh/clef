@@ -11,6 +11,13 @@ export class SecretsCache {
 
   /** Replace the cached secrets in a single reference assignment. */
   swap(values: Record<string, string>, keys: string[], revision: string): void {
+    // Zero old values before dropping the reference — defense-in-depth
+    // against plaintext lingering in the heap until GC.
+    if (this.snapshot) {
+      for (const k of Object.keys(this.snapshot.values)) {
+        this.snapshot.values[k] = "";
+      }
+    }
     this.snapshot = { values: { ...values }, keys: [...keys], revision, swappedAt: Date.now() };
   }
 
@@ -20,8 +27,13 @@ export class SecretsCache {
     return (Date.now() - this.snapshot.swappedAt) / 1000 > ttlSeconds;
   }
 
-  /** Clear the cached snapshot. */
+  /** Clear the cached snapshot, zeroing values first (best-effort). */
   wipe(): void {
+    if (this.snapshot) {
+      for (const k of Object.keys(this.snapshot.values)) {
+        this.snapshot.values[k] = "";
+      }
+    }
     this.snapshot = null;
   }
 

@@ -1,14 +1,11 @@
 import * as path from "path";
 import { Command } from "commander";
-import {
-  ManifestParser,
-  SopsMissingError,
-  SopsVersionError,
-  SubprocessRunner,
-} from "@clef-sh/core";
+import { ManifestParser, SubprocessRunner } from "@clef-sh/core";
+import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
+import { parseTarget } from "../parse-target";
 import * as crypto from "crypto";
 
 export function registerCompareCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -66,10 +63,20 @@ export function registerCompareCommand(program: Command, deps: { runner: Subproc
 
         const stored = decrypted.values[key];
 
-        // Constant-time comparison to avoid timing side-channels
-        const match =
-          stored.length === compareValue.length &&
-          crypto.timingSafeEqual(Buffer.from(stored), Buffer.from(compareValue));
+        // Constant-time comparison to avoid timing side-channels.
+        // Pad both buffers to equal length so the length check itself
+        // does not leak the stored value's length via timing.
+        const storedBuf = Buffer.from(stored);
+        const compareBuf = Buffer.from(compareValue);
+        const maxLen = Math.max(storedBuf.length, compareBuf.length, 1);
+        const paddedStored = Buffer.alloc(maxLen);
+        const paddedCompare = Buffer.alloc(maxLen);
+        storedBuf.copy(paddedStored);
+        compareBuf.copy(paddedCompare);
+        // Always execute timingSafeEqual regardless of length — the &&
+        // short-circuit would leak whether lengths matched via timing.
+        const timingEqual = crypto.timingSafeEqual(paddedStored, paddedCompare);
+        const match = storedBuf.length === compareBuf.length && timingEqual;
 
         if (match) {
           formatter.success(`${key} ${sym("arrow")} values match`);
@@ -78,21 +85,7 @@ export function registerCompareCommand(program: Command, deps: { runner: Subproc
           process.exit(1);
         }
       } catch (err) {
-        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-          formatter.formatDependencyError(err);
-          process.exit(1);
-          return;
-        }
-        formatter.error((err as Error).message);
-        process.exit(1);
+        handleCommandError(err);
       }
     });
-}
-
-function parseTarget(target: string): [string, string] {
-  const parts = target.split("/");
-  if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new Error(`Invalid target "${target}". Expected format: namespace/environment`);
-  }
-  return [parts[0], parts[1]];
 }
