@@ -10,6 +10,7 @@ import {
   SecretsCache,
   AgeDecryptor,
   ArtifactPoller,
+  EncryptedArtifactStore,
   createVcsProvider,
   VcsArtifactSource,
   HttpArtifactSource,
@@ -25,6 +26,7 @@ import { version as agentVersion } from "../package.json";
 
 async function main(): Promise<void> {
   const config = resolveConfig();
+  const jitMode = config.cacheTtl === 0;
 
   // Age key is optional — KMS envelope artifacts don't need one
   let privateKey: string | undefined;
@@ -61,6 +63,8 @@ async function main(): Promise<void> {
       : undefined;
 
   const cache = new SecretsCache();
+  const encryptedStore = jitMode ? new EncryptedArtifactStore() : undefined;
+
   const poller = new ArtifactPoller({
     source,
     privateKey,
@@ -68,10 +72,21 @@ async function main(): Promise<void> {
     diskCache,
     cacheTtl: config.cacheTtl,
     verifyKey: config.verifyKey,
+    encryptedStore,
     onError: (err) => console.error(`[clef-agent] poll error: ${err.message}`),
   });
 
-  await poller.fetchAndDecrypt();
+  if (jitMode) {
+    // JIT mode: fetch + validate (no decrypt) — stores encrypted artifact
+    await poller.fetchAndValidate();
+
+    // One-shot decrypt for telemetry bootstrap, then wipe the cache
+    const artifact = encryptedStore!.get()!;
+    const { values } = await poller.getDecryptor().decrypt(artifact);
+    cache.swap(values, artifact.keys, artifact.revision);
+  } else {
+    await poller.fetchAndDecrypt();
+  }
 
   // Telemetry setup — after first fetch so the auth token can be read from packed secrets
   let telemetry: TelemetryEmitter | undefined;
@@ -104,11 +119,17 @@ async function main(): Promise<void> {
     poller.setTelemetry(telemetry);
   }
 
+  // Wipe the cache after telemetry bootstrap in JIT mode — no plaintext in memory
+  if (jitMode) {
+    cache.wipe();
+  }
+
   const server = await startAgentServer({
     port: config.port,
     token: config.token,
     cache,
     cacheTtl: config.cacheTtl,
+    ...(jitMode ? { decryptor: poller.getDecryptor(), encryptedStore } : {}),
   });
 
   const daemon = new Daemon({
@@ -119,6 +140,7 @@ async function main(): Promise<void> {
   });
 
   telemetry?.agentStarted({ version: agentVersion });
+  console.log(`[clef-agent] mode: ${jitMode ? "jit" : "cached"}`);
   console.log(`[clef-agent] token: [set]`);
   await daemon.start();
 }

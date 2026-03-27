@@ -119,20 +119,10 @@ describe("secrets retrieval", () => {
     expect(body).toEqual(TEST_SECRETS);
   });
 
-  it("GET /v1/secrets/:key returns individual secret", async () => {
-    const { status, body } = await agentFetch(
-      `http://127.0.0.1:${TEST_PORT}`,
-      "/v1/secrets/DATABASE_URL",
-      TOKEN,
-    );
-    expect(status).toBe(200);
-    expect(body).toEqual({ value: TEST_SECRETS.DATABASE_URL });
-  });
-
-  it("GET /v1/secrets/:key returns 404 for missing key", async () => {
+  it("GET /v1/secrets/:key route is removed (returns 404)", async () => {
     const { status } = await agentFetch(
       `http://127.0.0.1:${TEST_PORT}`,
-      "/v1/secrets/NONEXISTENT",
+      "/v1/secrets/DATABASE_URL",
       TOKEN,
     );
     expect(status).toBe(404);
@@ -150,15 +140,6 @@ describe("secrets retrieval", () => {
 describe("security headers", () => {
   it("GET /v1/secrets includes Cache-Control: no-store", async () => {
     const { headers } = await agentFetch(`http://127.0.0.1:${TEST_PORT}`, "/v1/secrets", TOKEN);
-    expect(headers["cache-control"]).toBe("no-store");
-  });
-
-  it("GET /v1/secrets/:key includes Cache-Control: no-store", async () => {
-    const { headers } = await agentFetch(
-      `http://127.0.0.1:${TEST_PORT}`,
-      "/v1/secrets/API_KEY",
-      TOKEN,
-    );
     expect(headers["cache-control"]).toBe("no-store");
   });
 

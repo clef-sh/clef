@@ -86,14 +86,8 @@ describe("secrets retrieval", () => {
     assert.deepEqual(body, TEST_SECRETS);
   });
 
-  it("GET /v1/secrets/:key returns individual secret", async () => {
-    const { status, body } = await agentFetch(agent.url, "/v1/secrets/DATABASE_URL", agent.token);
-    assert.equal(status, 200);
-    assert.deepEqual(body, { value: TEST_SECRETS.DATABASE_URL });
-  });
-
-  it("GET /v1/secrets/:key returns 404 for missing key", async () => {
-    const { status } = await agentFetch(agent.url, "/v1/secrets/NONEXISTENT", agent.token);
+  it("GET /v1/secrets/:key route is removed (returns 404)", async () => {
+    const { status } = await agentFetch(agent.url, "/v1/secrets/DATABASE_URL", agent.token);
     assert.equal(status, 404);
   });
 

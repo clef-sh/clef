@@ -44,7 +44,7 @@ const clefBin = path.resolve(__dirname, "../../packages/cli/dist/index.cjs");
 
 describe("clef export roundtrip", () => {
   it("should output export statements with correct values", () => {
-    const result = execFileSync("node", [clefBin, "export", "payments/dev"], {
+    const result = execFileSync("node", [clefBin, "export", "payments/dev", "--raw"], {
       cwd: repo.dir,
       env: {
         ...process.env,
@@ -58,13 +58,17 @@ describe("clef export roundtrip", () => {
   });
 
   it("should omit export keyword with --no-export", () => {
-    const result = execFileSync("node", [clefBin, "export", "payments/dev", "--no-export"], {
-      cwd: repo.dir,
-      env: {
-        ...process.env,
-        SOPS_AGE_KEY_FILE: keys.keyFilePath,
+    const result = execFileSync(
+      "node",
+      [clefBin, "export", "payments/dev", "--no-export", "--raw"],
+      {
+        cwd: repo.dir,
+        env: {
+          ...process.env,
+          SOPS_AGE_KEY_FILE: keys.keyFilePath,
+        },
       },
-    });
+    );
 
     const output = result.toString();
     expect(output).toContain("STRIPE_KEY='sk_test_abc123'");
@@ -74,7 +78,7 @@ describe("clef export roundtrip", () => {
   it("should correctly quote values with special characters", () => {
     // This test uses the existing encrypted file — the values don't have
     // special characters, but verifies the quoting format is correct
-    const result = execFileSync("node", [clefBin, "export", "payments/dev"], {
+    const result = execFileSync("node", [clefBin, "export", "payments/dev", "--raw"], {
       cwd: repo.dir,
       env: {
         ...process.env,
