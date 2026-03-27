@@ -16,11 +16,6 @@ on:
   release:
     types: [published]
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to build (e.g. 0.1.6-beta.18) — same format as publish-beta-npm"
-        required: true
-        type: string
 
 permissions:
   contents: write
@@ -35,35 +30,41 @@ jobs:
       tag: ${{ steps.check.outputs.tag }}
       version: ${{ steps.check.outputs.version }}
     steps:
+      - uses: actions/checkout@v6
+        if: github.event_name == 'workflow_dispatch'
+
       - id: check
         run: |
-          # Manual dispatch: version input (no v prefix, e.g. 0.1.6-beta.18)
-          # Release event: tag_name (has v prefix, e.g. v0.1.6-beta.18)
-          RAW="${{ inputs.version || github.event.release.tag_name }}"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # Manual dispatch: read version from package.json on the checked-out branch
+            VERSION=$(node -p "require('./packages/cli/package.json').version")
+            BUILD_CLI=true
+            BUILD_AGENT=true
+          else
+            # Release event: tag_name (has v prefix, e.g. v0.1.6-beta.18)
+            RAW="${{ github.event.release.tag_name }}"
+            VERSION="${RAW#v}"
+            BUILD_CLI=false
+            BUILD_AGENT=false
 
-          # Normalize: strip v prefix if present to get the version
-          VERSION="${RAW#v}"
-          # Normalize: ensure tag has v prefix for gh release upload
+            # Beta versions build both CLI and agent
+            if [[ "$VERSION" =~ ^.+-beta\.[0-9]+$ ]]; then
+              BUILD_CLI=true
+              BUILD_AGENT=true
+            fi
+            # Stable tags build only the matching package
+            if [[ "$RAW" =~ ^@clef-sh/cli@(.+)$ ]]; then
+              BUILD_CLI=true
+              VERSION="${BASH_REMATCH[1]}"
+            fi
+            if [[ "$RAW" =~ ^@clef-sh/agent@(.+)$ ]]; then
+              BUILD_AGENT=true
+              VERSION="${BASH_REMATCH[1]}"
+            fi
+          fi
+
           TAG="v${VERSION}"
-
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          BUILD_CLI=false
-          BUILD_AGENT=false
-
-          # Beta versions build both CLI and agent
-          if [[ "$VERSION" =~ ^.+-beta\.[0-9]+$ ]]; then
-            BUILD_CLI=true
-            BUILD_AGENT=true
-          fi
-          # Stable tags build only the matching package
-          if [[ "$RAW" =~ ^@clef-sh/cli@(.+)$ ]]; then
-            BUILD_CLI=true
-            VERSION="${BASH_REMATCH[1]}"
-          fi
-          if [[ "$RAW" =~ ^@clef-sh/agent@(.+)$ ]]; then
-            BUILD_AGENT=true
-            VERSION="${BASH_REMATCH[1]}"
-          fi
           echo "build_cli=$BUILD_CLI" >> "$GITHUB_OUTPUT"
           echo "build_agent=$BUILD_AGENT" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
