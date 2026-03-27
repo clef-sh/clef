@@ -278,7 +278,7 @@ Service identities provide **cryptographic least privilege**. Each identity has:
 - Per-environment cryptographic keys (age key pairs or KMS envelope configuration)
 - Registration as a SOPS recipient on scoped files only (age mode) or no registration at all (KMS envelope mode)
 
-An `api-gateway` identity scoped to `["api-keys", "database"]` cannot decrypt the `payments` namespace — the enforcement is cryptographic at the file level. But the configuration of that enforcement — who is a recipient on which files — is controlled by the manifest, which lives in git. This means git access control is the access control for secrets. That is both the simplicity and the caveat: one system instead of two, but that one system carries the risk profile of both.
+An `api-gateway` identity scoped to `["api-keys", "database"]` cannot decrypt the `payments` namespace — the enforcement is cryptographic at the file level. The configuration of that enforcement — who is a recipient on which files — is controlled by the manifest in git (see Section 2.3 for the implications of git as the access control layer).
 
 **KMS envelope identities have zero access to git-stored secrets.** In KMS envelope mode, the service identity has no age key pair and is not registered as a SOPS recipient on any file. The `registerRecipients` step is skipped entirely for KMS-backed environments. This means a compromised workload with IAM `kms:Decrypt` permission on the envelope key can unwrap the packed artifact — recovering only the pre-scoped secrets for its identity and environment — but it has no cryptographic path to decrypt anything in git. The SOPS backend uses a different KMS key entirely, and the workload's IAM role should not have permission on it. This separation is the strongest isolation the architecture provides: the workload never touches the source-of-truth encrypted files, only the derivative artifact built specifically for it.
 
@@ -385,27 +385,23 @@ As discussed in Section 1.3, age keys reduce the custody problem but don't elimi
 - All three authenticate via IAM role. Key material never leaves the HSM.
 - Every `clef pack` generates a fresh ephemeral key pair. There is no long-lived secret to rotate or protect.
 
-The flow:
+**Ephemeral key lifecycle — step by step:**
 
-```
-CI Pipeline (pack time)                    Production Runtime
-┌────────────────────────┐                 ┌────────────────────────┐
-│ 1. Decrypt SOPS files  │                 │ 1. Fetch artifact      │
-│    (via KMS backend)   │                 │    (VCS API / HTTP)    │
-│ 2. Generate ephemeral  │                 │                        │
-│    age key pair        │                 │ 2. Extract wrapped     │
-│ 3. Encrypt merged      │                 │    ephemeral key from  │
-│    secrets with        │                 │    envelope            │
-│    ephemeral public    │                 │                        │
-│    key                 │                 │ 3. Unwrap via KMS      │
-│ 4. Wrap ephemeral      │                 │    (kms:Decrypt)       │
-│    PRIVATE key with    │                 │                        │
-│    KMS                 │                 │ 4. Decrypt secrets     │
-│ 5. Publish artifact    │                 │    with ephemeral      │
-│    with wrapped key    │                 │    private key         │
-│    in envelope         │                 │                        │
-└────────────────────────┘                 └────────────────────────┘
-```
+**CI pipeline (pack time):**
+
+1. `clef pack` calls `kms:Decrypt` on the SOPS backend key to decrypt the source `.enc.yaml` files. Plaintext exists only in the CI runner's memory.
+2. A fresh ephemeral age key pair is generated. This key pair is unique to this pack invocation — it will never be reused.
+3. The decrypted secrets (scoped to the service identity's namespaces) are encrypted with the ephemeral age public key.
+4. The ephemeral age **private** key is wrapped (encrypted) by calling `kms:Encrypt` on the service identity's envelope KMS key. The plaintext private key is then discarded.
+5. The artifact envelope is assembled: encrypted secrets, wrapped ephemeral key, integrity hash, optional signature. Published to VCS, S3, or the artifact store.
+
+**Production runtime (serve time):**
+
+1. The agent fetches the artifact from VCS API, S3, or HTTP.
+2. Validates the envelope: version, integrity hash (SHA-256 of ciphertext), signature (if verification key is configured), and expiry.
+3. Extracts the wrapped ephemeral private key from the `envelope` field and calls `kms:Decrypt` to unwrap it. This is the only KMS call at runtime — and it is the authorization gate. If the workload's IAM role lacks `kms:Decrypt` permission on this key, the request fails here.
+4. Uses the unwrapped ephemeral private key to AES-256-GCM decrypt the secrets. The ephemeral key is zeroed immediately after use.
+5. Serves the decrypted secrets via `GET /v1/secrets`. In cached mode, the plaintext is held in memory until the next poll. In JIT mode (Section 6.4), steps 3–4 execute on every request and no plaintext is retained between requests.
 
 **What the runtime needs**: IAM permission to call `kms:Decrypt` on a specific KMS key. No token. No static credential. No secret to bootstrap.
 
@@ -561,7 +557,7 @@ Clef's architecture ensures that no Clef-operated system ever has access to cust
 | Attacker capability                   | What they can see                                                   | What they cannot do                                                                                                                            |
 | ------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | Read access to git repo               | Key names, encrypted values, recipient list, manifest structure     | Decrypt any secret value (requires age private key or KMS `Decrypt` permission)                                                                |
-| Write access to git repo              | Everything above, plus can modify manifest                          | Decrypt existing secrets (can add rogue recipient, but PR review + `clef lint` detect this; see Section 8.7)                                   |
+| Write access to git repo              | Everything above, plus can modify manifest                          | Decrypt existing secrets (can add rogue recipient, but PR review + `clef lint` detect this; see Section 8.8)                                   |
 | Compromised CI runner                 | Plaintext of secrets within the service identity scope being packed | Access secrets outside that scope; persist access beyond the CI run (KMS mode)                                                                 |
 | Compromised agent sidecar             | Plaintext of secrets in that service identity's current artifact    | Access other service identities' secrets; access historical or future artifact revisions (ephemeral keys)                                      |
 | Artifact store write access           | Can replace artifacts in S3/GCS/VCS                                 | Produce a validly signed artifact without the signing key (when signing is enabled; see Section 4.3). Without signing, this is a viable attack |
@@ -570,15 +566,13 @@ Clef's architecture ensures that no Clef-operated system ever has access to cust
 
 ### 8.3 Access Control
 
-In a traditional secrets manager, access control is a separate system: the vault server evaluates policies at request time. In Clef, access control is git. The manifest declares who can decrypt what, SOPS enforces it cryptographically, and git controls who can change the manifest. There is no separate policy server to configure, maintain, or secure — but there is also no separation between the system that holds secrets and the system that controls access to them.
-
-The cryptographic mechanisms are:
+Access control in Clef is the git repository itself: the manifest declares recipients, SOPS enforces the cryptography, and git controls who can change the manifest. Section 2.3 covers the implications — git carries the combined risk profile of a secrets store and an access control system. This section focuses on the cryptographic mechanisms that enforce scoping regardless of git controls:
 
 - **Per-environment encryption**: Each environment can use a different backend (age, KMS) and different recipients. A developer with the `development` age key cannot decrypt `production`.
 - **Per-service-identity scoping**: Service identities are registered as SOPS recipients only on the namespace files they need. The `api-gateway` identity cannot decrypt `payments` secrets because it is not a recipient on those files.
 - **Per-artifact ephemeral keys** (KMS mode): Each packed artifact uses a unique ephemeral age key pair. Compromising one artifact's decrypted content reveals nothing about other artifacts.
 
-The trust chain is: git write access → manifest control → recipient list → cryptographic enforcement. An attacker who can merge a change to `clef.yaml` can add themselves as a recipient. This is the same class of risk as an attacker who can modify Vault policies or Doppler project access — the difference is that in Clef, the access control configuration is version-controlled, reviewable in a PR diff, and auditable in git history. The residual risk is an insider with merge permissions who adds a rogue recipient in a PR alongside legitimate changes. `clef lint` detects unrecognized recipients, but the lint output must be reviewed — it does not block merges on its own without CI enforcement.
+The trust chain is: git write access → manifest control → recipient list → cryptographic enforcement. The residual risk — an insider who adds a rogue recipient via a legitimate-looking PR — is mitigated by `clef lint` (detects unrecognized recipients), CODEOWNERS, and required CI checks (see Section 8.8).
 
 ### 8.4 No Single Point of Failure
 
@@ -618,7 +612,21 @@ Multiple layers prevent secret exposure:
 9. **Timing-safe auth**: Bearer token comparison resists timing attacks.
 10. **Host header validation**: DNS rebinding protection on all server routes.
 
-### 8.6 Audit Trail
+### 8.6 KMS Key Loss and Disaster Recovery
+
+In KMS mode, the SOPS backend key is the root of all source encryption. If this key is permanently deleted or its policy is irreparably mangled, every `.enc.yaml` file encrypted with it becomes unrecoverable — git preserves the ciphertext, but no path to plaintext exists. This is a property of the encryption model, not a Clef limitation: any system that delegates key management to a cloud KMS inherits this dependency.
+
+Cloud providers have built-in safeguards against accidental deletion: AWS KMS enforces a mandatory 7–30 day waiting period before key destruction, during which the deletion can be cancelled. GCP and Azure have equivalent protections. These waiting periods are the primary safety net and should not be shortened.
+
+Recommended operational controls:
+
+- **Deny `ScheduleKeyDeletion` in the key policy** for all roles except a dedicated break-glass administrator. This prevents accidental or unauthorized deletion even by principals with broad KMS permissions.
+- **CloudTrail / Cloud Audit alerting** on any `ScheduleKeyDeletion` or `DisableKey` event targeting SOPS or envelope keys. Detection during the waiting period allows cancellation.
+- **Break-glass age recipient**: Add an offline age public key as a secondary SOPS recipient on all encrypted files (`clef recipients add`). Store the corresponding private key in a physical safe or hardware security module, never on a networked system. If the KMS key is lost, this age key can still decrypt every file in the repository. This is the one Clef-specific recommendation — everything else is standard KMS operational hygiene.
+
+Clef does not implement its own key recovery mechanism. The cloud provider's KMS infrastructure is purpose-built for key lifecycle management, and layering a second recovery system on top would add complexity without meaningful additional protection.
+
+### 8.7 Audit Trail
 
 In KMS envelope mode, the audit trail is comprehensive, distributed across infrastructure the customer already operates:
 
@@ -631,13 +639,9 @@ The chain from git commit to CI pack to KMS unwrap to agent refresh provides com
 
 **Per-key read granularity**: The agent serves secrets as a complete bundle via `GET /v1/secrets` — there is no per-key endpoint. In envelope encryption, one KMS unwrap decrypts the entire namespace payload. Logging individual key reads would imply false granularity since all values are decrypted together. The correct audit boundary is the KMS decrypt call in the cloud provider's audit logs: it tells you who unwrapped the DEK, when, and for which artifact revision. That is the meaningful access event, and it lives in the customer's own infrastructure. In JIT mode (Section 6.4), each `GET /v1/secrets` request maps to a distinct KMS audit log entry.
 
-### 8.7 Repository Integrity and CI Hardening
+### 8.8 Repository Integrity and CI Hardening
 
-Clef's architecture shifts trust from "a running secrets server" to "git + CI/CD." The git repository carries the combined risk profile of a secrets store and an access control system. Organizations should protect it accordingly.
-
-**Git as the secrets perimeter.** With a centralized secrets manager, git is just code — an attacker with repo access gets source code but no secrets. With Clef, git contains encrypted secrets. The SOPS backend protects them cryptographically, but the manifest (`clef.yaml`) controls who can decrypt — it declares recipients. An attacker who can merge a change to `clef.yaml` can add their own age public key as a recipient, wait for a re-encryption, and then decrypt.
-
-This is mitigated by process controls that Clef provides tooling for but does not enforce unilaterally:
+As established in Section 2.3, the git repository carries the combined risk profile of a secrets store and an access control system. This section details the specific controls that harden it:
 
 - **Branch protection**: Require pull request reviews for all changes. No direct pushes to `main` or protected branches.
 - **CODEOWNERS**: Assign security-sensitive files (`clef.yaml`, `.sops.yaml`, `*.enc.yaml`) to a security-owner group that must approve changes. This is the single most important control — it prevents rogue recipient additions from merging without security review.
@@ -651,7 +655,7 @@ This is mitigated by process controls that Clef provides tooling for but does no
 - **Short-lived CI credentials**: Use OIDC federation (GitHub Actions `id-token: write` → `AssumeRoleWithWebIdentity`) so there are no long-lived secrets in CI. This eliminates the static credential from the CI trust boundary entirely.
 - **Artifact signing**: When enabled (Section 4.3), the runtime hard-rejects unsigned or incorrectly signed artifacts. This prevents an attacker who compromises the artifact store from replacing artifacts — they would need both the signing key and artifact store write access.
 
-**The honest assessment.** Git and CI/CD carry more load in this model than they do with a centralized secrets manager. The controls needed — branch protection, CODEOWNERS, required CI checks, scoped IAM — are things most teams should already have. The difference is that with Vault, sloppiness in these areas does not expose secrets. With Clef, it can — because the encrypted secrets and the access control manifest are both in the repo. The upside is that all of it is auditable in `git log`, reviewable in PRs, and enforceable with tools the team already uses. No second system to secure.
+The controls above — branch protection, CODEOWNERS, required CI checks, scoped IAM — are things most teams should already have. With Clef, they are not optional best practices; they are the secrets perimeter (see Section 2.3).
 
 ---
 
@@ -667,7 +671,7 @@ This is mitigated by process controls that Clef provides tooling for but does no
 | Doppler             | None (SaaS)                              | Vendor-managed                                              |
 | **Clef**            | **None (Clef-specific)**                 | **Git workflow + KMS/IAM provisioning (age mode: minimal)** |
 
-A clarification on "zero ops": Clef requires no Clef-specific infrastructure because secrets live in git and runtime delivery uses the customer's existing compute and storage. However, the KMS-native path requires provisioning KMS keys, writing IAM policies, configuring CI roles, and managing artifact storage. These are real operational tasks, but they are tasks within the platform engineering the team already does. The claim is not that no work is required, but that no new category of infrastructure is introduced.
+"Zero additional infrastructure" means no new servers to deploy, patch, or scale. It does not mean zero configuration. The KMS-native path requires provisioning KMS keys, writing IAM policies, configuring CI roles, and managing artifact storage — real operational tasks, but within the platform engineering the team already does, not a new category of infrastructure.
 
 ### 9.2 Custody Model
 
@@ -718,7 +722,7 @@ The architectural differences produce different security properties. Neither sys
 - **Secret freshness**: Vault serves the latest value on every read. Clef serves whatever was in the artifact at pack time. If a secret is rotated at the source, the artifact must be re-packed and redeployed. Broker-backed dynamic credentials (Section 7) eliminate this gap for credential types that support short-lived generation.
 - **Revocation latency**: Vault can invalidate a token immediately so the workload cannot fetch new secrets — but the workload still holds the secret value in memory, and rotating the credential at the source still requires the same steps regardless of the manager. Clef has `revokedAt` and TTL-based expiry, but the runtime must poll to notice. For static secrets (API keys, config values — most secrets), both systems require the same manual steps: rotate at source, update the store, wait for the workload to pick it up. Vault's edge is narrow and specific to its dynamic secret backends that can `REVOKE` server-side credentials they generated.
 - **Operator trust during pack**: the person or CI runner executing `clef pack` has access to plaintext. In Vault, operators can configure policies without ever seeing secret values. However, the blast radius is scoped: `clef pack` only decrypts the SOPS files within the service identity's namespace scope.
-- **Git and CI/CD carry more load**: the repository is simultaneously code, secrets, and access control. This is the core tradeoff — one system to secure, but it must be treated with the seriousness of all three (see Section 8.7).
+- **Git and CI/CD carry more load**: the repository is simultaneously code, secrets, and access control (see Sections 2.3 and 8.7).
 
 ### 9.6 When to Use What
 
@@ -732,7 +736,7 @@ The architecture described in this paper leaves two practical concerns that grow
 
 ### 10.1 Telemetry
 
-Audit and observability are different concerns, handled by different infrastructure. Audit — who accessed what, when, and with what authorization — is the responsibility of the systems that perform the access: KMS audit logs for decryption events, VCS history for authorship, CI logs for packaging (Section 8.6). Clef does not duplicate this; the audit trail lives in infrastructure the organization already operates and monitors.
+Audit and observability are different concerns, handled by different infrastructure. Audit — who accessed what, when, and with what authorization — is the responsibility of the systems that perform the access: KMS audit logs for decryption events, VCS history for authorship, CI logs for packaging (Section 8.7). Clef does not duplicate this; the audit trail lives in infrastructure the organization already operates and monitors.
 
 Observability — is the agent healthy, are credentials fresh, are any artifacts expired or revoked — is handled by OTLP (OpenTelemetry Protocol) telemetry emitted by the Clef agent to any compatible backend. No Clef-specific backend is required. Combined with `clef report` (which publishes manifest structure, policy evaluation, and matrix metadata as structured JSON), the full secrets posture is observable through the organization's existing tooling.
 
@@ -775,7 +779,7 @@ Clef's architecture delivers five properties that no existing secrets manager pr
 
 The result is a secrets management system where the blast radius of a runtime compromise is bounded to one service identity in one environment (when separate KMS keys are used for SOPS and envelope encryption; see Section 8.4), where operational burden is limited to existing platform engineering, and where the vendor relationship is one of tooling, not custody.
 
-The trade-off is that git and CI/CD carry more load than they do with a centralized secrets manager. The encrypted secrets, the access control manifest, and the signing pipeline all live within the team's existing version control and CI infrastructure. The controls required — branch protection, CODEOWNERS, required CI checks, scoped IAM — are well-understood practices, but they must be treated with the seriousness of a secrets perimeter, not just a code repository (see Section 8.7).
+The trade-off is that git and CI/CD carry more load than they do with a centralized secrets manager. The encrypted secrets, the access control manifest, and the signing pipeline all live within the team's existing version control and CI infrastructure. The controls required — branch protection, CODEOWNERS, required CI checks, scoped IAM — are well-understood practices, but they must be treated with the seriousness of a secrets perimeter, not just a code repository (see Section 8.8).
 
 ---
 
