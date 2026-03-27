@@ -997,9 +997,8 @@ describe("ArtifactPoller", () => {
 
       // Advance to trigger the scheduled poll (cacheTtl/10 = 10s)
       jest.advanceTimersByTime(10_000);
-      // Wait for the async callback to settle
-      await Promise.resolve();
-      await Promise.resolve();
+      // Wait for the async callback chain to settle
+      for (let i = 0; i < 10; i++) await Promise.resolve();
 
       expect(onError).toHaveBeenCalledWith(expect.any(Error));
       poller.stop();

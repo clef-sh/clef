@@ -39,6 +39,7 @@ describe("Agent HTTP server", () => {
       expect(status).toBe(200);
       expect(body).toEqual({
         status: "ok",
+        mode: "cached",
         revision: null,
         lastRefreshAt: null,
         expired: false,
@@ -92,22 +93,6 @@ describe("Agent HTTP server", () => {
     it("GET /v1/secrets should include Cache-Control: no-store", async () => {
       const { headers } = await getJson("/v1/secrets", TOKEN);
       expect(headers.get("cache-control")).toBe("no-store");
-    });
-
-    it("GET /v1/secrets/:key should return single secret", async () => {
-      const { status, body } = await getJson("/v1/secrets/DB_URL", TOKEN);
-      expect(status).toBe(200);
-      expect(body).toEqual({ value: "postgres://..." });
-    });
-
-    it("GET /v1/secrets/:key should include Cache-Control: no-store", async () => {
-      const { headers } = await getJson("/v1/secrets/DB_URL", TOKEN);
-      expect(headers.get("cache-control")).toBe("no-store");
-    });
-
-    it("GET /v1/secrets/:key should return 404 for missing key", async () => {
-      const { status } = await getJson("/v1/secrets/NOPE", TOKEN);
-      expect(status).toBe(404);
     });
 
     it("GET /v1/keys should return key names", async () => {

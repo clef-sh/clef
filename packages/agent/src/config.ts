@@ -132,9 +132,9 @@ export function resolveConfig(env: Record<string, string | undefined> = process.
 
   const cacheTtlStr = env.CLEF_AGENT_CACHE_TTL ?? "300";
   const cacheTtl = parseInt(cacheTtlStr, 10);
-  if (isNaN(cacheTtl) || cacheTtl < 30) {
+  if (isNaN(cacheTtl) || cacheTtl < 0 || (cacheTtl > 0 && cacheTtl < 30)) {
     throw new ConfigError(
-      `Invalid CLEF_AGENT_CACHE_TTL '${cacheTtlStr}'. Must be an integer >= 30.`,
+      `Invalid CLEF_AGENT_CACHE_TTL '${cacheTtlStr}'. Must be 0 (just-in-time mode) or an integer >= 30.`,
     );
   }
 
