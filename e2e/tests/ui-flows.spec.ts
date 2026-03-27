@@ -17,6 +17,13 @@ import { generateAgeKey, type AgeKeyPair } from "../setup/keys";
 import { scaffoldTestRepo, type TestRepo } from "../setup/repo";
 import { startClefUI, type ServerInfo } from "../setup/server";
 
+/** Extract the base URL (no query params) and the Bearer token from the tokenized server URL. */
+function serverApi(tokenizedUrl: string): { base: string; headers: Record<string, string> } {
+  const u = new URL(tokenizedUrl);
+  const token = u.searchParams.get("token") ?? "";
+  return { base: u.origin, headers: { Authorization: `Bearer ${token}` } };
+}
+
 // Shared fixtures — server is expensive; start once and share across all tests.
 let keys: AgeKeyPair;
 let secondKeys: AgeKeyPair; // Second key pair for recipient add tests
@@ -774,7 +781,7 @@ test.describe("clef service → ServiceIdentitiesScreen: create flow", () => {
     await page.getByTestId("nav-service ids").click();
     await page.getByText("+ New identity").click();
     await expect(page.getByTestId("si-name-input")).toBeVisible();
-    await expect(page.getByText("payments")).toBeVisible();
+    await expect(page.getByTestId("ns-checkbox-payments")).toBeVisible();
   });
 
   test("[positive] submit creates identity and shows private keys view", async ({ page }) => {
@@ -782,7 +789,7 @@ test.describe("clef service → ServiceIdentitiesScreen: create flow", () => {
     await page.getByTestId("nav-service ids").click();
     await page.getByText("+ New identity").click();
     await page.getByTestId("si-name-input").fill("e2e-create");
-    await page.getByText("payments").click();
+    await page.getByTestId("ns-checkbox-payments").click();
     await page.getByTestId("create-si-submit").click();
     await expect(page.getByText("Copy these private keys now")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText("dev")).toBeVisible();
@@ -858,7 +865,7 @@ test.describe("clef service → ServiceIdentitiesScreen: update backends flow", 
     await page.getByTestId("nav-service ids").click();
     await page.getByTestId("si-web-app").click();
     await page.getByTestId("update-backends-btn").click();
-    await page.getByText("Cancel").click();
+    await page.getByTestId("update-cancel-btn").click();
     await expect(page.getByTestId("back-button")).toBeVisible();
     await expect(page.getByTestId("update-backends-btn")).toBeVisible();
   });
@@ -868,13 +875,14 @@ test.describe("clef service → ServiceIdentitiesScreen: update backends flow", 
 
 test.describe("clef service → ServiceIdentitiesScreen: delete flow", () => {
   test.beforeEach(async ({ request }) => {
+    const { base, headers } = serverApi(server.url);
     // Ensure a fresh identity exists for each delete test
-    await request.delete(`${server.url}/api/service-identities/to-delete`).catch(() => {
-      /* may not exist */
-    });
-    await request.post(`${server.url}/api/service-identities`, {
+    await request.delete(`${base}/api/service-identities/to-delete`, { headers }).catch(() => {});
+    const res = await request.post(`${base}/api/service-identities`, {
+      headers,
       data: { name: "to-delete", namespaces: ["payments"] },
     });
+    expect(res.ok()).toBe(true);
   });
 
   test("[positive] delete removes the identity from the list", async ({ page }) => {

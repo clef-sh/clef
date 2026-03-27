@@ -722,12 +722,32 @@ describe("ManifestParser", () => {
         expect(() => parser.validate(manifest)).toThrow(/name/);
       });
 
-      it("should reject service identity missing description", () => {
+      it("should accept service identity with missing description", () => {
         const manifest = {
           ...validManifest(),
           service_identities: [
             {
               name: "api-gw",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        const result = parser.validate(manifest);
+        expect(result.service_identities![0].description).toBe("");
+      });
+
+      it("should reject service identity with non-string description", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gw",
+              description: 42,
               namespaces: ["database"],
               environments: {
                 dev: { recipient: testRecipient },

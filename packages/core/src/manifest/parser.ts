@@ -452,9 +452,9 @@ export class ManifestParser {
         }
         const siName = siObj.name;
 
-        if (!siObj.description || typeof siObj.description !== "string") {
+        if (siObj.description != null && typeof siObj.description !== "string") {
           throw new ManifestValidationError(
-            `Service identity '${siName}' is missing a 'description' string.`,
+            `Service identity '${siName}' has a non-string 'description'.`,
             "service_identities",
           );
         }
@@ -583,7 +583,7 @@ export class ManifestParser {
 
         return {
           name: siName,
-          description: siObj.description as string,
+          description: (siObj.description as string) ?? "",
           namespaces: siObj.namespaces as string[],
           environments: parsedEnvs,
         };

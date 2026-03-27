@@ -912,7 +912,12 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <Button variant="ghost" onClick={goDetail} disabled={updating}>
+              <Button
+                data-testid="update-cancel-btn"
+                variant="ghost"
+                onClick={goDetail}
+                disabled={updating}
+              >
                 Cancel
               </Button>
               <Button
@@ -1139,6 +1144,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                 return (
                   <label
                     key={ns.name}
+                    data-testid={`ns-checkbox-${ns.name}`}
                     style={{
                       display: "flex",
                       alignItems: "center",
