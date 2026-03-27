@@ -23,6 +23,7 @@ export function DiffView({ manifest }: DiffViewProps) {
   const [envA, setEnvA] = useState(environments[0]?.name ?? "");
   const [envB, setEnvB] = useState(environments[environments.length - 1]?.name ?? "");
   const [showSame, setShowSame] = useState(false);
+  const [showValues, setShowValues] = useState(false);
   const [diffResult, setDiffResult] = useState<DiffResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
@@ -37,7 +38,8 @@ export function DiffView({ manifest }: DiffViewProps) {
     if (!ns || !envA || !envB || envA === envB) return;
     setLoading(true);
     try {
-      const res = await apiFetch(`/api/diff/${ns}/${envA}/${envB}`);
+      const qs = showValues ? "?showValues=true" : "";
+      const res = await apiFetch(`/api/diff/${ns}/${envA}/${envB}${qs}`);
       if (res.ok) {
         setDiffResult(await res.json());
       } else {
@@ -48,7 +50,7 @@ export function DiffView({ manifest }: DiffViewProps) {
     } finally {
       setLoading(false);
     }
-  }, [ns, envA, envB]);
+  }, [ns, envA, envB, showValues]);
 
   useEffect(() => {
     loadDiff();
@@ -217,6 +219,25 @@ export function DiffView({ manifest }: DiffViewProps) {
         </div>
 
         <div style={{ flex: 1 }} />
+
+        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={showValues}
+            onChange={(e) => setShowValues(e.target.checked)}
+            data-testid="show-values-toggle"
+            style={{ accentColor: theme.accent }}
+          />
+          <span
+            style={{
+              fontFamily: theme.sans,
+              fontSize: 12,
+              color: theme.textMuted,
+            }}
+          >
+            Show values
+          </span>
+        </label>
 
         <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
           <input

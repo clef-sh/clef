@@ -723,7 +723,7 @@ describe("clef exec", () => {
     expect(mockExit).toHaveBeenCalledWith(129);
   });
 
-  it("should exit with code 128 for unmapped signal", async () => {
+  it("should exit with correct 128+N code for any signal", async () => {
     const child = new EventEmitter();
     mockSpawn.mockReturnValue(child);
     setTimeout(() => child.emit("exit", null, "SIGUSR1"), 10);
@@ -734,6 +734,9 @@ describe("clef exec", () => {
     process.argv = ["node", "clef", "exec", "payments/dev", "--", "node", "server.js"];
     await program.parseAsync(["node", "clef", "exec", "payments/dev", "--", "node", "server.js"]);
 
-    expect(mockExit).toHaveBeenCalledWith(128);
+    // SIGUSR1 = signal 30 on macOS, 10 on Linux — the exact code varies by OS
+    const exitCode = mockExit.mock.calls[0][0] as number;
+    expect(exitCode).toBeGreaterThan(128);
+    expect(exitCode).toBeLessThanOrEqual(128 + 64);
   });
 });

@@ -4,8 +4,6 @@ import { Command } from "commander";
 import {
   ManifestParser,
   MatrixManager,
-  SopsMissingError,
-  SopsVersionError,
   SubprocessRunner,
   RecipientManager,
   validateAgePublicKey,
@@ -17,6 +15,7 @@ import {
   findRequest,
   REQUESTS_FILENAME,
 } from "@clef-sh/core";
+import { handleCommandError } from "../handle-error";
 import type { ClefManifest } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
@@ -88,13 +87,7 @@ export function registerRecipientsCommand(
           formatter.recipientItem(r.label || r.preview, r.label ? r.preview : "");
         }
       } catch (err) {
-        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-          formatter.formatDependencyError(err);
-          process.exit(1);
-          return;
-        }
-        formatter.error((err as Error).message);
-        process.exit(1);
+        handleCommandError(err);
       }
     });
 
@@ -136,13 +129,7 @@ export function registerRecipientsCommand(
           );
         }
       } catch (err) {
-        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-          formatter.formatDependencyError(err);
-          process.exit(1);
-          return;
-        }
-        formatter.error((err as Error).message);
-        process.exit(1);
+        handleCommandError(err);
       }
     });
 
@@ -286,13 +273,7 @@ export function registerRecipientsCommand(
           `git add clef.yaml && git add -A && git commit -m "remove recipient: ${label}${envSuffix}"`,
         );
       } catch (err) {
-        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-          formatter.formatDependencyError(err);
-          process.exit(1);
-          return;
-        }
-        formatter.error((err as Error).message);
-        process.exit(1);
+        handleCommandError(err);
       }
     });
 
@@ -456,13 +437,7 @@ export function registerRecipientsCommand(
           );
         }
       } catch (err) {
-        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-          formatter.formatDependencyError(err);
-          process.exit(1);
-          return;
-        }
-        formatter.error((err as Error).message);
-        process.exit(1);
+        handleCommandError(err);
       }
     });
 }

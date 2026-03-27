@@ -87,7 +87,7 @@ detect_platform() {
     mingw*|msys*|cygwin*|windows*)
       fatal "Use the PowerShell installer on Windows:
        irm https://clef.sh/install.ps1 | iex
-       Or install via npm: npm install -g @clef-sh/cli@beta"
+       Or install via npm: npm install -g @clef-sh/cli"
       ;;
     *)
       fatal "Unsupported operating system: $OS"
@@ -140,22 +140,7 @@ resolve_version() {
     sed 's/.*@clef-sh\/cli@//;s/"//')
 
   if [ -z "$VERSION" ]; then
-    # ── PRE-LAUNCH ONLY: remove this block after the first stable release ──
-    # Before go-live there are no @clef-sh/cli@ tags, so fall back to the
-    # latest beta so the install script works during the pre-launch period.
-    # Once a stable release ships this branch will never be reached.
-    VERSION=$(printf '%s' "$RELEASES" | \
-      grep -o '"tag_name": "v[^"]*-beta\.[^"]*"' | \
-      head -1 | \
-      sed 's/.*"v//;s/"//')
-
-    if [ -z "$VERSION" ]; then
-      fatal "Could not detect latest version. Set CLEF_VERSION=X.Y.Z to install manually."
-    fi
-
-    warn "No stable release found — installing latest beta: $VERSION"
-    warn "Beta builds are functional but may change without notice."
-    # ── END PRE-LAUNCH BLOCK ───────────────────────────────────────────────
+    fatal "Could not detect latest version. Set CLEF_VERSION=X.Y.Z to install manually."
   fi
 
   info "Latest version: $VERSION"

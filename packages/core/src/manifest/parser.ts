@@ -38,6 +38,7 @@ const VALID_TOP_LEVEL_KEYS = [
   "service_identities",
   "cloud",
 ];
+/** Shared pattern for environment and namespace names. */
 const ENV_NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
 const FILE_PATTERN_REQUIRED_TOKENS = ["{namespace}", "{environment}"];
 
@@ -328,6 +329,12 @@ export class ManifestParser {
           "namespaces",
         );
       }
+      if (!ENV_NAME_PATTERN.test(nsObj.name)) {
+        throw new ManifestValidationError(
+          `Namespace name '${nsObj.name}' is invalid. Names must start with a lowercase letter and contain only lowercase letters, digits, hyphens, and underscores.`,
+          "namespaces",
+        );
+      }
       if (!nsObj.description || typeof nsObj.description !== "string") {
         throw new ManifestValidationError(
           `Namespace '${nsObj.name}' is missing a 'description' string.`,
@@ -445,9 +452,9 @@ export class ManifestParser {
         }
         const siName = siObj.name;
 
-        if (!siObj.description || typeof siObj.description !== "string") {
+        if (siObj.description != null && typeof siObj.description !== "string") {
           throw new ManifestValidationError(
-            `Service identity '${siName}' is missing a 'description' string.`,
+            `Service identity '${siName}' has a non-string 'description'.`,
             "service_identities",
           );
         }
@@ -576,7 +583,7 @@ export class ManifestParser {
 
         return {
           name: siName,
-          description: siObj.description as string,
+          description: (siObj.description as string) ?? "",
           namespaces: siObj.namespaces as string[],
           environments: parsedEnvs,
         };

@@ -117,18 +117,6 @@ function Get-LatestVersion {
     return $Matches[1]
   }
 
-  # ── PRE-LAUNCH ONLY: remove this block after the first stable release ──
-  # Before go-live there are no @clef-sh/cli@ tags, so fall back to the
-  # latest beta so the install script works during the pre-launch period.
-  # Once a stable release ships this branch will never be reached.
-  if ($releases -match '"tag_name":\s*"v([^"]*-beta\.[^"]+)"') {
-    $betaVersion = $Matches[1]
-    Write-Warn "No stable release found — installing latest beta: $betaVersion"
-    Write-Warn "Beta builds are functional but may change without notice."
-    return $betaVersion
-  }
-  # ── END PRE-LAUNCH BLOCK ────────────────────────────────────────────────
-
   Write-Fatal "Could not detect latest version. Set `$env:CLEF_VERSION to install manually."
 }
 

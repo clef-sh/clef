@@ -4,16 +4,16 @@ import {
   BulkOps,
   ManifestParser,
   MatrixManager,
-  SopsMissingError,
-  SopsVersionError,
   SubprocessRunner,
   generateRandomValue,
   markPendingWithRetry,
   markResolved,
 } from "@clef-sh/core";
+import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
+import { parseTarget } from "../parse-target";
 
 export function registerSetCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -207,11 +207,26 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
             try {
               await markPendingWithRetry(filePath, [key], "clef set --random");
             } catch {
+              // Roll back: remove the key and re-encrypt to avoid an orphaned
+              // placeholder with no tracking metadata. Reuse the in-scope
+              // decrypted values to avoid a redundant decrypt subprocess call.
+              try {
+                delete decrypted.values[key];
+                await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
+              } catch {
+                // Rollback failed — warn the user explicitly
+                formatter.error(
+                  `${key} was encrypted but pending state could not be recorded, and rollback failed.\n` +
+                    "  The encrypted file may contain an untracked random placeholder.\n" +
+                    "  This key MUST be set to a real value before deploying.\n" +
+                    `  Run: clef set ${namespace}/${environment} ${key}`,
+                );
+                process.exit(1);
+                return;
+              }
               formatter.error(
-                `${key} was encrypted but pending state could not be recorded.\n` +
-                  "  The encrypted file contains a random placeholder value with no tracking metadata.\n" +
-                  "  This key MUST be set to a real value before deploying.\n" +
-                  `  Run: clef set ${namespace}/${environment} ${key}`,
+                `${key}: pending state could not be recorded. The value was rolled back.\n` +
+                  `  Retry: clef set --random ${namespace}/${environment} ${key}`,
               );
               process.exit(1);
               return;
@@ -237,22 +252,8 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
             );
           }
         } catch (err) {
-          if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-            formatter.formatDependencyError(err);
-            process.exit(1);
-            return;
-          }
-          formatter.error((err as Error).message);
-          process.exit(1);
+          handleCommandError(err);
         }
       },
     );
-}
-
-function parseTarget(target: string): [string, string] {
-  const parts = target.split("/");
-  if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new Error(`Invalid target "${target}". Expected format: namespace/environment`);
-  }
-  return [parts[0], parts[1]];
 }

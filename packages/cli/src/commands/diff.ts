@@ -6,10 +6,9 @@ import {
   DiffResult,
   ManifestParser,
   MatrixManager,
-  SopsMissingError,
-  SopsVersionError,
   SubprocessRunner,
 } from "@clef-sh/core";
+import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
@@ -91,13 +90,7 @@ export function registerDiffCommand(program: Command, deps: { runner: Subprocess
           const hasDiffs = result.rows.some((r) => r.status !== "identical");
           process.exit(hasDiffs ? 1 : 0);
         } catch (err) {
-          if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-            formatter.formatDependencyError(err);
-            process.exit(1);
-            return;
-          }
-          formatter.error((err as Error).message);
-          process.exit(1);
+          handleCommandError(err);
         }
       },
     );

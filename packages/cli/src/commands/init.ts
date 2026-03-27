@@ -21,6 +21,7 @@ import {
   markPending,
   resolveRecipientsForEnvironment,
 } from "@clef-sh/core";
+import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
 import { setKeychainKey } from "../keychain";
 import { generateKeyLabel } from "../label-generator";
@@ -165,8 +166,7 @@ export function registerInitCommand(program: Command, deps: { runner: Subprocess
 
         await handleFullSetup(repoRoot, manifestPath, clefConfigPath, deps, options);
       } catch (err) {
-        formatter.error((err as Error).message);
-        process.exit(1);
+        handleCommandError(err);
       }
     });
 }

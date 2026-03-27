@@ -42,7 +42,7 @@ describe("buildSigningPayload", () => {
     const artifact = makeArtifact({ expiresAt: "2026-03-22T11:00:00.000Z" });
     const payload = buildSigningPayload(artifact).toString("utf-8");
 
-    expect(payload).toContain("clef-sig-v1");
+    expect(payload).toContain("clef-sig-v2");
     expect(payload).toContain("1");
     expect(payload).toContain("api-gateway");
     expect(payload).toContain("production");
@@ -66,6 +66,8 @@ describe("buildSigningPayload", () => {
         keyId: "arn:aws:kms:us-east-1:111:key/test",
         wrappedKey: "d3JhcHBlZC1rZXk=",
         algorithm: "SYMMETRIC_DEFAULT",
+        iv: "dGVzdC1pdi1ieXRlcw==",
+        authTag: "dGVzdC1hdXRoLXRhZy1ieXRl",
       },
     });
     const payload = buildSigningPayload(artifact).toString("utf-8");
@@ -73,6 +75,8 @@ describe("buildSigningPayload", () => {
     expect(payload).toContain("arn:aws:kms:us-east-1:111:key/test");
     expect(payload).toContain("d3JhcHBlZC1rZXk=");
     expect(payload).toContain("SYMMETRIC_DEFAULT");
+    expect(payload).toContain("dGVzdC1pdi1ieXRlcw==");
+    expect(payload).toContain("dGVzdC1hdXRoLXRhZy1ieXRl");
   });
 
   it("should use empty strings for missing optional fields", () => {
@@ -85,6 +89,8 @@ describe("buildSigningPayload", () => {
     expect(lines[10]).toBe(""); // envelope.keyId
     expect(lines[11]).toBe(""); // envelope.wrappedKey
     expect(lines[12]).toBe(""); // envelope.algorithm
+    expect(lines[13]).toBe(""); // envelope.iv
+    expect(lines[14]).toBe(""); // envelope.authTag
   });
 
   it("produces canonical payload matching runtime specification", () => {
@@ -98,6 +104,8 @@ describe("buildSigningPayload", () => {
         keyId: "arn:aws:kms:us-east-1:123456789012:key/abcd-1234",
         wrappedKey: "d3JhcHBlZC1hZ2Uta2V5LWhlcmU=",
         algorithm: "SYMMETRIC_DEFAULT",
+        iv: "dGVzdC1pdi0xMjM0",
+        authTag: "dGVzdC1hdXRoLXRhZy0xMjM0NTY=",
       },
     });
 
@@ -106,7 +114,7 @@ describe("buildSigningPayload", () => {
     // The canonical format is: domain prefix, then each field on its own line,
     // keys sorted lexicographically and comma-joined, missing optionals as "".
     const expected = [
-      "clef-sig-v1",
+      "clef-sig-v2",
       "1",
       "api-gateway",
       "production",
@@ -119,12 +127,14 @@ describe("buildSigningPayload", () => {
       "arn:aws:kms:us-east-1:123456789012:key/abcd-1234",
       "d3JhcHBlZC1hZ2Uta2V5LWhlcmU=",
       "SYMMETRIC_DEFAULT",
+      "dGVzdC1pdi0xMjM0",
+      "dGVzdC1hdXRoLXRhZy0xMjM0NTY=",
     ].join("\n");
 
     expect(payload).toBe(expected);
 
-    // Verify exact line count (13 lines = domain prefix + 12 fields)
-    expect(payload.split("\n")).toHaveLength(13);
+    // Verify exact line count (15 lines = domain prefix + 14 fields)
+    expect(payload.split("\n")).toHaveLength(15);
   });
 });
 

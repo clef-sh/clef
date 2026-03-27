@@ -49,7 +49,7 @@ You are not choosing between developer ergonomics and enterprise compliance. Cle
 curl -fsSL https://clef.sh/install.sh | sh
 ```
 
-The install script downloads the Clef binary and sops for your platform, verifies checksums, and places them in `/usr/local/bin`. See `CLEF_INSTALL_DIR`, `CLEF_VERSION`, and other options in the [installation guide](https://docs.clef.sh/guide/installation).
+The install script downloads the Clef binary and sops for your platform, verifies checksums, and places them in `~/.local/bin`. See `CLEF_INSTALL_DIR`, `CLEF_VERSION`, and other options in the [installation guide](https://docs.clef.sh/guide/installation).
 
 ### Prerequisites
 

@@ -6,23 +6,37 @@
 
 ## Abstract
 
-Every secrets manager requires a server, and every server requires custody. Clef eliminates both. Secrets are encrypted files in git, delivered to production by a lightweight agent. No central infrastructure. No vendor with access to your keys. The question shifts from "who holds the secret key?" to "who has IAM permission?" — a policy question, not a custody question.
+A secrets server is unnecessary overhead. The secrets already live in git — encrypted, versioned, reviewed — and the compute that needs them already has an identity: an IAM role, a service account, an OIDC token. The missing piece is not a server. It is an architecture that connects those two facts without introducing a third system to trust.
 
-This paper describes the architecture across four deployment contexts: local development, CI/CD, production workloads, and dynamic credential generation via customer-owned brokers.
+Clef is that architecture. Secrets are SOPS-encrypted files in git. A lightweight agent delivers them to production as packed, signed artifacts. No central server. No vendor custody. In KMS mode, no static credential exists anywhere in the pipeline — authentication is an IAM policy, not a key you can leak.
+
+The recommended production topology uses two separate KMS keys and a dedicated secrets repository, eliminating both static credentials and cross-environment blast radius. Everything else in this paper is a stepping stone toward that destination. Section 1.1 provides a quick decision guide for readers who want to know upfront whether Clef fits their situation.
 
 ---
 
 ## 1. The Problem
 
-Secrets management has three costs that compound:
+Secrets management has three costs that compound, and the third one is the root of the other two:
 
-**Custody.** Every system that stores secrets creates a custodial relationship. A breach of that system exposes everything stored on it. Self-hosted or SaaS — the customer trusts the operator with their plaintext.
+**Token bootstrapping.** A secrets manager requires an authentication token. That token is itself a secret. Without deliberate configuration, tokens end up baked into container images, hardcoded in CI, or stored in yet another secrets manager. Vault, cloud-native managers, and others have answers — Vault's auth methods (AppRole, Kubernetes auth, AWS IAM auth) and cloud secret managers' native IAM integration both reduce or eliminate static bootstrap credentials. The cost is configuration complexity: Vault auth methods require their own setup, lifecycle management, and operational surface; cloud-native managers solve it at the expense of vendor custody. The question is not whether a solution exists but what it costs to operate one.
 
-**Operations.** Vault requires an HA cluster, a storage backend, and unsealing on every restart. Infisical requires PostgreSQL, Redis, and an application server. This infrastructure must be monitored, patched, and scaled for what should be a primitive, not a project.
+**Custody.** Every system that stores secrets creates a custodial relationship. A breach of that system exposes everything stored on it. Self-hosted or SaaS — the customer trusts the operator with their plaintext. Custody is a direct consequence of bootstrapping: if something must hold a token to authenticate, that thing is now a custodian.
 
-**Token bootstrapping.** A secrets manager requires an authentication token. That token is itself a secret. Tokens end up baked into container images, hardcoded in CI, or stored in yet another secrets manager. Each is a static credential with broad access.
+**Operations.** Vault requires an HA cluster, a storage backend, and unsealing on every restart. Infisical requires PostgreSQL, Redis, and an application server. This infrastructure must be monitored, patched, and scaled for what should be a primitive, not a project. Operational burden is a direct consequence of custody: the more systems that hold credentials, the more systems that must be kept running, secured, and audited.
 
-Age-based encryption (Clef's quick-start path) addresses operations — no server — but not bootstrapping. An age key is still a static credential that something must hold. KMS envelope mode (Section 6) addresses all three: no server, no vendor custody, no static credential. The bootstrapping problem reduces to IAM policy.
+Age-based encryption (Clef's quick-start path) addresses operations — no server — but not bootstrapping. An age key is still a static credential that something must hold. That static credential is the bootstrapping problem deferred, not solved. KMS envelope mode (Section 6) addresses all three: no server, no vendor custody, no static credential. The bootstrapping problem reduces to an IAM policy — the same IAM the team already manages for compute.
+
+### 1.1 Is Clef Right for You?
+
+Not every team needs what Clef provides. Honest guidance before investing in the rest of this paper:
+
+**A small team on a PaaS with a handful of environment variables**: Doppler or the platform's native secrets. The overhead of git-native encryption, SOPS, and age key management may not be justified for five secrets.
+
+**A team already using a cloud provider's IAM extensively**: Cloud-native secret managers (AWS Secrets Manager, GCP Secret Manager, Azure Key Vault) are serious alternatives. They offer native IAM integration, managed rotation for supported services, and zero infrastructure — similar properties to Clef's KMS mode. The key difference: secrets are not versioned in git. No PR review, no drift detection, no cross-environment comparison. Clef is stronger when the team values git-native workflows and cross-environment consistency. Cloud secret managers are stronger when the team wants managed rotation and minimal tooling.
+
+**A team that needs dynamic credentials today with minimal engineering investment**: Vault. Its built-in secrets engines for databases, cloud IAM, and PKI are production-proven and require no custom code. Clef's dynamic credential architecture requires implementing a broker handler. Vault's integration breadth is larger by an order of magnitude.
+
+**A team that wants secrets versioned alongside code, git-native review workflows, and no central server**: Clef. This is the use case the architecture is designed for. Start with age keys and a single repository — it works in an afternoon. Graduate to KMS as IAM maturity allows.
 
 ---
 
@@ -138,12 +152,17 @@ This is a cleaner rollback story than centralized vault architectures, where res
 
 A CI pipeline that runs `clef pack` needs to decrypt SOPS files. Clef supports a maturity path from convenience to zero-custody:
 
-| Tier            | Key Storage                | Authentication      | Static Credential? | Use Case                 |
-| --------------- | -------------------------- | ------------------- | ------------------ | ------------------------ |
-| **Quick-start** | Age key in CI secret store | CI secret injection | **Yes**            | Development, small teams |
-| **KMS-native**  | No age key                 | IAM role (OIDC)     | **No**             | Production, CI pipelines |
+| Tier             | SOPS backend | Service identity   | Static credential? | Production-ready? |
+| ---------------- | ------------ | ------------------ | ------------------ | ----------------- |
+| **Quick-start**  | age          | age                | **Yes**            | No                |
+| **KMS standard** | KMS          | KMS (single key)   | **No**             | Yes               |
+| **KMS hardened** | KMS          | KMS (separate key) | **No**             | **Recommended**   |
 
-The **quick-start tier** is a complete solution for small teams. Store an age key in GitHub Actions secrets and go. The age key is a static credential in an external store, which means CI depends on that store's security, but for teams with a small circle of trust, this is a manageable custody arrangement. No cloud infrastructure required, no KMS key to provision, no IAM policies to write. Many teams will run this way permanently and that's fine.
+The quick-start tier is the fastest path to working secrets. The KMS hardened tier is the destination. Everything in between is a stepping stone — each layer removes one static credential from the system. The rest of this section describes what it takes to reach each tier.
+
+The **quick-start tier** is the right starting point for most teams. `clef init` generates an age key, encrypts the matrix, and installs git hooks in one command. Teams already using vanilla SOPS with age keys can adopt Clef by adding a `clef.yaml` manifest — existing encrypted files, existing keys, and existing `.sops.yaml` recipients all continue to work without modification. No cloud infrastructure required, no KMS key to provision, no IAM policies to write.
+
+The limitation is specifically at the production service identity boundary: a runtime that needs to decrypt its artifact must hold the age private key somewhere — an env var, a secrets manager entry, a file on disk. That stored key is a static credential, which is the problem the rest of the architecture is designed to eliminate. Age keys for local development, CI decryption with a stored key, and team member access are all reasonable uses of this tier. Age keys as production runtime credentials are where the tradeoff becomes significant.
 
 The **KMS-native tier** eliminates all static credentials from the CI pipeline. This requires three things to be true simultaneously:
 
@@ -356,7 +375,7 @@ Regardless of polling source, any machine with a local clone of the repository c
 
 ## 6. Tokenless Secrets: KMS Envelope Encryption
 
-### 6.1 The Token Bootstrapping Problem, Solved
+### 6.1 Token Bootstrapping Without a Second System
 
 As discussed in Section 1.3, age keys reduce the custody problem but don't eliminate it. **KMS envelope encryption breaks this cycle** — when the full KMS-native stack is in place (Section 4.1: SOPS backend is KMS, service identity uses KMS envelope, CI authenticates via IAM role). Under those conditions, no static credential exists anywhere in the pipeline:
 
@@ -452,105 +471,13 @@ process.on("SIGTERM", () => broker.shutdown());
 
 This works in any JavaScript context — Lambda, Cloud Functions, Azure Functions, containers, plain Node processes. The SDK does not start an HTTP server; it returns a `{ statusCode, headers, body }` response that the caller adapts to their platform. A `serve()` convenience wrapper is provided for long-running processes that need an HTTP server.
 
-### 7.3 Broker Tiers
+### 7.3 Broker Tiers, Registry, and Lambda Deployment
 
-Credential sources divide into three tiers based on lifecycle complexity:
+Credential sources divide into three tiers: Tier 1 (self-expiring — STS tokens, RDS IAM tokens, OAuth access tokens) implements only `create()`; Tier 2 (stateful — SQL database users, Redis ACL users) adds `revoke()` so the SDK can clean up before each rotation; Tier 3 (complex teardown) adds custom state. The SDK handles all envelope construction, encryption, caching, and lifecycle — the broker author writes only the credential generation call.
 
-| Tier  | Lifecycle                                                        | Broker implements                      | Examples                                                               |
-| ----- | ---------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------- |
-| **1** | Self-expiring — credentials expire naturally, no cleanup needed  | `create()`                             | STS AssumeRole, RDS IAM tokens, OAuth access tokens, GCP access tokens |
-| **2** | Stateful — new credential replaces previous, old must be revoked | `create()` + `revoke()`                | SQL database users, MongoDB users, Redis ACL users                     |
-| **3** | Complex — multi-step teardown or external coordination           | `create()` + `revoke()` + custom state | IAM users (detach policies, delete keys), LDAP, K8s RBAC               |
+A Broker Registry provides `clef install rds-iam`-style scaffolding for common sources (STS AssumeRole, RDS IAM tokens, OAuth client credentials, parameterized SQL via Handlebars templates). For serverless workloads the agent runs as a Lambda extension, registering for `INVOKE` and `SHUTDOWN` events and serving secrets to the function handler via `http://127.0.0.1:7779/v1/secrets` — no SDK, no env var parsing, no cold-start credential bootstrapping.
 
-Tier 1 brokers are pure functions. Tier 2 brokers implement an additional `revoke(entityId, config)` method; the SDK calls it automatically before each rotation and on `shutdown()`. State tracking is in-memory — if the process dies ungracefully, the credential expires at its natural TTL.
-
-### 7.4 The Broker Registry
-
-The Clef Broker Registry is an open catalog of broker templates. `clef install` downloads a handler into the user's project:
-
-```bash
-$ clef install rds-iam
-  Name:        rds-iam
-  Provider:    aws
-  Tier:        1 (self-expiring)
-  Created:     brokers/rds-iam/broker.yaml, handler.ts, README.md
-```
-
-Official brokers cover the most common credential sources:
-
-| Broker                     | Provider | Tier | Handler                                                                                                                                    |
-| -------------------------- | -------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `sts-assume-role`          | AWS      | 1    | 25 lines — calls `sts:AssumeRole`, returns access key + secret key + session token                                                         |
-| `rds-iam`                  | AWS      | 1    | 15 lines — calls `rds-signer:GetAuthToken`, returns a 15-minute database token                                                             |
-| `oauth-client-credentials` | Agnostic | 1    | 30 lines — POSTs to any OAuth2 token endpoint, returns `access_token`. One broker for Stripe, Twilio, Auth0, Salesforce, and hundreds more |
-| `sql-database`             | Agnostic | 2    | 40 lines — executes Handlebars SQL templates (`CREATE ROLE`, `DROP ROLE`). One handler for Postgres, MySQL, MSSQL, Oracle                  |
-
-The SQL database broker deserves specific mention. Instead of building per-database integrations, it accepts parameterized SQL statements:
-
-```yaml
-# broker.yaml — works for any SQL database
-CREATE_STATEMENT: |
-  CREATE ROLE "{{username}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
-  GRANT SELECT ON ALL TABLES IN SCHEMA public TO "{{username}}";
-REVOKE_STATEMENT: |
-  DROP ROLE IF EXISTS "{{username}}";
-```
-
-The handler generates a random username and password, executes the template, and returns `DB_USER` + `DB_PASSWORD`. On the next rotation, it drops the previous user and creates a new one. Switching from Postgres to MySQL is a YAML change, not a code change.
-
-Each broker is validated by a standard test harness (`validateBroker()`) that checks the `broker.yaml` schema, handler exports, and README structure. Community contributions follow the same validation — fork the registry, add a directory, pass the harness, open a PR.
-
-### 7.5 Architecture
-
-```
-Agent (polls at 80% of TTL)          Broker (any HTTP endpoint)
-┌──────────────────────┐              ┌──────────────────────┐
-│                      │  GET         │  handler.create()    │
-│  Polls broker URL    │─────────────►│  age-encrypt         │
-│  Validates envelope  │              │  KMS-wrap            │
-│  Unwraps via KMS     │◄─────────────│  Return envelope     │
-│  Decrypts via age    │  200 (JSON)  │                      │
-│  Serves to app       │              │  (SDK handles all    │
-│  127.0.0.1:7779      │              │   except create())   │
-└──────────────────────┘              └──────────────────────┘
-```
-
-The agent is unchanged from Section 5. It fetches a URL, receives a JSON envelope, and processes it identically to a static packed artifact. The broker is the only new component, and the customer owns it.
-
-### 7.6 The Agent in Lambda
-
-For serverless workloads, the Clef agent operates as a Lambda extension:
-
-```
-Lambda Execution Environment
-┌──────────────────────────────────────────────────┐
-│                                                  │
-│  Lambda Extensions API (port 9001)               │
-│       │                                          │
-│       ▼                                          │
-│  Clef Agent Extension                            │
-│  ┌────────────────────────────────────────────┐  │
-│  │ 1. Register for INVOKE + SHUTDOWN events   │  │
-│  │ 2. Initial fetch + decrypt on cold start   │  │
-│  │ 3. Start HTTP server on 127.0.0.1:7779     │  │
-│  │ 4. On INVOKE: refresh if TTL expired       │  │
-│  │ 5. On SHUTDOWN: flush telemetry, cleanup   │  │
-│  └────────────────────────────────────────────┘  │
-│                                                  │
-│  Function Handler                                │
-│  ┌────────────────────────────────────────────┐  │
-│  │ const secrets = await fetch(               │  │
-│  │   "http://127.0.0.1:7779/v1/secrets",      │  │
-│  │   { headers: { Authorization: "Bearer …" }}│  │
-│  │ ).then(r => r.json());                     │  │
-│  │                                            │  │
-│  │ // Use secrets.DB_URL, secrets.API_KEY     │  │
-│  └────────────────────────────────────────────┘  │
-│                                                  │
-└──────────────────────────────────────────────────┘
-```
-
-The extension registers for `INVOKE` and `SHUTDOWN` events. On each invocation, it refreshes if the TTL has elapsed. Lambda functions access secrets via a local HTTP call — no SDK, no environment variable parsing, no cold-start credential bootstrapping.
+Full broker tier specifications, the registry catalog, and the Lambda extension deployment guide are covered in the [dynamic credentials documentation](https://docs.clef.sh/guide/dynamic-credentials).
 
 ### 7.7 The Static Root Credential Reality
 
@@ -652,7 +579,9 @@ The full matrix is per-environment SOPS backend key multiplied by per-identity-p
 
 In this topology, a compromised `api-gateway` runtime has `kms:Decrypt` on key B. It can unwrap its own artifact — the secrets it already has via the agent. It cannot decrypt production SOPS files (key A), dev SOPS files (age, different key entirely), or the `payments-svc` artifact (key C). The blast radius is one service identity in one environment.
 
-At the other end of the spectrum, a single KMS key for everything is operationally simpler — one key, one IAM policy — and is a reasonable starting point. The blast radius of that key's compromise is everything encrypted with it. Organizations should choose the topology that matches their threat model. The architecture supports the full range without code changes — it is a configuration decision in `clef.yaml` and `.sops.yaml`.
+At the other end of the spectrum, a single KMS key for everything is operationally simpler — one key, one IAM policy — and is a reasonable starting point for teams migrating from age. The blast radius of a compromised runtime in this topology is higher than it appears: if the runtime's envelope key and the SOPS backend key are the same, then a stolen IAM credential that grants `kms:Decrypt` on the envelope also grants `kms:Decrypt` on every SOPS source file in git. An attacker who compromises the workload, exfiltrates its IAM credential, and has read access to the repository can decrypt all source secrets — not just the runtime artifact. With two separate keys, the runtime's `kms:Decrypt` permission covers only the envelope key; the SOPS source files are encrypted under a different CMK the runtime has no permission on, so the git repository is inert to the attacker even with the stolen credential.
+
+The two-key topology — SOPS source files on one CMK, artifact envelopes on a separate CMK per service identity — is the recommended production configuration. It is also the architecture that makes the strongest claim: no static credentials exist anywhere in the system, and a fully compromised workload cannot be leveraged to read secrets beyond its own scope. This is the destination the maturity tiers in Section 4.1 are pointing toward. The architecture supports the full range without code changes — it is a configuration decision in `clef.yaml` and `.sops.yaml`.
 
 ### 8.5 Defense in Depth
 
@@ -773,15 +702,7 @@ The architectural differences produce different security properties. Neither sys
 
 ### 9.6 When to Use What
 
-Not every team needs zero-custody. Not every team has the cloud-native maturity for KMS envelope mode. Honest guidance:
-
-**A small team on a PaaS with a handful of environment variables**: Doppler or the platform's native secrets. The overhead of git-native encryption, SOPS, and age keys may not be justified for five secrets. The hardening acheived by using separate KMS keys for VCS and CI may also be overkill for some.
-
-**A team already using a cloud provider's IAM extensively**: Cloud-native secret managers (AWS Secrets Manager, GCP Secret Manager, Azure Key Vault) are serious alternatives. They offer native IAM integration, managed rotation for supported services, and zero infrastructure — similar properties to Clef's KMS mode. The tradeoff: secrets are not versioned in git (no PR review, no drift detection, no cross-environment comparison), and each secret is a separate managed resource. Clef is stronger when the team values git-native workflows, namespace-level organization, and cross-environment consistency checking. Cloud secret managers are stronger when the team wants managed rotation and minimal tooling.
-
-**A team that needs dynamic credentials today with minimal engineering investment**: Vault. Its built-in secrets engines for databases, cloud IAM, and PKI are production-proven and require no custom code. Clef's broker SDK and registry reduce the implementation to a handler function for common patterns, but the ecosystem is young — Vault's integration breadth is larger by an order of magnitude.
-
-**A team that wants secrets versioned alongside code, git-native review workflows, and no central server**: Clef. This is the use case the architecture is designed for.
+See Section 1.1 for a decision guide covering when Clef is and is not the right choice. The summary: Clef is the right fit when the team values secrets versioned alongside code, git-native review workflows, and no central server. The comparison details in Sections 9.1–9.5 are most relevant once that threshold question is answered.
 
 ---
 
