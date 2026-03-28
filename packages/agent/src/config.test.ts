@@ -66,9 +66,14 @@ describe("resolveConfig", () => {
     expect(config.cacheTtl).toBe(300);
   });
 
+  it("should accept cache TTL of 0 (JIT mode)", () => {
+    const config = resolveConfig({ ...baseEnv, CLEF_AGENT_CACHE_TTL: "0" });
+    expect(config.cacheTtl).toBe(0);
+  });
+
   it("should throw ConfigError for invalid cache TTL", () => {
     expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_CACHE_TTL: "abc" })).toThrow(ConfigError);
-    expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_CACHE_TTL: "0" })).toThrow(ConfigError);
+    expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_CACHE_TTL: "1" })).toThrow(ConfigError);
     expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_CACHE_TTL: "29" })).toThrow(ConfigError);
     expect(() => resolveConfig({ ...baseEnv, CLEF_AGENT_CACHE_TTL: "-5" })).toThrow(ConfigError);
   });

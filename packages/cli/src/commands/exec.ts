@@ -1,15 +1,12 @@
+import * as os from "os";
 import * as path from "path";
 import { spawn, ChildProcess } from "child_process";
 import { Command } from "commander";
-import {
-  ManifestParser,
-  SopsMissingError,
-  SopsVersionError,
-  ConsumptionClient,
-  SubprocessRunner,
-} from "@clef-sh/core";
+import { ManifestParser, ConsumptionClient, SubprocessRunner } from "@clef-sh/core";
+import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
 import { createSopsClient } from "../age-credential";
+import { parseTarget } from "../parse-target";
 
 function collect(value: string, previous: string[]): string[] {
   return previous.concat([value]);
@@ -143,15 +140,7 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
           const exitCode = await spawnChild(childCommand, childCommandArgs, childEnv);
           process.exit(exitCode);
         } catch (err) {
-          if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-            formatter.formatDependencyError(err);
-            process.exit(1);
-            return;
-          }
-          // Never leak decrypted values in error messages
-          const message = err instanceof Error ? err.message : "Execution failed";
-          formatter.error(message);
-          process.exit(1);
+          handleCommandError(err);
         }
       },
     );
@@ -183,13 +172,9 @@ function spawnChild(command: string, args: string[], env: Record<string, string>
       process.off("SIGINT", sigintHandler);
 
       if (signal) {
-        // Process was killed by a signal — map to conventional exit code
-        const signalCodes: Record<string, number> = {
-          SIGHUP: 129,
-          SIGINT: 130,
-          SIGTERM: 143,
-        };
-        resolve(signalCodes[signal] ?? 128);
+        // Process was killed by a signal — map to conventional 128+N exit code
+        const sigNum = (os.constants?.signals as Record<string, number>)?.[signal];
+        resolve(sigNum ? 128 + sigNum : 128);
       } else {
         resolve(code ?? 1);
       }
@@ -215,12 +200,4 @@ function spawnChild(command: string, args: string[], env: Record<string, string>
     process.on("SIGTERM", sigtermHandler);
     process.on("SIGINT", sigintHandler);
   });
-}
-
-function parseTarget(target: string): [string, string] {
-  const parts = target.split("/");
-  if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new Error(`Invalid target "${target}". Expected format: namespace/environment`);
-  }
-  return [parts[0], parts[1]];
 }

@@ -187,4 +187,27 @@ describe("clef compare", () => {
     );
     expect(mockExit).toHaveBeenCalledWith(1);
   });
+
+  it("should correctly match when values are equal but have unusual characters", async () => {
+    // Verify padding-based comparison handles edge cases correctly
+    const runner = makeSopsRunner({ TOKEN: "a=b&c=d" });
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "compare", "database/dev", "TOKEN", "a=b&c=d"]);
+
+    expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("values match"));
+  });
+
+  it("should correctly mismatch with empty stored value vs non-empty compare value", async () => {
+    // Empty vs non-empty is the extreme length-mismatch case
+    const runner = makeSopsRunner({ TOKEN: "" });
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "compare", "database/dev", "TOKEN", "anything"]);
+
+    expect(mockFormatter.failure).toHaveBeenCalledWith(
+      expect.stringContaining("values do not match"),
+    );
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
 });

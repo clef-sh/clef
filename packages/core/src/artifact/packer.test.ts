@@ -8,7 +8,7 @@ import { generateSigningKeyPair, buildSigningPayload, verifySignature } from "./
 
 jest.mock("fs");
 
-// Mock age-encryption
+// Mock age-encryption (only used for age-only path; KMS path uses Node crypto)
 jest.mock(
   "age-encryption",
   () => ({
@@ -20,8 +20,6 @@ jest.mock(
           "-----BEGIN AGE ENCRYPTED FILE-----\nencrypted\n-----END AGE ENCRYPTED FILE-----",
         ),
     })),
-    generateIdentity: jest.fn().mockResolvedValue("AGE-SECRET-KEY-1EPHEMERAL"),
-    identityToRecipient: jest.fn().mockResolvedValue("age1ephemeralrecipient"),
   }),
   { virtual: true },
 );
@@ -359,10 +357,85 @@ describe("ArtifactPacker", () => {
       expect(written.envelope!.keyId).toBe("arn:aws:kms:us-east-1:111:key/test-key");
       expect(written.envelope!.wrappedKey).toBeTruthy();
       expect(written.envelope!.algorithm).toBe("SYMMETRIC_DEFAULT");
+      // AES-GCM IV should be 12 bytes, authTag should be 16 bytes
+      expect(written.envelope!.iv).toBeTruthy();
+      expect(Buffer.from(written.envelope!.iv, "base64")).toHaveLength(12);
+      expect(written.envelope!.authTag).toBeTruthy();
+      expect(Buffer.from(written.envelope!.authTag, "base64")).toHaveLength(16);
       expect(kms.wrap).toHaveBeenCalledWith(
         "arn:aws:kms:us-east-1:111:key/test-key",
         expect.any(Buffer),
       );
+      // DEK should be 32 bytes (AES-256)
+      const wrappedDek = kms.wrap.mock.calls[0][1] as Buffer;
+      expect(wrappedDek).toHaveLength(32);
+    });
+
+    it("should not import age-encryption in KMS path", async () => {
+      const kms = mockKms();
+      const kmsPacker = new ArtifactPacker(encryption, matrixManager, kms);
+
+      const decrypted: DecryptedFile = {
+        values: { SECRET: "val" },
+        metadata: { backend: "age", recipients: [], lastModified: new Date() },
+      };
+      encryption.decrypt.mockResolvedValue(decrypted);
+
+      const config: PackConfig = {
+        identity: "kms-svc",
+        environment: "dev",
+        outputPath: "/output/artifact.json",
+      };
+
+      await kmsPacker.pack(config, kmsManifest(), "/repo");
+
+      // Verify age-encryption Encrypter is NOT called for KMS path
+      const ageModule = await import("age-encryption");
+      expect(ageModule.Encrypter).not.toHaveBeenCalled();
+    });
+
+    it("should produce valid AES-256-GCM ciphertext that round-trips", async () => {
+      const crypto = await import("crypto");
+      let capturedDek: Buffer | null = null;
+      const kms: jest.Mocked<KmsProvider> = {
+        wrap: jest.fn().mockImplementation((_keyId: string, dek: Buffer) => {
+          capturedDek = Buffer.from(dek); // copy before it's zeroed
+          return Promise.resolve({
+            wrappedKey: Buffer.from("wrapped-key"),
+            algorithm: "SYMMETRIC_DEFAULT",
+          } as KmsWrapResult);
+        }),
+        unwrap: jest.fn(),
+      };
+      const kmsPacker = new ArtifactPacker(encryption, matrixManager, kms);
+
+      const decrypted: DecryptedFile = {
+        values: { SECRET: "round-trip-value" },
+        metadata: { backend: "age", recipients: [], lastModified: new Date() },
+      };
+      encryption.decrypt.mockResolvedValue(decrypted);
+
+      const config: PackConfig = {
+        identity: "kms-svc",
+        environment: "dev",
+        outputPath: "/output/artifact.json",
+      };
+
+      await kmsPacker.pack(config, kmsManifest(), "/repo");
+
+      const written: PackedArtifact = JSON.parse(String(mockFs.writeFileSync.mock.calls[0][1]));
+      expect(capturedDek).not.toBeNull();
+
+      // Decrypt with the captured DEK to verify round-trip
+      const iv = Buffer.from(written.envelope!.iv, "base64");
+      const authTag = Buffer.from(written.envelope!.authTag, "base64");
+      const ciphertextBuf = Buffer.from(written.ciphertext, "base64");
+      const decipher = crypto.createDecipheriv("aes-256-gcm", capturedDek!, iv);
+      decipher.setAuthTag(authTag);
+      const plaintext = Buffer.concat([decipher.update(ciphertextBuf), decipher.final()]).toString(
+        "utf-8",
+      );
+      expect(JSON.parse(plaintext)).toEqual({ SECRET: "round-trip-value" });
     });
 
     it("should throw when KMS provider is not injected for KMS identity", async () => {

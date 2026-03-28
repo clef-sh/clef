@@ -240,4 +240,68 @@ describe("clef pack", () => {
       "utf-8",
     );
   });
+
+  it("should produce artifact with envelope field for KMS identity", async () => {
+    const kmsManifest = YAML.stringify({
+      version: 1,
+      environments: [{ name: "production", description: "Prod" }],
+      namespaces: [{ name: "api", description: "API" }],
+      sops: { default_backend: "age" },
+      file_pattern: "{namespace}/{environment}.enc.yaml",
+      service_identities: [
+        {
+          name: "kms-svc",
+          description: "KMS identity",
+          namespaces: ["api"],
+          environments: {
+            production: {
+              kms: { provider: "aws", keyId: "arn:aws:kms:us-east-1:123:key/abc" },
+            },
+          },
+        },
+      ],
+    });
+    mockFs.readFileSync.mockReturnValue(kmsManifest);
+
+    // Mock the dynamic import of @clef-sh/runtime for createKmsProvider
+    jest.mock(
+      "@clef-sh/runtime",
+      () => ({
+        createKmsProvider: jest.fn().mockReturnValue({
+          wrap: jest.fn().mockResolvedValue({
+            wrappedKey: Buffer.from("wrapped-dek"),
+            algorithm: "SYMMETRIC_DEFAULT",
+          }),
+          unwrap: jest.fn(),
+        }),
+      }),
+      { virtual: true },
+    );
+
+    const runner = makeRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync([
+      "node",
+      "clef",
+      "pack",
+      "kms-svc",
+      "production",
+      "--output",
+      "/tmp/kms-artifact.json",
+    ]);
+
+    const writeCall = mockFs.writeFileSync.mock.calls.find((c: unknown[]) =>
+      String(c[0]).includes("kms-artifact.json"),
+    );
+    expect(writeCall).toBeTruthy();
+    const artifact = JSON.parse(String(writeCall![1]));
+    expect(artifact.envelope).toBeDefined();
+    expect(artifact.envelope.provider).toBe("aws");
+    expect(artifact.envelope.keyId).toBe("arn:aws:kms:us-east-1:123:key/abc");
+    expect(artifact.envelope.wrappedKey).toBeTruthy();
+    expect(artifact.envelope.iv).toBeTruthy();
+    expect(artifact.envelope.authTag).toBeTruthy();
+    expect(artifact.ciphertext).toBeTruthy();
+  });
 });

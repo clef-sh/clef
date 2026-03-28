@@ -17,6 +17,13 @@ import { generateAgeKey, type AgeKeyPair } from "../setup/keys";
 import { scaffoldTestRepo, type TestRepo } from "../setup/repo";
 import { startClefUI, type ServerInfo } from "../setup/server";
 
+/** Extract the base URL (no query params) and the Bearer token from the tokenized server URL. */
+function serverApi(tokenizedUrl: string): { base: string; headers: Record<string, string> } {
+  const u = new URL(tokenizedUrl);
+  const token = u.searchParams.get("token") ?? "";
+  return { base: u.origin, headers: { Authorization: `Bearer ${token}` } };
+}
+
 // Shared fixtures — server is expensive; start once and share across all tests.
 let keys: AgeKeyPair;
 let secondKeys: AgeKeyPair; // Second key pair for recipient add tests
@@ -763,5 +770,141 @@ test.describe("clef service → ServiceIdentitiesScreen: detail view", () => {
     await expect(page.getByText("Scoped namespaces")).toBeVisible();
     // Use the second occurrence — first is in the sidebar nav
     await expect(page.getByText("payments").nth(1)).toBeVisible();
+  });
+});
+
+// ── clef service → ServiceIdentitiesScreen: create flow ──────────────────────
+
+test.describe("clef service → ServiceIdentitiesScreen: create flow", () => {
+  test("[positive] create form opens and shows namespace checkboxes", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByText("+ New identity").click();
+    await expect(page.getByTestId("si-name-input")).toBeVisible();
+    await expect(page.getByTestId("ns-checkbox-payments")).toBeVisible();
+  });
+
+  test("[positive] submit creates identity and shows private keys view", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByText("+ New identity").click();
+    await page.getByTestId("si-name-input").fill("e2e-create");
+    await page.getByTestId("ns-checkbox-payments").click();
+    await page.getByTestId("create-si-submit").click();
+    await expect(page.getByText("Copy these private keys now")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("dev")).toBeVisible();
+  });
+
+  test("[positive] done button returns to list with new identity", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    // e2e-create was created by the previous test; navigate straight to done
+    await expect(page.getByTestId("si-e2e-create")).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("[negative] duplicate name shows validation error", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByText("+ New identity").click();
+    await page.getByTestId("si-name-input").fill("web-app");
+    await expect(page.getByText("A service identity with this name already exists.")).toBeVisible();
+    await expect(page.getByTestId("create-si-submit")).toBeDisabled();
+  });
+});
+
+// ── clef service → ServiceIdentitiesScreen: rotate key flow ──────────────────
+
+test.describe("clef service → ServiceIdentitiesScreen: rotate key flow", () => {
+  test("[positive] rotate button shows new private key and done returns to detail", async ({
+    page,
+  }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByTestId("si-web-app").click();
+    await page.getByTestId("rotate-dev").click();
+    await expect(page.getByTestId("rotate-keys-view")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Copy the new private key now")).toBeVisible();
+    await page.getByTestId("rotate-done-btn").click();
+    // Back in detail view
+    await expect(page.getByTestId("back-button")).toBeVisible();
+    await expect(page.getByTestId("env-dev")).toBeVisible();
+  });
+});
+
+// ── clef service → ServiceIdentitiesScreen: update backends flow ──────────────
+
+test.describe("clef service → ServiceIdentitiesScreen: update backends flow", () => {
+  test("[positive] update form shows current backend type for each environment", async ({
+    page,
+  }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByTestId("si-web-app").click();
+    await page.getByTestId("update-backends-btn").click();
+    await expect(page.getByText("Update backends")).toBeVisible();
+    await expect(page.getByTestId("update-kms-toggle-dev")).toBeVisible();
+  });
+
+  test("[positive] switching an env to KMS and saving updates the identity", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    // Use e2e-create so we don't permanently mutate web-app for other tests
+    await page.getByTestId("si-e2e-create").click();
+    await page.getByTestId("update-backends-btn").click();
+    await page.getByTestId("update-kms-toggle-dev").click();
+    await page
+      .getByTestId("update-keyid-dev")
+      .fill("arn:aws:kms:us-east-1:123456789012:key/e2e-test");
+    await page.getByTestId("update-submit-btn").click();
+    // Returns to detail view on success
+    await expect(page.getByTestId("back-button")).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("[positive] cancel returns to detail without changes", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByTestId("si-web-app").click();
+    await page.getByTestId("update-backends-btn").click();
+    await page.getByTestId("update-cancel-btn").click();
+    await expect(page.getByTestId("back-button")).toBeVisible();
+    await expect(page.getByTestId("update-backends-btn")).toBeVisible();
+  });
+});
+
+// ── clef service → ServiceIdentitiesScreen: delete flow ──────────────────────
+
+test.describe("clef service → ServiceIdentitiesScreen: delete flow", () => {
+  test.beforeEach(async ({ request }) => {
+    const { base, headers } = serverApi(server.url);
+    // Ensure a fresh identity exists for each delete test
+    await request.delete(`${base}/api/service-identities/to-delete`, { headers }).catch(() => {});
+    const res = await request.post(`${base}/api/service-identities`, {
+      headers,
+      data: { name: "to-delete", namespaces: ["payments"] },
+    });
+    expect(res.ok()).toBe(true);
+  });
+
+  test("[positive] delete removes the identity from the list", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByTestId("si-to-delete").click();
+    await page.getByTestId("delete-identity-btn").click();
+    await expect(page.getByTestId("delete-confirm-view")).toBeVisible();
+    await page.getByTestId("confirm-delete-btn").click();
+    // Returns to list and identity is gone
+    await expect(page.getByTestId("si-to-delete")).not.toBeVisible({ timeout: 10_000 });
+  });
+
+  test("[negative] cancel on delete confirm returns to detail view", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByTestId("si-to-delete").click();
+    await page.getByTestId("delete-identity-btn").click();
+    await expect(page.getByTestId("delete-confirm-view")).toBeVisible();
+    await page.getByTestId("cancel-delete-btn").click();
+    // Back in detail view
+    await expect(page.getByTestId("back-button")).toBeVisible();
+    await expect(page.getByTestId("delete-identity-btn")).toBeVisible();
   });
 });

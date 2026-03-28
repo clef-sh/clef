@@ -2,16 +2,16 @@ import * as path from "path";
 import { Command } from "commander";
 import {
   ManifestParser,
-  SopsMissingError,
-  SopsVersionError,
   SubprocessRunner,
   MatrixManager,
   ServiceIdentityManager,
   PartialRotationError,
   keyPreview,
   isKmsEnvelope,
+  VALID_KMS_PROVIDERS,
 } from "@clef-sh/core";
-import type { KmsConfig } from "@clef-sh/core";
+import { handleCommandError } from "../handle-error";
+import type { KmsConfig, KmsProviderType } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
@@ -48,41 +48,8 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
 
           const namespaces = opts.namespaces.split(",").map((s) => s.trim());
 
-          // Parse --kms-env mappings
-          let kmsEnvConfigs: Record<string, KmsConfig> | undefined;
-          if (opts.kmsEnv.length > 0) {
-            kmsEnvConfigs = {};
-            for (const mapping of opts.kmsEnv) {
-              const eqIdx = mapping.indexOf("=");
-              if (eqIdx === -1) {
-                throw new Error(
-                  `Invalid --kms-env format: '${mapping}'. Expected: env=provider:keyId`,
-                );
-              }
-              const envName = mapping.slice(0, eqIdx);
-              const rest = mapping.slice(eqIdx + 1);
-              const colonIdx = rest.indexOf(":");
-              if (colonIdx === -1) {
-                throw new Error(
-                  `Invalid --kms-env format: '${mapping}'. Expected: env=provider:keyId`,
-                );
-              }
-              const provider = rest.slice(0, colonIdx);
-              const keyId = rest.slice(colonIdx + 1);
-              if (!["aws", "gcp", "azure"].includes(provider)) {
-                throw new Error(
-                  `Invalid KMS provider '${provider}'. Must be one of: aws, gcp, azure.`,
-                );
-              }
-              if (kmsEnvConfigs[envName]) {
-                throw new Error(`Duplicate --kms-env for environment '${envName}'.`);
-              }
-              kmsEnvConfigs[envName] = {
-                provider: provider as "aws" | "gcp" | "azure",
-                keyId,
-              };
-            }
-          }
+          const kmsEnvConfigs =
+            opts.kmsEnv.length > 0 ? parseKmsEnvMappings(opts.kmsEnv) : undefined;
 
           const hasAgeEnvs =
             !kmsEnvConfigs || manifest.environments.some((e) => !kmsEnvConfigs![e.name]);
@@ -157,13 +124,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
             `git add clef.yaml && git commit -m "feat: add service identity '${name}'"`,
           );
         } catch (err) {
-          if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-            formatter.formatDependencyError(err);
-            process.exit(1);
-            return;
-          }
-          formatter.error((err as Error).message);
-          process.exit(1);
+          handleCommandError(err);
         }
       },
     );
@@ -202,13 +163,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
 
         formatter.table(rows, ["Name", "Namespaces", "Environments"]);
       } catch (err) {
-        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-          formatter.formatDependencyError(err);
-          process.exit(1);
-          return;
-        }
-        formatter.error((err as Error).message);
-        process.exit(1);
+        handleCommandError(err);
       }
     });
 
@@ -248,13 +203,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         }
         formatter.print("");
       } catch (err) {
-        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-          formatter.formatDependencyError(err);
-          process.exit(1);
-          return;
-        }
-        formatter.error((err as Error).message);
-        process.exit(1);
+        handleCommandError(err);
       }
     });
 
@@ -303,13 +252,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           formatter.warn(`${warnCount} warning(s)`);
         }
       } catch (err) {
-        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-          formatter.formatDependencyError(err);
-          process.exit(1);
-          return;
-        }
-        formatter.error((err as Error).message);
-        process.exit(1);
+        handleCommandError(err);
       }
     });
 
@@ -338,32 +281,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        // Parse --kms-env mappings (same format as create)
-        const kmsEnvConfigs: Record<string, KmsConfig> = {};
-        for (const mapping of opts.kmsEnv) {
-          const eqIdx = mapping.indexOf("=");
-          if (eqIdx === -1) {
-            throw new Error(`Invalid --kms-env format: '${mapping}'. Expected: env=provider:keyId`);
-          }
-          const envName = mapping.slice(0, eqIdx);
-          const rest = mapping.slice(eqIdx + 1);
-          const colonIdx = rest.indexOf(":");
-          if (colonIdx === -1) {
-            throw new Error(`Invalid --kms-env format: '${mapping}'. Expected: env=provider:keyId`);
-          }
-          const provider = rest.slice(0, colonIdx);
-          const keyId = rest.slice(colonIdx + 1);
-          if (!["aws", "gcp", "azure"].includes(provider)) {
-            throw new Error(`Invalid KMS provider '${provider}'. Must be one of: aws, gcp, azure.`);
-          }
-          if (kmsEnvConfigs[envName]) {
-            throw new Error(`Duplicate --kms-env for environment '${envName}'.`);
-          }
-          kmsEnvConfigs[envName] = {
-            provider: provider as "aws" | "gcp" | "azure",
-            keyId,
-          };
-        }
+        const kmsEnvConfigs = parseKmsEnvMappings(opts.kmsEnv);
 
         const matrixManager = new MatrixManager();
         const sopsClient = await createSopsClient(repoRoot, deps.runner);
@@ -382,13 +300,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           `git add clef.yaml && git commit -m "chore: update service identity '${name}'"`,
         );
       } catch (err) {
-        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-          formatter.formatDependencyError(err);
-          process.exit(1);
-          return;
-        }
-        formatter.error((err as Error).message);
-        process.exit(1);
+        handleCommandError(err);
       }
     });
 
@@ -431,13 +343,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           `git add clef.yaml && git commit -m "chore: delete service identity '${name}'"`,
         );
       } catch (err) {
-        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-          formatter.formatDependencyError(err);
-          process.exit(1);
-          return;
-        }
-        formatter.error((err as Error).message);
-        process.exit(1);
+        handleCommandError(err);
       }
     });
 
@@ -511,11 +417,6 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           `git add clef.yaml && git commit -m "chore: rotate service identity '${name}'"`,
         );
       } catch (err) {
-        if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-          formatter.formatDependencyError(err);
-          process.exit(1);
-          return;
-        }
         if (err instanceof PartialRotationError) {
           formatter.error(err.message);
           const partialEntries = Object.entries(err.rotatedKeys);
@@ -550,8 +451,35 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           process.exit(1);
           return;
         }
-        formatter.error((err as Error).message);
-        process.exit(1);
+        handleCommandError(err);
       }
     });
+}
+
+function parseKmsEnvMappings(mappings: string[]): Record<string, KmsConfig> {
+  const configs: Record<string, KmsConfig> = {};
+  for (const mapping of mappings) {
+    const eqIdx = mapping.indexOf("=");
+    if (eqIdx === -1) {
+      throw new Error(`Invalid --kms-env format: '${mapping}'. Expected: env=provider:keyId`);
+    }
+    const envName = mapping.slice(0, eqIdx);
+    const rest = mapping.slice(eqIdx + 1);
+    const colonIdx = rest.indexOf(":");
+    if (colonIdx === -1) {
+      throw new Error(`Invalid --kms-env format: '${mapping}'. Expected: env=provider:keyId`);
+    }
+    const provider = rest.slice(0, colonIdx);
+    const keyId = rest.slice(colonIdx + 1);
+    if (!VALID_KMS_PROVIDERS.includes(provider as KmsProviderType)) {
+      throw new Error(
+        `Invalid KMS provider '${provider}'. Must be one of: ${VALID_KMS_PROVIDERS.join(", ")}.`,
+      );
+    }
+    if (configs[envName]) {
+      throw new Error(`Duplicate --kms-env for environment '${envName}'.`);
+    }
+    configs[envName] = { provider: provider as KmsProviderType, keyId };
+  }
+  return configs;
 }

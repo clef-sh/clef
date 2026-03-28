@@ -62,4 +62,18 @@ describe("HttpArtifactSource", () => {
     const source = new HttpArtifactSource("https://example.com/artifact.age.json");
     expect(source.describe()).toBe("HTTP https://example.com/artifact.age.json");
   });
+
+  it("should redact credentials from URL in describe()", () => {
+    const source = new HttpArtifactSource("https://user:s3cret@bucket.example.com/artifact.json");
+    const desc = source.describe();
+    expect(desc).not.toContain("s3cret");
+    expect(desc).not.toContain("user:");
+    expect(desc).toContain("***");
+    expect(desc).toContain("bucket.example.com");
+  });
+
+  it("should handle invalid URLs gracefully in describe()", () => {
+    const source = new HttpArtifactSource("not-a-url");
+    expect(source.describe()).toBe("HTTP <invalid-url>");
+  });
 });

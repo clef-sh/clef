@@ -41,8 +41,12 @@ export class LambdaExtension {
     onLog?.(`Registered with Lambda Extensions API (id: ${extensionId})`);
     onLog?.(`Agent server listening at ${server.url}`);
 
-    // Initial fetch
-    await poller.fetchAndDecrypt();
+    // Initial fetch — JIT mode fetches without decrypting
+    if (refreshTtl === 0) {
+      await poller.fetchAndValidate();
+    } else {
+      await poller.fetchAndDecrypt();
+    }
     this.lastRefresh = Date.now();
     onLog?.("Initial secrets loaded.");
 
@@ -66,15 +70,25 @@ export class LambdaExtension {
         break;
       }
 
-      // INVOKE event — refresh if TTL expired
+      // INVOKE event — refresh artifact
       if (event.eventType === "INVOKE") {
-        const elapsed = (Date.now() - this.lastRefresh) / 1000;
-        if (elapsed >= refreshTtl) {
+        if (refreshTtl === 0) {
+          // JIT mode: always fetch fresh encrypted artifact on every invocation
           try {
-            await poller.fetchAndDecrypt();
+            await poller.fetchAndValidate();
             this.lastRefresh = Date.now();
           } catch (err) {
             onLog?.(`Refresh failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        } else {
+          const elapsed = (Date.now() - this.lastRefresh) / 1000;
+          if (elapsed >= refreshTtl) {
+            try {
+              await poller.fetchAndDecrypt();
+              this.lastRefresh = Date.now();
+            } catch (err) {
+              onLog?.(`Refresh failed: ${err instanceof Error ? err.message : String(err)}`);
+            }
           }
         }
       }

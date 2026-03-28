@@ -2,13 +2,12 @@ import * as path from "path";
 import { Command } from "commander";
 import {
   ManifestParser,
-  SopsMissingError,
-  SopsVersionError,
   SubprocessRunner,
   MatrixManager,
   ArtifactPacker,
   isKmsEnvelope,
 } from "@clef-sh/core";
+import { handleCommandError } from "../handle-error";
 import type { KmsProvider } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
@@ -120,14 +119,7 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
               "  .clef/packed/ for VCS-based delivery. See: clef.sh/guide/service-identities",
           );
         } catch (err) {
-          if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-            formatter.formatDependencyError(err);
-            process.exit(1);
-            return;
-          }
-          const message = err instanceof Error ? err.message : "Pack failed";
-          formatter.error(message);
-          process.exit(1);
+          handleCommandError(err);
         }
       },
     );

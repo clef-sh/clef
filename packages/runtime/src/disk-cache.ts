@@ -48,21 +48,18 @@ export class DiskCache {
 
   /** Get the SHA from the cached metadata, if available. */
   getCachedSha(): string | undefined {
-    try {
-      const raw = fs.readFileSync(this.metaPath, "utf-8");
-      const meta: DiskCacheMeta = JSON.parse(raw) as DiskCacheMeta;
-      return meta.sha;
-    } catch {
-      return undefined;
-    }
+    return this.readMeta()?.sha;
   }
 
   /** Get the fetchedAt timestamp from metadata, if available. */
   getFetchedAt(): string | undefined {
+    return this.readMeta()?.fetchedAt;
+  }
+
+  private readMeta(): DiskCacheMeta | undefined {
     try {
       const raw = fs.readFileSync(this.metaPath, "utf-8");
-      const meta: DiskCacheMeta = JSON.parse(raw) as DiskCacheMeta;
-      return meta.fetchedAt;
+      return JSON.parse(raw) as DiskCacheMeta;
     } catch {
       return undefined;
     }

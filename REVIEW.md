@@ -527,13 +527,29 @@ Check:
   never plaintext values. Confirm `disk-cache.ts` never
   receives or writes decrypted content
 
-Check — KMS envelope unwrap:
+Check — KMS envelope encryption (AES-256-GCM):
 
 - When the artifact has an `envelope` field, the poller calls
   `createKmsProvider()` and `kms.unwrap()` to recover the
-  ephemeral age private key — this happens in memory only
-- The unwrapped ephemeral key buffer is zeroed after use
-  (`unwrapped.fill(0)`) — confirm this zeroing exists
+  32-byte AES-256 data encryption key (DEK) — this happens
+  in memory only
+- The unwrapped DEK buffer is zeroed after use
+  (`dek.fill(0)`) in a `finally` block — confirm the
+  zeroing executes even when AES-GCM decryption fails
+  (e.g. corrupted authTag). If the `fill(0)` is in
+  `try` instead of `finally`, the DEK leaks on error
+- AES-GCM decryption uses `iv` and `authTag` from the
+  artifact's `envelope` — confirm these fields are
+  validated as non-empty in `parseAndValidate` before
+  any decryption attempt
+- `crypto.createDecipheriv("aes-256-gcm", dek, iv)` with
+  `decipher.setAuthTag(authTag)` — confirm the auth tag
+  is set BEFORE `decipher.update()` / `decipher.final()`.
+  Node.js requires `setAuthTag` before `final()` for GCM
+- A corrupted `authTag` or `iv` must cause
+  `decipher.final()` to throw — confirm the error
+  propagates and emits `artifact.invalid` telemetry with
+  reason `"decrypt"`, not `"kms_unwrap"`
 - The KMS key ID comes from the artifact's `envelope.keyId`
   field — it is NOT configurable via env var or runtime
   config (the artifact is self-describing)
@@ -542,6 +558,10 @@ Check — KMS envelope unwrap:
 - `@aws-sdk/client-kms` is loaded dynamically via
   `require()` — failure to load produces a clear error
   message, not an unhandled crash
+- The age-only path (no `envelope`) must still use
+  `AgeDecryptor` with a static private key — confirm the
+  two paths are fully separate (KMS path must NOT call
+  `AgeDecryptor`, age path must NOT call `createDecipheriv`)
 
 ### 1.15 Runtime — VCS token and credential handling
 
@@ -617,20 +637,65 @@ Check — Signing key handling:
   secret). But the KMS signature bytes must not be logged
   beyond the base64 encoding in the artifact
 
-Check — KMS envelope path:
+Check — KMS envelope path (AES-256-GCM):
 
 - When `isKmsEnvelope(envConfig)` is true, the packer
-  generates an ephemeral age key pair, encrypts secrets to
-  the ephemeral public key, and wraps the ephemeral private
-  key with `kms.wrap()` — all in memory
-- The ephemeral private key is never written to the artifact
-  in plaintext — only the KMS-wrapped form (`wrappedKey`)
-  appears in the `envelope` field
+  generates a 32-byte random DEK via `crypto.randomBytes(32)`
+  and a 12-byte IV via `crypto.randomBytes(12)`, encrypts
+  the secrets JSON with AES-256-GCM, and wraps the DEK with
+  `kms.wrap()` — all in memory, no external dependency
+- The plaintext DEK is zeroed with `dek.fill(0)` in a
+  `finally` block — confirm zeroing happens even if
+  `kms.wrap()` throws. If the `fill(0)` is after the
+  `wrap` call without `finally`, a KMS failure leaks the
+  DEK in memory
+- The DEK is never written to the artifact in plaintext —
+  only the KMS-wrapped form (`wrappedKey`) appears in the
+  `envelope` field alongside `iv` and `authTag`
+- The `iv` and `authTag` fields are stored in the artifact's
+  `envelope` — confirm both are base64-encoded and present.
+  Missing either field makes the artifact undecryptable
+- The KMS path must NOT import or call `age-encryption` —
+  it uses only Node's built-in `crypto` module. Confirm no
+  `import("age-encryption")` occurs in the KMS branch
 - If `KmsProvider` is not injected but the identity uses KMS,
   the packer throws a clear error — not a null dereference
 - The CLI (`pack.ts`) dynamically imports `createKmsProvider`
   from `@clef-sh/runtime` only when the identity uses KMS —
   confirm the import is conditional, not top-level
+
+### 1.17b Broker envelope — independent KMS encryption path
+
+Read:
+
+- `packages/broker/src/envelope.ts`
+- `packages/broker/src/envelope.test.ts`
+
+The broker package has its own `packEnvelope()` function that
+independently produces KMS-encrypted artifacts. It mirrors the
+core packer's KMS path but is a completely separate
+implementation — a defect in one does not imply the same
+defect in the other, and vice versa. Both must be reviewed.
+
+Check:
+
+- `packEnvelope` generates a 32-byte DEK and 12-byte IV via
+  `crypto.randomBytes`, encrypts with AES-256-GCM, wraps the
+  DEK with `kms.wrap()` — same scheme as the core packer
+- The plaintext DEK is zeroed with `dek.fill(0)` after
+  wrapping — confirm zeroing happens even if `kms.wrap()`
+  throws
+- The envelope contains `iv` and `authTag` (base64-encoded)
+  alongside `wrappedKey`, `provider`, `keyId`, `algorithm`
+- `ArtifactEnvelopeField` type has all six fields — if `iv`
+  or `authTag` are missing, the runtime poller will reject
+  the artifact at validation time
+- The broker must NOT import or call `age-encryption` — it
+  uses only Node's built-in `crypto` module
+- A round-trip test exists: encrypt with captured DEK, then
+  decrypt the artifact's ciphertext/iv/authTag to recover
+  the original plaintext values
+- Plaintext secret values do NOT appear in the output JSON
 
 ### 1.18 Artifact signing — provenance and verification
 
@@ -660,12 +725,17 @@ Check — Canonical payload consistency:
   for the same artifact. Any divergence silently breaks
   verification or, worse, allows bypass
 - Both implementations must use the same domain prefix
-  (`clef-sig-v1`), same newline separator, same field
+  (`clef-sig-v2`), same newline separator, same field
   ordering, and same key sorting (`[...keys].sort()`)
 - Both must include all security-relevant fields: version,
   identity, environment, revision, packedAt,
-  ciphertextHash, sorted keys, expiresAt, and all four
-  envelope fields (provider, keyId, wrappedKey, algorithm)
+  ciphertextHash, sorted keys, expiresAt, and all six
+  envelope fields (provider, keyId, wrappedKey, algorithm,
+  iv, authTag). The iv and authTag fields were added to
+  prevent IV-swap denial-of-service attacks on signed
+  KMS artifacts — if they are missing from the payload,
+  an attacker can modify iv/authTag without invalidating
+  the signature, causing decryption failure
 - Missing optional fields must be represented as empty
   strings in both implementations — not `undefined`, not
   omitted. Omitting a field would shorten the payload and
@@ -1185,13 +1255,19 @@ Check:
 - Age-only: artifact encrypts to the identity's public key
   for the target environment — not to a developer key, not
   to a hardcoded recipient
-- KMS envelope: artifact encrypts to an ephemeral public key;
-  the ephemeral private key is wrapped by KMS and stored in
-  the `envelope` field — confirm `envelope.wrappedKey` is
-  base64-encoded, `envelope.provider` and `envelope.keyId`
-  match the manifest config
+- KMS envelope: artifact is encrypted with AES-256-GCM using
+  a random 32-byte DEK; the DEK is wrapped by KMS and stored
+  in the `envelope` field — confirm `envelope.wrappedKey`,
+  `envelope.iv`, and `envelope.authTag` are all base64-encoded
+  and `envelope.provider` and `envelope.keyId` match the
+  manifest config. Confirm `envelope.iv` decodes to 12 bytes
+  and `envelope.authTag` decodes to 16 bytes
 - KMS envelope: `ArtifactPacker` requires a `KmsProvider` to
   be injected — missing it throws a clear error
+- KMS envelope: the packer must NOT call `age-encryption` for
+  KMS identities — only Node's built-in `crypto` module is
+  used. The `age-encryption` dependency is only for age-only
+  identities
 - Artifact version is always `1` — the `envelope` field is
   optional and its presence determines age-only vs KMS
 - Artifact envelope includes the revision so the agent can
@@ -1255,7 +1331,14 @@ Check:
   tested
 - Poller determines decrypt path by checking `artifact.envelope`
   presence — not a version number. If `envelope` is present,
-  uses KMS unwrap; otherwise uses static age private key
+  uses KMS unwrap + AES-256-GCM decrypt; otherwise uses
+  static age private key with AgeDecryptor
+- The two decrypt paths must be fully separate — the KMS path
+  must never call `AgeDecryptor`, and the age path must never
+  call `crypto.createDecipheriv`
+- KMS path validates `envelope.iv` and `envelope.authTag` are
+  present before attempting decryption — missing either is a
+  validation error, not a runtime crash
 - Age-only artifact without a private key configured throws
   a clear error at decrypt time — not a null dereference
 
@@ -1858,11 +1941,21 @@ Check — Poller:
 - Integrity check: tampered `ciphertextHash` is rejected
 - `onRefresh` callback is tested
 - Polling interval and `onError` callback are tested
-- KMS envelope artifact: mock KMS unwrap → decrypts
-  successfully — verify `createKmsProvider` is called with
-  the provider from the artifact's `envelope`
+- KMS envelope artifact: real AES-256-GCM ciphertext with
+  a known DEK — mock KMS unwrap returns the DEK, poller
+  decrypts and populates cache with correct values. Verify
+  `createKmsProvider` is called with the provider from the
+  artifact's `envelope`
+- KMS AES-GCM auth failure: corrupted `authTag` in the
+  envelope causes decryption to throw — confirm the error
+  propagates and cache remains empty
+- KMS path isolation: a test asserts `AgeDecryptor` is NOT
+  called when `envelope` is present — the two paths must
+  be completely separate
 - Age-only artifact without private key: throws clear error
-- Incomplete envelope fields: throws validation error
+- Incomplete envelope fields: throws validation error —
+  must also cover envelope with provider/keyId/wrappedKey/
+  algorithm but MISSING iv and authTag
 - Signature verification: valid signature accepted, unsigned
   artifact rejected when verify key configured, wrong key
   rejected, unsigned accepted when no verify key (see
@@ -1927,9 +2020,15 @@ Check:
 - Pack: a test asserts `--output` is required
 - Pack (KMS): a test asserts KMS identity produces an
   artifact with `envelope` field containing provider, keyId,
-  wrappedKey, and algorithm
+  wrappedKey, algorithm, iv, and authTag — with iv decoding
+  to 12 bytes and authTag decoding to 16 bytes
 - Pack (KMS): a test asserts `kms.wrap()` is called with
-  the correct key ID
+  the correct key ID and a 32-byte buffer (the DEK)
+- Pack (KMS): a test asserts the AES-256-GCM ciphertext
+  round-trips — decrypt the artifact's ciphertext using the
+  captured DEK, iv, and authTag to recover original values
+- Pack (KMS): a test asserts `age-encryption` Encrypter is
+  NOT called for KMS identities — only Node crypto is used
 - Pack (KMS): a test asserts missing KMS provider throws
   a clear error
 - Pack (age regression): a test asserts age-only identity
@@ -1963,10 +2062,11 @@ Check — Signer module:
 - `buildSigningPayload` includes all fields — a test
   asserts the payload string contains version, identity,
   environment, revision, packedAt, ciphertextHash, sorted
-  keys, expiresAt, and envelope fields
+  keys, expiresAt, and all six envelope fields (provider,
+  keyId, wrappedKey, algorithm, iv, authTag)
 - `buildSigningPayload` empty optional fields: a test
   asserts empty strings appear for missing expiresAt and
-  envelope fields
+  all six envelope fields (including iv and authTag)
 - Ed25519 round-trip: sign with private key, verify with
   matching public key — passes
 - Ed25519 wrong key: sign with one key, verify with a

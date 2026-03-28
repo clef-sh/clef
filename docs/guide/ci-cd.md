@@ -92,7 +92,7 @@ Store `AGE_PRIVATE_KEY` as a CircleCI project or context variable. Set `CLEF_AGE
 
 The zero-secret pattern eliminates all static credentials from CI. Three things must be true:
 
-1. **SOPS backend is KMS** — your `.sops.yaml` points to a KMS key ARN, not an age recipient. This is set at `clef init` time with `--backend awskms --kms-arn <arn>`.
+1. **SOPS backend is KMS** — your `.sops.yaml` points to a KMS key ARN, not an age recipient. Configure this during `clef init` by selecting the `awskms` backend when prompted.
 2. **Service identities use KMS envelope** — `clef.yaml` has `kms:` (not `recipient:`) for each environment. Set via `clef service create --kms-env production=aws:<arn>`.
 3. **CI authenticates via IAM role** — OIDC federation, not a stored access key.
 
@@ -209,7 +209,7 @@ No collisions: database secrets become `DB_*` and auth secrets `AUTH_*`.
 For CI systems that require environment variables set before the main script runs:
 
 ```bash
-eval $(clef export payments/production --format env)
+eval $(clef export payments/production --format env --raw)
 ./deploy.sh
 ```
 
@@ -220,7 +220,7 @@ With `eval`, decrypted values are briefly in the shell environment and readable 
 ### Docker build args
 
 ```bash
-eval $(clef export app/production --format env)
+eval $(clef export app/production --format env --raw)
 docker build \
   --build-arg STRIPE_KEY="$STRIPE_KEY" \
   --build-arg DB_URL="$DATABASE_URL" \

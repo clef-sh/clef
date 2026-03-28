@@ -21,13 +21,16 @@ import {
   SubprocessRunner,
   ClefManifest,
   ScanResult,
+  KmsConfig,
   getPendingKeys,
   markResolved,
   markPendingWithRetry,
   generateRandomValue,
   ImportRunner,
   RecipientManager,
+  ServiceIdentityManager,
   validateAgePublicKey,
+  VALID_KMS_PROVIDERS,
 } from "@clef-sh/core";
 import type { ImportFormat } from "@clef-sh/core";
 
@@ -117,6 +120,7 @@ export function createApiRouter(deps: ApiDeps): Router {
   const git = new GitIntegration(deps.runner);
   const scanRunner = new ScanRunner(deps.runner);
   const recipientManager = new RecipientManager(sops, matrix);
+  const serviceIdManager = new ServiceIdentityManager(sops, matrix);
   const bulkOps = new BulkOps();
 
   // In-session scan cache
@@ -126,6 +130,10 @@ export function createApiRouter(deps: ApiDeps): Router {
   function loadManifest(): ClefManifest {
     const manifestPath = `${deps.repoRoot}/clef.yaml`;
     return parser.parse(manifestPath);
+  }
+
+  function zeroStringRecord(record: Record<string, string>): void {
+    for (const k of Object.keys(record)) record[k] = "";
   }
 
   function setNoCacheHeaders(res: Response): void {
@@ -462,6 +470,17 @@ export function createApiRouter(deps: ApiDeps): Router {
         }
 
         const result = await diffEngine.diffFiles(ns, envA, envB, manifest, sops, deps.repoRoot);
+
+        // Mask values by default — only reveal when client explicitly requests it
+        if (req.query.showValues !== "true") {
+          for (const row of result.rows) {
+            if (row.valueA !== null)
+              row.valueA = "\u25CF\u25CF\u25CF\u25CF\u25CF\u25CF\u25CF\u25CF";
+            if (row.valueB !== null)
+              row.valueB = "\u25CF\u25CF\u25CF\u25CF\u25CF\u25CF\u25CF\u25CF";
+          }
+        }
+
         res.json(result);
       } catch {
         res.status(500).json({ error: "Failed to compute diff", code: "DIFF_ERROR" });
@@ -872,6 +891,140 @@ export function createApiRouter(deps: ApiDeps): Router {
       res.json({ identities: result });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load service identities";
+      res.status(500).json({ error: message, code: "SERVICE_IDENTITY_ERROR" });
+    }
+  });
+
+  // POST /api/service-identities — create a new service identity
+  router.post("/service-identities", async (req: Request, res: Response) => {
+    try {
+      const manifest = loadManifest();
+      const { name, description, namespaces, kmsEnvConfigs } = req.body as {
+        name: string;
+        description?: string;
+        namespaces: string[];
+        kmsEnvConfigs?: Record<string, { provider: string; keyId: string }>;
+      };
+
+      if (!name || typeof name !== "string") {
+        res.status(400).json({ error: "name is required.", code: "BAD_REQUEST" });
+        return;
+      }
+      if (!Array.isArray(namespaces) || namespaces.length === 0) {
+        res
+          .status(400)
+          .json({ error: "namespaces must be a non-empty array.", code: "BAD_REQUEST" });
+        return;
+      }
+
+      // Validate and cast KMS configs — provider must be one of the allowed values
+      let typedKmsConfigs: Record<string, KmsConfig> | undefined;
+      if (kmsEnvConfigs && Object.keys(kmsEnvConfigs).length > 0) {
+        typedKmsConfigs = {};
+        for (const [envName, cfg] of Object.entries(kmsEnvConfigs)) {
+          if (!VALID_KMS_PROVIDERS.includes(cfg.provider as (typeof VALID_KMS_PROVIDERS)[number])) {
+            res.status(400).json({
+              error: `Invalid KMS provider '${cfg.provider}' for environment '${envName}'. Must be aws, gcp, or azure.`,
+              code: "BAD_REQUEST",
+            });
+            return;
+          }
+          typedKmsConfigs[envName] = {
+            provider: cfg.provider as (typeof VALID_KMS_PROVIDERS)[number],
+            keyId: cfg.keyId,
+          };
+        }
+      }
+
+      const result = await serviceIdManager.create(
+        name,
+        namespaces,
+        description ?? "",
+        manifest,
+        deps.repoRoot,
+        typedKmsConfigs,
+      );
+
+      setNoCacheHeaders(res);
+      res.json({ identity: result.identity, privateKeys: result.privateKeys });
+
+      // Best-effort: clear references to private key strings (V8 may retain copies)
+      zeroStringRecord(result.privateKeys);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create service identity";
+      res.status(500).json({ error: message, code: "SERVICE_IDENTITY_ERROR" });
+    }
+  });
+
+  // DELETE /api/service-identities/:name
+  router.delete("/service-identities/:name", async (req: Request, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      const manifest = loadManifest();
+      if (!manifest.service_identities?.find((si) => si.name === name)) {
+        res.status(404).json({ error: `Service identity '${name}' not found.`, code: "NOT_FOUND" });
+        return;
+      }
+      await serviceIdManager.delete(name, manifest, deps.repoRoot);
+      res.json({ ok: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to delete service identity";
+      res.status(500).json({ error: message, code: "SERVICE_IDENTITY_ERROR" });
+    }
+  });
+
+  // PATCH /api/service-identities/:name — update environment backends to KMS
+  router.patch("/service-identities/:name", async (req: Request, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      const { kmsEnvConfigs } = req.body as {
+        kmsEnvConfigs?: Record<string, { provider: string; keyId: string }>;
+      };
+      if (!kmsEnvConfigs || Object.keys(kmsEnvConfigs).length === 0) {
+        res
+          .status(400)
+          .json({ error: "kmsEnvConfigs must be a non-empty object.", code: "BAD_REQUEST" });
+        return;
+      }
+      const manifest = loadManifest();
+      const typedKmsConfigs: Record<string, KmsConfig> = {};
+      for (const [envName, cfg] of Object.entries(kmsEnvConfigs)) {
+        if (cfg.provider !== "aws" && cfg.provider !== "gcp" && cfg.provider !== "azure") {
+          res.status(400).json({
+            error: `Invalid KMS provider '${cfg.provider}' for environment '${envName}'. Must be aws, gcp, or azure.`,
+            code: "BAD_REQUEST",
+          });
+          return;
+        }
+        typedKmsConfigs[envName] = { provider: cfg.provider, keyId: cfg.keyId };
+      }
+      await serviceIdManager.updateEnvironments(name, typedKmsConfigs, manifest, deps.repoRoot);
+      res.json({ ok: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to update service identity";
+      res.status(500).json({ error: message, code: "SERVICE_IDENTITY_ERROR" });
+    }
+  });
+
+  // POST /api/service-identities/:name/rotate — rotate age key(s)
+  router.post("/service-identities/:name/rotate", async (req: Request, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      const { environment } = req.body as { environment?: string };
+      const manifest = loadManifest();
+      const privateKeys = await serviceIdManager.rotateKey(
+        name,
+        manifest,
+        deps.repoRoot,
+        environment,
+      );
+      setNoCacheHeaders(res);
+      res.json({ privateKeys });
+
+      // Best-effort: clear references to private key strings (V8 may retain copies)
+      zeroStringRecord(privateKeys);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to rotate service identity key";
       res.status(500).json({ error: message, code: "SERVICE_IDENTITY_ERROR" });
     }
   });

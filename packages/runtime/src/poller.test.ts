@@ -43,6 +43,8 @@ function makeArtifact(
       keyId: string;
       wrappedKey: string;
       algorithm: string;
+      iv: string;
+      authTag: string;
     };
   }> = {},
 ): string {
@@ -66,6 +68,41 @@ function makeArtifact(
     artifact.envelope = overrides.envelope;
   }
   return JSON.stringify(artifact);
+}
+
+/**
+ * Create a KMS envelope artifact with real AES-256-GCM encryption.
+ * The returned DEK must be fed to mockKmsUnwrap so the poller can decrypt.
+ */
+function makeKmsArtifact(
+  testDek: Buffer,
+  values: Record<string, string>,
+  overrides: { revision?: string } = {},
+): string {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", testDek, iv);
+  const ct = Buffer.concat([cipher.update(JSON.stringify(values), "utf-8"), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  const ciphertext = ct.toString("base64");
+
+  return JSON.stringify({
+    version: 1,
+    identity: "api-gateway",
+    environment: "production",
+    packedAt: "2024-01-15T00:00:00.000Z",
+    revision: overrides.revision ?? "kms-rev",
+    ciphertextHash: crypto.createHash("sha256").update(ciphertext).digest("hex"),
+    ciphertext,
+    keys: Object.keys(values),
+    envelope: {
+      provider: "aws",
+      keyId: "arn:aws:kms:us-east-1:111:key/test",
+      wrappedKey: Buffer.from("wrapped-key").toString("base64"),
+      algorithm: "SYMMETRIC_DEFAULT",
+      iv: iv.toString("base64"),
+      authTag: authTag.toString("base64"),
+    },
+  });
 }
 
 function mockSource(raw: string, contentHash?: string): ArtifactSource {
@@ -205,20 +242,12 @@ describe("ArtifactPoller", () => {
       await expect(poller.fetchAndDecrypt()).rejects.toThrow("requires an age private key");
     });
 
-    it("should decrypt KMS envelope artifact via KMS unwrap", async () => {
-      mockKmsUnwrap.mockResolvedValue(Buffer.from("AGE-SECRET-KEY-1UNWRAPPED"));
+    it("should decrypt KMS envelope artifact via AES-256-GCM with KMS-unwrapped DEK", async () => {
+      const testDek = crypto.randomBytes(32);
+      mockKmsUnwrap.mockResolvedValue(Buffer.from(testDek));
 
-      const source = mockSource(
-        makeArtifact({
-          revision: "kms-rev",
-          envelope: {
-            provider: "aws",
-            keyId: "arn:aws:kms:us-east-1:111:key/test",
-            wrappedKey: Buffer.from("wrapped-key").toString("base64"),
-            algorithm: "SYMMETRIC_DEFAULT",
-          },
-        }),
-      );
+      const testValues = { DB_URL: "postgres://...", API_KEY: "secret" };
+      const source = mockSource(makeKmsArtifact(testDek, testValues));
 
       const poller = new ArtifactPoller({
         source,
@@ -229,11 +258,51 @@ describe("ArtifactPoller", () => {
 
       expect(cache.isReady()).toBe(true);
       expect(cache.getRevision()).toBe("kms-rev");
+      expect(cache.get("DB_URL")).toBe("postgres://...");
+      expect(cache.get("API_KEY")).toBe("secret");
       expect(mockKmsUnwrap).toHaveBeenCalledWith(
         "arn:aws:kms:us-east-1:111:key/test",
         expect.any(Buffer),
         "SYMMETRIC_DEFAULT",
       );
+    });
+
+    it("should throw on AES-GCM authentication failure (corrupted authTag)", async () => {
+      const testDek = crypto.randomBytes(32);
+      mockKmsUnwrap.mockResolvedValue(Buffer.from(testDek));
+
+      const raw = makeKmsArtifact(testDek, { KEY: "val" });
+      const parsed = JSON.parse(raw);
+      // Corrupt the authTag
+      parsed.envelope.authTag = Buffer.from("corrupted-tag!!!").toString("base64");
+      // Recompute ciphertextHash since we didn't change ciphertext
+      const source = mockSource(JSON.stringify(parsed));
+
+      const poller = new ArtifactPoller({
+        source,
+        cache,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow();
+      expect(cache.isReady()).toBe(false);
+    });
+
+    it("should not call AgeDecryptor for KMS envelope artifacts", async () => {
+      const testDek = crypto.randomBytes(32);
+      mockKmsUnwrap.mockResolvedValue(Buffer.from(testDek));
+
+      const source = mockSource(makeKmsArtifact(testDek, { KEY: "val" }));
+
+      const poller = new ArtifactPoller({
+        source,
+        cache,
+      });
+
+      await poller.fetchAndDecrypt();
+
+      // AgeDecryptor (mocked via age-encryption) should not be used for KMS path
+      const ageModule = await import("age-encryption");
+      expect(ageModule.Decrypter).not.toHaveBeenCalled();
     });
 
     it("should reject artifact with incomplete envelope fields", async () => {
@@ -250,6 +319,36 @@ describe("ArtifactPoller", () => {
         ciphertext,
         keys: ["DB_URL"],
         envelope: { provider: "aws" },
+      });
+      const source = mockSource(raw);
+
+      const poller = new ArtifactPoller({
+        source,
+        cache,
+      });
+
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("incomplete envelope fields");
+    });
+
+    it("should reject envelope missing iv and authTag", async () => {
+      const ciphertext =
+        "-----BEGIN AGE ENCRYPTED FILE-----\nmock\n-----END AGE ENCRYPTED FILE-----";
+      const hash = crypto.createHash("sha256").update(ciphertext).digest("hex");
+      const raw = JSON.stringify({
+        version: 1,
+        identity: "api-gateway",
+        environment: "production",
+        packedAt: "2024-01-15T00:00:00.000Z",
+        revision: "missing-iv-authtag",
+        ciphertextHash: hash,
+        ciphertext,
+        keys: ["DB_URL"],
+        envelope: {
+          provider: "aws",
+          keyId: "arn:aws:kms:us-east-1:111:key/test",
+          wrappedKey: Buffer.from("wrapped").toString("base64"),
+          algorithm: "SYMMETRIC_DEFAULT",
+        },
       });
       const source = mockSource(raw);
 
@@ -898,9 +997,8 @@ describe("ArtifactPoller", () => {
 
       // Advance to trigger the scheduled poll (cacheTtl/10 = 10s)
       jest.advanceTimersByTime(10_000);
-      // Wait for the async callback to settle
-      await Promise.resolve();
-      await Promise.resolve();
+      // Wait for the async callback chain to settle
+      for (let i = 0; i < 10; i++) await Promise.resolve();
 
       expect(onError).toHaveBeenCalledWith(expect.any(Error));
       poller.stop();
