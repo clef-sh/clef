@@ -10,7 +10,7 @@ A secrets server is unnecessary overhead. The secrets already live in git — en
 
 Clef is that architecture. Secrets are SOPS-encrypted files in git. A lightweight agent delivers them to production as packed, signed artifacts. No central server. No vendor custody. In KMS mode, no static credential exists anywhere in the pipeline — authentication is an IAM policy, not a key you can leak.
 
-The recommended production topology uses two separate KMS keys and a dedicated secrets repository, eliminating both static credentials and cross-environment blast radius. Everything else in this paper is a stepping stone toward that destination. Section 1.1 provides a quick decision guide for readers who want to know upfront whether Clef fits their situation.
+The recommended production topology uses up to three separate KMS keys — one for source encryption (SOPS backend), one for artifact wrapping (envelope), and one for artifact signing (provenance) — plus a dedicated secrets repository, eliminating both static credentials and cross-environment blast radius. Everything else in this paper is a stepping stone toward that destination. Section 1.1 provides a quick decision guide for readers who want to know upfront whether Clef fits their situation.
 
 ---
 
@@ -148,6 +148,23 @@ This is a cleaner rollback story than centralized vault architectures, where res
 
 ## 4. CI/CD: Pack and Distribute
 
+The sections that follow reference cloud KMS operations by their IAM permission names. These are written in AWS notation (`kms:Decrypt`, etc.) but every major cloud provider has direct equivalents:
+
+| Permission    | What it does                                                | Cloud-generic equivalent                                      |
+| ------------- | ----------------------------------------------------------- | ------------------------------------------------------------- |
+| `kms:Decrypt` | Decrypt data (or unwrap a wrapped key) using a KMS key      | GCP `cloudkms.cryptoKeys.decrypt`, Azure `keys/decrypt`       |
+| `kms:Encrypt` | Encrypt data (or wrap a key) using a KMS key                | GCP `cloudkms.cryptoKeys.encrypt`, Azure `keys/encrypt`       |
+| `kms:Sign`    | Produce a digital signature using an **asymmetric** KMS key | GCP `cloudkms.cryptoKeyVersions.useToSign`, Azure `keys/sign` |
+
+Two categories of KMS key appear in the architecture:
+
+| Key type       | Purpose in Clef                                                                                                          | Example algorithms                    |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
+| **Symmetric**  | SOPS backend encryption; envelope wrapping of ephemeral keys                                                             | AES-256-GCM (AWS `SYMMETRIC_DEFAULT`) |
+| **Asymmetric** | Artifact signing (provenance). The private half never leaves the HSM; the public half is exported for local verification | ECDSA P-256 (AWS `ECC_NIST_P256`)     |
+
+These terms are used consistently throughout Sections 4–8. Where a section refers to "the SOPS key," "the envelope key," or "the signing key," it means a KMS key with the corresponding permission and type from the tables above.
+
 ### 4.1 CI Key Management
 
 A CI pipeline that runs `clef pack` needs to decrypt SOPS files. Clef supports a maturity path from convenience to zero-custody:
@@ -199,38 +216,56 @@ The `clef pack` command:
 
 The `ciphertextHash` field detects accidental corruption, but it does not prove provenance. An attacker who can write to the artifact store (S3, GCS, or the VCS repository) can replace the artifact with one they encrypted themselves — the hash will be valid because it matches the new ciphertext.
 
-Artifact signing closes this gap. `clef pack` supports two signing modes:
+Artifact signing closes this gap. Both signing modes produce the same artifact format and the same verification behavior on the runtime side — they differ in how the signature is produced at pack time and how the signing credential is managed.
+
+#### Signing Payload (shared)
+
+Regardless of mode, the packer constructs a **canonical signing payload** after encryption and metadata assembly: a deterministic, newline-separated string containing the domain prefix `clef-sig-v2`, all security-relevant fields (version, identity, environment, revision, packedAt, ciphertextHash, sorted keys, expiresAt, envelope fields), with missing optional fields represented as empty strings. The base64-encoded signature and an algorithm identifier (`"Ed25519"` or `"ECDSA_SHA256"`) are written to the artifact JSON.
+
+#### Ed25519 Signing
+
+Ed25519 is the self-contained option — no cloud infrastructure required. You generate a key pair, store the private key as a CI secret, and deploy the public key to the agent.
 
 ```bash
-# Ed25519 — store the private key in CI secrets, deploy the public key to the agent
 clef pack api-gateway production \
   --output ./artifact.json \
   --signing-key "$CLEF_SIGNING_KEY"
+```
 
-# KMS ECDSA — use an asymmetric KMS key (ECC_NIST_P256)
+The payload is signed directly with the Ed25519 private key. The private key is a CI secret (e.g. a GitHub Actions encrypted secret or equivalent). Leaking this key allows an attacker to produce validly signed artifacts. Rotating it requires generating a new key pair and redeploying the public key to all agents.
+
+#### KMS ECDSA Signing
+
+KMS ECDSA eliminates the CI secret entirely. Instead of holding a private key, the CI runner's IAM role is granted `kms:Sign` permission on an asymmetric KMS key. The private key never leaves the HSM.
+
+```bash
 clef pack api-gateway production \
   --output ./artifact.json \
   --signing-kms-key arn:aws:kms:us-east-1:123456789012:key/abcd-1234
 ```
 
-The signing process:
+A SHA-256 digest of the canonical payload is passed to `kms:Sign` with `ECDSA_SHA_256` and `MessageType: DIGEST`. There is no private key to leak — the risk surface is an IAM misconfiguration granting `kms:Sign` to an unauthorized principal, which is auditable via CloudTrail (or equivalent).
 
-1. After encryption and metadata assembly (including `expiresAt` if set), the packer constructs a **canonical signing payload**: a deterministic, newline-separated string containing the domain prefix `clef-sig-v1`, all security-relevant fields (version, identity, environment, revision, packedAt, ciphertextHash, sorted keys, expiresAt, envelope fields), with missing optional fields represented as empty strings.
-2. For Ed25519, the payload is signed directly. For KMS ECDSA, a SHA-256 digest of the payload is passed to `kms:Sign` with `ECDSA_SHA_256` and `MessageType: DIGEST`.
-3. The base64-encoded signature and algorithm identifier (`"Ed25519"` or `"ECDSA_SHA256"`) are written to the artifact JSON.
+The signing key is a **third KMS key**, distinct from both the SOPS backend key (symmetric, used for source file encryption) and the envelope wrapping key (symmetric, used to wrap the ephemeral age key). The signing key is asymmetric and only the `kms:Sign` permission is needed — never `kms:Encrypt` or `kms:Decrypt`.
 
-The runtime verifies signatures before decryption:
+#### Verification (shared)
 
-- The **verify key** is injected via deployment configuration (`CLEF_AGENT_VERIFY_KEY`), never read from the artifact itself. An artifact that embeds its own public key proves nothing — an attacker signs with their key and includes it.
+Both modes produce an artifact that the runtime verifies identically. The runtime never calls KMS for verification — it uses a locally-held public key.
+
+The **verify key** is configured via `CLEF_AGENT_VERIFY_KEY` as a base64-encoded DER SPKI public key. For Ed25519, this is the public half of the generated key pair. For KMS ECDSA, it is the public key **exported from the asymmetric KMS key** and deployed as configuration. In both cases:
+
+- The verify key is injected via deployment configuration, never read from the artifact itself. An artifact that embeds its own public key proves nothing — an attacker signs with their key and includes it.
 - The verification algorithm is derived from the public key's ASN.1 type, not from the artifact's `signatureAlgorithm` field. The artifact field is informational; the key type is authoritative. This prevents algorithm downgrade attacks.
 - When a verify key is configured, unsigned artifacts are **hard-rejected** — the runtime throws, the cache is not updated, and a `signature_missing` telemetry event is emitted. Invalid signatures produce a `signature_invalid` event. There is no fallback to unsigned mode.
 - When no verify key is configured, signing is not enforced. This preserves backward compatibility with pre-signing deployments.
 
-**What signing protects against**: artifact store compromise (S3 bucket takeover, CDN poisoning) and transport-layer attacks (MITM replacing the artifact in transit). The trust boundary reduces from "anyone who can write to S3" to "the CI runner that holds the signing key."
+#### Threat Scope
 
-**What signing does not protect against**: a compromised CI runner has the signing key and access to plaintext during pack — it can produce validly signed artifacts with arbitrary content. An insider with merge permissions can change the manifest to point to a different verify key. These are mitigated by CI runner isolation and CODEOWNERS, not by signing.
+**What signing protects against**: artifact store compromise (S3 bucket takeover, CDN poisoning) and transport-layer attacks (MITM replacing the artifact in transit). The trust boundary reduces from "anyone who can write to the artifact store" to "the CI runner authorized to sign."
 
-The signing key (Ed25519 private key or KMS key ARN) is a CI secret, not a versioned configuration. It does not appear in the manifest, the artifact JSON, or any CLI output. The KMS signing key is a different key from the envelope wrapping key: signing uses an asymmetric key (ECC_NIST_P256); envelope wrapping uses a symmetric key (SYMMETRIC_DEFAULT).
+**What signing does not protect against**: a compromised CI runner can produce validly signed artifacts with arbitrary content — in Ed25519 mode it holds the private key, in KMS mode it has `kms:Sign` permission. An insider with merge permissions can change the manifest to point to a different verify key. These are mitigated by CI runner isolation and CODEOWNERS (Section 8.8), not by signing.
+
+Neither the Ed25519 private key nor the KMS key ARN appears in the manifest, the artifact JSON, or any CLI output. The signing credential (whether a stored key or an IAM permission) is an operational concern managed outside of version control.
 
 ### 4.4 The Artifact Envelope
 
@@ -381,8 +416,9 @@ As discussed in Section 1.3, age keys reduce the custody problem but don't elimi
 
 - CI calls `kms:Decrypt` on the SOPS key (the KMS key in `.sops.yaml`) to read encrypted files. No private key.
 - `clef pack` calls `kms:Encrypt` on the service identity's envelope key to wrap the ephemeral private key. No static key stored.
+- When KMS ECDSA signing is enabled, `clef pack` also calls `kms:Sign` on a separate asymmetric signing key to sign the artifact (see Section 4.3). No signing secret stored.
 - Runtime calls `kms:Decrypt` on the envelope key to unwrap the ephemeral private key. No static key deployed.
-- All three authenticate via IAM role. Key material never leaves the HSM.
+- All authenticate via IAM role. Key material never leaves the HSM.
 - Every `clef pack` generates a fresh ephemeral key pair. There is no long-lived secret to rotate or protect.
 
 **Ephemeral key lifecycle — step by step:**
@@ -393,7 +429,8 @@ As discussed in Section 1.3, age keys reduce the custody problem but don't elimi
 2. A fresh ephemeral age key pair is generated. This key pair is unique to this pack invocation — it will never be reused.
 3. The decrypted secrets (scoped to the service identity's namespaces) are encrypted with the ephemeral age public key.
 4. The ephemeral age **private** key is wrapped (encrypted) by calling `kms:Encrypt` on the service identity's envelope KMS key. The plaintext private key is then discarded.
-5. The artifact envelope is assembled: encrypted secrets, wrapped ephemeral key, integrity hash, optional signature. Published to VCS, S3, or the artifact store.
+5. If signing is enabled, the canonical payload is signed — either directly with an Ed25519 private key (CI secret) or via `kms:Sign` on an asymmetric KMS key (IAM permission, no secret). See Section 4.3.
+6. The artifact envelope is assembled: encrypted secrets, wrapped ephemeral key, integrity hash, optional signature. Published to VCS, S3, or the artifact store.
 
 **Production runtime (serve time):**
 
@@ -418,11 +455,12 @@ Each `clef pack` invocation generates a fresh ephemeral age key pair. This means
 
 ### 6.3 IAM as the Authentication Layer
 
-In KMS envelope mode, the security model reduces to IAM permissions on a single KMS key:
+In KMS envelope mode, the security model reduces to IAM permissions on a small set of KMS keys. In the hardened topology these are three separate keys; in simpler setups the SOPS and envelope keys may be the same (see Section 4.1).
 
-1. **Who can call `kms:Decrypt`?** CI pipelines (to decrypt SOPS files via the KMS backend) and production workloads (to unwrap the ephemeral key for consumption). These can be different KMS keys with different IAM policies for separation of duty.
-2. **Who can call `kms:Encrypt`?** CI pipelines that wrap the ephemeral key during `clef pack`. In KMS-native mode, also used for SOPS encryption.
-3. **Who can read the artifact?** Anyone with VCS API access or HTTP access to the storage location. But the artifact is useless without `kms:Decrypt` on the correct key. The wrapped ephemeral key is inert without KMS.
+1. **Who can call `kms:Decrypt`?** CI pipelines (to decrypt SOPS files via the SOPS backend key) and production workloads (to unwrap the ephemeral key via the envelope key). With separate keys, these are two different IAM policies — the workload has no permission on the SOPS key.
+2. **Who can call `kms:Encrypt`?** CI pipelines that wrap the ephemeral key during `clef pack` (envelope key). In KMS-native mode, also used for SOPS encryption (SOPS backend key).
+3. **Who can call `kms:Sign`?** CI pipelines that sign artifacts during `clef pack` (signing key — asymmetric, separate from both the SOPS and envelope keys). Only relevant when KMS ECDSA signing is enabled (see Section 4.3). The signing key requires only the `kms:Sign` permission — never `kms:Encrypt` or `kms:Decrypt`.
+4. **Who can read the artifact?** Anyone with VCS API access or HTTP access to the storage location. But the artifact is useless without `kms:Decrypt` on the correct envelope key. The wrapped ephemeral key is inert without KMS. When signing is enabled, a replaced artifact will also fail signature verification.
 
 ### 6.4 Just-In-Time Decryption: IAM as a Live Authorization Gate
 
@@ -578,24 +616,27 @@ The trust chain is: git write access → manifest control → recipient list →
 
 Unlike centralized vault architectures, there is no central server to attack, DDoS, or compromise. There is no shared database to breach. There is no root key or master secret that unlocks everything. The git repository is the source of truth, protected by existing git access controls.
 
-The blast radius of a key compromise depends on the KMS key topology. The architecture supports two independent axes of key separation:
+The blast radius of a key compromise depends on the KMS key topology. The architecture supports three independent axes of key separation:
 
-**SOPS backend keys** (source encryption): The manifest supports per-environment backend overrides. Each environment can use a different encryption backend and key — age for local development, a regional KMS key for staging, a separate KMS key for production. A compromised key exposes only the SOPS files encrypted with that key, not files in other environments.
+**SOPS backend keys** (source encryption, symmetric): The manifest supports per-environment backend overrides. Each environment can use a different encryption backend and key — age for local development, a regional KMS key for staging, a separate KMS key for production. A compromised key exposes only the SOPS files encrypted with that key, not files in other environments. Relevant permissions: `kms:Decrypt` (to read), `kms:Encrypt` (to write).
 
-**Service identity envelope keys** (artifact encryption): Each service identity declares its own KMS key per environment via `clef service create --kms-env`. The `api-gateway` production artifact can use a different KMS key than the `payments-svc` production artifact.
+**Service identity envelope keys** (artifact encryption, symmetric): Each service identity declares its own KMS key per environment via `clef service create --kms-env`. The `api-gateway` production artifact can use a different KMS key than the `payments-svc` production artifact. Relevant permissions: `kms:Encrypt` (CI wraps the ephemeral key), `kms:Decrypt` (runtime unwraps it).
 
-The full matrix is per-environment SOPS backend key multiplied by per-identity-per-environment envelope key. A concrete example:
+**Signing key** (artifact provenance, asymmetric): When KMS ECDSA signing is enabled, a separate asymmetric KMS key is used to sign artifacts at pack time. This key requires only the `kms:Sign` permission — never `kms:Encrypt` or `kms:Decrypt`. Because it is asymmetric, it cannot be the same key as either the SOPS backend or envelope key. The signing key does not protect secrets directly; it proves that an artifact was produced by an authorized CI pipeline (see Section 4.3).
+
+The full matrix is per-environment SOPS backend key multiplied by per-identity-per-environment envelope key, plus an optional signing key. A concrete example:
 
 - Dev SOPS files: age (local, no cloud dependency)
-- Production SOPS files: KMS key A (us-east-1)
-- `api-gateway` production envelope: KMS key B
-- `payments-svc` production envelope: KMS key C
+- Production SOPS files: KMS key A (us-east-1, symmetric)
+- `api-gateway` production envelope: KMS key B (symmetric)
+- `payments-svc` production envelope: KMS key C (symmetric)
+- Artifact signing: KMS key D (asymmetric, ECC_NIST_P256)
 
-In this topology, a compromised `api-gateway` runtime has `kms:Decrypt` on key B. It can unwrap its own artifact — the secrets it already has via the agent. It cannot decrypt production SOPS files (key A), dev SOPS files (age, different key entirely), or the `payments-svc` artifact (key C). The blast radius is one service identity in one environment.
+In this topology, a compromised `api-gateway` runtime has `kms:Decrypt` on key B. It can unwrap its own artifact — the secrets it already has via the agent. It cannot decrypt production SOPS files (key A), dev SOPS files (age, different key entirely), or the `payments-svc` artifact (key C). It has no `kms:Sign` permission on key D, so it cannot produce forged artifacts that would pass signature verification. The blast radius is one service identity in one environment.
 
-At the other end of the spectrum, a single KMS key for everything is operationally simpler — one key, one IAM policy — and is a reasonable starting point for teams migrating from age. The blast radius of a compromised runtime in this topology is higher than it appears: if the runtime's envelope key and the SOPS backend key are the same, then a stolen IAM credential that grants `kms:Decrypt` on the envelope also grants `kms:Decrypt` on every SOPS source file in git. An attacker who compromises the workload, exfiltrates its IAM credential, and has read access to the repository can decrypt all source secrets — not just the runtime artifact. With two separate keys, the runtime's `kms:Decrypt` permission covers only the envelope key; the SOPS source files are encrypted under a different CMK the runtime has no permission on, so the git repository is inert to the attacker even with the stolen credential.
+At the other end of the spectrum, a single symmetric KMS key for SOPS and envelope is operationally simpler — one key, one IAM policy — and is a reasonable starting point for teams migrating from age. The blast radius of a compromised runtime in this topology is higher than it appears: if the runtime's envelope key and the SOPS backend key are the same, then a stolen IAM credential that grants `kms:Decrypt` on the envelope also grants `kms:Decrypt` on every SOPS source file in git. An attacker who compromises the workload, exfiltrates its IAM credential, and has read access to the repository can decrypt all source secrets — not just the runtime artifact. With separate keys, the runtime's `kms:Decrypt` permission covers only the envelope key; the SOPS source files are encrypted under a different CMK the runtime has no permission on, so the git repository is inert to the attacker even with the stolen credential.
 
-The two-key topology — SOPS source files on one CMK, artifact envelopes on a separate CMK per service identity — is the recommended production configuration. It is also the architecture that makes the strongest claim: no static credentials exist anywhere in the system, and a fully compromised workload cannot be leveraged to read secrets beyond its own scope. This is the destination the maturity tiers in Section 4.1 are pointing toward. The architecture supports the full range without code changes — it is a configuration decision in `clef.yaml` and `.sops.yaml`.
+The three-key topology — SOPS source files on one symmetric CMK, artifact envelopes on a separate symmetric CMK per service identity, and artifact signing on a dedicated asymmetric key — is the recommended production configuration. It is also the architecture that makes the strongest claim: no static credentials exist anywhere in the system, a fully compromised workload cannot be leveraged to read secrets beyond its own scope, and forged artifacts are rejected at the provenance layer. This is the destination the maturity tiers in Section 4.1 are pointing toward. The architecture supports the full range without code changes — it is a configuration decision in `clef.yaml`, `.sops.yaml`, and CI pipeline variables.
 
 ### 8.5 Defense in Depth
 
@@ -714,7 +755,7 @@ The architectural differences produce different security properties. Neither sys
 
 - **No runtime secret server** to DDoS, exploit, or misconfigure. Eliminates an entire class of infrastructure vulnerabilities (unsealing, storage backend, auth backend, TLS termination, HA failover).
 - **Cryptographic scoping enforced at pack time**, not by policy documents that can drift. A service identity physically cannot decrypt secrets outside its namespace scope — the ciphertext does not contain them.
-- **KMS key isolation**: the SOPS backend key and the envelope key are independent. Compromising a workload's IAM role gives zero leverage against the git-stored secrets (see Section 4.5).
+- **KMS key isolation**: the SOPS backend key, envelope key, and signing key are independent. Compromising a workload's IAM role gives zero leverage against the git-stored secrets or artifact signing (see Sections 4.3 and 4.5).
 - **No token/lease management**: Vault requires token renewal, lease management, and graceful degradation when the vault is unreachable. Clef's artifacts are static files — no runtime auth handshake that can fail or be intercepted.
 
 **Where Clef requires more care:**
