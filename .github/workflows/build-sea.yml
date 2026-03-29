@@ -19,6 +19,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   check-tag:
@@ -239,6 +240,13 @@ jobs:
             shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
           fi
 
+      - name: Upload binary as workflow artifact (Linux only, for Docker build)
+        if: startsWith(matrix.label, 'linux-')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: packages/agent/dist/${{ matrix.asset }}
+
       - name: Upload to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -248,3 +256,55 @@ jobs:
             "packages/agent/dist/${{ matrix.asset }}" \
             "packages/agent/dist/${{ matrix.asset }}.sha256" \
             --clobber
+
+  docker-agent:
+    name: Docker Agent Image
+    needs: [check-tag, build-agent]
+    if: needs.check-tag.outputs.build_agent == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.check-tag.outputs.tag }}
+
+      - name: Download Linux binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: packages/agent/docker-context
+          pattern: clef-agent-linux-*
+          merge-multiple: true
+
+      - name: Make binaries executable
+        run: chmod +x packages/agent/docker-context/clef-agent-linux-*
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/clef-sh/agent
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.check-tag.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.check-tag.outputs.version }}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ !contains(needs.check-tag.outputs.version, 'beta') }}
+            type=raw,value=beta,enable=${{ contains(needs.check-tag.outputs.version, 'beta') }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: packages/agent/docker-context
+          file: packages/agent/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
