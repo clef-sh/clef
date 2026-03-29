@@ -172,10 +172,12 @@ jobs:
             os: ubuntu-latest
             binary: clef-agent
             asset: clef-agent-linux-x64
+            lambda_arch: x64
           - label: linux-arm64
             os: ubuntu-24.04-arm
             binary: clef-agent
             asset: clef-agent-linux-arm64
+            lambda_arch: arm64
           - label: darwin-x64
             os: macos-14
             binary: clef-agent
@@ -240,6 +242,20 @@ jobs:
             shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
           fi
 
+      - name: Package Lambda Layer (Linux only)
+        if: matrix.lambda_arch != ''
+        shell: bash
+        run: |
+          LAYER_DIR=$(mktemp -d)
+          mkdir -p "$LAYER_DIR/clef-agent" "$LAYER_DIR/extensions"
+          cp "packages/agent/dist/${{ matrix.asset }}" "$LAYER_DIR/clef-agent/clef-agent"
+          chmod +x "$LAYER_DIR/clef-agent/clef-agent"
+          cp packages/agent/lambda/extensions/clef-agent "$LAYER_DIR/extensions/clef-agent"
+          chmod +x "$LAYER_DIR/extensions/clef-agent"
+          LAYER_ZIP="packages/agent/dist/clef-agent-lambda-${{ matrix.lambda_arch }}.zip"
+          (cd "$LAYER_DIR" && zip -r - clef-agent extensions) > "$LAYER_ZIP"
+          echo "Packaged Lambda Layer: $LAYER_ZIP"
+
       - name: Upload binary as workflow artifact (Linux only, for Docker build)
         if: startsWith(matrix.label, 'linux-')
         uses: actions/upload-artifact@v4
@@ -252,9 +268,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
+          ASSETS=("packages/agent/dist/${{ matrix.asset }}" "packages/agent/dist/${{ matrix.asset }}.sha256")
+          if [[ -n "${{ matrix.lambda_arch }}" ]]; then
+            ASSETS+=("packages/agent/dist/clef-agent-lambda-${{ matrix.lambda_arch }}.zip")
+          fi
           gh release upload "${{ needs.check-tag.outputs.tag }}" \
-            "packages/agent/dist/${{ matrix.asset }}" \
-            "packages/agent/dist/${{ matrix.asset }}.sha256" \
+            "${ASSETS[@]}" \
             --clobber
 
   docker-agent:

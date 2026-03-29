@@ -401,15 +401,58 @@ spec:
 
 ### Lambda Extension
 
-The agent can run as a Lambda Extension, refreshing secrets between invocations:
+The agent SEA binary auto-detects the Lambda environment (`AWS_LAMBDA_RUNTIME_API`) and switches to extension mode — no separate entry point or configuration flag needed. It registers with the Lambda Extensions API, loads secrets before the first invocation, and refreshes them between invocations when the cache TTL expires.
 
-```bash
-# extensions/clef-agent (entry script in Lambda Layer)
-#!/bin/bash
-exec node /opt/clef-agent/dist/lambda-entry.js
+This is the deployment path for **non-Node.js Lambda functions** (Python, Go, Java, Rust, etc.). Node.js functions can import `@clef-sh/runtime` directly without the agent.
+
+**Lambda Layer structure:**
+
+```
+layer.zip
+├── clef-agent/
+│   └── clef-agent          # SEA binary (linux-x64 or linux-arm64)
+└── extensions/
+    └── clef-agent           # Entry script (exec /opt/clef-agent/clef-agent)
 ```
 
-The Lambda Extension registers with the Extensions API and refreshes secrets when the configured TTL expires between invocations.
+Pre-built layer zips are attached to each [GitHub Release](https://github.com/clef-sh/clef/releases) (`clef-agent-lambda-x64.zip` and `clef-agent-lambda-arm64.zip`).
+
+**Deploy the layer:**
+
+```bash
+# Publish the layer
+aws lambda publish-layer-version \
+  --layer-name clef-agent \
+  --zip-file fileb://clef-agent-lambda-x64.zip \
+  --compatible-runtimes python3.12 java21 provided.al2023 \
+  --compatible-architectures x86_64
+
+# Attach to your function
+aws lambda update-function-configuration \
+  --function-name my-function \
+  --layers arn:aws:lambda:us-east-1:123456789012:layer:clef-agent:1 \
+  --environment "Variables={
+    CLEF_AGENT_SOURCE=https://my-bucket.s3.amazonaws.com/clef/api-gateway/production.age.json,
+    CLEF_AGENT_CACHE_TTL=300
+  }"
+```
+
+Your function handler fetches secrets from the agent over localhost:
+
+```python
+# Python example
+import urllib.request, json
+
+def handler(event, context):
+    token = "..."  # from CLEF_AGENT_TOKEN env var
+    req = urllib.request.Request(
+        "http://127.0.0.1:7779/v1/secrets",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    secrets = json.loads(urllib.request.urlopen(req).read())
+    db_url = secrets["DB_URL"]
+    # ...
+```
 
 ### Local development
 
