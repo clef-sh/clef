@@ -15,6 +15,8 @@ export interface LambdaExtensionOptions {
   refreshTtl: number;
   telemetry?: TelemetryEmitter;
   onLog?: (message: string) => void;
+  /** Skip the initial fetch if the caller already bootstrapped the poller. */
+  skipInitialFetch?: boolean;
 }
 
 /**
@@ -41,14 +43,16 @@ export class LambdaExtension {
     onLog?.(`Registered with Lambda Extensions API (id: ${extensionId})`);
     onLog?.(`Agent server listening at ${server.url}`);
 
-    // Initial fetch — JIT mode fetches without decrypting
-    if (refreshTtl === 0) {
-      await poller.fetchAndValidate();
-    } else {
-      await poller.fetchAndDecrypt();
+    if (!this.options.skipInitialFetch) {
+      // Initial fetch — JIT mode fetches without decrypting
+      if (refreshTtl === 0) {
+        await poller.fetchAndValidate();
+      } else {
+        await poller.fetchAndDecrypt();
+      }
+      onLog?.("Initial secrets loaded.");
     }
     this.lastRefresh = Date.now();
-    onLog?.("Initial secrets loaded.");
 
     // Event loop
     while (true) {
