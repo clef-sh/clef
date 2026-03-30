@@ -3,7 +3,9 @@
  * Standalone entry point for the Clef agent SEA binary.
  *
  * Reads configuration from environment variables, assembles the poller,
- * cache, server, and daemon, then starts the daemon lifecycle.
+ * cache, server, and lifecycle handler, then starts the appropriate
+ * lifecycle: Lambda Extension when running inside AWS Lambda, Daemon
+ * otherwise.
  */
 import { resolveConfig, ConfigError } from "./config";
 import {
@@ -21,8 +23,11 @@ import {
 import type { ArtifactSource } from "@clef-sh/runtime";
 import { startAgentServer } from "./server";
 import { Daemon } from "./lifecycle/daemon";
+import { LambdaExtension } from "./lifecycle/lambda-extension";
 
 import { version as agentVersion } from "../package.json";
+
+const isLambda = !!process.env.AWS_LAMBDA_RUNTIME_API;
 
 async function main(): Promise<void> {
   const config = resolveConfig();
@@ -132,17 +137,34 @@ async function main(): Promise<void> {
     ...(jitMode ? { decryptor: poller.getDecryptor(), encryptedStore } : {}),
   });
 
-  const daemon = new Daemon({
-    poller,
-    server,
-    telemetry,
-    onLog: (msg) => console.log(`[clef-agent] ${msg}`),
-  });
+  const onLog = (msg: string) => console.log(`[clef-agent] ${msg}`);
 
   telemetry?.agentStarted({ version: agentVersion });
-  console.log(`[clef-agent] mode: ${jitMode ? "jit" : "cached"}`);
+  const modeLabel = jitMode ? "jit" : "cached";
+  console.log(`[clef-agent] mode: ${modeLabel}`);
   console.log(`[clef-agent] token: [set]`);
-  await daemon.start();
+
+  if (isLambda) {
+    console.log("[clef-agent] lifecycle: lambda-extension");
+    const extension = new LambdaExtension({
+      poller,
+      server,
+      refreshTtl: config.cacheTtl,
+      telemetry,
+      onLog,
+      skipInitialFetch: true,
+    });
+    await extension.start();
+  } else {
+    console.log("[clef-agent] lifecycle: daemon");
+    const daemon = new Daemon({
+      poller,
+      server,
+      telemetry,
+      onLog,
+    });
+    await daemon.start();
+  }
 }
 
 main().catch((err) => {

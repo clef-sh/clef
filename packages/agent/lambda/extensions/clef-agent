@@ -1,0 +1,5 @@
+#!/bin/bash
+# Lambda Extensions API entry script.
+# Lambda discovers extensions by scanning /opt/extensions/ for executables.
+# This script delegates to the SEA binary packaged in the layer.
+exec /opt/clef-agent/clef-agent
