@@ -51,11 +51,18 @@ describe("HttpArtifactSource", () => {
     expect(result.contentHash).toBeUndefined();
   });
 
-  it("should throw on HTTP error", async () => {
-    mockFetch.mockResolvedValue({ ok: false, status: 404 });
+  it("should throw on HTTP error with status and status text", async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 404, statusText: "Not Found" });
 
     const source = new HttpArtifactSource("https://example.com/missing.age.json");
-    await expect(source.fetch()).rejects.toThrow("404");
+    await expect(source.fetch()).rejects.toThrow("404 Not Found");
+  });
+
+  it("should throw on HTTP 403 with status text", async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 403, statusText: "Forbidden" });
+
+    const source = new HttpArtifactSource("https://bucket.s3.amazonaws.com/artifact.age.json");
+    await expect(source.fetch()).rejects.toThrow("403 Forbidden");
   });
 
   it("should describe itself", () => {
