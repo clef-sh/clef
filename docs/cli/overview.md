@@ -63,6 +63,12 @@ The CLI is built on [commander.js](https://github.com/tj/commander.js) and follo
 | [`clef pack`](/cli/pack)              | Pack an encrypted artifact for a service identity    | `<identity> <env>`, `-o <path>`, `--ttl <sec>` |
 | [`clef revoke`](/cli/revoke)          | Revoke a packed artifact (emergency brake)           | `<identity> <env>`                             |
 
+### Backend migration
+
+| Command                                        | Description                                              | Arguments & flags                                                                                                                                        |
+| ---------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`clef migrate-backend`](/cli/migrate-backend) | Migrate encrypted files from one SOPS backend to another | `--age`, `--aws-kms-arn <arn>`, `--gcp-kms-resource-id <id>`, `--azure-kv-url <url>`, `--pgp-fingerprint <fp>`, `-e <env>`, `--dry-run`, `--skip-verify` |
+
 ### Interface & integration
 
 | Command                                  | Description                                            | Flags                          |

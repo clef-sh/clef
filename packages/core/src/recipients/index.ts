@@ -1,10 +1,10 @@
 import * as fs from "fs";
 import * as path from "path";
-import * as YAML from "yaml";
 import { ClefManifest, EncryptionBackend } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { validateAgePublicKey, keyPreview } from "./validator";
 import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
+import { readManifestYaml, writeManifestYaml } from "../manifest/io";
 
 export interface Recipient {
   key: string;
@@ -46,17 +46,6 @@ function toRecipient(entry: RawRecipientEntry): Recipient {
     preview: keyPreview(entry.key),
     ...(entry.label ? { label: entry.label } : {}),
   };
-}
-
-function readManifestYaml(repoRoot: string): Record<string, unknown> {
-  const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
-  const raw = fs.readFileSync(manifestPath, "utf-8");
-  return YAML.parse(raw) as Record<string, unknown>;
-}
-
-function writeManifestYaml(repoRoot: string, doc: Record<string, unknown>): void {
-  const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
-  fs.writeFileSync(manifestPath, YAML.stringify(doc), "utf-8");
 }
 
 function getRecipientsArray(doc: Record<string, unknown>): unknown[] {

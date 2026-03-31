@@ -55,7 +55,7 @@ Clef provides the developer workflow. Your KMS provides the security posture. Yo
 - A **manifest** (`clef.yaml`) that declares your namespaces, environments, and encryption settings in one place
 - A **namespace-by-environment matrix** that maps every secret file to its logical location and detects missing cells
 - **Schema validation** that enforces required keys, types, and patterns on every namespace
-- A **CLI** with 23 commands covering the full secrets lifecycle: `init`, `get`, `set`, `compare`, `delete`, `diff`, `lint`, `rotate`, `hooks`, `exec`, `export`, `import`, `doctor`, `update`, `scan`, `recipients`, `ui`, `merge-driver`, `service`, `pack`, `drift`, and `agent`
+- A **CLI** covering the full secrets lifecycle: `init`, `get`, `set`, `compare`, `delete`, `diff`, `lint`, `rotate`, `hooks`, `exec`, `export`, `import`, `doctor`, `update`, `scan`, `recipients`, `ui`, `merge-driver`, `migrate-backend`, `service`, `pack`, `drift`, and `agent`
 - A **local web UI** served at `127.0.0.1` that visualises the matrix, provides inline editing with masked values, and compares keys across environments
 - A **pre-commit hook** that blocks accidental plaintext commits
 - Support for all SOPS encryption backends: **age**, **AWS KMS**, **GCP KMS**, and **PGP**

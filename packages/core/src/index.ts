@@ -1,5 +1,6 @@
 export * from "./types";
 export { ManifestParser, CLEF_MANIFEST_FILENAME } from "./manifest/parser";
+export { readManifestYaml, writeManifestYaml } from "./manifest/io";
 export {
   ScanRunner,
   shannonEntropy,
@@ -85,3 +86,10 @@ export {
 } from "./artifact/signer";
 export type { KmsProvider, KmsWrapResult, KmsProviderType } from "./kms";
 export { VALID_KMS_PROVIDERS } from "./kms";
+export { BackendMigrator } from "./migration/backend";
+export type {
+  MigrationTarget,
+  MigrationOptions,
+  MigrationResult,
+  MigrationProgressEvent,
+} from "./migration/backend";

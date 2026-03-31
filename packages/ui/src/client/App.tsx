@@ -10,6 +10,7 @@ import { ScanScreen } from "./screens/ScanScreen";
 import { ImportScreen } from "./screens/ImportScreen";
 import { RecipientsScreen } from "./screens/RecipientsScreen";
 import { ServiceIdentitiesScreen } from "./screens/ServiceIdentitiesScreen";
+import { BackendScreen } from "./screens/BackendScreen";
 import { GitLogView } from "./screens/GitLogView";
 import type { ClefManifest, MatrixStatus, GitStatus, LintResult } from "@clef-sh/core";
 
@@ -190,6 +191,9 @@ export default function App() {
         {view === "import" && <ImportScreen manifest={manifest} setView={setView} />}
         {view === "recipients" && <RecipientsScreen manifest={manifest} setView={setView} />}
         {view === "identities" && <ServiceIdentitiesScreen manifest={manifest} />}
+        {view === "backend" && (
+          <BackendScreen manifest={manifest} setView={setView} reloadManifest={loadManifest} />
+        )}
         {view === "history" && <GitLogView manifest={manifest} />}
       </div>
     </div>

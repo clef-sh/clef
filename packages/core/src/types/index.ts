@@ -47,9 +47,12 @@ export interface ClefManifest {
   cloud?: ClefCloudConfig;
 }
 
+/** Supported SOPS encryption backend identifiers. */
+export type BackendType = "age" | "awskms" | "gcpkms" | "azurekv" | "pgp";
+
 /** Per-environment SOPS backend override. */
 export interface EnvironmentSopsOverride {
-  backend: "age" | "awskms" | "gcpkms" | "azurekv" | "pgp";
+  backend: BackendType;
   aws_kms_arn?: string;
   gcp_kms_resource_id?: string;
   azure_kv_url?: string;
@@ -113,7 +116,7 @@ export interface ClefNamespace {
 
 /** SOPS encryption backend configuration from the manifest. */
 export interface SopsConfig {
-  default_backend: "age" | "awskms" | "gcpkms" | "azurekv" | "pgp";
+  default_backend: BackendType;
   aws_kms_arn?: string;
   gcp_kms_resource_id?: string;
   azure_kv_url?: string;
@@ -295,7 +298,7 @@ export interface DecryptedFile {
 
 /** SOPS metadata extracted from an encrypted file without decrypting its values. */
 export interface SopsMetadata {
-  backend: "age" | "awskms" | "gcpkms" | "azurekv" | "pgp";
+  backend: BackendType;
   /** List of recipient identifiers (age public keys, KMS ARNs, Azure KV URLs, PGP fingerprints). */
   recipients: string[];
   lastModified: Date;

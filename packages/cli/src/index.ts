@@ -25,6 +25,7 @@ import { registerDriftCommand } from "./commands/drift";
 import { registerReportCommand } from "./commands/report";
 import { registerInstallCommand } from "./commands/install";
 import { registerSearchCommand } from "./commands/search";
+import { registerMigrateBackendCommand } from "./commands/migrate-backend";
 import { formatter } from "./output/formatter";
 import { setPlainMode, isPlainMode, symbols } from "./output/symbols";
 import pkg from "../package.json";
@@ -101,6 +102,7 @@ registerDriftCommand(program, deps);
 registerReportCommand(program, deps);
 registerInstallCommand(program, deps);
 registerSearchCommand(program, deps);
+registerMigrateBackendCommand(program, deps);
 
 program.parseAsync(process.argv).catch((err) => {
   formatter.error(err.message);
