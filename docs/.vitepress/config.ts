@@ -97,6 +97,7 @@ export default withMermaid({
             { text: "clef exec", link: "/cli/exec" },
             { text: "clef export", link: "/cli/export" },
             { text: "clef import", link: "/cli/import" },
+            { text: "clef migrate-backend", link: "/cli/migrate-backend" },
             { text: "clef service", link: "/cli/service" },
             { text: "clef pack", link: "/cli/pack" },
             { text: "clef revoke", link: "/cli/revoke" },

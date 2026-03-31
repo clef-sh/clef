@@ -56,9 +56,7 @@ for every command. Each agent produces a structured summary that Phase 2 will co
 
 ### Agent 1A: CLI Interface Extraction
 
-Read every file under `docs/cli/*.md` and the root `README.md`. For each of the 19 commands
-(init, update, get, set, delete, diff, lint, rotate, recipients, hooks, exec, export, import,
-scan, doctor, merge-driver, service, bundle, ui), extract:
+Read every file under `docs/cli/*.md` and the root `README.md`. For each command, extract:
 
 - **Syntax** (positional args + flags)
 - **Exit codes** and their meanings
