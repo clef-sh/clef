@@ -11,7 +11,9 @@ export class HttpArtifactSource implements ArtifactSource {
   async fetch(): Promise<ArtifactFetchResult> {
     const res = await fetch(this.url);
     if (!res.ok) {
-      throw new Error(`Failed to fetch artifact from ${this.describe()}: ${res.status}`);
+      throw new Error(
+        `Failed to fetch artifact from ${this.describe()}: ${res.status} ${res.statusText}`,
+      );
     }
     const raw = await res.text();
     const etag = res.headers.get("etag") ?? undefined;

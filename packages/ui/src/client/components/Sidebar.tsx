@@ -11,6 +11,7 @@ export type ViewName =
   | "import"
   | "recipients"
   | "identities"
+  | "backend"
   | "history";
 
 interface SidebarProps {
@@ -158,6 +159,12 @@ export function Sidebar({
               : undefined
           }
           badgeColor={theme.purple}
+        />
+        <NavItem
+          icon={"\u21BB"}
+          label="Backend"
+          active={activeView === "backend"}
+          onClick={() => setView("backend")}
         />
         <NavItem
           icon={"\u23F1"}

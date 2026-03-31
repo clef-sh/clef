@@ -42,33 +42,34 @@ clef ui
 
 ## Commands
 
-| Command              | Description                                       |
-| -------------------- | ------------------------------------------------- |
-| `clef doctor`        | Check dependencies and configuration              |
-| `clef init`          | Initialise a new Clef repo                        |
-| `clef update`        | Scaffold missing matrix cells                     |
-| `clef get`           | Retrieve a single decrypted value                 |
-| `clef set`           | Set a secret value                                |
-| `clef compare`       | Compare a stored secret with a value              |
-| `clef delete`        | Remove a key from an encrypted file               |
-| `clef diff`          | Compare secrets between two environments          |
-| `clef lint`          | Full repo health check                            |
-| `clef rotate`        | Re-encrypt with a new recipient key               |
-| `clef scan`          | Scan for plaintext secrets in the repo            |
-| `clef import`        | Import secrets from `.env`, JSON, or YAML         |
-| `clef export`        | Print secrets as shell export statements          |
-| `clef recipients`    | Manage age recipients and access requests         |
-| `clef hooks install` | Install the pre-commit hook                       |
-| `clef exec`          | Run a command with injected secrets               |
-| `clef service`       | Manage service identities (create, list, delete)  |
-| `clef pack`          | Pack an encrypted artifact for a service identity |
-| `clef revoke`        | Revoke a packed artifact                          |
-| `clef drift`         | Detect key-set drift across environments          |
-| `clef report`        | Generate a JSON posture report                    |
-| `clef install`       | Install a broker template from the registry       |
-| `clef search`        | Search the broker registry                        |
-| `clef ui`            | Start the local web UI                            |
-| `clef merge-driver`  | Git merge driver for encrypted files              |
+| Command                | Description                                         |
+| ---------------------- | --------------------------------------------------- |
+| `clef doctor`          | Check dependencies and configuration                |
+| `clef init`            | Initialise a new Clef repo                          |
+| `clef update`          | Scaffold missing matrix cells                       |
+| `clef get`             | Retrieve a single decrypted value                   |
+| `clef set`             | Set a secret value                                  |
+| `clef compare`         | Compare a stored secret with a value                |
+| `clef delete`          | Remove a key from an encrypted file                 |
+| `clef diff`            | Compare secrets between two environments            |
+| `clef lint`            | Full repo health check                              |
+| `clef rotate`          | Re-encrypt with a new recipient key                 |
+| `clef scan`            | Scan for plaintext secrets in the repo              |
+| `clef import`          | Import secrets from `.env`, JSON, or YAML           |
+| `clef export`          | Print secrets as shell export statements            |
+| `clef recipients`      | Manage age recipients and access requests           |
+| `clef hooks install`   | Install the pre-commit hook                         |
+| `clef exec`            | Run a command with injected secrets                 |
+| `clef service`         | Manage service identities (create, list, delete)    |
+| `clef pack`            | Pack an encrypted artifact for a service identity   |
+| `clef revoke`          | Revoke a packed artifact                            |
+| `clef drift`           | Detect key-set drift across environments            |
+| `clef report`          | Generate a JSON posture report                      |
+| `clef install`         | Install a broker template from the registry         |
+| `clef search`          | Search the broker registry                          |
+| `clef ui`              | Start the local web UI                              |
+| `clef migrate-backend` | Migrate encrypted files to a different SOPS backend |
+| `clef merge-driver`    | Git merge driver for encrypted files                |
 
 ## Global options
 

@@ -11,7 +11,7 @@ Clef is a git-native secrets management tool built on Mozilla SOPS. It provides 
 npm workspaces with three packages:
 
 - **`packages/core`** — Core library (manifest parsing, matrix management, SOPS client, sops binary resolver, lint runner, schema validation, diff engine, secret scanning, git integration, bulk ops, import/export, recipient management, pending metadata, age keygen, dependency checking). Production dependencies: `yaml`, `age-encryption`.
-- **`packages/cli`** — Commander.js CLI wrapping core. Commands: init, get, set, compare, delete, diff, lint, rotate, hooks, exec, export, import, doctor, update, scan, search, recipients, ui, merge-driver, service, pack, drift, report, revoke, install. Has `optionalDependencies` on `@clef-sh/sops-{platform}-{arch}` packages for bundled sops binary.
+- **`packages/cli`** — Commander.js CLI wrapping core. Commands: init, get, set, compare, delete, diff, lint, rotate, hooks, exec, export, import, doctor, update, scan, search, recipients, ui, merge-driver, migrate-backend, service, pack, drift, report, revoke, install. Has `optionalDependencies` on `@clef-sh/sops-{platform}-{arch}` packages for bundled sops binary.
 - **`packages/runtime`** — Lightweight runtime secrets engine. VCS providers (GitHub, GitLab, Bitbucket), artifact sources, age decrypt, in-memory cache, disk cache fallback, polling. Production dependency: `age-encryption`. No sops, no git.
 - **`packages/agent`** — Standalone sidecar wrapping runtime. Express HTTP API, daemon lifecycle, Lambda extension. Production dependencies: `@clef-sh/runtime`, `express`.
 - **`packages/ui`** — React + Vite + Express local web UI served at `127.0.0.1:7777`.
