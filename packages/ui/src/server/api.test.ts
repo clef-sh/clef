@@ -17,6 +17,14 @@ const mockServiceIdCreate = jest.fn().mockResolvedValue({
 });
 const mockServiceIdRotate = jest.fn().mockResolvedValue({ dev: "AGE-SECRET-KEY-ROTATED" });
 
+const mockMigrate = jest.fn().mockResolvedValue({
+  migratedFiles: ["/repo/database/dev.enc.yaml", "/repo/database/production.enc.yaml"],
+  skippedFiles: [],
+  rolledBack: false,
+  verifiedFiles: ["/repo/database/dev.enc.yaml", "/repo/database/production.enc.yaml"],
+  warnings: [],
+});
+
 // Mock the pending metadata functions and ServiceIdentityManager from core
 jest.mock("@clef-sh/core", () => {
   const actual = jest.requireActual("@clef-sh/core");
@@ -29,12 +37,19 @@ jest.mock("@clef-sh/core", () => {
       updateEnvironments: jest.fn().mockResolvedValue(undefined),
       validate: jest.fn().mockReturnValue([]),
     })),
+    BackendMigrator: jest.fn().mockImplementation(() => ({
+      migrate: mockMigrate,
+    })),
     getPendingKeys: jest.fn().mockResolvedValue([]),
     markResolved: jest.fn().mockResolvedValue(undefined),
     markPendingWithRetry: jest.fn().mockResolvedValue(undefined),
     generateRandomValue: jest.fn().mockReturnValue("a".repeat(64)),
   };
 });
+
+jest.mock("./sops-config", () => ({
+  scaffoldSopsConfig: jest.fn(),
+}));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
 
@@ -1528,6 +1543,197 @@ describe("API routes", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.privateKeys).toBeDefined();
+    });
+  });
+
+  // ── Backend Migration ─────────────────────────────────────────────────────
+
+  describe("GET /api/backend-config", () => {
+    it("should return global backend and per-env effective config", async () => {
+      const app = createApp();
+      const res = await request(app).get("/api/backend-config");
+      expect(res.status).toBe(200);
+      expect(res.body.global.default_backend).toBe("age");
+      expect(res.body.environments).toHaveLength(2);
+      expect(res.body.environments[0].name).toBe("dev");
+      expect(res.body.environments[0].effective.backend).toBe("age");
+      expect(res.body.environments[0].hasOverride).toBe(false);
+      expect(res.body.environments[1].name).toBe("production");
+      expect(res.body.environments[1].protected).toBe(true);
+    });
+
+    it("should return 500 when manifest cannot be parsed", async () => {
+      mockFs.readFileSync.mockImplementation(() => {
+        throw new Error("file not found");
+      });
+      const app = express();
+      app.use(express.json());
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
+      const res = await request(app).get("/api/backend-config");
+      expect(res.status).toBe(500);
+      expect(res.body.code).toBe("BACKEND_CONFIG_ERROR");
+    });
+  });
+
+  describe("POST /api/migrate-backend/preview", () => {
+    it("should return dry-run result with events", async () => {
+      mockMigrate.mockResolvedValueOnce({
+        migratedFiles: [],
+        skippedFiles: [],
+        rolledBack: false,
+        verifiedFiles: [],
+        warnings: ["Would update global default_backend \u2192 awskms"],
+      });
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/migrate-backend/preview")
+        .send({ target: { backend: "awskms", key: "arn:..." }, confirmed: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.result).toBeDefined();
+      expect(Array.isArray(res.body.events)).toBe(true);
+    });
+
+    it("should return 409 for protected env without confirmed", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/migrate-backend/preview")
+        .send({ target: { backend: "awskms", key: "arn:..." } });
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("PROTECTED_ENV");
+    });
+
+    it("should proceed with confirmed: true on protected env", async () => {
+      mockMigrate.mockResolvedValueOnce({
+        migratedFiles: [],
+        skippedFiles: [],
+        rolledBack: false,
+        verifiedFiles: [],
+        warnings: [],
+      });
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/migrate-backend/preview")
+        .send({ target: { backend: "awskms", key: "arn:..." }, confirmed: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+    });
+
+    it("should return 400 when target is missing", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/migrate-backend/preview").send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+    });
+
+    it("should return 400 when target.backend is missing", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/migrate-backend/preview")
+        .send({ target: {}, confirmed: true });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+    });
+
+    it("should return 500 when migrator throws", async () => {
+      mockMigrate.mockRejectedValueOnce(new Error("Unexpected sops failure"));
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/migrate-backend/preview")
+        .send({ target: { backend: "awskms", key: "arn:..." }, confirmed: true });
+
+      expect(res.status).toBe(500);
+      expect(res.body.code).toBe("MIGRATION_ERROR");
+      expect(res.body.error).toContain("Unexpected sops failure");
+    });
+
+    it("should not require confirmation when scoped to non-protected env", async () => {
+      mockMigrate.mockResolvedValueOnce({
+        migratedFiles: [],
+        skippedFiles: [],
+        rolledBack: false,
+        verifiedFiles: [],
+        warnings: [],
+      });
+      const app = createApp();
+      // Scope to "dev" which is not protected — should not require confirmed
+      const res = await request(app)
+        .post("/api/migrate-backend/preview")
+        .send({ target: { backend: "awskms", key: "arn:..." }, environment: "dev" });
+
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe("POST /api/migrate-backend/apply", () => {
+    it("should return success result with migrated files", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/migrate-backend/apply")
+        .send({ target: { backend: "awskms", key: "arn:..." }, confirmed: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.result.migratedFiles).toHaveLength(2);
+      expect(res.body.result.rolledBack).toBe(false);
+    });
+
+    it("should return result with rolledBack on failure", async () => {
+      mockMigrate.mockResolvedValueOnce({
+        migratedFiles: [],
+        skippedFiles: [],
+        rolledBack: true,
+        error: "KMS access denied",
+        verifiedFiles: [],
+        warnings: ["All changes have been rolled back."],
+      });
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/migrate-backend/apply")
+        .send({ target: { backend: "awskms", key: "arn:..." }, confirmed: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(false);
+      expect(res.body.result.rolledBack).toBe(true);
+      expect(res.body.result.error).toContain("KMS access denied");
+    });
+
+    it("should return 409 for protected env without confirmed", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/migrate-backend/apply")
+        .send({ target: { backend: "awskms", key: "arn:..." } });
+
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("PROTECTED_ENV");
+    });
+
+    it("should return 400 when target is missing", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/migrate-backend/apply").send({ confirmed: true });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+    });
+
+    it("should return 500 when migrator throws", async () => {
+      mockMigrate.mockRejectedValueOnce(new Error("KMS connection timeout"));
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/migrate-backend/apply")
+        .send({ target: { backend: "awskms", key: "arn:..." }, confirmed: true });
+
+      expect(res.status).toBe(500);
+      expect(res.body.code).toBe("MIGRATION_ERROR");
+      expect(res.body.error).toContain("KMS connection timeout");
     });
   });
 });
