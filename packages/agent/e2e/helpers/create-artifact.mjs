@@ -22,8 +22,6 @@ const encrypted = await encrypter.encrypt(secretsJson);
 const ciphertext = Buffer.from(encrypted).toString("base64");
 const ciphertextHash = createHash("sha256").update(ciphertext).digest("hex");
 
-const keys = Object.keys(JSON.parse(secretsJson));
-
 const artifact = {
   version: 1,
   identity: "test-svc",
@@ -32,7 +30,6 @@ const artifact = {
   revision: revision || "rev-001",
   ciphertextHash,
   ciphertext,
-  keys,
 };
 
 if (expiresAt) artifact.expiresAt = expiresAt;
