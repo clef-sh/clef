@@ -70,9 +70,9 @@ export function scaffoldTestRepo(keys: AgeKeyPair, serviceIdentityKeys?: AgeKeyP
     const encrypted = execFileSync(
       "sops",
       [
-        "encrypt",
         "--config",
         "/dev/null",
+        "encrypt",
         "--age",
         keys.publicKey,
         "--input-type",

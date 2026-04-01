@@ -263,7 +263,7 @@ sops:
   describe("encrypt", () => {
     it("should encrypt values and write to file", async () => {
       const runFn = jest.fn(async (command: string, args: string[]) => {
-        if (command === "sops" && args[0] === "encrypt") {
+        if (command === "sops" && args.includes("encrypt")) {
           return { stdout: "encrypted-content", stderr: "", exitCode: 0 };
         }
         return { stdout: "", stderr: "", exitCode: 1 };
@@ -274,7 +274,7 @@ sops:
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing dynamic mock call args
       const encryptCall = (runFn.mock.calls as any[]).find(
-        (c: unknown[]) => c[0] === "sops" && (c[1] as string[])[0] === "encrypt",
+        (c: unknown[]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(encryptCall).toBeDefined();
       const stdinContent = (encryptCall[2] as { stdin: string }).stdin;
@@ -302,7 +302,7 @@ sops:
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing dynamic mock call args
       const encryptCall = (runFn.mock.calls as any[]).find(
-        (c: unknown[]) => c[0] === "sops" && (c[1] as string[])[0] === "encrypt",
+        (c: unknown[]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       const args = encryptCall[1] as string[];
       expect(args[args.length - 1]).toBe("/dev/stdin");
@@ -326,7 +326,7 @@ sops:
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing dynamic mock call args
       const encryptCall = (runFn.mock.calls as any[]).find(
-        (c: unknown[]) => c[0] === "sops" && (c[1] as string[])[0] === "encrypt",
+        (c: unknown[]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       const opts = encryptCall[2] as { stdin?: string };
       expect(opts.stdin).toBeDefined();
@@ -380,7 +380,7 @@ sops:
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing dynamic mock call args
       const encryptCall = (runFn.mock.calls as any[]).find(
-        (c: unknown[]) => c[0] === "sops" && (c[1] as string[])[0] === "encrypt",
+        (c: unknown[]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       const args = encryptCall[1] as string[];
       expect(args[args.length - 1]).toMatch(/^\\\\\.\\pipe\\clef-sops-[0-9a-f]{16}$/);
@@ -493,7 +493,7 @@ sops:
 
     it("should throw SopsEncryptionError when file write fails", async () => {
       const runFn = jest.fn(async (command: string, args: string[]) => {
-        if (command === "sops" && args[0] === "encrypt") {
+        if (command === "sops" && args.includes("encrypt")) {
           return { stdout: "encrypted-content", stderr: "", exitCode: 0 };
         }
         return { stdout: "", stderr: "", exitCode: 1 };
@@ -900,7 +900,7 @@ sops:
       await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest);
 
       const sopsCall = runFn.mock.calls.find(
-        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+        (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(sopsCall![1]).toContain("--kms");
       expect(sopsCall![1]).toContain("arn:aws:kms:us-east-1:123:key/abc");
@@ -924,7 +924,7 @@ sops:
       await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest);
 
       const sopsCall = runFn.mock.calls.find(
-        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+        (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(sopsCall![1]).toContain("--gcp-kms");
     });
@@ -947,7 +947,7 @@ sops:
       await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest);
 
       const sopsCall = runFn.mock.calls.find(
-        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+        (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(sopsCall![1]).toContain("--azure-kv");
       expect(sopsCall![1]).toContain("https://my-vault.vault.azure.net/keys/my-key/abc123");
@@ -971,7 +971,7 @@ sops:
       await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest);
 
       const sopsCall = runFn.mock.calls.find(
-        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+        (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(sopsCall![1]).toContain("--pgp");
     });
@@ -998,7 +998,7 @@ sops:
       await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest, "production");
 
       const sopsCall = runFn.mock.calls.find(
-        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+        (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(sopsCall![1]).toContain("--kms");
       expect(sopsCall![1]).toContain("arn:aws:kms:us-east-1:999:key/prod");
@@ -1028,7 +1028,7 @@ sops:
       await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest, "production");
 
       const sopsCall = runFn.mock.calls.find(
-        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+        (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(sopsCall![1]).toContain("--gcp-kms");
       expect(sopsCall![1]).toContain("projects/prod/locations/global/keyRings/r/cryptoKeys/k");
@@ -1058,7 +1058,7 @@ sops:
       await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest, "production");
 
       const sopsCall = runFn.mock.calls.find(
-        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+        (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(sopsCall![1]).toContain("--azure-kv");
       expect(sopsCall![1]).toContain("https://prod-vault.vault.azure.net/keys/prod-key/v1");
@@ -1079,7 +1079,7 @@ sops:
       await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest, "dev");
 
       const sopsCall = runFn.mock.calls.find(
-        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+        (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(sopsCall![1]).toContain("--kms");
       expect(sopsCall![1]).toContain("arn:aws:kms:us-east-1:123:key/global");
@@ -1100,7 +1100,7 @@ sops:
       await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest);
 
       const sopsCall = runFn.mock.calls.find(
-        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+        (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(sopsCall![1]).toContain("--pgp");
       expect(sopsCall![1]).toContain("ABCD1234");
@@ -1121,7 +1121,7 @@ sops:
       await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest);
 
       const sopsCall = runFn.mock.calls.find(
-        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+        (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(sopsCall![1]).not.toContain("--age");
       expect(sopsCall![1]).not.toContain("--kms");
@@ -1129,7 +1129,7 @@ sops:
       expect(sopsCall![1]).not.toContain("--gcp-kms");
     });
 
-    it("should pass --config /dev/null to prevent stale .sops.yaml usage", async () => {
+    it("should pass --config /dev/null before encrypt subcommand", async () => {
       const runFn = jest.fn(async (command: string, _args: string[]) => {
         if (command === "sops") return { stdout: "encrypted", stderr: "", exitCode: 0 };
         return { stdout: "", stderr: "", exitCode: 0 };
@@ -1139,12 +1139,13 @@ sops:
       await client.encrypt("file.enc.yaml", { KEY: "val" }, testManifest());
 
       const sopsCall = runFn.mock.calls.find(
-        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+        (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       const args = sopsCall![1] as string[];
-      const configIdx = args.indexOf("--config");
-      expect(configIdx).toBeGreaterThan(-1);
-      expect(args[configIdx + 1]).toBe("/dev/null");
+      // --config is a global flag and must precede the encrypt subcommand
+      expect(args[0]).toBe("--config");
+      expect(args[1]).toBe("/dev/null");
+      expect(args[2]).toBe("encrypt");
     });
 
     it("should pass --age with global recipients from manifest", async () => {
@@ -1170,7 +1171,7 @@ sops:
       await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest);
 
       const sopsCall = runFn.mock.calls.find(
-        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+        (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(sopsCall![1]).toContain("--age");
       const ageIdx = (sopsCall![1] as string[]).indexOf("--age");
@@ -1206,7 +1207,7 @@ sops:
       await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest, "production");
 
       const sopsCall = runFn.mock.calls.find(
-        (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+        (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       const ageIdx = (sopsCall![1] as string[]).indexOf("--age");
       expect(ageIdx).toBeGreaterThan(-1);
@@ -1269,7 +1270,7 @@ describe("JSON file format support", () => {
     await client.encrypt("file.enc.json", { KEY: "val" }, testManifest());
 
     const sopsCall = runFn.mock.calls.find(
-      (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+      (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
     );
     expect(sopsCall![1]).toContain("--input-type");
     expect(sopsCall![1]).toContain("json");

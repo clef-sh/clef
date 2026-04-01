@@ -93,7 +93,7 @@ function makeRunner(overrides?: Partial<Record<string, SubprocessResult>>): Subp
       if (cmd === "cat") {
         return { stdout: sopsFileContent, stderr: "", exitCode: 0 };
       }
-      if (cmd === "sops" && args[0] === "encrypt") {
+      if (cmd === "sops" && args.includes("encrypt")) {
         return { stdout: "encrypted-content", stderr: "", exitCode: 0 };
       }
       if (cmd === "tee") {
@@ -307,7 +307,7 @@ describe("API routes", () => {
             exitCode: 0,
           };
         }
-        if (cmd === "sops" && args[0] === "encrypt") {
+        if (cmd === "sops" && args.includes("encrypt")) {
           encryptCallCount++;
           if (encryptCallCount === 1) {
             return { stdout: "encrypted", stderr: "", exitCode: 0 };

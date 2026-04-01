@@ -45,9 +45,9 @@ export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
   const encrypted = execFileSync(
     "sops",
     [
-      "encrypt",
       "--config",
       "/dev/null",
+      "encrypt",
       "--age",
       keys.publicKey,
       "--input-type",
@@ -82,9 +82,9 @@ export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
   const prodEncrypted = execFileSync(
     "sops",
     [
-      "encrypt",
       "--config",
       "/dev/null",
+      "encrypt",
       "--age",
       keys.publicKey,
       "--input-type",

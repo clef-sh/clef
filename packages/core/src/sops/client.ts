@@ -200,9 +200,13 @@ export class SopsClient implements EncryptionBackend {
 
     let result;
     try {
+      // --config must precede the subcommand — it is a global sops flag.
+      const configPath = process.platform === "win32" ? "NUL" : "/dev/null";
       result = await this.runner.run(
         this.sopsCommand,
         [
+          "--config",
+          configPath,
           "encrypt",
           ...args,
           "--input-type",
@@ -488,9 +492,6 @@ export class SopsClient implements EncryptionBackend {
           azure_kv_url: manifest.sops.azure_kv_url,
           pgp_fingerprint: manifest.sops.pgp_fingerprint,
         };
-
-    // Prevent sops from finding stale .sops.yaml files — the manifest is the sole source of truth.
-    args.push("--config", process.platform === "win32" ? "NUL" : "/dev/null");
 
     switch (config.backend) {
       case "age": {

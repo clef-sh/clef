@@ -56,7 +56,7 @@ function sopsRunner(): SubprocessRunner {
       if (cmd === "sops" && args[0] === "decrypt") {
         return { stdout: "KEY_TO_DELETE: val\nKEEP: keep\n", stderr: "", exitCode: 0 };
       }
-      if (cmd === "sops" && args[0] === "encrypt")
+      if (cmd === "sops" && args.includes("encrypt"))
         return { stdout: "enc", stderr: "", exitCode: 0 };
       if (cmd === "sops" && args[0] === "filestatus")
         return { stdout: "", stderr: "", exitCode: 1 };
