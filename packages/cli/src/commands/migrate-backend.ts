@@ -12,7 +12,6 @@ import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
-import { scaffoldSopsConfig } from "./init";
 
 interface MigrateBackendFlags {
   awsKmsArn?: string;
@@ -56,7 +55,7 @@ export function registerMigrateBackendCommand(
     .description(
       "Migrate encrypted files from one SOPS backend to another.\n\n" +
         "  Decrypts each file with the current backend, re-encrypts with\n" +
-        "  the new one, updates clef.yaml, and regenerates .sops.yaml.\n\n" +
+        "  the new one, and updates clef.yaml.\n\n" +
         "Exit codes:\n" +
         "  0  migration completed successfully\n" +
         "  1  migration failed (all changes rolled back)",
@@ -127,7 +126,6 @@ export function registerMigrateBackendCommand(
             dryRun: opts.dryRun,
             skipVerify: opts.skipVerify,
           },
-          { regenerateSopsConfig: () => scaffoldSopsConfig(repoRoot) },
           (event) => {
             switch (event.type) {
               case "skip":
@@ -181,7 +179,7 @@ export function registerMigrateBackendCommand(
 
         if (!opts.dryRun && result.migratedFiles.length > 0) {
           formatter.hint(
-            'git add clef.yaml .sops.yaml secrets/ && git commit -m "chore: migrate backend to ' +
+            'git add clef.yaml secrets/ && git commit -m "chore: migrate backend to ' +
               target.backend +
               '"',
           );

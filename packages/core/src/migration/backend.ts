@@ -76,7 +76,6 @@ export class BackendMigrator {
     manifest: ClefManifest,
     repoRoot: string,
     options: MigrationOptions,
-    callbacks: { regenerateSopsConfig: () => void },
     onProgress?: (event: MigrationProgressEvent) => void,
   ): Promise<MigrationResult> {
     const { target, environment, dryRun, skipVerify } = options;
@@ -166,11 +165,6 @@ export class BackendMigrator {
     const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
     const manifestBackup = fs.readFileSync(manifestPath, "utf-8");
 
-    const sopsYamlPath = path.join(repoRoot, ".sops.yaml");
-    const sopsYamlBackup = fs.existsSync(sopsYamlPath)
-      ? fs.readFileSync(sopsYamlPath, "utf-8")
-      : undefined;
-
     const fileBackups = new Map<string, string>();
 
     // ── Phase 3: Update manifest ───────────────────────────────────────
@@ -181,11 +175,7 @@ export class BackendMigrator {
 
     const updatedManifest = YAML.parse(YAML.stringify(doc)) as ClefManifest;
 
-    // ── Phase 4: Regenerate .sops.yaml ─────────────────────────────────
-
-    callbacks.regenerateSopsConfig();
-
-    // ── Phase 5: Decrypt & re-encrypt ──────────────────────────────────
+    // ── Phase 4: Decrypt & re-encrypt ──────────────────────────────────
 
     const migratedFiles: string[] = [];
 
@@ -210,7 +200,7 @@ export class BackendMigrator {
         migratedFiles.push(cell.filePath);
       } catch (err) {
         // Rollback everything
-        this.rollback(manifestPath, manifestBackup, sopsYamlPath, sopsYamlBackup, fileBackups);
+        this.rollback(manifestPath, manifestBackup, fileBackups);
 
         const errorMsg = err instanceof Error ? err.message : String(err);
         onProgress?.({
@@ -230,7 +220,7 @@ export class BackendMigrator {
       }
     }
 
-    // ── Phase 6: Verify ────────────────────────────────────────────────
+    // ── Phase 5: Verify ────────────────────────────────────────────────
 
     const verifiedFiles: string[] = [];
     const warnings: string[] = [];
@@ -298,19 +288,11 @@ export class BackendMigrator {
   private rollback(
     manifestPath: string,
     manifestBackup: string,
-    sopsYamlPath: string,
-    sopsYamlBackup: string | undefined,
     fileBackups: Map<string, string>,
   ): void {
     // Restore encrypted files
     for (const [filePath, backup] of fileBackups) {
       fs.writeFileSync(filePath, backup, "utf-8");
-    }
-    // Restore .sops.yaml (or remove if it was created by this migration)
-    if (sopsYamlBackup !== undefined) {
-      fs.writeFileSync(sopsYamlPath, sopsYamlBackup, "utf-8");
-    } else if (fs.existsSync(sopsYamlPath)) {
-      fs.unlinkSync(sopsYamlPath);
     }
     // Restore manifest
     fs.writeFileSync(manifestPath, manifestBackup, "utf-8");

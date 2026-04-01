@@ -35,7 +35,6 @@ import {
   resolveBackendConfig,
 } from "@clef-sh/core";
 import type { ImportFormat, MigrationProgressEvent } from "@clef-sh/core";
-import { scaffoldSopsConfig } from "./sops-config";
 
 export interface ApiDeps {
   runner: SubprocessRunner;
@@ -49,9 +48,8 @@ export function createApiRouter(deps: ApiDeps): Router {
   const router = Router();
   const parser = new ManifestParser();
   const matrix = new MatrixManager();
-  // Wrap the runner so sops subprocesses always run from the repo root,
-  // receive an explicit config path via $SOPS_CONFIG, and work around
-  // /dev/stdin failures on Linux.
+  // Wrap the runner so sops subprocesses always run from the repo root
+  // and work around /dev/stdin failures on Linux.
   //
   // Problem: SopsClient.encrypt passes /dev/stdin as the input file.
   // On Linux /dev/stdin → /proc/self/fd/0 which fails with ENXIO when
@@ -73,7 +71,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         return deps.runner.run(cmd, args, {
           ...opts,
           cwd: opts?.cwd ?? deps.repoRoot,
-          env: { SOPS_CONFIG: path.join(deps.repoRoot, ".sops.yaml"), ...opts?.env },
+          env: opts?.env,
         });
       }
 
@@ -1112,10 +1110,6 @@ export function createApiRouter(deps: ApiDeps): Router {
         manifest,
         deps.repoRoot,
         { target, environment, dryRun: true },
-        {
-          regenerateSopsConfig: () =>
-            scaffoldSopsConfig(deps.repoRoot, deps.ageKeyFile, deps.ageKey),
-        },
         (event) => events.push(event),
       );
 
@@ -1155,10 +1149,6 @@ export function createApiRouter(deps: ApiDeps): Router {
         manifest,
         deps.repoRoot,
         { target, environment, dryRun: false },
-        {
-          regenerateSopsConfig: () =>
-            scaffoldSopsConfig(deps.repoRoot, deps.ageKeyFile, deps.ageKey),
-        },
         (event) => events.push(event),
       );
 

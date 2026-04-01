@@ -60,16 +60,6 @@ export function scaffoldTestRepo(keys: AgeKeyPair, serviceIdentityKeys?: AgeKeyP
 
   fs.writeFileSync(path.join(dir, "clef.yaml"), YAML.stringify(manifest));
 
-  const sopsConfig = {
-    creation_rules: [
-      {
-        path_regex: ".*\\.enc\\.yaml$",
-        age: keys.publicKey,
-      },
-    ],
-  };
-  fs.writeFileSync(path.join(dir, ".sops.yaml"), YAML.stringify(sopsConfig));
-
   fs.mkdirSync(path.join(dir, "payments"), { recursive: true });
 
   const encryptFile = (values: Record<string, string>, filename: string): void => {
@@ -81,6 +71,10 @@ export function scaffoldTestRepo(keys: AgeKeyPair, serviceIdentityKeys?: AgeKeyP
       "sops",
       [
         "encrypt",
+        "--config",
+        "/dev/null",
+        "--age",
+        keys.publicKey,
         "--input-type",
         "yaml",
         "--output-type",

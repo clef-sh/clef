@@ -47,10 +47,6 @@ jest.mock("@clef-sh/core", () => {
   };
 });
 
-jest.mock("./sops-config", () => ({
-  scaffoldSopsConfig: jest.fn(),
-}));
-
 const mockFs = fs as jest.Mocked<typeof fs>;
 
 const validManifest = {
