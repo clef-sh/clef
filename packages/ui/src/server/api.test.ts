@@ -278,7 +278,7 @@ describe("API routes", () => {
       const runCalls = (runner.run as jest.Mock).mock.calls;
       const encryptCalls = runCalls.filter(
         (c: [string, string[], Record<string, unknown>?]) =>
-          c[0] === "sops" && c[1][0] === "encrypt",
+          c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(encryptCalls.length).toBeGreaterThanOrEqual(2);
 
