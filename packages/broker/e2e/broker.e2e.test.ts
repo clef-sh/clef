@@ -206,8 +206,8 @@ describe("broker e2e — real HTTP server", () => {
     for (const value of Object.values(TEST_SECRETS)) {
       assert.equal(res.body.indexOf(value), -1, `plaintext value "${value}" leaked into envelope`);
     }
-    // Key NAMES should be present (they are listed in the keys array)
-    assert.ok(res.body.includes("DB_TOKEN"));
-    assert.ok(res.body.includes("DB_HOST"));
+    // Key names are no longer included in the envelope (removed for security)
+    assert.equal(res.body.includes("DB_TOKEN"), false, "key name leaked into envelope");
+    assert.equal(res.body.includes("DB_HOST"), false, "key name leaked into envelope");
   });
 });

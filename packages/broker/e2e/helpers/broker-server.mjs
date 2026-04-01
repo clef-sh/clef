@@ -53,7 +53,6 @@ async function packEnvelope(data, identity, environment, ttl) {
       revision,
       ciphertextHash,
       ciphertext,
-      keys: Object.keys(data),
       envelope: {
         provider: "test",
         keyId: "test-key",
