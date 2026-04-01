@@ -220,8 +220,8 @@ describe("clef set", () => {
     expect(mockFormatter.success).not.toHaveBeenCalled();
     // Rollback reuses in-scope decrypted values — only one decrypt call needed
     const runCalls = (runner.run as jest.Mock).mock.calls;
-    const encryptCalls = runCalls.filter(
-      ([_cmd, args]: [string, string[]]) => args?.includes("encrypt"),
+    const encryptCalls = runCalls.filter(([_cmd, args]: [string, string[]]) =>
+      args?.includes("encrypt"),
     );
     // Two encrypt calls: one for original set, one for rollback
     expect(encryptCalls.length).toBe(2);
