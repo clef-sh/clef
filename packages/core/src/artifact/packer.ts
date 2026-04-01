@@ -79,7 +79,6 @@ export class ArtifactPacker {
           revision,
           ciphertextHash,
           ciphertext,
-          keys: Object.keys(resolved.values),
           envelope: {
             provider: kmsConfig.provider,
             keyId: kmsConfig.keyId,
@@ -118,7 +117,6 @@ export class ArtifactPacker {
         revision,
         ciphertextHash,
         ciphertext,
-        keys: Object.keys(resolved.values),
       };
     }
 

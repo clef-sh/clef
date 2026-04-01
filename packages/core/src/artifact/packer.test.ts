@@ -119,7 +119,7 @@ describe("ArtifactPacker", () => {
     expect(written.identity).toBe("api-gateway");
     expect(written.environment).toBe("dev");
     expect(written.ciphertext).toBeTruthy();
-    expect(written.keys).toEqual(["DATABASE_URL", "API_KEY"]);
+    expect((JSON.parse(String(writeCall[1])) as Record<string, unknown>).keys).toBeUndefined();
     expect(written.ciphertextHash).toMatch(/^[0-9a-f]{64}$/);
     expect(written.packedAt).toBeTruthy();
     expect(written.revision).toBeTruthy();
@@ -232,9 +232,11 @@ describe("ArtifactPacker", () => {
     const result = await packer.pack(config, baseManifest(), "/repo");
     expect(result.keyCount).toBe(2);
 
-    const written: PackedArtifact = JSON.parse(String(mockFs.writeFileSync.mock.calls[0][1]));
-    expect(written.keys).toContain("api__API_KEY");
-    expect(written.keys).toContain("database__DB_HOST");
+    const raw = JSON.parse(String(mockFs.writeFileSync.mock.calls[0][1])) as Record<
+      string,
+      unknown
+    >;
+    expect(raw.keys).toBeUndefined();
   });
 
   it("should serialize ciphertext as a string when age-encryption returns Uint8Array", async () => {

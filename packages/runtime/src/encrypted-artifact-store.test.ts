@@ -10,7 +10,6 @@ function makeEnvelope(revision = "rev-1"): ArtifactEnvelope {
     revision,
     ciphertextHash: "abc123",
     ciphertext: "encrypted-blob",
-    keys: ["DB_URL", "API_KEY"],
   };
 }
 
@@ -21,7 +20,6 @@ describe("EncryptedArtifactStore", () => {
     expect(store.isReady()).toBe(false);
     expect(store.getRevision()).toBeNull();
     expect(store.getStoredAt()).toBeNull();
-    expect(store.getKeys()).toEqual([]);
   });
 
   it("should store and return artifact after swap", () => {
@@ -43,15 +41,6 @@ describe("EncryptedArtifactStore", () => {
     expect(store.getRevision()).toBe("rev-2");
   });
 
-  it("should return a copy of keys", () => {
-    const store = new EncryptedArtifactStore();
-    store.swap(makeEnvelope());
-
-    const keys = store.getKeys();
-    keys.push("INJECTED");
-    expect(store.getKeys()).toEqual(["DB_URL", "API_KEY"]);
-  });
-
   it("should clear on wipe", () => {
     const store = new EncryptedArtifactStore();
     store.swap(makeEnvelope());
@@ -62,6 +51,5 @@ describe("EncryptedArtifactStore", () => {
     expect(store.isReady()).toBe(false);
     expect(store.getRevision()).toBeNull();
     expect(store.getStoredAt()).toBeNull();
-    expect(store.getKeys()).toEqual([]);
   });
 });

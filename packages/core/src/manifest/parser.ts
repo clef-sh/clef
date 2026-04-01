@@ -385,8 +385,31 @@ export class ManifestParser {
       );
     }
 
+    // Parse age.recipients if present
+    const ageObj = sopsObj.age as Record<string, unknown> | undefined;
+    const ageRecipients =
+      ageObj && Array.isArray(ageObj.recipients) ? (ageObj.recipients as unknown[]) : undefined;
+    const parsedAge = ageRecipients
+      ? {
+          age: {
+            recipients: ageRecipients.map((r) => {
+              if (typeof r === "string") return r;
+              if (typeof r === "object" && r !== null) {
+                const obj = r as Record<string, unknown>;
+                return {
+                  key: String(obj.key ?? ""),
+                  ...(typeof obj.label === "string" ? { label: obj.label } : {}),
+                };
+              }
+              return String(r);
+            }),
+          },
+        }
+      : {};
+
     const sopsConfig = {
       default_backend: sopsObj.default_backend as (typeof VALID_BACKENDS)[number],
+      ...parsedAge,
       ...(typeof sopsObj.aws_kms_arn === "string" ? { aws_kms_arn: sopsObj.aws_kms_arn } : {}),
       ...(typeof sopsObj.gcp_kms_resource_id === "string"
         ? { gcp_kms_resource_id: sopsObj.gcp_kms_resource_id }

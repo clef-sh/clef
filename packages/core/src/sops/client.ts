@@ -24,6 +24,7 @@ import {
   SopsMetadata,
   SubprocessRunner,
   resolveBackendConfig,
+  resolveRecipientsForEnvironment,
 } from "../types";
 import { assertSops } from "../dependencies/checker";
 import { deriveAgePublicKey } from "../age/keygen";
@@ -199,9 +200,13 @@ export class SopsClient implements EncryptionBackend {
 
     let result;
     try {
+      // --config must precede the subcommand — it is a global sops flag.
+      const configPath = process.platform === "win32" ? "NUL" : "/dev/null";
       result = await this.runner.run(
         this.sopsCommand,
         [
+          "--config",
+          configPath,
           "encrypt",
           ...args,
           "--input-type",
@@ -489,9 +494,17 @@ export class SopsClient implements EncryptionBackend {
         };
 
     switch (config.backend) {
-      case "age":
-        // Key injection is handled via buildSopsEnv() — no extra args needed here
+      case "age": {
+        const envRecipients = environment
+          ? resolveRecipientsForEnvironment(manifest, environment)
+          : undefined;
+        const recipients = envRecipients ?? manifest.sops.age?.recipients ?? [];
+        const keys = recipients.map((r) => (typeof r === "string" ? r : r.key));
+        if (keys.length > 0) {
+          args.push("--age", keys.join(","));
+        }
         break;
+      }
       case "awskms":
         if (config.aws_kms_arn) {
           args.push("--kms", config.aws_kms_arn);

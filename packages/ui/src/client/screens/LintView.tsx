@@ -64,7 +64,7 @@ export function LintView({ setView, setNs }: LintViewProps) {
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <TopBar
         title="Lint"
-        subtitle="clef lint \u2014 full repo health check"
+        subtitle={"clef lint \u2014 full repo health check"}
         actions={
           <>
             <Button onClick={loadLint}>{"\u21BB"} Re-run</Button>

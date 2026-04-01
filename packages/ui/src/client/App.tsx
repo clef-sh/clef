@@ -30,16 +30,14 @@ export default function App() {
       if (res.ok) {
         const data: ClefManifest = await res.json();
         setManifest(data);
-        if (!activeNs && data.namespaces.length > 0) {
-          setActiveNs(data.namespaces[0].name);
-        }
+        setActiveNs((prev) => (prev ? prev : (data.namespaces[0]?.name ?? "")));
       }
     } catch {
       // Will retry on next navigation
     } finally {
       setLoading(false);
     }
-  }, [activeNs]);
+  }, []);
 
   const loadMatrix = useCallback(async () => {
     try {
@@ -100,6 +98,12 @@ export default function App() {
     loadScanCount();
   }, [loadManifest, loadMatrix, loadGitStatus, loadLintCount, loadScanCount]);
 
+  // Refresh data on every view change — manifest and matrix are cheap (no decryption)
+  useEffect(() => {
+    loadManifest();
+    loadMatrix();
+  }, [view, loadManifest, loadMatrix]);
+
   const handleCommit = async (message: string) => {
     try {
       await apiFetch("/api/git/commit", {
@@ -107,8 +111,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
       });
-      await loadGitStatus();
-      await loadMatrix();
+      await Promise.all([loadGitStatus(), loadMatrix()]);
     } catch {
       // Error handling in production would show a toast
     }

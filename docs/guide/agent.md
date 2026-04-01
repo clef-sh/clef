@@ -46,8 +46,7 @@ flowchart LR
   "packedAt": "2024-01-15T00:00:00.000Z",
   "revision": "1705276800000",
   "ciphertextHash": "sha256-hex-digest",
-  "ciphertext": "-----BEGIN AGE ENCRYPTED FILE-----\n...",
-  "keys": ["DB_URL", "API_KEY", "STRIPE_KEY"],
+  "ciphertext": "YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgy...",
   "expiresAt": "2024-01-15T01:00:00.000Z",
   "envelope": {
     "provider": "aws",

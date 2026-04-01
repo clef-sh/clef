@@ -9,7 +9,6 @@ function makeArtifact(
     revision: string;
     packedAt: string;
     ciphertextHash: string;
-    keys: string[];
     expiresAt: string;
     envelope: {
       provider: string;
@@ -30,7 +29,6 @@ function makeArtifact(
     ciphertextHash:
       overrides.ciphertextHash ??
       "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
-    keys: overrides.keys ?? ["DB_URL", "API_KEY"],
     expiresAt: overrides.expiresAt,
     envelope: overrides.envelope,
   };
@@ -41,14 +39,14 @@ describe("buildSigningPayload (runtime)", () => {
     const artifact = makeArtifact();
     const payload = buildSigningPayload(artifact);
 
-    expect(payload.toString("utf-8")).toContain("clef-sig-v2");
+    expect(payload.toString("utf-8")).toContain("clef-sig-v3");
     expect(payload.toString("utf-8")).toContain("api-gateway");
     expect(payload.toString("utf-8")).toContain("production");
   });
 
-  it("should sort keys deterministically", () => {
-    const a1 = makeArtifact({ keys: ["Z", "A"] });
-    const a2 = makeArtifact({ keys: ["A", "Z"] });
+  it("should produce deterministic payloads without keys", () => {
+    const a1 = makeArtifact();
+    const a2 = makeArtifact();
     expect(buildSigningPayload(a1).equals(buildSigningPayload(a2))).toBe(true);
   });
 
@@ -133,7 +131,6 @@ describe("cross-package payload contract", () => {
     // core/src/artifact/signer.test.ts "produces canonical payload matching runtime specification".
     // If either implementation drifts, both this test and the core test will fail.
     const artifact = makeArtifact({
-      keys: ["DB_URL", "API_KEY", "STRIPE_SECRET"],
       expiresAt: "2026-03-22T12:00:00.000Z",
       envelope: {
         provider: "aws",
@@ -148,14 +145,13 @@ describe("cross-package payload contract", () => {
     const payload = buildSigningPayload(artifact).toString("utf-8");
 
     const expected = [
-      "clef-sig-v2",
+      "clef-sig-v3",
       "1",
       "api-gateway",
       "production",
       "1711101600000-a1b2c3d4",
       "2026-03-22T10:00:00.000Z",
       "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
-      "API_KEY,DB_URL,STRIPE_SECRET",
       "2026-03-22T12:00:00.000Z",
       "aws",
       "arn:aws:kms:us-east-1:123456789012:key/abcd-1234",
@@ -166,6 +162,6 @@ describe("cross-package payload contract", () => {
     ].join("\n");
 
     expect(payload).toBe(expected);
-    expect(payload.split("\n")).toHaveLength(15);
+    expect(payload.split("\n")).toHaveLength(14);
   });
 });

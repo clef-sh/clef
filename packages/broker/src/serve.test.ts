@@ -108,7 +108,7 @@ describe("serve", () => {
 
     const artifact = JSON.parse(res.body);
     expect(artifact.version).toBe(1);
-    expect(artifact.keys).toEqual(["TOKEN"]);
+    expect(JSON.parse(res.body).keys).toBeUndefined();
   });
 
   it("returns 200 on GET /health", async () => {

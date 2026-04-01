@@ -40,7 +40,6 @@ function makeAgeArtifact(overrides: Partial<ArtifactEnvelope> = {}): ArtifactEnv
     revision: overrides.revision ?? "age-rev-1",
     ciphertextHash: crypto.createHash("sha256").update(ciphertext).digest("hex"),
     ciphertext,
-    keys: overrides.keys ?? ["DB_URL", "API_KEY"],
     ...overrides,
   };
 }
@@ -68,7 +67,6 @@ function makeKmsArtifact(
     revision: overrides.revision ?? "kms-rev",
     ciphertextHash: crypto.createHash("sha256").update(ciphertext).digest("hex"),
     ciphertext,
-    keys: Object.keys(values),
     envelope: {
       provider: "aws",
       keyId: "arn:aws:kms:us-east-1:111:key/test",
