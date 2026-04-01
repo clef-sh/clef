@@ -19,12 +19,13 @@ export function scaffoldSopsConfig(repoRoot: string, ageKeyFile?: string, ageKey
     agePublicKey = resolveAgePublicKey(repoRoot, ageKeyFile, ageKey);
   }
 
-  const sopsConfig = buildSopsYaml(manifest, agePublicKey);
+  const sopsConfig = buildSopsYaml(manifest, repoRoot, agePublicKey);
   fs.writeFileSync(sopsYamlPath, YAML.stringify(sopsConfig), "utf-8");
 }
 
 function buildSopsYaml(
   manifest: ClefManifest,
+  repoRoot: string,
   agePublicKey: string | undefined,
 ): Record<string, unknown> {
   const creationRules: Record<string, unknown>[] = [];
@@ -43,6 +44,16 @@ function buildSopsYaml(
             rule.age = keys.join(",");
           } else if (agePublicKey) {
             rule.age = agePublicKey;
+          } else {
+            // Fallback: read age recipients from the existing encrypted file's SOPS metadata
+            const filePath = path.join(
+              repoRoot,
+              manifest.file_pattern
+                .replace("{namespace}", ns.name)
+                .replace("{environment}", env.name),
+            );
+            const existingAge = readAgeRecipientsFromFile(filePath);
+            if (existingAge) rule.age = existingAge;
           }
           break;
         }
@@ -124,6 +135,25 @@ function resolveAgePublicKey(
   }
 
   return undefined;
+}
+
+/**
+ * Read age recipient public keys from an existing SOPS-encrypted file's metadata.
+ * Returns a comma-separated string of age public keys, or undefined if unavailable.
+ */
+function readAgeRecipientsFromFile(filePath: string): string | undefined {
+  try {
+    if (!fs.existsSync(filePath)) return undefined;
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const parsed = YAML.parse(raw) as Record<string, unknown>;
+    const sops = parsed?.sops as Record<string, unknown> | undefined;
+    const ageEntries = sops?.age as Array<{ recipient: string }> | undefined;
+    if (!ageEntries || ageEntries.length === 0) return undefined;
+    const keys = ageEntries.map((e) => e.recipient).filter(Boolean);
+    return keys.length > 0 ? keys.join(",") : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function extractAgePublicKey(keyFilePath: string): string | undefined {

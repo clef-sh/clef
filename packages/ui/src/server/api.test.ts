@@ -506,6 +506,27 @@ describe("API routes", () => {
     });
   });
 
+  // POST /api/namespace/:ns/:env/:key/accept
+  describe("POST /api/namespace/:ns/:env/:key/accept", () => {
+    it("should call markResolved and return success", async () => {
+      const { markResolved: mockMarkResolved } = jest.requireMock("@clef-sh/core");
+      const app = createApp();
+      const res = await request(app).post("/api/namespace/database/dev/DB_HOST/accept");
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(mockMarkResolved).toHaveBeenCalledWith(
+        expect.stringContaining("database/dev.enc.yaml"),
+        ["DB_HOST"],
+      );
+    });
+
+    it("should return 404 for unknown namespace", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/namespace/unknown/dev/DB_HOST/accept");
+      expect(res.status).toBe(404);
+    });
+  });
+
   // GET /api/diff/:ns/:envA/:envB
   describe("GET /api/diff/:ns/:envA/:envB", () => {
     it("should return diff result", async () => {

@@ -401,6 +401,37 @@ export function createApiRouter(deps: ApiDeps): Router {
     },
   );
 
+  // POST /api/namespace/:ns/:env/:key/accept — resolve pending state without changing the value
+  router.post(
+    "/namespace/:ns/:env/:key/accept",
+    async (req: Request<{ ns: string; env: string; key: string }>, res: Response) => {
+      setNoCacheHeaders(res);
+      try {
+        const manifest = loadManifest();
+        const { ns, env, key } = req.params;
+
+        const nsExists = manifest.namespaces.some((n) => n.name === ns);
+        const envExists = manifest.environments.some((e) => e.name === env);
+
+        if (!nsExists || !envExists) {
+          res.status(404).json({
+            error: `Namespace '${ns}' or environment '${env}' not found in manifest.`,
+            code: "NOT_FOUND",
+          });
+          return;
+        }
+
+        const filePath = `${deps.repoRoot}/${manifest.file_pattern.replace("{namespace}", ns).replace("{environment}", env)}`;
+        const decrypted = await sops.decrypt(filePath);
+        const value = key in decrypted.values ? String(decrypted.values[key]) : undefined;
+        await markResolved(filePath, [key]);
+        res.json({ success: true, key, value });
+      } catch {
+        res.status(500).json({ error: "Failed to accept pending value", code: "ACCEPT_ERROR" });
+      }
+    },
+  );
+
   // POST /api/copy
   // body: { key, fromNs, fromEnv, toNs, toEnv, confirmed? }
   router.post("/copy", async (req: Request, res: Response) => {

@@ -100,6 +100,12 @@ export default function App() {
     loadScanCount();
   }, [loadManifest, loadMatrix, loadGitStatus, loadLintCount, loadScanCount]);
 
+  // Refresh data on every view change — manifest and matrix are cheap (no decryption)
+  useEffect(() => {
+    loadManifest();
+    loadMatrix();
+  }, [view, loadManifest, loadMatrix]);
+
   const handleCommit = async (message: string) => {
     try {
       await apiFetch("/api/git/commit", {
