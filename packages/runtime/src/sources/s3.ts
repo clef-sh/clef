@@ -15,32 +15,58 @@ interface S3Location {
   region: string;
 }
 
+/** Returns true if the URL looks like an S3 HTTPS URL. */
+export function isS3Url(url: string): boolean {
+  return parseS3UrlSafe(url) !== null;
+}
+
 /**
- * Regex patterns for S3 HTTPS URLs.
+ * Parse bucket, key, and region from an S3 HTTPS URL.
  * Supports both virtual-hosted and path-style:
  *   https://bucket.s3.region.amazonaws.com/key
  *   https://bucket.s3.amazonaws.com/key  (us-east-1)
  *   https://s3.region.amazonaws.com/bucket/key
  */
-const S3_VIRTUAL_HOSTED_RE = /^https:\/\/(.+?)\.s3(?:\.([a-z0-9-]+))?\.amazonaws\.com\/(.+)$/;
-const S3_PATH_STYLE_RE = /^https:\/\/s3(?:\.([a-z0-9-]+))?\.amazonaws\.com\/([^/]+)\/(.+)$/;
-
-/** Returns true if the URL looks like an S3 HTTPS URL. */
-export function isS3Url(url: string): boolean {
-  return S3_VIRTUAL_HOSTED_RE.test(url) || S3_PATH_STYLE_RE.test(url);
+function parseS3Url(url: string): S3Location {
+  const loc = parseS3UrlSafe(url);
+  if (!loc) throw new Error(`Not a valid S3 URL: ${url}`);
+  return loc;
 }
 
-/** Parse bucket, key, and region from an S3 HTTPS URL. */
-function parseS3Url(url: string): S3Location {
-  let match = S3_VIRTUAL_HOSTED_RE.exec(url);
-  if (match) {
-    return { bucket: match[1], key: match[3], region: match[2] || "us-east-1" };
+function parseS3UrlSafe(url: string): S3Location | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
   }
-  match = S3_PATH_STYLE_RE.exec(url);
-  if (match) {
-    return { bucket: match[2], key: match[3], region: match[1] || "us-east-1" };
+  if (u.protocol !== "https:") return null;
+  const host = u.hostname;
+  const key = u.pathname.slice(1); // strip leading /
+  if (!key) return null;
+
+  // Virtual-hosted: bucket.s3.region.amazonaws.com or bucket.s3.amazonaws.com
+  const vhMatch =
+    host.match(/^(.+)\.s3\.([a-z0-9-]+)\.amazonaws\.com$/) ??
+    host.match(/^(.+)\.s3\.amazonaws\.com$/);
+  if (vhMatch) {
+    return { bucket: vhMatch[1], key, region: vhMatch[2] || "us-east-1" };
   }
-  throw new Error(`Not a valid S3 URL: ${url}`);
+
+  // Path-style: s3.region.amazonaws.com/bucket/key or s3.amazonaws.com/bucket/key
+  const psMatch =
+    host.match(/^s3\.([a-z0-9-]+)\.amazonaws\.com$/) ?? host.match(/^s3\.amazonaws\.com$/);
+  if (psMatch) {
+    const slashIdx = key.indexOf("/");
+    if (slashIdx < 0) return null;
+    return {
+      bucket: key.slice(0, slashIdx),
+      key: key.slice(slashIdx + 1),
+      region: psMatch[1] || "us-east-1",
+    };
+  }
+
+  return null;
 }
 
 /**
