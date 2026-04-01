@@ -72,12 +72,14 @@ const sopsFileContent = YAML.stringify({
 function makeRunner(overrides?: Partial<Record<string, SubprocessResult>>): SubprocessRunner {
   return {
     run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
-      const key = `${cmd} ${args[0] || ""}`.trim();
+      // Match overrides by "cmd subcommand" — find the first arg that isn't a flag
+      const sub = args.find((a) => !a.startsWith("-") && a !== "/dev/null" && a !== "NUL") ?? "";
+      const key = `${cmd} ${sub}`.trim();
       if (overrides && key in overrides) {
         return overrides[key];
       }
 
-      if (cmd === "sops" && args[0] === "--version") {
+      if (cmd === "sops" && args.includes("--version")) {
         return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
       }
       if (cmd === "sops" && args[0] === "decrypt") {
