@@ -184,7 +184,8 @@ describe("broker integration — real age-encryption", () => {
     );
 
     expect(envelopeJson).not.toContain("super-secret-p@ssw0rd!");
-    expect(envelopeJson).toContain("SECRET_PASSWORD");
+    // Key names are no longer included in the envelope (removed for security)
+    expect(envelopeJson).not.toContain("SECRET_PASSWORD");
   });
 
   it("expiresAt timestamp is ttl seconds in the future", () => {
