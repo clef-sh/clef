@@ -280,7 +280,6 @@ The packed artifact is a structured JSON document:
   "revision": "1711101600000-a1b2c3d4",
   "ciphertextHash": "sha256:...",
   "ciphertext": "YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgy...",
-  "keys": ["DB_URL", "API_KEY", "STRIPE_SECRET"],
   "expiresAt": "2026-03-22T11:00:00.000Z",
   "signature": "base64...",
   "signatureAlgorithm": "Ed25519",
@@ -296,7 +295,6 @@ The packed artifact is a structured JSON document:
 Key design properties:
 
 - **`ciphertextHash`**: SHA-256 of the ciphertext, verified by the runtime before decryption, detecting tampering or corruption in transit.
-- **`keys`**: Plaintext list of available secret names (not values), enabling the runtime to report which secrets are available without decryption.
 - **`expiresAt`**: Optional expiry timestamp that the runtime enforces, enabling short-lived credential rotation. Covered by the signature when signing is enabled — an attacker cannot extend the TTL without invalidating the signature.
 - **`revokedAt`**: When present, signals immediate revocation. The runtime wipes its cache and refuses to serve secrets.
 - **`signature`**: Optional base64-encoded cryptographic signature over a canonical payload containing all security-relevant fields. Verified by the runtime before decryption when a verify key is configured (see Section 4.3).
@@ -468,7 +466,7 @@ In the default cached mode, the agent decrypts the artifact once and serves plai
 
 **Just-in-time mode** (`CLEF_AGENT_CACHE_TTL=0`) eliminates this window. Instead of caching decrypted plaintext, the agent calls `kms:Decrypt` on every `GET /v1/secrets` request. No plaintext is held between requests. KMS becomes the live authorization gate — revoking the workload's IAM policy causes the next request to fail immediately with a 503, because the `kms:Decrypt` call returns Access Denied.
 
-The agent still polls for fresh encrypted artifacts (every 5 seconds in JIT mode), but the poll only fetches and validates — no decryption occurs until a client requests secrets. Key names (`GET /v1/keys`) and health checks are served from the encrypted artifact's metadata without touching KMS.
+The agent still polls for fresh encrypted artifacts (every 5 seconds in JIT mode), but the poll only fetches and validates — no decryption occurs until a client requests secrets. Health checks are served from the encrypted artifact's metadata without touching KMS. Key names (`GET /v1/keys`) require decryption in JIT mode, since key names are not stored in the envelope — an intercepted artifact reveals nothing about its contents.
 
 **Incident response flow:**
 
