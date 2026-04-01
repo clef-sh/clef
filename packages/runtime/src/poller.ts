@@ -28,7 +28,6 @@ export interface ArtifactEnvelope {
   revision: string;
   ciphertextHash: string;
   ciphertext: string;
-  keys: string[];
   envelope?: ArtifactKmsEnvelope;
   /** ISO-8601 expiry timestamp. Artifact is rejected after this time. */
   expiresAt?: string;
@@ -139,7 +138,6 @@ export class ArtifactPoller {
     this.options.onRefresh?.(artifact.revision);
     this.telemetry?.artifactRefreshed({
       revision: artifact.revision,
-      keyCount: artifact.keys.length,
       kmsEnvelope: !!artifact.envelope,
     });
   }
@@ -345,14 +343,15 @@ export class ArtifactPoller {
     const { values } = await this.decryptor.decrypt(artifact);
 
     // Atomic swap
-    this.options.cache.swap(values, artifact.keys, artifact.revision);
+    const keys = Object.keys(values);
+    this.options.cache.swap(values, keys, artifact.revision);
     this.lastRevision = artifact.revision;
     this.lastContentHash = contentHash ?? null;
     this.lastExpiresAt = artifact.expiresAt ?? null;
     this.options.onRefresh?.(artifact.revision);
     this.telemetry?.artifactRefreshed({
       revision: artifact.revision,
-      keyCount: artifact.keys.length,
+      keyCount: keys.length,
       kmsEnvelope: !!artifact.envelope,
     });
   }

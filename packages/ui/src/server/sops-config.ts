@@ -143,7 +143,6 @@ function resolveAgePublicKey(
  */
 function readAgeRecipientsFromFile(filePath: string): string | undefined {
   try {
-    if (!fs.existsSync(filePath)) return undefined;
     const raw = fs.readFileSync(filePath, "utf-8");
     const parsed = YAML.parse(raw) as Record<string, unknown>;
     const sops = parsed?.sops as Record<string, unknown> | undefined;
@@ -158,7 +157,6 @@ function readAgeRecipientsFromFile(filePath: string): string | undefined {
 
 function extractAgePublicKey(keyFilePath: string): string | undefined {
   try {
-    if (!fs.existsSync(keyFilePath)) return undefined;
     const content = fs.readFileSync(keyFilePath, "utf-8");
     const match = content.match(/# public key: (age1[a-z0-9]+)/);
     return match ? match[1] : undefined;

@@ -109,7 +109,7 @@ describe("broker integration — real age-encryption", () => {
     expect(artifact.version).toBe(1);
     expect(artifact.identity).toBe("rds-primary");
     expect(artifact.environment).toBe("production");
-    expect(artifact.keys).toEqual(["DB_TOKEN", "DB_HOST"]);
+    expect(JSON.parse(envelopeJson).keys).toBeUndefined();
     expect(artifact.expiresAt).toBeTruthy();
     expect(artifact.envelope).toBeDefined();
     expect(artifact.envelope.provider).toBe("test");

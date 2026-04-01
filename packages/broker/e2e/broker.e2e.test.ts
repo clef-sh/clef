@@ -152,7 +152,7 @@ describe("broker e2e — real HTTP server", () => {
     assert.equal(artifact.version, 1);
     assert.equal(artifact.identity, "e2e-broker");
     assert.equal(artifact.environment, "e2e");
-    assert.deepEqual(artifact.keys, ["DB_TOKEN", "DB_HOST"]);
+    assert.equal(artifact.keys, undefined);
     assert.ok(artifact.expiresAt);
     assert.ok(artifact.envelope);
     assert.ok(artifact.ciphertextHash);

@@ -28,7 +28,6 @@ function makeArtifact(revision = "rev1"): string {
     revision,
     ciphertextHash: hash,
     ciphertext,
-    keys: ["DB_URL", "API_KEY"],
   });
 }
 

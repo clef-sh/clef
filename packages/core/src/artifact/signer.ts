@@ -13,19 +13,18 @@ import type { KmsProvider } from "../kms";
  * `ciphertextHash` transitively covers the ciphertext content, so the
  * (potentially large) ciphertext itself is not included.
  *
- * Keys are sorted to ensure deterministic ordering regardless of
- * insertion order in the source object.
+ * Key names are intentionally excluded from the signing payload — they are
+ * not present in the envelope and are derived from decrypted values at runtime.
  */
 export function buildSigningPayload(artifact: PackedArtifact): Buffer {
   const fields = [
-    "clef-sig-v2",
+    "clef-sig-v3",
     String(artifact.version),
     artifact.identity,
     artifact.environment,
     artifact.revision,
     artifact.packedAt,
     artifact.ciphertextHash,
-    [...artifact.keys].sort().join(","),
     artifact.expiresAt ?? "",
     artifact.envelope?.provider ?? "",
     artifact.envelope?.keyId ?? "",

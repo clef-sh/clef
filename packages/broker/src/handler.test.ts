@@ -80,7 +80,6 @@ describe("createHandler", () => {
     expect(artifact.environment).toBe("test");
     expect(artifact.ciphertext).toBeTruthy();
     expect(artifact.envelope).toBeDefined();
-    expect(artifact.keys).toEqual(["TOKEN"]);
     expect(artifact.expiresAt).toBeTruthy();
   });
 

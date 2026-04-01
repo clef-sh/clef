@@ -81,9 +81,7 @@ describe("S3ArtifactSource", () => {
       headers: new Headers(),
     });
 
-    const source = new S3ArtifactSource(
-      "https://my-bucket.s3.us-east-1.amazonaws.com/key.json",
-    );
+    const source = new S3ArtifactSource("https://my-bucket.s3.us-east-1.amazonaws.com/key.json");
     await source.fetch();
 
     const opts = mockFetch.mock.calls[0][1];
@@ -96,9 +94,7 @@ describe("S3ArtifactSource", () => {
 
     mockFetch.mockResolvedValue({ ok: false, status: 403, statusText: "Forbidden" });
 
-    const source = new S3ArtifactSource(
-      "https://my-bucket.s3.us-east-1.amazonaws.com/key.json",
-    );
+    const source = new S3ArtifactSource("https://my-bucket.s3.us-east-1.amazonaws.com/key.json");
     await expect(source.fetch()).rejects.toThrow("403 Forbidden");
   });
 
@@ -132,9 +128,7 @@ describe("S3ArtifactSource", () => {
     await source.fetch();
 
     // Verify metadata endpoint was called
-    expect(mockFetch.mock.calls[0][0]).toBe(
-      "http://169.254.170.2/v2/credentials/uuid-1234",
-    );
+    expect(mockFetch.mock.calls[0][0]).toBe("http://169.254.170.2/v2/credentials/uuid-1234");
 
     // Verify S3 request used the temp credentials
     const s3Opts = mockFetch.mock.calls[1][1];
@@ -148,16 +142,12 @@ describe("S3ArtifactSource", () => {
     delete process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI;
     delete process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI;
 
-    const source = new S3ArtifactSource(
-      "https://my-bucket.s3.us-east-1.amazonaws.com/key.json",
-    );
+    const source = new S3ArtifactSource("https://my-bucket.s3.us-east-1.amazonaws.com/key.json");
     await expect(source.fetch()).rejects.toThrow("No AWS credentials found");
   });
 
   it("should parse region from URL", () => {
-    const source = new S3ArtifactSource(
-      "https://my-bucket.s3.eu-west-1.amazonaws.com/key.json",
-    );
+    const source = new S3ArtifactSource("https://my-bucket.s3.eu-west-1.amazonaws.com/key.json");
     expect(source.describe()).toBe("S3 s3://my-bucket/key.json");
   });
 
@@ -171,9 +161,7 @@ describe("S3ArtifactSource", () => {
       headers: new Headers(),
     });
 
-    const source = new S3ArtifactSource(
-      "https://my-bucket.s3.amazonaws.com/key.json",
-    );
+    const source = new S3ArtifactSource("https://my-bucket.s3.amazonaws.com/key.json");
     // The describe won't show region, but the signed URL will use us-east-1
     expect(source.describe()).toBe("S3 s3://my-bucket/key.json");
   });
@@ -202,9 +190,7 @@ describe("S3ArtifactSource", () => {
       headers: new Headers(),
     });
 
-    const source = new S3ArtifactSource(
-      "https://my-bucket.s3.us-east-1.amazonaws.com/key.json",
-    );
+    const source = new S3ArtifactSource("https://my-bucket.s3.us-east-1.amazonaws.com/key.json");
     await source.fetch();
     await source.fetch();
 

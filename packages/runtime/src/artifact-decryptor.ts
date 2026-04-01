@@ -77,7 +77,7 @@ export class ArtifactDecryptor {
       plaintext = "";
     }
 
-    return { values, keys: artifact.keys, revision: artifact.revision };
+    return { values, keys: Object.keys(values), revision: artifact.revision };
   }
 
   /** KMS envelope: unwrap DEK via KMS, then AES-256-GCM decrypt. */

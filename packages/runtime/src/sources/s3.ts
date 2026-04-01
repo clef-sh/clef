@@ -22,10 +22,8 @@ interface S3Location {
  *   https://bucket.s3.amazonaws.com/key  (us-east-1)
  *   https://s3.region.amazonaws.com/bucket/key
  */
-const S3_VIRTUAL_HOSTED_RE =
-  /^https:\/\/(.+?)\.s3(?:\.([a-z0-9-]+))?\.amazonaws\.com\/(.+)$/;
-const S3_PATH_STYLE_RE =
-  /^https:\/\/s3(?:\.([a-z0-9-]+))?\.amazonaws\.com\/([^/]+)\/(.+)$/;
+const S3_VIRTUAL_HOSTED_RE = /^https:\/\/(.+?)\.s3(?:\.([a-z0-9-]+))?\.amazonaws\.com\/(.+)$/;
+const S3_PATH_STYLE_RE = /^https:\/\/s3(?:\.([a-z0-9-]+))?\.amazonaws\.com\/([^/]+)\/(.+)$/;
 
 /** Returns true if the URL looks like an S3 HTTPS URL. */
 export function isS3Url(url: string): boolean {
@@ -97,17 +95,13 @@ export class S3ArtifactSource implements ArtifactSource {
     // 1. ECS container credentials (Fargate)
     const relativeUri = process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI;
     if (relativeUri) {
-      const creds = await this.fetchEcsCredentials(
-        `http://169.254.170.2${relativeUri}`,
-      );
-      return creds;
+      return this.fetchEcsCredentials(`http://169.254.170.2${relativeUri}`);
     }
 
     // 2. ECS with custom endpoint
     const fullUri = process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI;
     if (fullUri) {
-      const creds = await this.fetchEcsCredentials(fullUri);
-      return creds;
+      return this.fetchEcsCredentials(fullUri);
     }
 
     // 3. Environment variables
@@ -174,7 +168,10 @@ function sha256Hex(data: string): string {
 }
 
 function toAmzDate(date: Date): string {
-  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  return date
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}/, "");
 }
 
 function toDateStamp(date: Date): string {
@@ -230,12 +227,7 @@ function signS3GetRequest(
   ].join("\n");
 
   // String to sign
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    scope,
-    sha256Hex(canonicalRequest),
-  ].join("\n");
+  const stringToSign = ["AWS4-HMAC-SHA256", amzDate, scope, sha256Hex(canonicalRequest)].join("\n");
 
   // Signing key
   const kDate = hmacSha256(`AWS4${creds.secretAccessKey}`, dateStamp);

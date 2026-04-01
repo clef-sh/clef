@@ -129,15 +129,17 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
 
   const handleSave = async (confirmed?: boolean) => {
     const dirtyRows = rows.filter((r) => r.edited);
-    for (const row of dirtyRows) {
-      const payload: Record<string, unknown> = { value: row.value };
-      if (confirmed) payload.confirmed = true;
-      await apiFetch(`/api/namespace/${ns}/${env}/${row.key}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-    }
+    await Promise.all(
+      dirtyRows.map((row) => {
+        const payload: Record<string, unknown> = { value: row.value };
+        if (confirmed) payload.confirmed = true;
+        return apiFetch(`/api/namespace/${ns}/${env}/${row.key}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }),
+    );
     if (commitMessage) {
       onCommit(commitMessage);
     }
