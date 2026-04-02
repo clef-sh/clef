@@ -46,7 +46,7 @@ export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
     "sops",
     [
       "--config",
-      "/dev/null",
+      process.platform === "win32" ? "NUL" : "/dev/null",
       "encrypt",
       "--age",
       keys.publicKey,
@@ -83,7 +83,7 @@ export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
     "sops",
     [
       "--config",
-      "/dev/null",
+      process.platform === "win32" ? "NUL" : "/dev/null",
       "encrypt",
       "--age",
       keys.publicKey,
