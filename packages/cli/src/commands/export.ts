@@ -3,7 +3,7 @@ import { Command } from "commander";
 import { ManifestParser, ConsumptionClient, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
-import { createSopsClient } from "../age-credential";
+import { createCloudAwareSopsClient } from "../cloud-sops";
 import { copyToClipboard } from "../clipboard";
 import { parseTarget } from "../parse-target";
 
@@ -63,35 +63,43 @@ export function registerExportCommand(program: Command, deps: { runner: Subproce
             .replace("{environment}", environment),
         );
 
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const decrypted = await sopsClient.decrypt(filePath);
+        const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
+        try {
+          const decrypted = await sopsClient.decrypt(filePath);
 
-        const consumption = new ConsumptionClient();
-        const output = consumption.formatExport(decrypted, "env", !options.export);
+          const consumption = new ConsumptionClient();
+          const output = consumption.formatExport(decrypted, "env", !options.export);
 
-        if (options.raw) {
-          // Warn on Linux about /proc visibility
-          if (process.platform === "linux") {
-            formatter.warn(
-              "Exported values will be visible in /proc/<pid>/environ to processes with ptrace access. Use clef exec when possible.",
-            );
-          }
-          formatter.raw(output);
-        } else {
-          const keyCount = Object.keys(decrypted.values).length;
-          const copied = copyToClipboard(output);
-          if (copied) {
-            formatter.success(`${keyCount} secret(s) copied to clipboard as env exports.`);
-            formatter.hint("eval $(clef export " + target + " --raw)  to inject into shell");
-          } else {
-            // Clipboard unavailable — fall back to raw output
+          if (options.raw) {
+            // Warn on Linux about /proc visibility
             if (process.platform === "linux") {
               formatter.warn(
                 "Exported values will be visible in /proc/<pid>/environ to processes with ptrace access. Use clef exec when possible.",
               );
             }
             formatter.raw(output);
+          } else {
+            const keyCount = Object.keys(decrypted.values).length;
+            const copied = copyToClipboard(output);
+            if (copied) {
+              formatter.success(`${keyCount} secret(s) copied to clipboard as env exports.`);
+              formatter.hint("eval $(clef export " + target + " --raw)  to inject into shell");
+            } else {
+              // Clipboard unavailable — fall back to raw output
+              if (process.platform === "linux") {
+                formatter.warn(
+                  "Exported values will be visible in /proc/<pid>/environ to processes with ptrace access. Use clef exec when possible.",
+                );
+              }
+              formatter.raw(output);
+            }
           }
+        } finally {
+          await cleanup();
         }
       } catch (err) {
         handleCommandError(err);

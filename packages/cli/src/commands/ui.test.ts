@@ -1,5 +1,6 @@
 import { Command } from "commander";
-import { registerUiCommand, isHeadless } from "./ui";
+import { registerUiCommand } from "./ui";
+import { isHeadless } from "../browser";
 import { SubprocessRunner } from "@clef-sh/core";
 import { startServer } from "@clef-sh/ui";
 import { formatter } from "../output/formatter";

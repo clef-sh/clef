@@ -4,7 +4,7 @@ import { ManifestParser, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createSopsClient } from "../age-credential";
+import { createCloudAwareSopsClient } from "../cloud-sops";
 import { parseTarget } from "../parse-target";
 import * as crypto from "crypto";
 
@@ -50,39 +50,47 @@ export function registerCompareCommand(program: Command, deps: { runner: Subproc
           compareValue = value;
         }
 
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const decrypted = await sopsClient.decrypt(filePath);
+        const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
+        try {
+          const decrypted = await sopsClient.decrypt(filePath);
 
-        if (!(key in decrypted.values)) {
-          formatter.error(
-            `Key '${key}' not found in ${namespace}/${environment}. Available keys: ${Object.keys(decrypted.values).join(", ") || "(none)"}`,
-          );
-          process.exit(1);
-          return;
-        }
+          if (!(key in decrypted.values)) {
+            formatter.error(
+              `Key '${key}' not found in ${namespace}/${environment}. Available keys: ${Object.keys(decrypted.values).join(", ") || "(none)"}`,
+            );
+            process.exit(1);
+            return;
+          }
 
-        const stored = decrypted.values[key];
+          const stored = decrypted.values[key];
 
-        // Constant-time comparison to avoid timing side-channels.
-        // Pad both buffers to equal length so the length check itself
-        // does not leak the stored value's length via timing.
-        const storedBuf = Buffer.from(stored);
-        const compareBuf = Buffer.from(compareValue);
-        const maxLen = Math.max(storedBuf.length, compareBuf.length, 1);
-        const paddedStored = Buffer.alloc(maxLen);
-        const paddedCompare = Buffer.alloc(maxLen);
-        storedBuf.copy(paddedStored);
-        compareBuf.copy(paddedCompare);
-        // Always execute timingSafeEqual regardless of length — the &&
-        // short-circuit would leak whether lengths matched via timing.
-        const timingEqual = crypto.timingSafeEqual(paddedStored, paddedCompare);
-        const match = storedBuf.length === compareBuf.length && timingEqual;
+          // Constant-time comparison to avoid timing side-channels.
+          // Pad both buffers to equal length so the length check itself
+          // does not leak the stored value's length via timing.
+          const storedBuf = Buffer.from(stored);
+          const compareBuf = Buffer.from(compareValue);
+          const maxLen = Math.max(storedBuf.length, compareBuf.length, 1);
+          const paddedStored = Buffer.alloc(maxLen);
+          const paddedCompare = Buffer.alloc(maxLen);
+          storedBuf.copy(paddedStored);
+          compareBuf.copy(paddedCompare);
+          // Always execute timingSafeEqual regardless of length — the &&
+          // short-circuit would leak whether lengths matched via timing.
+          const timingEqual = crypto.timingSafeEqual(paddedStored, paddedCompare);
+          const match = storedBuf.length === compareBuf.length && timingEqual;
 
-        if (match) {
-          formatter.success(`${key} ${sym("arrow")} values match`);
-        } else {
-          formatter.failure(`${key} ${sym("arrow")} values do not match`);
-          process.exit(1);
+          if (match) {
+            formatter.success(`${key} ${sym("arrow")} values match`);
+          } else {
+            formatter.failure(`${key} ${sym("arrow")} values do not match`);
+            process.exit(1);
+          }
+        } finally {
+          await cleanup();
         }
       } catch (err) {
         handleCommandError(err);

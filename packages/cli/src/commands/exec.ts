@@ -5,7 +5,7 @@ import { Command } from "commander";
 import { ManifestParser, ConsumptionClient, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
-import { createSopsClient } from "../age-credential";
+import { createCloudAwareSopsClient } from "../cloud-sops";
 import { parseTarget } from "../parse-target";
 
 function collect(value: string, previous: string[]): string[] {
@@ -80,65 +80,72 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
             formatter.warn(`Executing in protected environment '${environment}'.`);
           }
 
-          const sopsClient = await createSopsClient(repoRoot, deps.runner);
-
-          // Decrypt primary target
-          const primaryFilePath = path.join(
+          const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
             repoRoot,
-            manifest.file_pattern
-              .replace("{namespace}", namespace)
-              .replace("{environment}", environment),
+            deps.runner,
+            manifest,
           );
-          const primaryDecrypted = await sopsClient.decrypt(primaryFilePath);
+          try {
+            // Decrypt primary target
+            const primaryFilePath = path.join(
+              repoRoot,
+              manifest.file_pattern
+                .replace("{namespace}", namespace)
+                .replace("{environment}", environment),
+            );
+            const primaryDecrypted = await sopsClient.decrypt(primaryFilePath);
 
-          // Merge values: primary first, then --also targets in order (later overrides earlier)
-          const mergedValues = { ...primaryDecrypted.values };
+            // Merge values: primary first, then --also targets in order (later overrides earlier)
+            const mergedValues = { ...primaryDecrypted.values };
 
-          for (const alsoTarget of options.also) {
-            try {
-              const [alsoNs, alsoEnv] = parseTarget(alsoTarget);
-              const alsoFilePath = path.join(
-                repoRoot,
-                manifest.file_pattern
-                  .replace("{namespace}", alsoNs)
-                  .replace("{environment}", alsoEnv),
-              );
-              const alsoDecrypted = await sopsClient.decrypt(alsoFilePath);
-              for (const key of Object.keys(alsoDecrypted.values)) {
-                if (key in mergedValues) {
-                  if (!options.override) continue;
-                  formatter.warn(
-                    `--also '${alsoTarget}' overrides key '${key}' from a previous source.`,
-                  );
+            for (const alsoTarget of options.also) {
+              try {
+                const [alsoNs, alsoEnv] = parseTarget(alsoTarget);
+                const alsoFilePath = path.join(
+                  repoRoot,
+                  manifest.file_pattern
+                    .replace("{namespace}", alsoNs)
+                    .replace("{environment}", alsoEnv),
+                );
+                const alsoDecrypted = await sopsClient.decrypt(alsoFilePath);
+                for (const key of Object.keys(alsoDecrypted.values)) {
+                  if (key in mergedValues) {
+                    if (!options.override) continue;
+                    formatter.warn(
+                      `--also '${alsoTarget}' overrides key '${key}' from a previous source.`,
+                    );
+                  }
+                  mergedValues[key] = alsoDecrypted.values[key];
                 }
-                mergedValues[key] = alsoDecrypted.values[key];
+              } catch (err) {
+                throw new Error(
+                  `Failed to decrypt --also '${alsoTarget}': ${(err as Error).message}`,
+                );
               }
-            } catch (err) {
-              throw new Error(
-                `Failed to decrypt --also '${alsoTarget}': ${(err as Error).message}`,
-              );
             }
+
+            const consumption = new ConsumptionClient();
+            const execOptions = {
+              only: options.only ? options.only.split(",").map((k) => k.trim()) : undefined,
+              prefix: options.prefix,
+              noOverride: !options.override,
+            };
+
+            const childEnv = consumption.prepareEnvironment(
+              { values: mergedValues, metadata: primaryDecrypted.metadata },
+              process.env as Record<string, string | undefined>,
+              execOptions,
+            );
+
+            // Spawn child process with inherited stdio — values injected via env, never via shell
+            const childCommand = childArgs[0];
+            const childCommandArgs = childArgs.slice(1);
+
+            const exitCode = await spawnChild(childCommand, childCommandArgs, childEnv);
+            process.exit(exitCode);
+          } finally {
+            await cleanup();
           }
-
-          const consumption = new ConsumptionClient();
-          const execOptions = {
-            only: options.only ? options.only.split(",").map((k) => k.trim()) : undefined,
-            prefix: options.prefix,
-            noOverride: !options.override,
-          };
-
-          const childEnv = consumption.prepareEnvironment(
-            { values: mergedValues, metadata: primaryDecrypted.metadata },
-            process.env as Record<string, string | undefined>,
-            execOptions,
-          );
-
-          // Spawn child process with inherited stdio — values injected via env, never via shell
-          const childCommand = childArgs[0];
-          const childCommandArgs = childArgs.slice(1);
-
-          const exitCode = await spawnChild(childCommand, childCommandArgs, childEnv);
-          process.exit(exitCode);
         } catch (err) {
           handleCommandError(err);
         }

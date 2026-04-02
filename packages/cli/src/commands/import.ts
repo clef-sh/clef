@@ -13,7 +13,7 @@ import {
 import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createSopsClient } from "../age-credential";
+import { createCloudAwareSopsClient } from "../cloud-sops";
 
 async function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -146,74 +146,84 @@ export function registerImportCommand(program: Command, deps: { runner: Subproce
             formatter.print(`Importing to ${namespace}/${environment} from ${sourceLabel}...\n`);
           }
 
-          const sopsClient = await createSopsClient(repoRoot, deps.runner);
-          const importRunner = new ImportRunner(sopsClient);
-
-          let result;
+          const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
+            repoRoot,
+            deps.runner,
+            manifest,
+          );
           try {
-            result = await importRunner.import(target, sourcePath, content, manifest, repoRoot, {
-              format: opts.format as ImportFormat | undefined,
-              prefix: opts.prefix,
-              keys: keysFilter,
-              overwrite: opts.overwrite,
-              dryRun: opts.dryRun,
-            });
-          } catch (err) {
-            // Re-throw dependency errors so the outer handler can format them
-            if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
-              throw err;
-            }
-            formatter.error((err as Error).message);
-            process.exit(2);
-            return;
-          }
+            const importRunner = new ImportRunner(sopsClient);
 
-          // Show warnings
-          for (const warning of result.warnings) {
-            formatter.print(`  ${sym("warning")}  ${warning}`);
-          }
-
-          if (opts.dryRun) {
-            // Show dry run preview
-            for (const key of result.imported) {
-              formatter.print(`   ${sym("arrow")}  ${key.padEnd(20)} would import`);
-            }
-            for (const key of result.skipped) {
-              formatter.print(
-                `   ${sym("skipped")}  ${key.padEnd(20)} would skip \u2014 already exists`,
-              );
-            }
-
-            formatter.print(
-              `\nDry run complete: ${result.imported.length} would import, ${result.skipped.length} would skip.`,
-            );
-            formatter.print(`Run without --dry-run to apply.`);
-          } else {
-            // Show actual import results
-            for (const key of result.imported) {
-              formatter.print(`   ${sym("success")}  ${key.padEnd(12)} ${sym("locked")}  imported`);
-            }
-            for (const key of result.skipped) {
-              formatter.print(
-                `   ${sym("skipped")}  ${key.padEnd(12)}     skipped \u2014 already exists (--overwrite to replace)`,
-              );
-            }
-            for (const { key, error: keyError } of result.failed) {
-              formatter.print(
-                `   ${sym("failure")}  ${key.padEnd(12)}     failed \u2014 encrypt error: ${keyError}`,
-              );
-            }
-
-            formatter.print(
-              `\n${result.imported.length} imported, ${result.skipped.length} skipped, ${result.failed.length} failed.`,
-            );
-
-            if (result.failed.length > 0) {
-              for (const { key } of result.failed) {
-                formatter.hint(`clef set ${target} ${key}   (retry failed key)`);
+            let result;
+            try {
+              result = await importRunner.import(target, sourcePath, content, manifest, repoRoot, {
+                format: opts.format as ImportFormat | undefined,
+                prefix: opts.prefix,
+                keys: keysFilter,
+                overwrite: opts.overwrite,
+                dryRun: opts.dryRun,
+              });
+            } catch (err) {
+              // Re-throw dependency errors so the outer handler can format them
+              if (err instanceof SopsMissingError || err instanceof SopsVersionError) {
+                throw err;
               }
-              process.exit(1);
+              formatter.error((err as Error).message);
+              process.exit(2);
+              return;
             }
+
+            // Show warnings
+            for (const warning of result.warnings) {
+              formatter.print(`  ${sym("warning")}  ${warning}`);
+            }
+
+            if (opts.dryRun) {
+              // Show dry run preview
+              for (const key of result.imported) {
+                formatter.print(`   ${sym("arrow")}  ${key.padEnd(20)} would import`);
+              }
+              for (const key of result.skipped) {
+                formatter.print(
+                  `   ${sym("skipped")}  ${key.padEnd(20)} would skip \u2014 already exists`,
+                );
+              }
+
+              formatter.print(
+                `\nDry run complete: ${result.imported.length} would import, ${result.skipped.length} would skip.`,
+              );
+              formatter.print(`Run without --dry-run to apply.`);
+            } else {
+              // Show actual import results
+              for (const key of result.imported) {
+                formatter.print(
+                  `   ${sym("success")}  ${key.padEnd(12)} ${sym("locked")}  imported`,
+                );
+              }
+              for (const key of result.skipped) {
+                formatter.print(
+                  `   ${sym("skipped")}  ${key.padEnd(12)}     skipped \u2014 already exists (--overwrite to replace)`,
+                );
+              }
+              for (const { key, error: keyError } of result.failed) {
+                formatter.print(
+                  `   ${sym("failure")}  ${key.padEnd(12)}     failed \u2014 encrypt error: ${keyError}`,
+                );
+              }
+
+              formatter.print(
+                `\n${result.imported.length} imported, ${result.skipped.length} skipped, ${result.failed.length} failed.`,
+              );
+
+              if (result.failed.length > 0) {
+                for (const { key } of result.failed) {
+                  formatter.hint(`clef set ${target} ${key}   (retry failed key)`);
+                }
+                process.exit(1);
+              }
+            }
+          } finally {
+            await cleanup();
           }
         } catch (err) {
           handleCommandError(err);
