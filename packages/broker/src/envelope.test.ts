@@ -43,7 +43,6 @@ describe("packEnvelope", () => {
     expect(artifact.revision).toBeTruthy();
     expect(artifact.ciphertextHash).toBeTruthy();
     expect(artifact.ciphertext).toBeTruthy();
-    expect(artifact.keys).toEqual(["DB_TOKEN", "DB_HOST"]);
     expect(artifact.envelope).toBeDefined();
     expect(artifact.expiresAt).toBeTruthy();
   });
@@ -94,13 +93,13 @@ describe("packEnvelope", () => {
     expect(Buffer.from(artifact.envelope.authTag, "base64")).toHaveLength(16);
   });
 
-  it("keys matches Object.keys(data)", async () => {
+  it("does not include keys in the envelope", async () => {
     const json = await packEnvelope({
       ...baseOptions(kms),
       data: { A: "1", B: "2", C: "3" },
     });
-    const artifact: BrokerArtifact = JSON.parse(json);
-    expect(artifact.keys).toEqual(["A", "B", "C"]);
+    const raw = JSON.parse(json);
+    expect(raw.keys).toBeUndefined();
   });
 
   it("revision has timestamp-hex format", async () => {

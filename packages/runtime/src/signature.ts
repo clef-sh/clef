@@ -11,7 +11,6 @@ interface SignableArtifact {
   revision: string;
   packedAt: string;
   ciphertextHash: string;
-  keys: string[];
   expiresAt?: string;
   envelope?: {
     provider: string;
@@ -32,14 +31,13 @@ interface SignableArtifact {
  */
 export function buildSigningPayload(artifact: SignableArtifact): Buffer {
   const fields = [
-    "clef-sig-v2",
+    "clef-sig-v3",
     String(artifact.version),
     artifact.identity,
     artifact.environment,
     artifact.revision,
     artifact.packedAt,
     artifact.ciphertextHash,
-    [...artifact.keys].sort().join(","),
     artifact.expiresAt ?? "",
     artifact.envelope?.provider ?? "",
     artifact.envelope?.keyId ?? "",

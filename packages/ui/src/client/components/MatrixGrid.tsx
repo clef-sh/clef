@@ -167,7 +167,11 @@ export function MatrixGrid({
                 )
               : "never";
             const missingKeyCount = cellStatus
-              ? cellStatus.issues.filter((i) => i.type === "missing_keys").length
+              ? new Set(
+                  cellStatus.issues
+                    .filter((i) => i.type === "missing_keys" && i.key)
+                    .map((i) => i.key),
+                ).size
               : 0;
             const warnKeyCount = cellStatus
               ? cellStatus.issues.filter((i) => i.type === "schema_warning").length

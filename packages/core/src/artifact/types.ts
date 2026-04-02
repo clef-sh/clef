@@ -32,8 +32,6 @@ export interface PackedArtifact {
   ciphertextHash: string;
   /** Base64-encoded ciphertext. Age format for age-only artifacts; AES-256-GCM for KMS envelope artifacts. */
   ciphertext: string;
-  /** Secret key names for introspection (not the values). */
-  keys: string[];
   /** KMS envelope metadata. Present when the identity uses KMS envelope encryption. */
   envelope?: ArtifactEnvelope;
   /** ISO-8601 expiry timestamp. Artifact is rejected after this time. */

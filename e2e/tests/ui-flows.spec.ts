@@ -417,7 +417,7 @@ test.describe("clef scan → ScanScreen: detect plaintext secrets", () => {
     await page.getByTestId("nav-scan").click();
     await expect(page.getByTestId("scan-idle")).toBeVisible();
     // Use high-severity (patterns only) to avoid entropy false positives from
-    // non-secret config files (e.g. age public key in .sops.yaml triggers entropy)
+    // non-secret config files (e.g. age public key in clef.yaml triggers entropy)
     await page.getByTestId("severity-high").click();
     await page.getByRole("button", { name: "Scan repository" }).click();
     await expect(page.getByTestId("scan-clean")).toBeVisible({ timeout: 30_000 });

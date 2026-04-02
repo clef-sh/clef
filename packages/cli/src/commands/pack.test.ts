@@ -155,7 +155,7 @@ describe("clef pack", () => {
       expect(artifact.environment).toBe("dev");
       // Ciphertext is base64-encoded
       expect(artifact.ciphertext).toMatch(/^[A-Za-z0-9+/]+=*$/);
-      expect(artifact.keys).toEqual(expect.arrayContaining(["DATABASE_URL", "API_KEY"]));
+      expect(artifact.keys).toBeUndefined();
     }
   });
 

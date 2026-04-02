@@ -107,10 +107,21 @@ export function startAgentServer(options: AgentServerOptions): Promise<AgentServ
     }
   });
 
-  // GET /v1/keys — list key names (no decryption needed)
-  app.get("/v1/keys", (_req: Request, res: Response) => {
+  // GET /v1/keys — list key names
+  app.get("/v1/keys", async (_req: Request, res: Response) => {
     if (jitMode) {
-      res.json(encryptedStore.getKeys());
+      const artifact = encryptedStore.get();
+      if (!artifact) {
+        res.status(503).json({ error: "Secrets not yet loaded" });
+        return;
+      }
+      try {
+        const { values } = await decryptor.decrypt(artifact);
+        res.json(Object.keys(values));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        res.status(503).json({ error: "Decryption failed", detail: message });
+      }
     } else {
       res.json(cache.getKeys());
     }

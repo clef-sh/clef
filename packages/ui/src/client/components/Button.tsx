@@ -10,7 +10,7 @@ interface ButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>
 
 const VARIANT_STYLES = {
   primary: { bg: theme.accent, color: "#000", border: "none" },
-  ghost: { bg: "transparent", color: theme.textMuted, border: `1px solid ${theme.border}` },
+  ghost: { bg: "transparent", color: theme.text, border: `1px solid ${theme.borderLight}` },
   danger: { bg: theme.redDim, color: theme.red, border: `1px solid ${theme.red}44` },
 };
 

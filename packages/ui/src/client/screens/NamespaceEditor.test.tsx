@@ -339,4 +339,356 @@ describe("NamespaceEditor", () => {
 
     jest.useRealTimers();
   });
+
+  it("shows protected confirmation dialog when adding a key in production", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(mockDecrypted),
+    } as Response);
+
+    await act(async () => {
+      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+    });
+
+    // Switch to production tab
+    const prodTab = screen.getAllByRole("tab").find((t) => t.textContent?.includes("production"));
+    await act(async () => {
+      if (prodTab) fireEvent.click(prodTab);
+    });
+
+    // Open add key form
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("add-key-btn"));
+    });
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("new-key-input"), {
+        target: { value: "PROD_SECRET" },
+      });
+    });
+
+    // Click Add — should show confirmation instead of sending request
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("add-key-submit"));
+    });
+
+    expect(screen.getByTestId("confirm-protected-dialog")).toBeInTheDocument();
+    expect(screen.getByText(/Protected environment/)).toBeInTheDocument();
+  });
+
+  it("sends confirmed: true after confirming protected add", async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(mockDecrypted),
+    } as Response);
+    global.fetch = fetchMock;
+
+    await act(async () => {
+      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+    });
+
+    // Switch to production tab
+    const prodTab = screen.getAllByRole("tab").find((t) => t.textContent?.includes("production"));
+    await act(async () => {
+      if (prodTab) fireEvent.click(prodTab);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("add-key-btn"));
+    });
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("new-key-input"), {
+        target: { value: "PROD_SECRET" },
+      });
+      fireEvent.change(screen.getByTestId("new-value-input"), {
+        target: { value: "s3cret" },
+      });
+    });
+
+    // Click Add — triggers confirmation
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("add-key-submit"));
+    });
+
+    // Confirm
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("confirm-protected-yes"));
+    });
+
+    const putCall = fetchMock.mock.calls.find(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (c: any[]) =>
+        typeof c[0] === "string" && c[0].includes("/PROD_SECRET") && c[1]?.method === "PUT",
+    );
+    expect(putCall).toBeDefined();
+    const body = JSON.parse(putCall![1].body);
+    expect(body.confirmed).toBe(true);
+    expect(body.value).toBe("s3cret");
+  });
+
+  it("cancels protected add when Cancel is clicked", async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(mockDecrypted),
+    } as Response);
+    global.fetch = fetchMock;
+
+    await act(async () => {
+      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+    });
+
+    // Switch to production tab
+    const prodTab = screen.getAllByRole("tab").find((t) => t.textContent?.includes("production"));
+    await act(async () => {
+      if (prodTab) fireEvent.click(prodTab);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("add-key-btn"));
+    });
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("new-key-input"), {
+        target: { value: "PROD_SECRET" },
+      });
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("add-key-submit"));
+    });
+
+    // Cancel the confirmation
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("confirm-protected-no"));
+    });
+
+    expect(screen.queryByTestId("confirm-protected-dialog")).not.toBeInTheDocument();
+    // No PUT call to PROD_SECRET should have been made
+    const putCall = fetchMock.mock.calls.find(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (c: any[]) =>
+        typeof c[0] === "string" && c[0].includes("/PROD_SECRET") && c[1]?.method === "PUT",
+    );
+    expect(putCall).toBeUndefined();
+  });
+
+  it("shows protected warning in reset confirmation for production env", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(mockDecrypted),
+    } as Response);
+
+    await act(async () => {
+      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+    });
+
+    // Switch to production tab
+    const prodTab = screen.getAllByRole("tab").find((t) => t.textContent?.includes("production"));
+    await act(async () => {
+      if (prodTab) fireEvent.click(prodTab);
+    });
+
+    // Open overflow menu and click reset
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("overflow-DB_HOST"));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("reset-random-DB_HOST"));
+    });
+
+    expect(screen.getByTestId("confirm-reset-dialog")).toBeInTheDocument();
+    expect(screen.getByText(/This is a protected environment/)).toBeInTheDocument();
+  });
+
+  it("does not show protected confirmation for non-production env", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(mockDecrypted),
+    } as Response);
+
+    await act(async () => {
+      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+    });
+
+    // Stay on dev tab (default)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("add-key-btn"));
+    });
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("new-key-input"), {
+        target: { value: "DEV_SECRET" },
+      });
+    });
+
+    // Click Add — should NOT show confirmation dialog
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("add-key-submit"));
+    });
+
+    expect(screen.queryByTestId("confirm-protected-dialog")).not.toBeInTheDocument();
+  });
+
+  it("shows accept button for pending keys", async () => {
+    const decryptedWithPending = {
+      ...mockDecrypted,
+      pending: ["DB_HOST"],
+    };
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(decryptedWithPending),
+    } as Response);
+
+    await act(async () => {
+      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+    });
+
+    expect(screen.getByTestId("accept-value-DB_HOST")).toBeInTheDocument();
+    expect(screen.getByTestId("set-value-DB_HOST")).toBeInTheDocument();
+  });
+
+  it("calls accept endpoint and updates row with returned value", async () => {
+    const decryptedWithPending = {
+      ...mockDecrypted,
+      pending: ["DB_HOST"],
+    };
+    const fetchMock = jest.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      if (typeof url === "string" && url.includes("/accept") && opts?.method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, key: "DB_HOST", value: "abc123" }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(decryptedWithPending),
+      } as Response);
+    });
+    global.fetch = fetchMock;
+
+    await act(async () => {
+      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+    });
+
+    // Click accept
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("accept-value-DB_HOST"));
+    });
+
+    // Verify the accept endpoint was called
+    const acceptCall = fetchMock.mock.calls.find(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (c: any[]) =>
+        typeof c[0] === "string" && c[0].includes("/DB_HOST/accept") && c[1]?.method === "POST",
+    );
+    expect(acceptCall).toBeDefined();
+
+    // Accept button should be gone (no longer pending)
+    expect(screen.queryByTestId("accept-value-DB_HOST")).not.toBeInTheDocument();
+    // Eye icon should be present (can reveal the value)
+    expect(screen.getByTestId("eye-DB_HOST")).toBeInTheDocument();
+  });
+
+  it("shows delete option in overflow menu", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(mockDecrypted),
+    } as Response);
+
+    await act(async () => {
+      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("overflow-DB_HOST"));
+    });
+
+    expect(screen.getByTestId("delete-key-DB_HOST")).toBeInTheDocument();
+  });
+
+  it("shows confirmation dialog before deleting a key", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(mockDecrypted),
+    } as Response);
+
+    await act(async () => {
+      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("overflow-DB_HOST"));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("delete-key-DB_HOST"));
+    });
+
+    expect(screen.getByTestId("confirm-delete-dialog")).toBeInTheDocument();
+    expect(screen.getByText(/Permanently delete/)).toBeInTheDocument();
+  });
+
+  it("deletes key after confirming", async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(mockDecrypted),
+    } as Response);
+    global.fetch = fetchMock;
+
+    await act(async () => {
+      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("overflow-DB_HOST"));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("delete-key-DB_HOST"));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("confirm-delete-yes"));
+    });
+
+    // Verify DELETE was called
+    const deleteCall = fetchMock.mock.calls.find(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (c: any[]) =>
+        typeof c[0] === "string" && c[0].includes("/DB_HOST") && c[1]?.method === "DELETE",
+    );
+    expect(deleteCall).toBeDefined();
+
+    // Row should be removed
+    expect(screen.queryByText("DB_HOST")).not.toBeInTheDocument();
+  });
+
+  it("cancels delete when Cancel is clicked", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(mockDecrypted),
+    } as Response);
+
+    await act(async () => {
+      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("overflow-DB_HOST"));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("delete-key-DB_HOST"));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("confirm-delete-no"));
+    });
+
+    expect(screen.queryByTestId("confirm-delete-dialog")).not.toBeInTheDocument();
+    // Key should still be there
+    expect(screen.getByText("DB_HOST")).toBeInTheDocument();
+  });
 });

@@ -47,10 +47,6 @@ jest.mock("@clef-sh/core", () => {
   };
 });
 
-jest.mock("./sops-config", () => ({
-  scaffoldSopsConfig: jest.fn(),
-}));
-
 const mockFs = fs as jest.Mocked<typeof fs>;
 
 const validManifest = {
@@ -76,12 +72,14 @@ const sopsFileContent = YAML.stringify({
 function makeRunner(overrides?: Partial<Record<string, SubprocessResult>>): SubprocessRunner {
   return {
     run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
-      const key = `${cmd} ${args[0] || ""}`.trim();
+      // Match overrides by "cmd subcommand" — find the first arg that isn't a flag
+      const sub = args.find((a) => !a.startsWith("-") && a !== "/dev/null" && a !== "NUL") ?? "";
+      const key = `${cmd} ${sub}`.trim();
       if (overrides && key in overrides) {
         return overrides[key];
       }
 
-      if (cmd === "sops" && args[0] === "--version") {
+      if (cmd === "sops" && args.includes("--version")) {
         return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
       }
       if (cmd === "sops" && args[0] === "decrypt") {
@@ -97,7 +95,7 @@ function makeRunner(overrides?: Partial<Record<string, SubprocessResult>>): Subp
       if (cmd === "cat") {
         return { stdout: sopsFileContent, stderr: "", exitCode: 0 };
       }
-      if (cmd === "sops" && args[0] === "encrypt") {
+      if (cmd === "sops" && args.includes("encrypt")) {
         return { stdout: "encrypted-content", stderr: "", exitCode: 0 };
       }
       if (cmd === "tee") {
@@ -282,7 +280,7 @@ describe("API routes", () => {
       const runCalls = (runner.run as jest.Mock).mock.calls;
       const encryptCalls = runCalls.filter(
         (c: [string, string[], Record<string, unknown>?]) =>
-          c[0] === "sops" && c[1][0] === "encrypt",
+          c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(encryptCalls.length).toBeGreaterThanOrEqual(2);
 
@@ -311,7 +309,7 @@ describe("API routes", () => {
             exitCode: 0,
           };
         }
-        if (cmd === "sops" && args[0] === "encrypt") {
+        if (cmd === "sops" && args.includes("encrypt")) {
           encryptCallCount++;
           if (encryptCallCount === 1) {
             return { stdout: "encrypted", stderr: "", exitCode: 0 };
@@ -503,6 +501,27 @@ describe("API routes", () => {
         expect.stringContaining("database/dev.enc.yaml"),
         ["DB_HOST"],
       );
+    });
+  });
+
+  // POST /api/namespace/:ns/:env/:key/accept
+  describe("POST /api/namespace/:ns/:env/:key/accept", () => {
+    it("should call markResolved and return success", async () => {
+      const { markResolved: mockMarkResolved } = jest.requireMock("@clef-sh/core");
+      const app = createApp();
+      const res = await request(app).post("/api/namespace/database/dev/DB_HOST/accept");
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(mockMarkResolved).toHaveBeenCalledWith(
+        expect.stringContaining("database/dev.enc.yaml"),
+        ["DB_HOST"],
+      );
+    });
+
+    it("should return 404 for unknown namespace", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/namespace/unknown/dev/DB_HOST/accept");
+      expect(res.status).toBe(404);
     });
   });
 

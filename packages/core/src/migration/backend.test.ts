@@ -75,21 +75,18 @@ function setupFsMocks(manifestYaml?: string): void {
   const yaml = manifestYaml ?? makeManifestYaml();
   mockExistsSync.mockImplementation((p) => {
     const ps = String(p);
-    if (ps.endsWith(".sops.yaml")) return true;
     if (ps.endsWith(".enc.yaml")) return true;
     return false;
   });
   mockReadFileSync.mockImplementation((p) => {
     const ps = String(p);
     if (ps.endsWith("clef.yaml")) return yaml;
-    if (ps.endsWith(".sops.yaml")) return "creation_rules: []";
     if (ps.endsWith(".enc.yaml")) return "encrypted: content";
     return "";
   });
 }
 
 const awsTarget: MigrationTarget = { backend: "awskms", key: "arn:aws:kms:us-east-1:123:key/new" };
-const regenerate = jest.fn();
 
 describe("BackendMigrator", () => {
   beforeEach(() => {
@@ -102,12 +99,7 @@ describe("BackendMigrator", () => {
     setupFsMocks();
 
     const migrator = new BackendMigrator(enc, mm as never);
-    const result = await migrator.migrate(
-      baseManifest,
-      repoRoot,
-      { target: awsTarget },
-      { regenerateSopsConfig: regenerate },
-    );
+    const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.rolledBack).toBe(false);
     expect(result.migratedFiles).toHaveLength(2);
@@ -115,7 +107,6 @@ describe("BackendMigrator", () => {
     // 2 migration decrypts + 2 verification decrypts
     expect(enc.decrypt).toHaveBeenCalledTimes(4);
     expect(enc.encrypt).toHaveBeenCalledTimes(2);
-    expect(regenerate).toHaveBeenCalledTimes(1);
 
     // Verify manifest was updated
     const writeCalls = mockWriteFileSync.mock.calls;
@@ -132,12 +123,10 @@ describe("BackendMigrator", () => {
     setupFsMocks();
 
     const migrator = new BackendMigrator(enc, mm as never);
-    const result = await migrator.migrate(
-      baseManifest,
-      repoRoot,
-      { target: awsTarget, environment: "production" },
-      { regenerateSopsConfig: regenerate },
-    );
+    const result = await migrator.migrate(baseManifest, repoRoot, {
+      target: awsTarget,
+      environment: "production",
+    });
 
     expect(result.rolledBack).toBe(false);
     expect(result.migratedFiles).toHaveLength(1);
@@ -170,12 +159,7 @@ describe("BackendMigrator", () => {
     setupFsMocks(makeManifestYaml(manifest));
 
     const migrator = new BackendMigrator(enc, mm as never);
-    const result = await migrator.migrate(
-      manifest,
-      repoRoot,
-      { target: awsTarget },
-      { regenerateSopsConfig: regenerate },
-    );
+    const result = await migrator.migrate(manifest, repoRoot, { target: awsTarget });
 
     expect(result.rolledBack).toBe(false);
     expect(result.migratedFiles).toHaveLength(2);
@@ -188,18 +172,12 @@ describe("BackendMigrator", () => {
     setupFsMocks();
 
     const migrator = new BackendMigrator(enc, mm as never);
-    const result = await migrator.migrate(
-      baseManifest,
-      repoRoot,
-      { target: awsTarget },
-      { regenerateSopsConfig: regenerate },
-    );
+    const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.migratedFiles).toHaveLength(0);
     expect(result.skippedFiles).toHaveLength(2);
     expect(enc.decrypt).not.toHaveBeenCalled();
     expect(enc.encrypt).not.toHaveBeenCalled();
-    expect(regenerate).not.toHaveBeenCalled();
   });
 
   it("should not modify files in dry-run mode", async () => {
@@ -208,19 +186,16 @@ describe("BackendMigrator", () => {
     setupFsMocks();
 
     const migrator = new BackendMigrator(enc, mm as never);
-    const result = await migrator.migrate(
-      baseManifest,
-      repoRoot,
-      { target: awsTarget, dryRun: true },
-      { regenerateSopsConfig: regenerate },
-    );
+    const result = await migrator.migrate(baseManifest, repoRoot, {
+      target: awsTarget,
+      dryRun: true,
+    });
 
     expect(result.migratedFiles).toHaveLength(0);
     expect(result.warnings.length).toBeGreaterThan(0);
     expect(enc.decrypt).not.toHaveBeenCalled();
     expect(enc.encrypt).not.toHaveBeenCalled();
     expect(mockWriteFileSync).not.toHaveBeenCalled();
-    expect(regenerate).not.toHaveBeenCalled();
   });
 
   it("should rollback all changes on decrypt failure", async () => {
@@ -234,12 +209,7 @@ describe("BackendMigrator", () => {
     setupFsMocks();
 
     const migrator = new BackendMigrator(enc, mm as never);
-    const result = await migrator.migrate(
-      baseManifest,
-      repoRoot,
-      { target: awsTarget },
-      { regenerateSopsConfig: regenerate },
-    );
+    const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.rolledBack).toBe(true);
     expect(result.error).toContain("Decryption failed");
@@ -260,12 +230,7 @@ describe("BackendMigrator", () => {
     setupFsMocks();
 
     const migrator = new BackendMigrator(enc, mm as never);
-    const result = await migrator.migrate(
-      baseManifest,
-      repoRoot,
-      { target: awsTarget },
-      { regenerateSopsConfig: regenerate },
-    );
+    const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.rolledBack).toBe(true);
     expect(result.error).toContain("KMS access denied");
@@ -287,12 +252,7 @@ describe("BackendMigrator", () => {
     setupFsMocks();
 
     const migrator = new BackendMigrator(enc, mm as never);
-    const result = await migrator.migrate(
-      baseManifest,
-      repoRoot,
-      { target: awsTarget },
-      { regenerateSopsConfig: regenerate },
-    );
+    const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.rolledBack).toBe(false);
     expect(result.migratedFiles).toHaveLength(2);
@@ -306,12 +266,7 @@ describe("BackendMigrator", () => {
 
     const migrator = new BackendMigrator(enc, mm as never);
     await expect(
-      migrator.migrate(
-        baseManifest,
-        repoRoot,
-        { target: awsTarget, environment: "nonexistent" },
-        { regenerateSopsConfig: regenerate },
-      ),
+      migrator.migrate(baseManifest, repoRoot, { target: awsTarget, environment: "nonexistent" }),
     ).rejects.toThrow("Environment 'nonexistent' not found");
   });
 
@@ -321,12 +276,7 @@ describe("BackendMigrator", () => {
     setupFsMocks();
 
     const migrator = new BackendMigrator(enc, mm as never);
-    const result = await migrator.migrate(
-      baseManifest,
-      repoRoot,
-      { target: awsTarget },
-      { regenerateSopsConfig: regenerate },
-    );
+    const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.migratedFiles).toHaveLength(0);
     expect(result.warnings).toContain("No encrypted files found to migrate.");
@@ -345,12 +295,7 @@ describe("BackendMigrator", () => {
     setupFsMocks(makeManifestYaml(manifestWithRecipients));
 
     const migrator = new BackendMigrator(enc, mm as never);
-    const result = await migrator.migrate(
-      manifestWithRecipients,
-      repoRoot,
-      { target: awsTarget },
-      { regenerateSopsConfig: regenerate },
-    );
+    const result = await migrator.migrate(manifestWithRecipients, repoRoot, { target: awsTarget });
 
     expect(result.warnings.some((w) => w.includes("age recipients"))).toBe(true);
   });
@@ -361,12 +306,10 @@ describe("BackendMigrator", () => {
     setupFsMocks();
 
     const migrator = new BackendMigrator(enc, mm as never);
-    const result = await migrator.migrate(
-      baseManifest,
-      repoRoot,
-      { target: awsTarget, skipVerify: true },
-      { regenerateSopsConfig: regenerate },
-    );
+    const result = await migrator.migrate(baseManifest, repoRoot, {
+      target: awsTarget,
+      skipVerify: true,
+    });
 
     expect(result.migratedFiles).toHaveLength(2);
     expect(result.verifiedFiles).toHaveLength(0);

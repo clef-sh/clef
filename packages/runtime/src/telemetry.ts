@@ -22,7 +22,7 @@ export interface AgentStoppedEvent extends TelemetryEventBase {
 export interface ArtifactRefreshedEvent extends TelemetryEventBase {
   type: "artifact.refreshed";
   revision: string;
-  keyCount: number;
+  keyCount?: number;
   kmsEnvelope: boolean;
 }
 
@@ -153,7 +153,7 @@ export class TelemetryEmitter {
     this.emit({ type: "agent.stopped", ...fields });
   }
 
-  artifactRefreshed(fields: { revision: string; keyCount: number; kmsEnvelope: boolean }): void {
+  artifactRefreshed(fields: { revision: string; keyCount?: number; kmsEnvelope: boolean }): void {
     this.emit({ type: "artifact.refreshed", ...fields });
   }
 

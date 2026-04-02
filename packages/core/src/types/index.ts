@@ -117,6 +117,7 @@ export interface ClefNamespace {
 /** SOPS encryption backend configuration from the manifest. */
 export interface SopsConfig {
   default_backend: BackendType;
+  age?: { recipients: (string | { key: string; label?: string })[] };
   aws_kms_arn?: string;
   gcp_kms_resource_id?: string;
   azure_kv_url?: string;

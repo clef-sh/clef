@@ -339,6 +339,65 @@ describe("ManifestParser", () => {
       );
     });
 
+    it("should parse sops.age.recipients with string entries", () => {
+      const manifest = {
+        ...validManifest(),
+        sops: {
+          default_backend: "age",
+          age: {
+            recipients: ["age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"],
+          },
+        },
+      };
+      const result = parser.validate(manifest);
+      expect(result.sops.age).toEqual({
+        recipients: ["age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"],
+      });
+    });
+
+    it("should parse sops.age.recipients with object entries (key + label)", () => {
+      const manifest = {
+        ...validManifest(),
+        sops: {
+          default_backend: "age",
+          age: {
+            recipients: [
+              {
+                key: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
+                label: "Alice",
+              },
+              { key: "age1second0000000000000000000000000000000000000000000000000000" },
+            ],
+          },
+        },
+      };
+      const result = parser.validate(manifest);
+      expect(result.sops.age).toEqual({
+        recipients: [
+          { key: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p", label: "Alice" },
+          { key: "age1second0000000000000000000000000000000000000000000000000000" },
+        ],
+      });
+    });
+
+    it("should handle non-string non-object entries in sops.age.recipients", () => {
+      const manifest = {
+        ...validManifest(),
+        sops: {
+          default_backend: "age",
+          age: { recipients: [42] },
+        },
+      };
+      const result = parser.validate(manifest);
+      expect(result.sops.age).toEqual({ recipients: ["42"] });
+    });
+
+    it("should not include age field when sops.age is absent", () => {
+      const manifest = { ...validManifest(), sops: { default_backend: "age" } };
+      const result = parser.validate(manifest);
+      expect(result.sops.age).toBeUndefined();
+    });
+
     it("should accept per-env sops override with age backend (no extra fields)", () => {
       const manifest = {
         ...validManifest(),

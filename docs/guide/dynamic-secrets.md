@@ -142,7 +142,6 @@ The agent fetches a URL and expects a JSON response matching the artifact envelo
   "revision": "1711065600000-a1b2c3d4",
   "ciphertextHash": "sha256-hex-digest",
   "ciphertext": "base64-encoded-age-ciphertext",
-  "keys": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"],
   "expiresAt": "2026-03-22T01:00:00.000Z",
   "envelope": {
     "provider": "aws",
@@ -162,7 +161,6 @@ The agent fetches a URL and expects a JSON response matching the artifact envelo
 | `revision`       | Yes      | Monotonically increasing revision for change detection                                                    |
 | `ciphertextHash` | Yes      | SHA-256 hex digest of `ciphertext` for integrity checking                                                 |
 | `ciphertext`     | Yes      | Base64-encoded age-encrypted blob containing the secret key-value pairs                                   |
-| `keys`           | Yes      | Array of key names in the encrypted blob                                                                  |
 | `expiresAt`      | No       | ISO-8601 expiry. Agent rejects the artifact after this time                                               |
 | `revokedAt`      | No       | ISO-8601 revocation timestamp. Agent wipes cache and returns 503                                          |
 | `envelope`       | No       | KMS wrapper — when present, the agent unwraps the ephemeral key via KMS instead of using a static age key |

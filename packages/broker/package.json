@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/broker",
-  "version": "0.1.14-beta.62",
+  "version": "0.1.14-alpha.65",
   "description": "Runtime harness for Clef dynamic credential brokers",
   "repository": {
     "type": "git",
