@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/agent",
-  "version": "0.1.11-beta.68",
+  "version": "0.1.11-alpha.70",
   "description": "Runtime secrets sidecar agent for Clef",
   "repository": {
     "type": "git",
@@ -24,6 +24,10 @@
     "test:e2e": "npx tsx --test e2e/agent.e2e.test.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-kms": "^3.500.0",
+    "@azure/identity": "^4.0.0",
+    "@azure/keyvault-keys": "^4.8.0",
+    "@google-cloud/kms": "^4.0.0",
     "@clef-sh/runtime": "*",
     "express": "^5.1.0"
   },
