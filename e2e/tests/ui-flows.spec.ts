@@ -792,7 +792,7 @@ test.describe("clef service → ServiceIdentitiesScreen: create flow", () => {
     await page.getByTestId("ns-checkbox-payments").click();
     await page.getByTestId("create-si-submit").click();
     await expect(page.getByText("Copy these private keys now")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText("dev", { exact: true })).toBeVisible();
+    await expect(page.getByText("DEV", { exact: true })).toBeVisible();
   });
 
   test("[positive] done button returns to list with new identity", async ({ page }) => {
