@@ -258,7 +258,7 @@ jobs:
 
       - name: Upload binary as workflow artifact (Linux only, for Docker build)
         if: startsWith(matrix.label, 'linux-')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.asset }}
           path: packages/agent/dist/${{ matrix.asset }}

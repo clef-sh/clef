@@ -16,6 +16,8 @@ import {
   createVcsProvider,
   VcsArtifactSource,
   HttpArtifactSource,
+  S3ArtifactSource,
+  isS3Url,
   FileArtifactSource,
   DiskCache,
   TelemetryEmitter,
@@ -55,10 +57,13 @@ async function main(): Promise<void> {
     });
     source = new VcsArtifactSource(provider, config.vcs.identity, config.vcs.environment);
   } else if (config.source) {
-    source =
-      config.source.startsWith("http://") || config.source.startsWith("https://")
-        ? new HttpArtifactSource(config.source)
-        : new FileArtifactSource(config.source);
+    if (isS3Url(config.source)) {
+      source = new S3ArtifactSource(config.source);
+    } else if (config.source.startsWith("http://") || config.source.startsWith("https://")) {
+      source = new HttpArtifactSource(config.source);
+    } else {
+      source = new FileArtifactSource(config.source);
+    }
   } else {
     throw new ConfigError("No artifact source configured.");
   }
