@@ -10,14 +10,14 @@ Last month I looked at my AWS bill for a side project — a static site on S3 an
 
 **The most expensive line item was secrets management.**
 
-AWS Secrets Manager charges $0.40 per secret per month, plus $0.05 per 10,000 API calls. I had 12 secrets across two environments. That's $4.80/month just to *store* a Stripe key and a database URL — for a project that costs $1.20/month in compute.
+AWS Secrets Manager charges $0.40 per secret per month, plus $0.05 per 10,000 API calls. I had 12 secrets across two environments. That's $4.80/month just to _store_ a Stripe key and a database URL — for a project that costs $1.20/month in compute.
 
 ## The Alternatives All Suck
 
 - **SSM Parameter Store** — free tier exists, but no encryption at rest for SecureString without KMS ($1/month/key), no rotation, no structure.
 - **Hardcoded env vars** — works until you need to rotate something, or onboard a teammate, or remember what staging is actually pointing at.
 - **`.env` files in a private repo** — congratulations, your secrets are now in plaintext in git history forever.
-- **HashiCorp Vault** — I need a *server* to store 12 key-value pairs?
+- **HashiCorp Vault** — I need a _server_ to store 12 key-value pairs?
 
 ## What I Actually Wanted
 
@@ -68,15 +68,15 @@ clef exec api/production -- node server.js
 
 ## What It Replaced
 
-| | AWS Secrets Manager | Clef |
-|---|---|---|
-| **Cost** | $0.40/secret/month + API calls | Free |
-| **Storage** | AWS managed | Your git repo |
-| **History** | CloudTrail (extra cost) | `git log` |
-| **Access control** | IAM policies | Age keys |
-| **Infrastructure** | AWS account required | None |
-| **Offline access** | No | Yes |
-| **Vendor lock-in** | Yes | No (it's just encrypted YAML) |
+|                    | AWS Secrets Manager            | Clef                          |
+| ------------------ | ------------------------------ | ----------------------------- |
+| **Cost**           | $0.40/secret/month + API calls | Free                          |
+| **Storage**        | AWS managed                    | Your git repo                 |
+| **History**        | CloudTrail (extra cost)        | `git log`                     |
+| **Access control** | IAM policies                   | Age keys                      |
+| **Infrastructure** | AWS account required           | None                          |
+| **Offline access** | No                             | Yes                           |
+| **Vendor lock-in** | Yes                            | No (it's just encrypted YAML) |
 
 ## The Tradeoffs (Being Honest)
 
