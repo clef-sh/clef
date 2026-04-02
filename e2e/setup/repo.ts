@@ -71,7 +71,7 @@ export function scaffoldTestRepo(keys: AgeKeyPair, serviceIdentityKeys?: AgeKeyP
       "sops",
       [
         "--config",
-        "/dev/null",
+        process.platform === "win32" ? "NUL" : "/dev/null",
         "encrypt",
         "--age",
         keys.publicKey,
