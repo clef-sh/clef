@@ -4,6 +4,7 @@ import { SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { resolveAgeCredential, prepareSopsClientArgs } from "../age-credential";
+import { openBrowser, isHeadless } from "../browser";
 
 interface ServerHandle {
   url: string;
@@ -73,9 +74,8 @@ export function registerUiCommand(program: Command, deps: { runner: SubprocessRu
           );
         } else {
           formatter.print(`\n   Opening browser...`);
-          try {
-            await openBrowser(tokenUrl, deps.runner);
-          } catch {
+          const opened = await openBrowser(tokenUrl, deps.runner);
+          if (!opened) {
             formatter.warn(`Could not open browser automatically. Visit the URL above manually.`);
           }
         }
@@ -97,44 +97,4 @@ export function registerUiCommand(program: Command, deps: { runner: SubprocessRu
         process.once("SIGTERM", shutdown);
       });
     });
-}
-
-export function isHeadless(): boolean {
-  // CI environment — universal headless signal
-  if (process.env.CI) {
-    return true;
-  }
-
-  // SSH session — no local display
-  if (process.env.SSH_TTY) {
-    return true;
-  }
-
-  // Linux without a display server
-  if (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
-    return true;
-  }
-
-  return false;
-}
-
-async function openBrowser(url: string, runner: SubprocessRunner): Promise<void> {
-  const platform = process.platform;
-  let command: string;
-
-  switch (platform) {
-    case "darwin":
-      command = "open";
-      break;
-    case "linux":
-      command = "xdg-open";
-      break;
-    case "win32":
-      command = "start";
-      break;
-    default:
-      return;
-  }
-
-  await runner.run(command, [url]);
 }

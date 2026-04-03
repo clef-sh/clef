@@ -11,7 +11,7 @@ import {
 import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createSopsClient } from "../age-credential";
+import { createCloudAwareSopsClient } from "../cloud-sops";
 
 export function registerDiffCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -37,58 +37,70 @@ export function registerDiffCommand(program: Command, deps: { runner: Subprocess
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-          const sopsClient = await createSopsClient(repoRoot, deps.runner);
-          const diffEngine = new DiffEngine();
-
-          const result = await diffEngine.diffFiles(
-            namespace,
-            envA,
-            envB,
-            manifest,
-            sopsClient,
+          const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
             repoRoot,
+            deps.runner,
+            manifest,
           );
+          try {
+            const diffEngine = new DiffEngine();
 
-          // Warn if showing values for a protected environment
-          if (options.showValues) {
-            const matrixManager = new MatrixManager();
-            if (
-              matrixManager.isProtectedEnvironment(manifest, envA) ||
-              matrixManager.isProtectedEnvironment(manifest, envB)
-            ) {
-              formatter.warn("Warning: printing plaintext values for protected environment.");
+            const result = await diffEngine.diffFiles(
+              namespace,
+              envA,
+              envB,
+              manifest,
+              sopsClient,
+              repoRoot,
+            );
+
+            // Warn if showing values for a protected environment
+            if (options.showValues) {
+              const matrixManager = new MatrixManager();
+              if (
+                matrixManager.isProtectedEnvironment(manifest, envA) ||
+                matrixManager.isProtectedEnvironment(manifest, envB)
+              ) {
+                formatter.warn("Warning: printing plaintext values for protected environment.");
+              }
             }
-          }
 
-          if (options.json) {
-            const jsonOutput = options.showValues
-              ? result
-              : {
-                  ...result,
-                  rows: result.rows.map((r) => ({
-                    ...r,
-                    valueA:
-                      r.valueA !== null ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : null,
-                    valueB:
-                      r.valueB !== null ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : null,
-                    masked: true,
-                  })),
-                };
-            formatter.raw(JSON.stringify(jsonOutput, null, 2) + "\n");
+            if (options.json) {
+              const jsonOutput = options.showValues
+                ? result
+                : {
+                    ...result,
+                    rows: result.rows.map((r) => ({
+                      ...r,
+                      valueA:
+                        r.valueA !== null
+                          ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+                          : null,
+                      valueB:
+                        r.valueB !== null
+                          ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+                          : null,
+                      masked: true,
+                    })),
+                  };
+              formatter.raw(JSON.stringify(jsonOutput, null, 2) + "\n");
+              const hasDiffs = result.rows.some((r) => r.status !== "identical");
+              process.exit(hasDiffs ? 1 : 0);
+            }
+
+            formatDiffOutput(
+              result,
+              envA,
+              envB,
+              options.showIdentical ?? false,
+              options.showValues ?? false,
+            );
+
             const hasDiffs = result.rows.some((r) => r.status !== "identical");
             process.exit(hasDiffs ? 1 : 0);
+          } finally {
+            await cleanup();
           }
-
-          formatDiffOutput(
-            result,
-            envA,
-            envB,
-            options.showIdentical ?? false,
-            options.showValues ?? false,
-          );
-
-          const hasDiffs = result.rows.some((r) => r.status !== "identical");
-          process.exit(hasDiffs ? 1 : 0);
         } catch (err) {
           handleCommandError(err);
         }

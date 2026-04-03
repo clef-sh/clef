@@ -25,7 +25,7 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
         "  # Then upload with your CI tools:\n" +
         "  # aws s3 cp ./artifact.json s3://my-bucket/clef/api-gateway/production.json",
     )
-    .requiredOption("-o, --output <path>", "Output file path for the artifact JSON")
+    .option("-o, --output <path>", "Output file path for the artifact JSON")
     .option("--ttl <seconds>", "Artifact TTL — embeds an expiresAt timestamp in the envelope")
     .option(
       "--signing-key <key>",
@@ -35,21 +35,62 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
       "--signing-kms-key <keyId>",
       "KMS asymmetric signing key ARN/ID (ECDSA_SHA_256, or env CLEF_SIGNING_KMS_KEY)",
     )
+    .option("--remote", "Send encrypted files to Cloud for packing and serving")
+    .option("--push", "Pack locally and upload artifact to Cloud for serving")
     .action(
       async (
         identity: string,
         environment: string,
         opts: {
-          output: string;
+          output?: string;
           ttl?: string;
           signingKey?: string;
           signingKmsKey?: string;
+          remote?: boolean;
+          push?: boolean;
         },
       ) => {
         try {
+          if (opts.remote && opts.push) {
+            formatter.error("Cannot specify both --remote and --push.");
+            process.exit(1);
+            return;
+          }
+          if (!opts.remote && !opts.output) {
+            formatter.error("--output is required for local pack. Use --remote for Cloud packing.");
+            process.exit(1);
+            return;
+          }
+
           const repoRoot = (program.opts().dir as string) || process.cwd();
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
+
+          // --remote: send to Cloud for packing
+          if (opts.remote) {
+            const { readCloudCredentials, CloudPackClient } = await import("@clef-sh/core");
+            const creds = readCloudCredentials();
+            const token = process.env.CLEF_CLOUD_TOKEN ?? creds?.token;
+            if (!token) {
+              formatter.error(
+                "Cloud token required. Set CLEF_CLOUD_TOKEN or run 'clef cloud login'.",
+              );
+              process.exit(1);
+              return;
+            }
+            const ttl = opts.ttl ? parseInt(opts.ttl, 10) : undefined;
+            formatter.print(`${sym("working")}  Sending to Cloud for packing...`);
+            const packClient = new CloudPackClient(creds?.endpoint);
+            const remoteResult = await packClient.pack(token, {
+              identity,
+              environment,
+              manifest,
+              repoRoot,
+              ttl,
+            });
+            formatter.success(`Artifact packed by Cloud: revision ${remoteResult.revision}`);
+            return;
+          }
 
           const sopsClient = await createSopsClient(repoRoot, deps.runner);
           const matrixManager = new MatrixManager();
@@ -67,7 +108,7 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
 
           const packer = new ArtifactPacker(sopsClient, matrixManager, kmsProvider);
 
-          const outputPath = path.resolve(opts.output);
+          const outputPath = path.resolve(opts.output!);
           const ttl = opts.ttl ? parseInt(opts.ttl, 10) : undefined;
           if (ttl !== undefined && (isNaN(ttl) || ttl < 1)) {
             formatter.error("--ttl must be a positive integer (seconds).");
@@ -114,10 +155,32 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
             formatter.print(`  Signed:   KMS ECDSA_SHA256`);
           }
 
-          formatter.hint(
-            "\nUpload the artifact to an HTTP-accessible store (S3, GCS, etc.) or commit to\n" +
-              "  .clef/packed/ for VCS-based delivery. See: clef.sh/guide/service-identities",
-          );
+          // --push: upload artifact to Cloud after local pack
+          if (opts.push) {
+            const { readCloudCredentials, CloudArtifactClient } = await import("@clef-sh/core");
+            const creds = readCloudCredentials();
+            const token = process.env.CLEF_CLOUD_TOKEN ?? creds?.token;
+            if (!token) {
+              formatter.error(
+                "Cloud token required. Set CLEF_CLOUD_TOKEN or run 'clef cloud login'.",
+              );
+              process.exit(1);
+              return;
+            }
+            formatter.print(`${sym("working")}  Uploading artifact to Cloud...`);
+            const artifactClient = new CloudArtifactClient(creds?.endpoint);
+            await artifactClient.upload(token, {
+              identity,
+              environment,
+              artifactPath: result.outputPath,
+            });
+            formatter.success("Artifact uploaded to Cloud for serving.");
+          } else {
+            formatter.hint(
+              "\nUpload the artifact to an HTTP-accessible store (S3, GCS, etc.) or commit to\n" +
+                "  .clef/packed/ for VCS-based delivery. See: clef.sh/guide/service-identities",
+            );
+          }
         } catch (err) {
           handleCommandError(err);
         }

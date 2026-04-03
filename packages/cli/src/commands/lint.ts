@@ -12,7 +12,7 @@ import {
 import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createSopsClient } from "../age-credential";
+import { createCloudAwareSopsClient } from "../cloud-sops";
 import { lintResultToOtlp, pushOtlp, resolveTelemetryConfig } from "../output/otlp";
 import { version as cliVersion } from "../../package.json";
 
@@ -34,46 +34,54 @@ export function registerLintCommand(program: Command, deps: { runner: Subprocess
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const matrixManager = new MatrixManager();
-        const schemaValidator = new SchemaValidator();
-        const lintRunner = new LintRunner(matrixManager, schemaValidator, sopsClient);
-
-        const cellCount = manifest.namespaces.length * manifest.environments.length;
-        formatter.print(
-          `${sym("working")}  Linting ${cellCount} file(s) across ${manifest.namespaces.length} namespace(s)...`,
+        const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
         );
+        try {
+          const matrixManager = new MatrixManager();
+          const schemaValidator = new SchemaValidator();
+          const lintRunner = new LintRunner(matrixManager, schemaValidator, sopsClient);
 
-        let result: LintResult;
-        if (options.fix) {
-          result = await lintRunner.fix(manifest, repoRoot);
-        } else {
-          result = await lintRunner.run(manifest, repoRoot);
-        }
+          const cellCount = manifest.namespaces.length * manifest.environments.length;
+          formatter.print(
+            `${sym("working")}  Linting ${cellCount} file(s) across ${manifest.namespaces.length} namespace(s)...`,
+          );
 
-        if (options.push) {
-          const config = resolveTelemetryConfig();
-          if (!config) {
-            formatter.error("--push requires CLEF_TELEMETRY_URL to be set.");
-            process.exit(1);
+          let result: LintResult;
+          if (options.fix) {
+            result = await lintRunner.fix(manifest, repoRoot);
+          } else {
+            result = await lintRunner.run(manifest, repoRoot);
+          }
+
+          if (options.push) {
+            const config = resolveTelemetryConfig();
+            if (!config) {
+              formatter.error("--push requires CLEF_TELEMETRY_URL to be set.");
+              process.exit(1);
+              return;
+            }
+            const payload = lintResultToOtlp(result, cliVersion);
+            await pushOtlp(payload, config);
+            formatter.success("Lint results pushed to telemetry endpoint.");
+          }
+
+          if (options.json) {
+            formatter.raw(JSON.stringify(result, null, 2) + "\n");
+            const hasErrors = result.issues.some((i) => i.severity === "error");
+            process.exit(hasErrors ? 1 : 0);
             return;
           }
-          const payload = lintResultToOtlp(result, cliVersion);
-          await pushOtlp(payload, config);
-          formatter.success("Lint results pushed to telemetry endpoint.");
-        }
 
-        if (options.json) {
-          formatter.raw(JSON.stringify(result, null, 2) + "\n");
+          formatLintOutput(result);
+
           const hasErrors = result.issues.some((i) => i.severity === "error");
           process.exit(hasErrors ? 1 : 0);
-          return;
+        } finally {
+          await cleanup();
         }
-
-        formatLintOutput(result);
-
-        const hasErrors = result.issues.some((i) => i.severity === "error");
-        process.exit(hasErrors ? 1 : 0);
       } catch (err) {
         handleCommandError(err);
       }

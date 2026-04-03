@@ -34,6 +34,7 @@ export interface SubprocessOptions {
 /** Cloud integration configuration stored in the manifest. */
 export interface ClefCloudConfig {
   integrationId: string;
+  keyId: string;
 }
 
 /** Parsed and validated contents of a `clef.yaml` manifest file. */
@@ -48,7 +49,7 @@ export interface ClefManifest {
 }
 
 /** Supported SOPS encryption backend identifiers. */
-export type BackendType = "age" | "awskms" | "gcpkms" | "azurekv" | "pgp";
+export type BackendType = "age" | "awskms" | "gcpkms" | "azurekv" | "pgp" | "cloud";
 
 /** Per-environment SOPS backend override. */
 export interface EnvironmentSopsOverride {
@@ -141,6 +142,14 @@ export interface ClefLocalConfig {
   age_key_storage?: "keychain" | "file";
   /** Label identifying this repo's age key in the OS keychain or filesystem. */
   age_keychain_label?: string;
+}
+
+/** User-scoped Cloud credentials stored in ~/.clef/credentials.yaml. */
+export interface ClefCloudCredentials {
+  /** Bearer token for Cloud API authentication. */
+  token: string;
+  /** Cloud API endpoint override. Defaults to https://api.clef.sh. */
+  endpoint?: string;
 }
 
 // ── Matrix ──────────────────────────────────────────────────────────────────

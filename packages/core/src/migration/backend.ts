@@ -52,6 +52,7 @@ const BACKEND_KEY_FIELDS: Record<BackendType, keyof EnvironmentSopsOverride | un
   gcpkms: "gcp_kms_resource_id",
   azurekv: "azure_kv_url",
   pgp: "pgp_fingerprint",
+  cloud: undefined,
 };
 
 const ALL_KEY_FIELDS = Object.values(BACKEND_KEY_FIELDS).filter(
