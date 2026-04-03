@@ -3,7 +3,7 @@ import { Command } from "commander";
 import { ManifestParser, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
-import { createSopsClient } from "../age-credential";
+import { createCloudAwareSopsClient } from "../cloud-sops";
 import { copyToClipboard, maskedPlaceholder } from "../clipboard";
 import { parseTarget } from "../parse-target";
 
@@ -36,27 +36,35 @@ export function registerGetCommand(program: Command, deps: { runner: SubprocessR
             .replace("{environment}", environment),
         );
 
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const decrypted = await sopsClient.decrypt(filePath);
+        const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
+        try {
+          const decrypted = await sopsClient.decrypt(filePath);
 
-        if (!(key in decrypted.values)) {
-          formatter.error(
-            `Key '${key}' not found in ${namespace}/${environment}. Available keys: ${Object.keys(decrypted.values).join(", ") || "(none)"}`,
-          );
-          process.exit(1);
-          return;
-        }
-
-        const val = decrypted.values[key];
-        if (opts.raw) {
-          formatter.raw(val);
-        } else {
-          const copied = copyToClipboard(val);
-          if (copied) {
-            formatter.print(`  ${key}: ${maskedPlaceholder()} (copied to clipboard)`);
-          } else {
-            formatter.keyValue(key, val);
+          if (!(key in decrypted.values)) {
+            formatter.error(
+              `Key '${key}' not found in ${namespace}/${environment}. Available keys: ${Object.keys(decrypted.values).join(", ") || "(none)"}`,
+            );
+            process.exit(1);
+            return;
           }
+
+          const val = decrypted.values[key];
+          if (opts.raw) {
+            formatter.raw(val);
+          } else {
+            const copied = copyToClipboard(val);
+            if (copied) {
+              formatter.print(`  ${key}: ${maskedPlaceholder()} (copied to clipboard)`);
+            } else {
+              formatter.keyValue(key, val);
+            }
+          }
+        } finally {
+          await cleanup();
         }
       } catch (err) {
         handleCommandError(err);

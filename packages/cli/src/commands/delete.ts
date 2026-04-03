@@ -9,7 +9,7 @@ import {
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
-import { createSopsClient } from "../age-credential";
+import { createCloudAwareSopsClient } from "../cloud-sops";
 import { parseTarget } from "../parse-target";
 
 export function registerDeleteCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -32,83 +32,92 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
+        const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
+        try {
+          const matrixManager = new MatrixManager();
 
-        const matrixManager = new MatrixManager();
+          if (options.allEnvs) {
+            // target is just the namespace
+            const namespace = target.includes("/") ? target.split("/")[0] : target;
 
-        if (options.allEnvs) {
-          // target is just the namespace
-          const namespace = target.includes("/") ? target.split("/")[0] : target;
-
-          const protectedEnvs = manifest.environments.filter((e) => e.protected).map((e) => e.name);
-          const envNames = manifest.environments.map((e) => e.name).join(", ");
-          const protectedNote =
-            protectedEnvs.length > 0
-              ? ` including protected environments: ${protectedEnvs.join(", ")}`
-              : "";
-          const confirmed = await formatter.confirm(
-            `This will delete '${key}' from ${manifest.environments.length} environments (${envNames})${protectedNote}.\nType the key name to confirm:`,
-          );
-          if (!confirmed) {
-            formatter.info("Aborted.");
-            return;
-          }
-
-          const bulkOps = new BulkOps();
-          await bulkOps.deleteAcrossEnvironments(namespace, key, manifest, sopsClient, repoRoot);
-          formatter.success(`Deleted '${key}' from ${namespace} in all environments`);
-        } else {
-          const [namespace, environment] = parseTarget(target);
-
-          // Check for protected environment
-          if (matrixManager.isProtectedEnvironment(manifest, environment)) {
-            const protConfirmed = await formatter.confirm(
-              `This is a protected environment (${environment}). Are you sure you want to delete '${key}'?`,
+            const protectedEnvs = manifest.environments
+              .filter((e) => e.protected)
+              .map((e) => e.name);
+            const envNames = manifest.environments.map((e) => e.name).join(", ");
+            const protectedNote =
+              protectedEnvs.length > 0
+                ? ` including protected environments: ${protectedEnvs.join(", ")}`
+                : "";
+            const confirmed = await formatter.confirm(
+              `This will delete '${key}' from ${manifest.environments.length} environments (${envNames})${protectedNote}.\nType the key name to confirm:`,
             );
-            if (!protConfirmed) {
+            if (!confirmed) {
               formatter.info("Aborted.");
               return;
             }
-          }
 
-          const confirmed = await formatter.confirm(
-            `Delete '${key}' from ${namespace}/${environment}?`,
-          );
-          if (!confirmed) {
-            formatter.info("Aborted.");
-            return;
-          }
+            const bulkOps = new BulkOps();
+            await bulkOps.deleteAcrossEnvironments(namespace, key, manifest, sopsClient, repoRoot);
+            formatter.success(`Deleted '${key}' from ${namespace} in all environments`);
+          } else {
+            const [namespace, environment] = parseTarget(target);
 
-          const filePath = path.join(
-            repoRoot,
-            manifest.file_pattern
-              .replace("{namespace}", namespace)
-              .replace("{environment}", environment),
-          );
+            // Check for protected environment
+            if (matrixManager.isProtectedEnvironment(manifest, environment)) {
+              const protConfirmed = await formatter.confirm(
+                `This is a protected environment (${environment}). Are you sure you want to delete '${key}'?`,
+              );
+              if (!protConfirmed) {
+                formatter.info("Aborted.");
+                return;
+              }
+            }
 
-          const decrypted = await sopsClient.decrypt(filePath);
-          if (!(key in decrypted.values)) {
-            formatter.error(`Key '${key}' not found in ${namespace}/${environment}.`);
-            process.exit(1);
-            return;
-          }
+            const confirmed = await formatter.confirm(
+              `Delete '${key}' from ${namespace}/${environment}?`,
+            );
+            if (!confirmed) {
+              formatter.info("Aborted.");
+              return;
+            }
 
-          delete decrypted.values[key];
-          await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
+            const filePath = path.join(
+              repoRoot,
+              manifest.file_pattern
+                .replace("{namespace}", namespace)
+                .replace("{environment}", environment),
+            );
 
-          // Clean up pending metadata if it exists
-          try {
-            await markResolved(filePath, [key]);
-          } catch {
-            formatter.warn(
-              `Key deleted but pending metadata could not be cleaned up. Run clef lint to verify.`,
+            const decrypted = await sopsClient.decrypt(filePath);
+            if (!(key in decrypted.values)) {
+              formatter.error(`Key '${key}' not found in ${namespace}/${environment}.`);
+              process.exit(1);
+              return;
+            }
+
+            delete decrypted.values[key];
+            await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
+
+            // Clean up pending metadata if it exists
+            try {
+              await markResolved(filePath, [key]);
+            } catch {
+              formatter.warn(
+                `Key deleted but pending metadata could not be cleaned up. Run clef lint to verify.`,
+              );
+            }
+
+            formatter.success(`Deleted '${key}' from ${namespace}/${environment}`);
+            formatter.hint(
+              `Commit: git add ${manifest.file_pattern.replace("{namespace}", namespace).replace("{environment}", environment)}`,
             );
           }
-
-          formatter.success(`Deleted '${key}' from ${namespace}/${environment}`);
-          formatter.hint(
-            `Commit: git add ${manifest.file_pattern.replace("{namespace}", namespace).replace("{environment}", environment)}`,
-          );
+        } finally {
+          await cleanup();
         }
       } catch (err) {
         handleCommandError(err);

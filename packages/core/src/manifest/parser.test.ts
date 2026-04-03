@@ -708,10 +708,13 @@ describe("ManifestParser", () => {
       it("should accept a valid cloud section", () => {
         const manifest = {
           ...validManifest(),
-          cloud: { integrationId: "int_abc123" },
+          cloud: { integrationId: "int_abc123", keyId: "clef:int_abc123/production" },
         };
         const result = parser.validate(manifest);
-        expect(result.cloud).toEqual({ integrationId: "int_abc123" });
+        expect(result.cloud).toEqual({
+          integrationId: "int_abc123",
+          keyId: "clef:int_abc123/production",
+        });
       });
 
       it("should accept manifest without cloud section", () => {
@@ -720,21 +723,50 @@ describe("ManifestParser", () => {
       });
 
       it("should reject cloud with missing integrationId", () => {
-        const manifest = { ...validManifest(), cloud: {} };
+        const manifest = {
+          ...validManifest(),
+          cloud: { keyId: "clef:int_abc123/production" },
+        };
         expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
         expect(() => parser.validate(manifest)).toThrow(/integrationId/);
       });
 
       it("should reject cloud with non-string integrationId", () => {
-        const manifest = { ...validManifest(), cloud: { integrationId: 123 } };
+        const manifest = {
+          ...validManifest(),
+          cloud: { integrationId: 123, keyId: "clef:int_abc123/production" },
+        };
         expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
         expect(() => parser.validate(manifest)).toThrow(/integrationId/);
+      });
+
+      it("should reject cloud with missing keyId", () => {
+        const manifest = { ...validManifest(), cloud: { integrationId: "int_abc123" } };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/keyId/);
+      });
+
+      it("should reject cloud with invalid keyId format", () => {
+        const manifest = {
+          ...validManifest(),
+          cloud: { integrationId: "int_abc123", keyId: "arn:aws:kms:us-east-1:123:key/abc" },
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/invalid format/);
       });
 
       it("should reject non-object cloud field", () => {
         const manifest = { ...validManifest(), cloud: "not-an-object" };
         expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
         expect(() => parser.validate(manifest)).toThrow(/must be an object/);
+      });
+
+      it("should reject cloud backend without cloud block", () => {
+        const manifest = validManifest() as Record<string, unknown>;
+        const envs = manifest.environments as Array<Record<string, unknown>>;
+        envs[0].sops = { backend: "cloud" };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/missing.*cloud.*block/i);
       });
     });
 

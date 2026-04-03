@@ -93,3 +93,23 @@ export type {
   MigrationResult,
   MigrationProgressEvent,
 } from "./migration/backend";
+export {
+  spawnKeyservice,
+  resolveKeyservicePath,
+  resetKeyserviceResolution,
+  readCloudCredentials,
+  writeCloudCredentials,
+  initiateDeviceFlow,
+  pollDeviceFlow,
+  CloudPackClient,
+  CloudArtifactClient,
+} from "./cloud";
+export type {
+  KeyserviceHandle,
+  KeyserviceResolution,
+  KeyserviceSource,
+  DeviceSession,
+  DevicePollResult,
+  RemotePackConfig,
+  RemotePackResult,
+} from "./cloud";

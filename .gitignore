@@ -64,3 +64,4 @@ docs/.vitepress/cache
 
 test-results/
 playwright-report/
+docs/plans
