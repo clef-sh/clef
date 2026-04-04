@@ -36,7 +36,7 @@ export async function spawnKeyservice(options: {
     args.push("--endpoint", options.endpoint);
   }
 
-  // Token passed via env var, not CLI arg — CLI args are visible in /proc/<pid>/cmdline
+  // Token passed via env var — CLI args are visible in /proc/<pid>/cmdline
   const child = spawn(options.binaryPath, args, {
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, CLEF_CLOUD_TOKEN: options.token },

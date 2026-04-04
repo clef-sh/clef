@@ -53,7 +53,16 @@ export async function initiateDeviceFlow(
     throw new Error(`Device flow init failed (${res.status}): ${body}`);
   }
 
-  return (await res.json()) as DeviceSession;
+  const json = await res.json();
+  // Support both { data: { ... } } (saas API) and flat { ... } formats
+  const session = (json.data ?? json) as DeviceSession;
+
+  // The API may return a relative pollUrl — resolve it against the base
+  if (session.pollUrl && !session.pollUrl.startsWith("http")) {
+    session.pollUrl = `${base}${session.pollUrl}`;
+  }
+
+  return session;
 }
 
 /**
@@ -70,5 +79,6 @@ export async function pollDeviceFlow(pollUrl: string): Promise<DevicePollResult>
     throw new Error(`Device flow poll failed (${res.status}): ${body}`);
   }
 
-  return (await res.json()) as DevicePollResult;
+  const json = await res.json();
+  return (json.data ?? json) as DevicePollResult;
 }

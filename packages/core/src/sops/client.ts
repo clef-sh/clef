@@ -68,6 +68,21 @@ function openWindowsInputPipe(content: string): Promise<{ inputArg: string; clea
 }
 
 /**
+ * Convert a Clef Cloud key ID (e.g. "clef:intId/env") to a synthetic ARN that
+ * passes SOPS's ARN regex: `^arn:aws[\w-]*:kms:(.+):[0-9]+:(key|alias)/.+$`.
+ * SOPS validates --kms values even when --keyservice is set, so we must use a
+ * valid-looking AWS ARN. The keyservice proxy forwards it to the Cloud API
+ * which recognizes the `alias/clef/` prefix and maps back to the real KMS key.
+ */
+export function cloudKeyToArn(keyId: string): string {
+  const body = keyId.replace(/^clef:/, "");
+  const sep = body.indexOf("/");
+  const integration = sep >= 0 ? body.slice(0, sep) : body;
+  const env = sep >= 0 ? body.slice(sep + 1) : "default";
+  return `arn:aws:kms:us-east-1:000000000000:alias/clef/${integration}/${env}`;
+}
+
+/**
  * Wraps the `sops` binary for encryption, decryption, re-encryption, and metadata extraction.
  * All decrypt/encrypt operations are piped via stdin/stdout — plaintext never touches disk.
  *
@@ -130,7 +145,7 @@ export class SopsClient implements EncryptionBackend {
     const env = this.buildSopsEnv();
     const result = await this.runner.run(
       this.sopsCommand,
-      [...this.keyserviceArgs, "decrypt", "--output-type", fmt, filePath],
+      ["decrypt", ...this.keyserviceArgs, "--output-type", fmt, filePath],
       {
         ...(env ? { env } : {}),
       },
@@ -215,8 +230,8 @@ export class SopsClient implements EncryptionBackend {
         [
           "--config",
           configPath,
-          ...this.keyserviceArgs,
           "encrypt",
+          ...this.keyserviceArgs,
           ...args,
           "--input-type",
           fmt,
@@ -275,7 +290,7 @@ export class SopsClient implements EncryptionBackend {
     const env = this.buildSopsEnv();
     const result = await this.runner.run(
       this.sopsCommand,
-      [...this.keyserviceArgs, "rotate", "-i", "--add-age", key, filePath],
+      ["rotate", ...this.keyserviceArgs, "-i", "--add-age", key, filePath],
       {
         ...(env ? { env } : {}),
       },
@@ -301,7 +316,7 @@ export class SopsClient implements EncryptionBackend {
     const env = this.buildSopsEnv();
     const result = await this.runner.run(
       this.sopsCommand,
-      [...this.keyserviceArgs, "rotate", "-i", "--rm-age", key, filePath],
+      ["rotate", ...this.keyserviceArgs, "-i", "--rm-age", key, filePath],
       {
         ...(env ? { env } : {}),
       },
@@ -441,7 +456,7 @@ export class SopsClient implements EncryptionBackend {
     if (sops.age && Array.isArray(sops.age) && (sops.age as unknown[]).length > 0) return "age";
     if (sops.kms && Array.isArray(sops.kms) && (sops.kms as unknown[]).length > 0) {
       const firstArn = (sops.kms as Array<Record<string, unknown>>)[0]?.arn;
-      if (typeof firstArn === "string" && firstArn.startsWith("clef:")) {
+      if (typeof firstArn === "string" && (firstArn.startsWith("clef:") || firstArn.includes("alias/clef/"))) {
         return "cloud";
       }
       return "awskms";
@@ -539,7 +554,7 @@ export class SopsClient implements EncryptionBackend {
       case "cloud": {
         const cloudKeyId = manifest.cloud?.keyId;
         if (cloudKeyId) {
-          args.push("--kms", cloudKeyId);
+          args.push("--kms", cloudKeyToArn(cloudKeyId));
         }
         break;
       }

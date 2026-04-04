@@ -12,6 +12,7 @@ import { RecipientsScreen } from "./screens/RecipientsScreen";
 import { ServiceIdentitiesScreen } from "./screens/ServiceIdentitiesScreen";
 import { BackendScreen } from "./screens/BackendScreen";
 import { GitLogView } from "./screens/GitLogView";
+import { CloudScreen } from "./screens/CloudScreen";
 import type { ClefManifest, MatrixStatus, GitStatus, LintResult } from "@clef-sh/core";
 
 export default function App() {
@@ -197,6 +198,7 @@ export default function App() {
         {view === "backend" && (
           <BackendScreen manifest={manifest} setView={setView} reloadManifest={loadManifest} />
         )}
+        {view === "cloud" && <CloudScreen manifest={manifest} />}
         {view === "history" && <GitLogView manifest={manifest} />}
       </div>
     </div>

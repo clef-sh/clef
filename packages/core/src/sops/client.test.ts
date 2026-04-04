@@ -1015,7 +1015,7 @@ sops:
         (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(sopsCall![1]).toContain("--kms");
-      expect(sopsCall![1]).toContain("clef:int_abc/production");
+      expect(sopsCall![1]).toContain("arn:aws:kms:us-east-1:000000000000:alias/clef/int_abc/production");
     });
 
     it("should include keyservice args when keyserviceAddr is set", async () => {

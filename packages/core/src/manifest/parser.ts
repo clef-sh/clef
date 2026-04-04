@@ -475,6 +475,20 @@ export class ManifestParser {
         }
         const siName = siObj.name;
 
+        // Identity names appear as DNS subdomains in Cloud serve URLs
+        // (e.g. api-gateway.serve.clef.sh) and as URL path segments, so
+        // they must be valid DNS labels: lowercase alphanumeric + hyphens,
+        // no leading/trailing hyphen, max 63 chars.
+        if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(siName)) {
+          throw new ManifestValidationError(
+            `Service identity '${siName}' has an invalid name. ` +
+              "Names must be lowercase alphanumeric with hyphens, " +
+              "must not start or end with a hyphen, and max 63 characters " +
+              "(e.g. 'api-gateway', 'auth-service').",
+            "service_identities",
+          );
+        }
+
         if (siObj.description != null && typeof siObj.description !== "string") {
           throw new ManifestValidationError(
             `Service identity '${siName}' has a non-string 'description'.`,
@@ -644,7 +658,7 @@ export class ManifestParser {
           "cloud",
         );
       }
-      if (!/^clef:[a-z0-9_]+\/[a-z0-9_-]+$/.test(cloudObj.keyId)) {
+      if (!/^clef:[a-zA-Z0-9_]+\/[a-zA-Z0-9_-]+$/.test(cloudObj.keyId)) {
         throw new ManifestValidationError(
           `Field 'cloud.keyId' has invalid format '${cloudObj.keyId}'. ` +
             "Must match: clef:<integrationId>/<keyAlias>",

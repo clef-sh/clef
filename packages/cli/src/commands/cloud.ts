@@ -18,6 +18,8 @@ import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { openBrowser } from "../browser";
 import { createSopsClient } from "../age-credential";
+
+const CLOUD_DEFAULT_ENDPOINT = "https://api.clef.sh";
 import pkg from "../../package.json";
 
 const POLL_INTERVAL_MS = 2000;
@@ -137,11 +139,15 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
 
         // Device flow — auth + payment
         const existingCreds = readCloudCredentials();
+        const cloudEndpoint = existingCreds?.endpoint ?? CLOUD_DEFAULT_ENDPOINT;
+        formatter.print(`   Endpoint:  ${cloudEndpoint}`);
+        formatter.print(`   Creds:     ${existingCreds ? `token=${existingCreds.token ? "yes" : "no"}, endpoint=${existingCreds.endpoint}` : "none"}`);
+
         let token: string;
         let integrationId: string;
         let keyId: string;
 
-        if (existingCreds && manifest.cloud) {
+        if (existingCreds && existingCreds.token && manifest.cloud) {
           // Already authenticated and cloud config exists — skip device flow
           token = existingCreds.token;
           integrationId = manifest.cloud.integrationId;
@@ -150,7 +156,7 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
         } else {
           formatter.print(`   Opening browser to set up Cloud for ${opts.env}...`);
 
-          const session = await initiateDeviceFlow(existingCreds?.endpoint, {
+          const session = await initiateDeviceFlow(cloudEndpoint, {
             repoName: path.basename(repoRoot),
             environment: opts.env,
             clientVersion: CLI_VERSION,
@@ -187,23 +193,22 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
         }
 
         formatter.print(`\n   Provisioning Cloud backend for ${opts.env}...`);
-
-        const rawManifest = readManifestYaml(repoRoot);
-        rawManifest.cloud = { integrationId, keyId };
-        const envs = rawManifest.environments as Array<Record<string, unknown>>;
-        const targetRawEnv = envs.find((e) => e.name === opts.env);
-        if (targetRawEnv) {
-          targetRawEnv.sops = { backend: "cloud" };
-        }
-        writeManifestYaml(repoRoot, rawManifest);
         formatter.print(`   ${sym("success")}  KMS key provisioned: ${keyId}`);
 
         formatter.print(`\n   Migrating ${opts.env} secrets to Cloud backend...`);
 
-        const updatedManifest = parser.parse(path.join(repoRoot, "clef.yaml"));
+        // Build the cloud-enabled manifest in memory — don't write to disk yet
+        // so a failed migration can be retried with `clef cloud init` again.
+        const cloudManifest = structuredClone(manifest);
+        cloudManifest.cloud = { integrationId, keyId };
+        const cloudEnv = cloudManifest.environments.find((e) => e.name === opts.env);
+        if (cloudEnv) {
+          cloudEnv.sops = { backend: "cloud" };
+        }
+
         const matrixManager = new MatrixManager();
         const cells = matrixManager
-          .resolveMatrix(updatedManifest, repoRoot)
+          .resolveMatrix(manifest, repoRoot)
           .filter((c) => c.environment === opts.env && c.exists);
 
         if (cells.length === 0) {
@@ -224,7 +229,7 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
               await cloudSopsClient.encrypt(
                 cell.filePath,
                 decrypted.values,
-                updatedManifest,
+                cloudManifest,
                 cell.environment,
               );
               const relPath = path.relative(repoRoot, cell.filePath);
@@ -234,6 +239,16 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
             await ksHandle.kill();
           }
         }
+
+        // Migration succeeded — now persist the manifest changes
+        const rawManifest = readManifestYaml(repoRoot);
+        rawManifest.cloud = { integrationId, keyId };
+        const envs = rawManifest.environments as Array<Record<string, unknown>>;
+        const targetRawEnv = envs.find((e) => e.name === opts.env);
+        if (targetRawEnv) {
+          targetRawEnv.sops = { backend: "cloud" };
+        }
+        writeManifestYaml(repoRoot, rawManifest);
 
         formatter.print(`\n   ${sym("success")}  Cloud setup complete.\n`);
         formatter.print(`   Your ${opts.env} environment now uses Clef Cloud for encryption.`);

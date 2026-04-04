@@ -23,12 +23,15 @@ export function readCloudCredentials(): ClefCloudCredentials | null {
 
   if (!raw || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
-  if (typeof obj.token !== "string" || obj.token.length === 0) return null;
 
-  return {
-    token: obj.token,
-    endpoint: typeof obj.endpoint === "string" ? obj.endpoint : CLOUD_DEFAULT_ENDPOINT,
-  };
+  // Token may be absent before first login — endpoint should still be readable
+  const token = typeof obj.token === "string" && obj.token.length > 0 ? obj.token : "";
+  const endpoint = typeof obj.endpoint === "string" ? obj.endpoint : CLOUD_DEFAULT_ENDPOINT;
+
+  // Return null only if neither token nor custom endpoint is present
+  if (!token && endpoint === CLOUD_DEFAULT_ENDPOINT) return null;
+
+  return { token, endpoint };
 }
 
 /**

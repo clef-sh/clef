@@ -813,6 +813,120 @@ describe("ManifestParser", () => {
         expect(() => parser.validate(manifest)).toThrow(/name/);
       });
 
+      it("should reject service identity with uppercase name", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "ApiGateway",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/invalid name/);
+      });
+
+      it("should reject service identity name with underscores", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api_gateway",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/invalid name/);
+      });
+
+      it("should reject service identity name starting with hyphen", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "-api",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/invalid name/);
+      });
+
+      it("should reject service identity name with spaces", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api gateway",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/invalid name/);
+      });
+
+      it("should accept valid DNS-safe service identity names", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gateway",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        const result = parser.validate(manifest);
+        expect(result.service_identities![0].name).toBe("api-gateway");
+      });
+
+      it("should accept single-char service identity name", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "a",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        const result = parser.validate(manifest);
+        expect(result.service_identities![0].name).toBe("a");
+      });
+
       it("should accept service identity with missing description", () => {
         const manifest = {
           ...validManifest(),

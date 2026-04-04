@@ -1,7 +1,12 @@
 import express from "express";
 import request from "supertest";
 import { createApiRouter } from "./api";
-import { SubprocessRunner, SubprocessResult, markPendingWithRetry } from "@clef-sh/core";
+import {
+  SubprocessRunner,
+  SubprocessResult,
+  markPendingWithRetry,
+  readCloudCredentials,
+} from "@clef-sh/core";
 import * as fs from "fs";
 import * as YAML from "yaml";
 
@@ -44,6 +49,7 @@ jest.mock("@clef-sh/core", () => {
     markResolved: jest.fn().mockResolvedValue(undefined),
     markPendingWithRetry: jest.fn().mockResolvedValue(undefined),
     generateRandomValue: jest.fn().mockReturnValue("a".repeat(64)),
+    readCloudCredentials: jest.fn().mockReturnValue(null),
   };
 });
 
@@ -1753,6 +1759,167 @@ describe("API routes", () => {
       expect(res.status).toBe(500);
       expect(res.body.code).toBe("MIGRATION_ERROR");
       expect(res.body.error).toContain("KMS connection timeout");
+    });
+  });
+
+  // ── Cloud endpoints ──────────────────────────────────────────────────────
+
+  describe("GET /api/cloud/status", () => {
+    it("should return not connected for non-cloud manifest", async () => {
+      const app = createApp();
+      const res = await request(app).get("/api/cloud/status");
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(false);
+      expect(res.body.environments).toEqual([]);
+      expect(res.body.authenticated).toBe(false);
+    });
+
+    it("should return connected with cloud details for cloud manifest", async () => {
+      const cloudManifest = {
+        ...validManifest,
+        cloud: { integrationId: "int_abc", keyId: "clef:int_abc/production" },
+        environments: [
+          { name: "dev", description: "Dev" },
+          {
+            name: "production",
+            description: "Prod",
+            protected: true,
+            sops: { backend: "cloud" },
+          },
+        ],
+      };
+
+      const mockReadCreds = readCloudCredentials as jest.Mock;
+      mockReadCreds.mockReturnValue({ token: "test-token", endpoint: "https://api.clef.sh" });
+
+      const app = createApp();
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(cloudManifest));
+      const res = await request(app).get("/api/cloud/status");
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(true);
+      expect(res.body.integrationId).toBe("int_abc");
+      expect(res.body.keyId).toBe("clef:int_abc/production");
+      expect(res.body.environments).toContain("production");
+      expect(res.body.authenticated).toBe(true);
+    });
+
+    it("should return authenticated false when no credentials", async () => {
+      const cloudManifest = {
+        ...validManifest,
+        cloud: { integrationId: "int_abc", keyId: "clef:int_abc/production" },
+      };
+
+      const mockReadCreds = readCloudCredentials as jest.Mock;
+      mockReadCreds.mockReturnValue(null);
+
+      const app = createApp();
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(cloudManifest));
+      const res = await request(app).get("/api/cloud/status");
+      expect(res.status).toBe(200);
+      expect(res.body.connected).toBe(true);
+      expect(res.body.authenticated).toBe(false);
+    });
+  });
+
+  describe("POST /api/cloud/token/rotate", () => {
+    const originalFetch = global.fetch;
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    it("should return 400 when cloud is not configured", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/cloud/token/rotate");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("not configured");
+    });
+
+    it("should return 401 when not authenticated", async () => {
+      const cloudManifest = {
+        ...validManifest,
+        cloud: { integrationId: "int_abc", keyId: "clef:int_abc/production" },
+      };
+
+      const mockReadCreds = readCloudCredentials as jest.Mock;
+      mockReadCreds.mockReturnValue(null);
+
+      const app = createApp();
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(cloudManifest));
+      const res = await request(app).post("/api/cloud/token/rotate");
+      expect(res.status).toBe(401);
+      expect(res.body.error).toContain("Not authenticated");
+    });
+
+    it("should return new token on successful rotate", async () => {
+      const cloudManifest = {
+        ...validManifest,
+        cloud: { integrationId: "int_abc", keyId: "clef:int_abc/production" },
+      };
+
+      const mockReadCreds = readCloudCredentials as jest.Mock;
+      mockReadCreds.mockReturnValue({ token: "cognito-jwt", endpoint: "https://api.clef.sh" });
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ token: "clef_serve_sk_new_token" }),
+      });
+
+      const app = createApp();
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(cloudManifest));
+      const res = await request(app).post("/api/cloud/token/rotate");
+      expect(res.status).toBe(200);
+      expect(res.body.token).toBe("clef_serve_sk_new_token");
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "https://api.clef.sh/api/v1/cloud/token/rotate",
+        expect.objectContaining({
+          method: "POST",
+          headers: expect.objectContaining({
+            Authorization: "Bearer cognito-jwt",
+          }),
+        }),
+      );
+    });
+
+    it("should forward error from cloud API", async () => {
+      const cloudManifest = {
+        ...validManifest,
+        cloud: { integrationId: "int_abc", keyId: "clef:int_abc/production" },
+      };
+
+      const mockReadCreds = readCloudCredentials as jest.Mock;
+      mockReadCreds.mockReturnValue({ token: "cognito-jwt", endpoint: "https://api.clef.sh" });
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        json: () => Promise.resolve({ error: "Token expired" }),
+      });
+
+      const app = createApp();
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(cloudManifest));
+      const res = await request(app).post("/api/cloud/token/rotate");
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe("Token expired");
+    });
+
+    it("should return 500 on network failure", async () => {
+      const cloudManifest = {
+        ...validManifest,
+        cloud: { integrationId: "int_abc", keyId: "clef:int_abc/production" },
+      };
+
+      const mockReadCreds = readCloudCredentials as jest.Mock;
+      mockReadCreds.mockReturnValue({ token: "cognito-jwt", endpoint: "https://api.clef.sh" });
+
+      global.fetch = jest.fn().mockRejectedValue(new Error("ECONNREFUSED"));
+
+      const app = createApp();
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(cloudManifest));
+      const res = await request(app).post("/api/cloud/token/rotate");
+      expect(res.status).toBe(500);
+      expect(res.body.error).toContain("ECONNREFUSED");
     });
   });
 });

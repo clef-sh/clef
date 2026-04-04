@@ -85,10 +85,8 @@ export class CloudArtifactClient {
 
   async upload(
     token: string,
-    config: { identity: string; environment: string; artifactPath: string },
+    config: { identity: string; environment: string; artifactJson: string },
   ): Promise<void> {
-    const content = fs.readFileSync(config.artifactPath, "utf-8");
-
     const res = await fetch(
       `${this.endpoint}/api/v1/cloud/artifacts/${config.identity}/${config.environment}`,
       {
@@ -97,7 +95,7 @@ export class CloudArtifactClient {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: content,
+        body: config.artifactJson,
       },
     );
 
