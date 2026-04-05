@@ -30,6 +30,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
+    "@clef-sh/cloud": ">=0.1.0",
     "@clef-sh/ui": ">=0.1.0"
   },
   "optionalDependencies": {
