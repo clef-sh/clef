@@ -6,11 +6,11 @@
   "workspaces": [
     "packages/core",
     "packages/cloud",
-    "packages/cli",
     "packages/ui",
     "packages/runtime",
+    "packages/broker",
     "packages/agent",
-    "packages/broker"
+    "packages/cli"
   ],
   "scripts": {
     "test": "npm test --workspaces --if-present",
