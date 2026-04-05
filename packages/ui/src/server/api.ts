@@ -33,11 +33,8 @@ import {
   VALID_KMS_PROVIDERS,
   BackendMigrator,
   resolveBackendConfig,
-  readCloudCredentials,
 } from "@clef-sh/core";
 import type { ImportFormat, MigrationProgressEvent } from "@clef-sh/core";
-
-const CLOUD_DEFAULT_ENDPOINT = "https://api.clef.sh";
 
 export interface ApiDeps {
   runner: SubprocessRunner;
@@ -1159,72 +1156,6 @@ export function createApiRouter(deps: ApiDeps): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Migration failed";
       res.status(500).json({ error: message, code: "MIGRATION_ERROR" });
-    }
-  });
-
-  // ── Cloud endpoints ──────────────────────────────────────────────────────
-
-  router.get("/cloud/status", (_req: Request, res: Response) => {
-    try {
-      const manifest = loadManifest();
-      const cloudConfig = manifest.cloud;
-      const credentials = readCloudCredentials();
-      const cloudEnvs = manifest.environments
-        .filter((e) => e.sops?.backend === "cloud" || manifest.sops.default_backend === "cloud")
-        .map((e) => e.name);
-
-      res.json({
-        connected: !!cloudConfig?.integrationId,
-        integrationId: cloudConfig?.integrationId,
-        keyId: cloudConfig?.keyId,
-        environments: cloudEnvs,
-        authenticated: !!credentials?.token,
-      });
-    } catch {
-      res.json({
-        connected: false,
-        environments: [],
-        authenticated: false,
-      });
-    }
-  });
-
-  router.post("/cloud/token/rotate", async (_req: Request, res: Response) => {
-    try {
-      const manifest = loadManifest();
-      const cloudConfig = manifest.cloud;
-      if (!cloudConfig?.integrationId) {
-        res.status(400).json({ error: "Cloud is not configured for this project" });
-        return;
-      }
-
-      const credentials = readCloudCredentials();
-      if (!credentials?.token) {
-        res.status(401).json({ error: "Not authenticated. Run: clef cloud login" });
-        return;
-      }
-
-      const endpoint = credentials.endpoint || CLOUD_DEFAULT_ENDPOINT;
-      const response = await fetch(`${endpoint}/api/v1/cloud/token/rotate`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${credentials.token}`,
-        },
-        body: JSON.stringify({ integrationId: cloudConfig.integrationId }),
-      });
-
-      if (!response.ok) {
-        const data = (await response.json()) as { error?: string };
-        res.status(response.status).json({ error: data.error ?? "Token rotation failed" });
-        return;
-      }
-
-      const data = (await response.json()) as { token: string };
-      res.json({ token: data.token });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Token rotation failed";
-      res.status(500).json({ error: message });
     }
   });
 

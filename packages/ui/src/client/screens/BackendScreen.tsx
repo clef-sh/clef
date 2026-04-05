@@ -45,7 +45,7 @@ const BACKEND_LABELS: Record<BackendType, string> = {
   gcpkms: "GCP KMS",
   azurekv: "Azure Key Vault",
   pgp: "PGP",
-  cloud: "Clef Cloud",
+  cloud: "Cloud KMS",
 };
 
 const KEY_PLACEHOLDERS: Record<string, string> = {
@@ -56,8 +56,6 @@ const KEY_PLACEHOLDERS: Record<string, string> = {
 };
 
 const ALL_BACKENDS: BackendType[] = ["age", "awskms", "gcpkms", "azurekv", "pgp"];
-const CLOUD_DASHBOARD_URL = "https://cloud.clef.sh";
-
 export function BackendScreen({ manifest, setView, reloadManifest }: BackendScreenProps) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [config, setConfig] = useState<BackendConfigResponse | null>(null);
@@ -258,70 +256,6 @@ export function BackendScreen({ manifest, setView, reloadManifest }: BackendScre
               </React.Fragment>
             ))}
           </div>
-
-          {step === 1 && !manifest?.cloud?.integrationId && (
-            <a
-              href={CLOUD_DASHBOARD_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: "block",
-                background: theme.accentDim,
-                border: `1px solid ${theme.accent}33`,
-                borderRadius: 8,
-                padding: "14px 16px",
-                marginBottom: 24,
-                textDecoration: "none",
-                transition: "border-color 0.12s",
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.borderColor = `${theme.accent}66`;
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.borderColor = `${theme.accent}33`;
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <div>
-                  <div
-                    style={{
-                      fontFamily: theme.sans,
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: theme.accent,
-                      marginBottom: 3,
-                    }}
-                  >
-                    Try Clef Cloud
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: theme.sans,
-                      fontSize: 12,
-                      color: theme.textMuted,
-                    }}
-                  >
-                    Managed KMS for production. One command, no AWS setup required.
-                  </div>
-                </div>
-                <span
-                  style={{
-                    fontFamily: theme.mono,
-                    fontSize: 14,
-                    color: theme.accent,
-                  }}
-                >
-                  {"\u2197"}
-                </span>
-              </div>
-            </a>
-          )}
 
           {error && (
             <div

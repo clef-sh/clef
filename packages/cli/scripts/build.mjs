@@ -52,6 +52,7 @@ const BASE_CONFIG = {
     "@clef-sh/core": resolve(repoRoot, "packages/core/src/index.ts"),
     "@clef-sh/cloud": resolve(repoRoot, "packages/cloud/src/index.ts"),
     "@clef-sh/cloud/cli": resolve(repoRoot, "packages/cloud/src/cli.ts"),
+    "@clef-sh/ui": resolve(repoRoot, "packages/ui/src/server/index.ts"),
   },
 };
 
@@ -135,17 +136,8 @@ await build({
   plugins: [ageEncryptionPlugin],
 });
 
-// Copy UI client static files alongside the bundle so Express can serve them.
-// In the bundle __dirname resolves to dist/, so assets land in dist/client/.
-const uiClientSrc = resolve(repoRoot, "packages/ui/dist/client");
-const uiClientDest = resolve(packageRoot, "dist/client");
-if (existsSync(uiClientSrc)) {
-  mkdirSync(uiClientDest, { recursive: true });
-  cpSync(uiClientSrc, uiClientDest, { recursive: true });
-  console.log("Copied UI client files.");
-} else {
-  console.warn("Warning: packages/ui/dist/client not found — UI command will not serve assets.");
-}
+// UI client files are served by @clef-sh/ui from its own package directory.
+// They are only copied here for SEA builds (handled in buildSea below).
 
 console.log("Build complete.");
 
@@ -179,7 +171,12 @@ async function buildSea() {
     }
   }
 
-  if (existsSync(uiClientDest)) {
+  // Copy UI client files for SEA binary asset embedding.
+  const uiClientSrc = resolve(repoRoot, "packages/ui/dist/client");
+  const uiClientDest = resolve(packageRoot, "dist/client");
+  if (existsSync(uiClientSrc)) {
+    mkdirSync(uiClientDest, { recursive: true });
+    cpSync(uiClientSrc, uiClientDest, { recursive: true });
     collectAssets(uiClientDest, "client");
   }
 

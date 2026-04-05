@@ -12,7 +12,6 @@ export type ViewName =
   | "recipients"
   | "identities"
   | "backend"
-  | "cloud"
   | "history";
 
 interface SidebarProps {
@@ -26,8 +25,6 @@ interface SidebarProps {
   lintErrorCount: number;
   scanIssueCount: number;
 }
-
-const CLOUD_DASHBOARD_URL = "https://cloud.clef.sh";
 
 export function Sidebar({
   activeView,
@@ -45,7 +42,6 @@ export function Sidebar({
     : 0;
 
   const namespaces = manifest?.namespaces ?? [];
-  const isCloud = !!manifest?.cloud?.integrationId;
 
   return (
     <div
@@ -105,7 +101,7 @@ export function Sidebar({
               marginTop: -1,
             }}
           >
-            {isCloud ? "cloud" : "local"} / main
+            {manifest?.sops.default_backend ?? "local"} / main
           </div>
         </div>
       </div>
@@ -169,14 +165,6 @@ export function Sidebar({
           label="Backend"
           active={activeView === "backend"}
           onClick={() => setView("backend")}
-        />
-        <NavItem
-          icon={"\u2601"}
-          label="Cloud"
-          active={activeView === "cloud"}
-          onClick={() => setView("cloud")}
-          badge={isCloud ? undefined : "new"}
-          badgeColor={isCloud ? undefined : theme.accent}
         />
         <NavItem
           icon={"\u23F1"}
@@ -245,103 +233,30 @@ export function Sidebar({
             {uncommittedCount} uncommitted
           </span>
         </div>
-        {isCloud ? (
-          <div style={{ marginTop: 5 }}>
-            <div
+        <div style={{ marginTop: 5 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              color: theme.green,
+            }}
+          >
+            <span
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                color: theme.accent,
+                display: "inline-block",
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: theme.green,
+                boxShadow: `0 0 5px ${theme.green}`,
               }}
-            >
-              <span
-                style={{
-                  display: "inline-block",
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: theme.accent,
-                  boxShadow: `0 0 5px ${theme.accent}`,
-                }}
-              />
-              <span style={{ fontFamily: theme.mono, fontSize: 10, flex: 1 }}>Clef Cloud</span>
-              <a
-                href={CLOUD_DASHBOARD_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  fontFamily: theme.mono,
-                  fontSize: 9,
-                  color: theme.accent,
-                  textDecoration: "none",
-                  padding: "2px 6px",
-                  border: `1px solid ${theme.accent}44`,
-                  borderRadius: 4,
-                  transition: "all 0.12s",
-                }}
-                onMouseOver={(e) => {
-                  e.currentTarget.style.background = theme.accentDim;
-                }}
-                onMouseOut={(e) => {
-                  e.currentTarget.style.background = "transparent";
-                }}
-              >
-                Manage
-              </a>
-            </div>
+            />
+            <span style={{ fontFamily: theme.mono, fontSize: 10 }}>
+              {manifest?.sops.default_backend ?? "age"} key loaded
+            </span>
           </div>
-        ) : (
-          <div style={{ marginTop: 5 }}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                color: theme.green,
-              }}
-            >
-              <span
-                style={{
-                  display: "inline-block",
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: theme.green,
-                  boxShadow: `0 0 5px ${theme.green}`,
-                }}
-              />
-              <span style={{ fontFamily: theme.mono, fontSize: 10 }}>
-                {manifest?.sops.default_backend ?? "age"} key loaded
-              </span>
-            </div>
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={() => setView("cloud")}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") setView("cloud");
-              }}
-              style={{
-                display: "block",
-                fontFamily: theme.mono,
-                fontSize: 9,
-                color: theme.textMuted,
-                cursor: "pointer",
-                marginTop: 6,
-                transition: "color 0.12s",
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.color = theme.accent;
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.color = theme.textMuted;
-              }}
-            >
-              Try Clef Cloud {"\u2192"}
-            </div>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );

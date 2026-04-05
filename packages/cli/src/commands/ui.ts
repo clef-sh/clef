@@ -1,4 +1,3 @@
-import * as path from "path";
 import { Command } from "commander";
 import { SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
@@ -12,11 +11,6 @@ interface ServerHandle {
   stop: () => Promise<void>;
   address: () => { address: string; port: number };
 }
-
-// When the CLI is distributed as a self-contained esbuild bundle, all code
-// lives in dist/index.js and __dirname resolves to that file's directory.
-// The build script copies UI client assets to dist/client/ alongside the bundle.
-const UI_CLIENT_DIR = path.resolve(__dirname, "client");
 
 export function registerUiCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -38,9 +32,20 @@ export function registerUiCommand(program: Command, deps: { runner: SubprocessRu
       const credential = await resolveAgeCredential(repoRoot, deps.runner);
       const { ageKeyFile, ageKey } = prepareSopsClientArgs(credential);
 
-      // Lazy-load @clef-sh/ui so the CLI doesn't fail at startup when the UI
-      // module hasn't been resolved yet for commands other than `clef ui`.
-      const uiModule = await import("@clef-sh/ui");
+      // Lazy-load @clef-sh/ui — it's an optional dependency.
+      let uiModule;
+      try {
+        uiModule = await import("@clef-sh/ui");
+      } catch {
+        formatter.print("Clef UI is not installed.\n");
+        formatter.print("Install it with:");
+        formatter.print("  npm install @clef-sh/ui\n");
+        formatter.print("Then re-run:");
+        formatter.print("  clef ui");
+        process.exit(1);
+        return;
+      }
+
       const { startServer } = uiModule as {
         startServer: (
           port: number,
@@ -54,7 +59,7 @@ export function registerUiCommand(program: Command, deps: { runner: SubprocessRu
 
       let handle: ServerHandle;
       try {
-        handle = await startServer(port, repoRoot, deps.runner, UI_CLIENT_DIR, ageKeyFile, ageKey);
+        handle = await startServer(port, repoRoot, deps.runner, undefined, ageKeyFile, ageKey);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
         formatter.error(`Failed to start UI server: ${message}`);
