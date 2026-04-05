@@ -319,7 +319,7 @@ jobs:
             type=raw,value=beta,enable=${{ contains(needs.check-tag.outputs.version, 'beta') }}
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: packages/agent/docker-context
           file: packages/agent/Dockerfile
