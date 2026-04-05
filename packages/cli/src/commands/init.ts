@@ -400,16 +400,15 @@ async function handleFullSetup(
     formatter.success(`Key label: ${label}`);
   }
 
-  // Write clef.yaml — include age recipients if age backend
-  const manifestDoc = YAML.parse(YAML.stringify(manifest)) as Record<string, unknown>;
+  // Add age recipients to manifest before writing and scaffolding
   if (backend === "age" && publicKey) {
-    const sopsDoc = manifestDoc.sops as Record<string, unknown>;
-    sopsDoc.age = { recipients: [publicKey] };
+    manifest.sops.age = { recipients: [publicKey] };
   }
+  const manifestDoc = YAML.parse(YAML.stringify(manifest)) as Record<string, unknown>;
   fs.writeFileSync(manifestPath, YAML.stringify(manifestDoc), "utf-8");
   formatter.success("Created clef.yaml");
 
-  // Scaffold the matrix
+  // Scaffold the matrix — manifest now has recipients so SOPS gets --age flag
   const sopsClient = new SopsClient(deps.runner, ageKeyFile, ageKey);
   const matrixManager = new MatrixManager();
   const cells = matrixManager.resolveMatrix(manifest, repoRoot);

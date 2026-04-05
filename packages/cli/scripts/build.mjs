@@ -136,9 +136,6 @@ await build({
   plugins: [ageEncryptionPlugin],
 });
 
-// UI client files are served by @clef-sh/ui from its own package directory.
-// They are only copied here for SEA builds (handled in buildSea below).
-
 console.log("Build complete.");
 
 // ── SEA binary ────────────────────────────────────────────────────────────────
