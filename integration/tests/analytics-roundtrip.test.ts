@@ -20,10 +20,7 @@ afterAll(() => {
 
 const clefBin = path.resolve(__dirname, "../../packages/cli/dist/index.cjs");
 
-function clef(
-  args: string[],
-  env?: Record<string, string>,
-): { stdout: string; stderr: string } {
+function clef(args: string[], env?: Record<string, string>): { stdout: string; stderr: string } {
   try {
     const stdout = execFileSync("node", [clefBin, ...args], {
       cwd: repo.dir,
@@ -54,18 +51,16 @@ describe("analytics roundtrip", () => {
   });
 
   it("should complete commands successfully with analytics disabled via env", () => {
-    const { stdout } = clef(
-      ["get", "payments/dev", "STRIPE_KEY", "--raw"],
-      { CLEF_ANALYTICS: "0" },
-    );
+    const { stdout } = clef(["get", "payments/dev", "STRIPE_KEY", "--raw"], {
+      CLEF_ANALYTICS: "0",
+    });
     expect(stdout.trim()).toBe("sk_test_abc123");
   });
 
   it("should complete commands successfully with analytics set to false", () => {
-    const { stdout } = clef(
-      ["get", "payments/dev", "STRIPE_KEY", "--raw"],
-      { CLEF_ANALYTICS: "false" },
-    );
+    const { stdout } = clef(["get", "payments/dev", "STRIPE_KEY", "--raw"], {
+      CLEF_ANALYTICS: "false",
+    });
     expect(stdout.trim()).toBe("sk_test_abc123");
   });
 
@@ -82,9 +77,7 @@ describe("analytics roundtrip", () => {
 
   it("should not crash when analytics module encounters errors", () => {
     // Force a bad PostHog host — analytics should fail silently
-    const { stdout } = clef(
-      ["get", "payments/dev", "STRIPE_KEY", "--raw"],
-    );
+    const { stdout } = clef(["get", "payments/dev", "STRIPE_KEY", "--raw"]);
     // Command should still succeed regardless of analytics state
     expect(stdout.trim()).toBe("sk_test_abc123");
   });

@@ -19,7 +19,7 @@ jest.mock("fs", () => ({
 function loadClient() {
   let mod: typeof import("./client");
   jest.isolateModules(() => {
-    mod = require("./client");
+    mod = require("./client"); // eslint-disable-line @typescript-eslint/no-require-imports
   });
   return mod!;
 }
@@ -137,7 +137,7 @@ describe("analytics client", () => {
   });
 
   it("should read opt-out from config file when env is not set", () => {
-    const mockFs = require("fs") as { readFileSync: jest.Mock };
+    const mockFs = require("fs") as { readFileSync: jest.Mock }; // eslint-disable-line @typescript-eslint/no-require-imports
     mockFs.readFileSync.mockReturnValue("analytics: false\n");
 
     const { track } = loadClient();

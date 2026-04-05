@@ -1,4 +1,5 @@
 import { PostHog } from "posthog-node";
+import { createHash } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -61,7 +62,6 @@ function getOrCreateClient(): PostHog | null {
  * Uses hostname + os.userInfo().uid hashed to avoid PII.
  */
 function getAnonymousId(): string {
-  const { createHash } = require("crypto");
   const raw = `${os.hostname()}-${os.userInfo().uid}`;
   return createHash("sha256").update(raw).digest("hex").slice(0, 16);
 }

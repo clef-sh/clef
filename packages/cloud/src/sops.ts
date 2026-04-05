@@ -40,12 +40,14 @@ export async function resolveAccessToken(): Promise<{ accessToken: string; endpo
   }
 
   if (!creds?.cognitoDomain || !creds?.clientId) {
-    throw new Error(
-      "Missing Cognito configuration. Run 'clef cloud login' to re-authenticate.",
-    );
+    throw new Error("Missing Cognito configuration. Run 'clef cloud login' to re-authenticate.");
   }
 
-  if (creds.accessToken && creds.accessTokenExpiry && Date.now() < creds.accessTokenExpiry - 60000) {
+  if (
+    creds.accessToken &&
+    creds.accessTokenExpiry &&
+    Date.now() < creds.accessTokenExpiry - 60000
+  ) {
     return { accessToken: creds.accessToken, endpoint: creds.endpoint };
   }
 
