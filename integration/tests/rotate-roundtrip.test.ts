@@ -34,7 +34,9 @@ function clef(args: string[], opts?: { confirm?: boolean; env?: Record<string, s
 
 describe("rotate roundtrip", () => {
   it("should add a new recipient and re-encrypt files for that environment", () => {
-    clef(["recipients", "add", newKeys.publicKey, "-e", "dev", "--label", "second-dev"], { confirm: true });
+    clef(["recipients", "add", newKeys.publicKey, "-e", "dev", "--label", "second-dev"], {
+      confirm: true,
+    });
 
     // Original key can still decrypt
     const val = clef(["get", "payments/dev", "STRIPE_KEY", "--raw"]);
@@ -42,15 +44,11 @@ describe("rotate roundtrip", () => {
   });
 
   it("should be decryptable with the new key after rotation", () => {
-    const val = execFileSync(
-      "node",
-      [clefBin, "get", "payments/dev", "STRIPE_KEY", "--raw"],
-      {
-        cwd: repo.dir,
-        input: "",
-        env: { ...process.env, SOPS_AGE_KEY_FILE: newKeys.keyFilePath },
-      },
-    ).toString();
+    const val = execFileSync("node", [clefBin, "get", "payments/dev", "STRIPE_KEY", "--raw"], {
+      cwd: repo.dir,
+      input: "",
+      env: { ...process.env, SOPS_AGE_KEY_FILE: newKeys.keyFilePath },
+    }).toString();
     expect(val.trim()).toBe("sk_test_abc123");
   });
 

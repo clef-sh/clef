@@ -35,7 +35,9 @@ function clef(args: string[], opts?: { confirm?: boolean; env?: Record<string, s
 describe("migrate-backend roundtrip", () => {
   it("should add a recipient and verify files are still decryptable", () => {
     // Add new key as recipient to dev (confirm re-encryption)
-    clef(["recipients", "add", newKeys.publicKey, "-e", "dev", "--label", "migrate-key"], { confirm: true });
+    clef(["recipients", "add", newKeys.publicKey, "-e", "dev", "--label", "migrate-key"], {
+      confirm: true,
+    });
 
     const val = clef(["get", "payments/dev", "STRIPE_KEY", "--raw"]);
     expect(val.trim()).toBe("sk_test_abc123");
