@@ -108,7 +108,6 @@ test.describe("sidebar navigation", () => {
     await page.getByTestId("nav-payments").click();
     await expect(page.getByText("STRIPE_KEY")).toBeVisible();
   });
-
 });
 
 // ── clef get → NamespaceEditor: read decrypted key names ────────────────────
