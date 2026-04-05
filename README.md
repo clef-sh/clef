@@ -6,7 +6,7 @@
 
 **Git-native secrets management built on [Mozilla SOPS](https://github.com/getsops/sops) — structured, validated, and always encrypted in your own repo.**
 
-> **Early release** — Clef is under active development. You will hit rough edges. When you do, please [open an issue](https://github.com/clef-sh/clef/issues) and we will fix it fast.
+> **Early release** — Clef is under active development. Please [open an issue](https://github.com/clef-sh/clef/issues) and we will fix it fast.
 
 Clef adds a namespace-by-environment matrix, schema validation, drift detection, and a local web UI building on what SOPS has accomplished in the direction of Secrets-as-Code (SaC). Your secrets stay in git, encrypted by your KMS. The access control, audit logs, and short-lived credential access you need for enterprise compliance come from your KMS — not from a new intermediary.
 
