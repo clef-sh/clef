@@ -114,7 +114,7 @@ describe("analytics client", () => {
     track("test_event"); // creates the client
     await shutdown();
 
-    expect(mockShutdown).toHaveBeenCalledWith(5000);
+    expect(mockShutdown).toHaveBeenCalledWith(500);
   });
 
   it("should not throw on shutdown when opted out (no client)", async () => {

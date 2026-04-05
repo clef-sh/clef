@@ -163,23 +163,19 @@ async function main(): Promise<void> {
   const startTime = Date.now();
   const commandName = process.argv[2] ?? "unknown";
 
+  let success = true;
   try {
     await program.parseAsync(process.argv);
-    analytics?.track("cli_command", {
-      command: commandName,
-      duration_ms: Date.now() - startTime,
-      success: true,
-      cli_version: VERSION,
-    });
   } catch (err) {
-    analytics?.track("cli_command", {
-      command: commandName,
-      duration_ms: Date.now() - startTime,
-      success: false,
-      cli_version: VERSION,
-    });
+    success = false;
     throw err;
   } finally {
+    analytics?.track("cli_command", {
+      command: commandName,
+      duration_ms: Date.now() - startTime,
+      success,
+      cli_version: VERSION,
+    });
     await analytics?.shutdown();
   }
 }

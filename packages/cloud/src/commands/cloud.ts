@@ -15,6 +15,7 @@ import {
   initiateDeviceFlow,
   pollDeviceFlow,
   spawnKeyservice,
+  resolveAccessToken,
   CLOUD_DEFAULT_ENDPOINT,
 } from "../index";
 import type { DevicePollResult } from "../index";
@@ -160,16 +161,14 @@ export function registerCloudCommands(program: Command, deps: CloudCliDeps): voi
         const cloudEndpoint = existingCreds?.endpoint ?? CLOUD_DEFAULT_ENDPOINT;
         formatter.print(`   Endpoint:  ${cloudEndpoint}`);
         formatter.print(
-          `   Creds:     ${existingCreds ? `token=${existingCreds.token ? "yes" : "no"}, endpoint=${existingCreds.endpoint}` : "none"}`,
+          `   Creds:     ${existingCreds ? `authenticated=${existingCreds.refreshToken ? "yes" : "no"}, endpoint=${existingCreds.endpoint}` : "none"}`,
         );
 
-        let token: string;
         let integrationId: string;
         let keyId: string;
 
-        if (existingCreds && existingCreds.token && manifest.cloud) {
+        if (existingCreds && existingCreds.refreshToken && manifest.cloud) {
           // Already authenticated and cloud config exists — skip device flow
-          token = existingCreds.token;
           integrationId = manifest.cloud.integrationId;
           keyId = manifest.cloud.keyId;
           formatter.print(`   Using existing Cloud integration: ${keyId}`);
@@ -204,11 +203,15 @@ export function registerCloudCommands(program: Command, deps: CloudCliDeps): voi
             return;
           }
 
-          token = result.token;
           integrationId = result.integrationId;
           keyId = result.keyId;
 
-          writeCloudCredentials({ token, endpoint: existingCreds?.endpoint });
+          writeCloudCredentials({
+            refreshToken: result.token,
+            endpoint: existingCreds?.endpoint,
+            cognitoDomain: result.cognitoDomain,
+            clientId: result.clientId,
+          });
           formatter.success("Authorized");
         }
 
@@ -235,10 +238,12 @@ export function registerCloudCommands(program: Command, deps: CloudCliDeps): voi
           formatter.print(`   No encrypted files found for ${opts.env}.`);
         } else {
           const ageSopsClient = await deps.createSopsClient(repoRoot, runner);
+          const { accessToken, endpoint: ksEndpoint } = await resolveAccessToken();
+
           const ksHandle = await spawnKeyservice({
             binaryPath: keyservicePath,
-            token,
-            endpoint: existingCreds?.endpoint,
+            token: accessToken,
+            endpoint: ksEndpoint,
           });
 
           try {
@@ -327,8 +332,13 @@ export function registerCloudCommands(program: Command, deps: CloudCliDeps): voi
         }
 
         if (result.token) {
-          writeCloudCredentials({ token: result.token, endpoint });
-          formatter.success("Logged in. Token saved to ~/.clef/credentials.yaml");
+          writeCloudCredentials({
+            refreshToken: result.token,
+            endpoint,
+            cognitoDomain: result.cognitoDomain,
+            clientId: result.clientId,
+          });
+          formatter.success("Logged in. Credentials saved to ~/.clef/credentials.yaml");
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

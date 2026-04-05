@@ -5,9 +5,10 @@
  * address for cloud backend decrypt/encrypt operations.
  */
 import { SopsClient, SubprocessRunner } from "@clef-sh/core";
-import { readCloudCredentials } from "./credentials";
+import { readCloudCredentials, writeCloudCredentials } from "./credentials";
 import { resolveKeyservicePath } from "./resolver";
 import { spawnKeyservice } from "./keyservice";
+import { refreshAccessToken } from "./token-refresh";
 
 export interface CloudSopsResult {
   client: SopsClient;
@@ -19,6 +20,50 @@ export type CreateSopsClientFn = (
   runner: SubprocessRunner,
   keyserviceAddr?: string,
 ) => Promise<SopsClient>;
+
+/**
+ * Resolve a fresh Cognito access token.
+ *
+ * Priority:
+ *   1. CLEF_CLOUD_REFRESH_TOKEN env var (CI)
+ *   2. ~/.clef/credentials.yaml refreshToken (interactive)
+ *
+ * If a cached access token exists and hasn't expired, returns it.
+ * Otherwise refreshes via the Cognito token endpoint.
+ */
+export async function resolveAccessToken(): Promise<{ accessToken: string; endpoint?: string }> {
+  const creds = readCloudCredentials();
+  const refreshToken = process.env.CLEF_CLOUD_REFRESH_TOKEN ?? creds?.refreshToken;
+
+  if (!refreshToken) {
+    throw new Error("Not authenticated. Run 'clef cloud login' to connect to Clef Cloud.");
+  }
+
+  if (!creds?.cognitoDomain || !creds?.clientId) {
+    throw new Error(
+      "Missing Cognito configuration. Run 'clef cloud login' to re-authenticate.",
+    );
+  }
+
+  if (creds.accessToken && creds.accessTokenExpiry && Date.now() < creds.accessTokenExpiry - 60000) {
+    return { accessToken: creds.accessToken, endpoint: creds.endpoint };
+  }
+
+  const result = await refreshAccessToken({
+    cognitoDomain: creds.cognitoDomain,
+    clientId: creds.clientId,
+    refreshToken,
+  });
+
+  writeCloudCredentials({
+    ...creds,
+    refreshToken,
+    accessToken: result.accessToken,
+    accessTokenExpiry: Date.now() + result.expiresIn * 1000,
+  });
+
+  return { accessToken: result.accessToken, endpoint: creds?.endpoint };
+}
 
 /**
  * Create a SopsClient backed by the cloud keyservice sidecar.
@@ -33,17 +78,13 @@ export async function createCloudSopsClient(
   runner: SubprocessRunner,
   createSopsClient: CreateSopsClientFn,
 ): Promise<CloudSopsResult> {
-  const creds = readCloudCredentials();
-  const token = process.env.CLEF_CLOUD_TOKEN ?? creds?.token;
-  if (!token) {
-    throw new Error("Cloud token required. Set CLEF_CLOUD_TOKEN or run 'clef cloud login'.");
-  }
+  const { accessToken, endpoint } = await resolveAccessToken();
 
   const binaryPath = resolveKeyservicePath().path;
   const handle = await spawnKeyservice({
     binaryPath,
-    token,
-    endpoint: creds?.endpoint,
+    token: accessToken,
+    endpoint,
   });
 
   const client = await createSopsClient(repoRoot, runner, handle.addr);

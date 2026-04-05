@@ -4,9 +4,9 @@ import * as path from "path";
 import * as os from "os";
 import * as YAML from "yaml";
 
-const POSTHOG_API_KEY = "phc_placeholder"; // TODO: replace with real key
+const POSTHOG_API_KEY = "phc_9ABRW4XA81c8HiBkam8qURqCgD61fw7Zjn5vWkbFUvp";
 const POSTHOG_HOST = "https://us.i.posthog.com";
-const SHUTDOWN_TIMEOUT_MS = 5000;
+const SHUTDOWN_TIMEOUT_MS = 500;
 
 let client: PostHog | null = null;
 let disabled = false;
@@ -72,10 +72,7 @@ function getAnonymousId(): string {
  * Never tracks: secret values, file paths, repo names, or any content.
  * Only tracks: command name, duration, success/failure, CLI version, OS/arch.
  */
-export function track(
-  event: string,
-  properties?: Record<string, string | number | boolean>,
-): void {
+export function track(event: string, properties?: Record<string, string | number | boolean>): void {
   const ph = getOrCreateClient();
   if (!ph) return;
 

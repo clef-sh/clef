@@ -17,12 +17,16 @@ export interface DeviceSession {
 
 export interface DevicePollResult {
   status: "pending" | "awaiting_payment" | "complete" | "cancelled" | "expired";
-  /** Present when status is "complete". */
+  /** Cognito refresh token. Present when status is "complete". */
   token?: string;
   /** Present when status is "complete". */
   integrationId?: string;
   /** Present when status is "complete". */
   keyId?: string;
+  /** Cognito OAuth2 domain URL for token refresh. Present when status is "complete". */
+  cognitoDomain?: string;
+  /** CLI Cognito app client ID. Present when status is "complete". */
+  clientId?: string;
 }
 
 /**

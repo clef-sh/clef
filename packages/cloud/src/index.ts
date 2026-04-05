@@ -19,7 +19,9 @@ export type { DeviceSession, DevicePollResult } from "./device-flow";
 export { CloudPackClient, CloudArtifactClient } from "./pack-client";
 export type { RemotePackConfig, RemotePackResult } from "./pack-client";
 export { CLOUD_DEFAULT_ENDPOINT } from "./constants";
-export { createCloudSopsClient } from "./sops";
+export { refreshAccessToken } from "./token-refresh";
+export type { TokenRefreshConfig, TokenRefreshResult } from "./token-refresh";
+export { createCloudSopsClient, resolveAccessToken } from "./sops";
 export type { CloudSopsResult, CreateSopsClientFn } from "./sops";
 export { CloudClient } from "./report-client";
 export type {

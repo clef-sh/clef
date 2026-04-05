@@ -42,6 +42,10 @@ jest.mock("../index", () => ({
     expiresIn: 900,
   }),
   pollDeviceFlow: jest.fn().mockResolvedValue({ status: "pending" }),
+  resolveAccessToken: jest.fn().mockResolvedValue({
+    accessToken: "fresh_access_token",
+    endpoint: "https://api.clef.sh",
+  }),
   CLOUD_DEFAULT_ENDPOINT: "https://api.clef.sh",
 }));
 
@@ -169,7 +173,7 @@ describe("clef cloud login", () => {
 
     expect(cloud.initiateDeviceFlow).toHaveBeenCalled();
     expect(cloud.writeCloudCredentials).toHaveBeenCalledWith(
-      expect.objectContaining({ token: "clef_tok_new" }),
+      expect.objectContaining({ refreshToken: "clef_tok_new" }),
     );
     expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Logged in"));
   });
@@ -264,7 +268,7 @@ describe("clef cloud init", () => {
     await program.parseAsync(["node", "test", "cloud", "init", "--env", "production"]);
 
     expect(cloud.writeCloudCredentials).toHaveBeenCalledWith(
-      expect.objectContaining({ token: "clef_tok_init" }),
+      expect.objectContaining({ refreshToken: "clef_tok_init" }),
     );
     expect(coreFull.writeManifestYaml).toHaveBeenCalled();
     expect(mockFormatter.print).toHaveBeenCalledWith(
@@ -285,8 +289,10 @@ describe("clef cloud init", () => {
 
     const cloud = getCloudMock();
     cloud.readCloudCredentials.mockReturnValue({
-      token: "existing_token",
+      refreshToken: "existing_refresh_token",
       endpoint: "https://api.clef.sh",
+      cognitoDomain: "https://auth.example.com",
+      clientId: "cli_123",
     });
 
     const coreFull = jest.requireMock("@clef-sh/core") as {
