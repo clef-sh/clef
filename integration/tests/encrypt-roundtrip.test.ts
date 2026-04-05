@@ -45,6 +45,9 @@ const clefBin = path.resolve(__dirname, "../../packages/cli/dist/index.cjs");
 function clef(args: string[]): string {
   return execFileSync("node", [clefBin, ...args], {
     cwd: repo.dir,
+    // Provide stdin so /dev/stdin resolves in CI (no TTY).
+    // SOPS reads plaintext via /dev/stdin when the CLI pipes content.
+    input: "",
     env: {
       ...process.env,
       SOPS_AGE_KEY_FILE: keys.keyFilePath,
