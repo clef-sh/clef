@@ -72,7 +72,7 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
 
           // --remote: send to Cloud for packing
           if (opts.remote) {
-            const { readCloudCredentials, CloudPackClient } = await import("@clef-sh/core");
+            const { readCloudCredentials, CloudPackClient } = await import("@clef-sh/cloud");
             const creds = readCloudCredentials();
             const token = process.env.CLEF_CLOUD_TOKEN ?? creds?.token;
             if (!token) {
@@ -174,7 +174,7 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
 
           // --push: upload artifact to Cloud from memory
           if (opts.push && memOutput?.json) {
-            const { readCloudCredentials, CloudArtifactClient } = await import("@clef-sh/core");
+            const { readCloudCredentials, CloudArtifactClient } = await import("@clef-sh/cloud");
             const creds = readCloudCredentials();
             const token = process.env.CLEF_CLOUD_TOKEN ?? creds?.token;
             if (!token) {

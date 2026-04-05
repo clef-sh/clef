@@ -68,10 +68,23 @@ function metadataMatchesTarget(meta: SopsMetadata, target: MigrationTarget): boo
 // ── BackendMigrator ─────────────────────────────────────────────────────────
 
 export class BackendMigrator {
+  private readonly decryptBackend: EncryptionBackend;
+  private readonly encryptBackend: EncryptionBackend;
+
+  /**
+   * @param encryption - Backend used for both decrypt and encrypt (standard case).
+   * @param matrixManager - Matrix resolver.
+   * @param targetEncryption - Optional separate backend for encrypt. Use when migrating
+   *   from cloud (decrypt via keyservice) to another backend (encrypt via local credentials).
+   */
   constructor(
-    private readonly encryption: EncryptionBackend,
+    encryption: EncryptionBackend,
     private readonly matrixManager: MatrixManager,
-  ) {}
+    targetEncryption?: EncryptionBackend,
+  ) {
+    this.decryptBackend = encryption;
+    this.encryptBackend = targetEncryption ?? encryption;
+  }
 
   async migrate(
     manifest: ClefManifest,
@@ -110,7 +123,7 @@ export class BackendMigrator {
     const skippedFiles: string[] = [];
 
     for (const cell of targetCells) {
-      const meta = await this.encryption.getMetadata(cell.filePath);
+      const meta = await this.decryptBackend.getMetadata(cell.filePath);
       if (metadataMatchesTarget(meta, target)) {
         skippedFiles.push(cell.filePath);
         onProgress?.({
@@ -190,8 +203,8 @@ export class BackendMigrator {
           message: `Migrating ${cell.namespace}/${cell.environment}...`,
         });
 
-        const decrypted = await this.encryption.decrypt(cell.filePath);
-        await this.encryption.encrypt(
+        const decrypted = await this.decryptBackend.decrypt(cell.filePath);
+        await this.encryptBackend.encrypt(
           cell.filePath,
           decrypted.values,
           updatedManifest,
@@ -234,7 +247,7 @@ export class BackendMigrator {
             file: cell.filePath,
             message: `Verifying ${cell.namespace}/${cell.environment}...`,
           });
-          await this.encryption.decrypt(cell.filePath);
+          await this.encryptBackend.decrypt(cell.filePath);
           verifiedFiles.push(cell.filePath);
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err);
@@ -282,6 +295,21 @@ export class BackendMigrator {
       }
       if (keyField && target.key) {
         sops[keyField] = target.key;
+      }
+    }
+
+    // Remove the cloud config block if no environment still uses the cloud backend
+    if (doc.cloud && target.backend !== "cloud") {
+      const sops = doc.sops as Record<string, unknown>;
+      const environments = doc.environments as Record<string, unknown>[];
+      const defaultIsCloud = sops.default_backend === "cloud";
+      const anyEnvIsCloud = environments.some((e) => {
+        const envSops = e.sops as Record<string, unknown> | undefined;
+        return envSops?.backend === "cloud";
+      });
+
+      if (!defaultIsCloud && !anyEnvIsCloud) {
+        delete doc.cloud;
       }
     }
   }

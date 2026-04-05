@@ -4,28 +4,46 @@ import {
   ManifestParser,
   MatrixManager,
   SubprocessRunner,
+  SopsClient,
+  readManifestYaml,
+  writeManifestYaml,
+} from "@clef-sh/core";
+import {
   readCloudCredentials,
   writeCloudCredentials,
   resolveKeyservicePath,
   initiateDeviceFlow,
   pollDeviceFlow,
   spawnKeyservice,
-  readManifestYaml,
-  writeManifestYaml,
-} from "@clef-sh/core";
-import type { DevicePollResult } from "@clef-sh/core";
-import { formatter } from "../output/formatter";
-import { sym } from "../output/symbols";
-import { openBrowser } from "../browser";
-import { createSopsClient } from "../age-credential";
-
-const CLOUD_DEFAULT_ENDPOINT = "https://api.clef.sh";
-import pkg from "../../package.json";
+  CLOUD_DEFAULT_ENDPOINT,
+} from "../index";
+import type { DevicePollResult } from "../index";
 
 const POLL_INTERVAL_MS = 2000;
-const CLI_VERSION = pkg.version as string;
 
-export function registerCloudCommand(program: Command, deps: { runner: SubprocessRunner }): void {
+/** CLI utilities injected by the host CLI package. */
+export interface CloudCliDeps {
+  runner: SubprocessRunner;
+  formatter: {
+    print(msg: string): void;
+    success(msg: string): void;
+    error(msg: string): void;
+    warn(msg: string): void;
+    info(msg: string): void;
+    hint(msg: string): void;
+  };
+  sym(name: string): string;
+  openBrowser(url: string, runner: SubprocessRunner): Promise<boolean>;
+  createSopsClient(
+    repoRoot: string,
+    runner: SubprocessRunner,
+    keyserviceAddr?: string,
+  ): Promise<SopsClient>;
+  cliVersion: string;
+}
+
+export function registerCloudCommands(program: Command, deps: CloudCliDeps): void {
+  const { formatter, sym, runner } = deps;
   const cloud = program.command("cloud").description("Manage Clef Cloud integration.");
 
   cloud
@@ -85,7 +103,7 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
           formatter.print(`   Keyservice:   ${ks.source} (${ks.path})`);
         } catch {
           formatter.print(`   Keyservice:   not found`);
-          formatter.hint("   Reinstall the CLI: npm install @clef-sh/cli");
+          formatter.hint("   Install the cloud package: npm install @clef-sh/cloud");
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -129,7 +147,7 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
           keyservicePath = resolveKeyservicePath().path;
         } catch {
           formatter.error(
-            "Keyservice binary not found. Reinstall the CLI: npm install @clef-sh/cli",
+            "Keyservice binary not found. Install the cloud package: npm install @clef-sh/cloud",
           );
           process.exit(1);
           return;
@@ -141,7 +159,9 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
         const existingCreds = readCloudCredentials();
         const cloudEndpoint = existingCreds?.endpoint ?? CLOUD_DEFAULT_ENDPOINT;
         formatter.print(`   Endpoint:  ${cloudEndpoint}`);
-        formatter.print(`   Creds:     ${existingCreds ? `token=${existingCreds.token ? "yes" : "no"}, endpoint=${existingCreds.endpoint}` : "none"}`);
+        formatter.print(
+          `   Creds:     ${existingCreds ? `token=${existingCreds.token ? "yes" : "no"}, endpoint=${existingCreds.endpoint}` : "none"}`,
+        );
 
         let token: string;
         let integrationId: string;
@@ -159,12 +179,12 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
           const session = await initiateDeviceFlow(cloudEndpoint, {
             repoName: path.basename(repoRoot),
             environment: opts.env,
-            clientVersion: CLI_VERSION,
+            clientVersion: deps.cliVersion,
           });
 
           formatter.print(`   If the browser doesn't open, visit:\n   ${session.loginUrl}\n`);
 
-          await openBrowser(session.loginUrl, deps.runner);
+          await deps.openBrowser(session.loginUrl, runner);
           formatter.print(`   Waiting for authorization... (press Ctrl+C to cancel)`);
 
           const result = await pollUntilComplete(session.pollUrl);
@@ -214,7 +234,7 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
         if (cells.length === 0) {
           formatter.print(`   No encrypted files found for ${opts.env}.`);
         } else {
-          const ageSopsClient = await createSopsClient(repoRoot, deps.runner);
+          const ageSopsClient = await deps.createSopsClient(repoRoot, runner);
           const ksHandle = await spawnKeyservice({
             binaryPath: keyservicePath,
             token,
@@ -222,7 +242,7 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
           });
 
           try {
-            const cloudSopsClient = await createSopsClient(repoRoot, deps.runner, ksHandle.addr);
+            const cloudSopsClient = await deps.createSopsClient(repoRoot, runner, ksHandle.addr);
 
             for (const cell of cells) {
               const decrypted = await ageSopsClient.decrypt(cell.filePath);
@@ -232,6 +252,13 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
                 cloudManifest,
                 cell.environment,
               );
+              const relPath = path.relative(repoRoot, cell.filePath);
+              formatter.print(`   ${sym("success")}  ${relPath}`);
+            }
+
+            formatter.print(`\n   Verifying encrypted files...`);
+            for (const cell of cells) {
+              await cloudSopsClient.decrypt(cell.filePath);
               const relPath = path.relative(repoRoot, cell.filePath);
               formatter.print(`   ${sym("success")}  ${relPath}`);
             }
@@ -274,13 +301,13 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
         const session = await initiateDeviceFlow(endpoint, {
           repoName: path.basename(process.cwd()),
           environment: "",
-          clientVersion: CLI_VERSION,
+          clientVersion: deps.cliVersion,
         });
 
         formatter.print(`   Opening browser to log in...`);
         formatter.print(`   If the browser doesn't open, visit:\n   ${session.loginUrl}\n`);
 
-        const opened = await openBrowser(session.loginUrl, deps.runner);
+        const opened = await deps.openBrowser(session.loginUrl, runner);
         if (!opened) {
           formatter.warn("Could not open browser automatically. Visit the URL above.");
         }
