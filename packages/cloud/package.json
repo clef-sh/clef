@@ -44,8 +44,12 @@
   },
   "typesVersions": {
     "*": {
-      "cli": ["dist/cli.d.ts"],
-      "ui": ["dist/ui/index.d.ts"]
+      "cli": [
+        "dist/cli.d.ts"
+      ],
+      "ui": [
+        "dist/ui/index.d.ts"
+      ]
     }
   },
   "files": [

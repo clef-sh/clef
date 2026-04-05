@@ -456,7 +456,10 @@ export class SopsClient implements EncryptionBackend {
     if (sops.age && Array.isArray(sops.age) && (sops.age as unknown[]).length > 0) return "age";
     if (sops.kms && Array.isArray(sops.kms) && (sops.kms as unknown[]).length > 0) {
       const firstArn = (sops.kms as Array<Record<string, unknown>>)[0]?.arn;
-      if (typeof firstArn === "string" && (firstArn.startsWith("clef:") || firstArn.includes("alias/clef/"))) {
+      if (
+        typeof firstArn === "string" &&
+        (firstArn.startsWith("clef:") || firstArn.includes("alias/clef/"))
+      ) {
         return "cloud";
       }
       return "awskms";

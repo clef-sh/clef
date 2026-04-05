@@ -61,7 +61,8 @@ function makeProgram() {
   const deps: CloudCliDeps = {
     runner,
     formatter: mockFormatter,
-    sym: (name: string) => (name === "success" ? "\u2713" : name === "clef" ? "\uD834\uDD1E" : name),
+    sym: (name: string) =>
+      name === "success" ? "\u2713" : name === "clef" ? "\uD834\uDD1E" : name,
     openBrowser: jest.fn().mockResolvedValue(true),
     createSopsClient: jest.fn().mockResolvedValue({
       decrypt: jest.fn().mockResolvedValue({ values: { KEY: "val" }, metadata: {} }),

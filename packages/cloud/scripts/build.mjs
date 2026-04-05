@@ -69,10 +69,7 @@ execFileSync(
 
 // ESM consumers get the same entry declarations with .d.mts extension
 for (const { out } of entries) {
-  copyFileSync(
-    resolve(packageRoot, `dist/${out}.d.ts`),
-    resolve(packageRoot, `dist/${out}.d.mts`),
-  );
+  copyFileSync(resolve(packageRoot, `dist/${out}.d.ts`), resolve(packageRoot, `dist/${out}.d.mts`));
 }
 
 console.log("Build complete.");
