@@ -494,6 +494,19 @@ async function handleFullSetup(
     );
   }
 
+  // Analytics notice — only on first init, not second-dev onboarding
+  try {
+    await import("@clef-sh/analytics");
+    formatter.print("");
+    formatter.info("Anonymous analytics are enabled to help improve Clef.");
+    formatter.print("   No secret values or file contents are ever collected.\n");
+    formatter.print("   To disable:");
+    formatter.print("     export CLEF_ANALYTICS=0          (session)");
+    formatter.print("     clef config set analytics false  (permanent)\n");
+  } catch {
+    // @clef-sh/analytics not installed — skip the notice
+  }
+
   formatter.section("Next steps:");
   formatter.hint("clef set <namespace>/<env> <KEY> <value>  \u2014 add a secret");
   formatter.hint("clef scan  \u2014 check for existing plaintext secrets");

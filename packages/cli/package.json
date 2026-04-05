@@ -30,6 +30,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
+    "@clef-sh/analytics": ">=0.1.0",
     "@clef-sh/cloud": ">=0.1.0",
     "@clef-sh/ui": ">=0.1.0"
   },
@@ -41,6 +42,7 @@
     "@clef-sh/sops-win32-x64": "3.9.4"
   },
   "devDependencies": {
+    "@clef-sh/analytics": "*",
     "@clef-sh/cloud": "*",
     "@clef-sh/core": "*",
     "@clef-sh/ui": "*",

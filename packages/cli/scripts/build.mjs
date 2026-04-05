@@ -53,6 +53,7 @@ const BASE_CONFIG = {
     "@clef-sh/cloud": resolve(repoRoot, "packages/cloud/src/index.ts"),
     "@clef-sh/cloud/cli": resolve(repoRoot, "packages/cloud/src/cli.ts"),
     "@clef-sh/ui": resolve(repoRoot, "packages/ui/src/server/index.ts"),
+    "@clef-sh/analytics": resolve(repoRoot, "packages/analytics/src/index.ts"),
   },
 };
 

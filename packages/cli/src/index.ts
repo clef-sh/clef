@@ -138,9 +138,53 @@ async function loadCloudPlugin(): Promise<void> {
   }
 }
 
-loadCloudPlugin()
-  .then(() => program.parseAsync(process.argv))
-  .catch((err) => {
-    formatter.error(err.message);
-    process.exit(1);
-  });
+// ── Analytics (optional, opt-out) ─────────────────────────────────────────
+
+interface AnalyticsModule {
+  track(event: string, properties?: Record<string, string | number | boolean>): void;
+  shutdown(): Promise<void>;
+}
+
+let analytics: AnalyticsModule | null = null;
+
+async function loadAnalytics(): Promise<void> {
+  try {
+    analytics = await import("@clef-sh/analytics");
+  } catch {
+    // Not installed — no-op
+  }
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────
+
+async function main(): Promise<void> {
+  await Promise.all([loadCloudPlugin(), loadAnalytics()]);
+
+  const startTime = Date.now();
+  const commandName = process.argv[2] ?? "unknown";
+
+  try {
+    await program.parseAsync(process.argv);
+    analytics?.track("cli_command", {
+      command: commandName,
+      duration_ms: Date.now() - startTime,
+      success: true,
+      cli_version: VERSION,
+    });
+  } catch (err) {
+    analytics?.track("cli_command", {
+      command: commandName,
+      duration_ms: Date.now() - startTime,
+      success: false,
+      cli_version: VERSION,
+    });
+    throw err;
+  } finally {
+    await analytics?.shutdown();
+  }
+}
+
+main().catch((err) => {
+  formatter.error(err.message);
+  process.exit(1);
+});

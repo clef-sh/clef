@@ -10,6 +10,7 @@
     "packages/runtime",
     "packages/broker",
     "packages/agent",
+    "packages/analytics",
     "packages/cli"
   ],
   "scripts": {
