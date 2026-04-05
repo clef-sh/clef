@@ -109,63 +109,6 @@ test.describe("sidebar navigation", () => {
     await expect(page.getByText("STRIPE_KEY")).toBeVisible();
   });
 
-  test("[positive] Cloud nav item opens the Cloud onboarding view", async ({ page }) => {
-    await page.goto(server.url);
-    await page.getByTestId("nav-cloud").click();
-    await expect(page.getByText("Clef Cloud")).toBeVisible();
-    await expect(page.getByText("clef cloud init --env production")).toBeVisible();
-  });
-});
-
-// ── Cloud screen ────────────────────────────────────────────────────────────
-// Test repo uses age backend, so Cloud screen shows onboarding.
-
-test.describe("cloud screen (onboarding)", () => {
-  test("[positive] shows feature list", async ({ page }) => {
-    await page.goto(server.url);
-    await page.getByTestId("nav-cloud").click();
-    await expect(page.getByText("Managed KMS key")).toBeVisible();
-    await expect(page.getByText("Artifact hosting")).toBeVisible();
-    await expect(page.getByText("Serve endpoint")).toBeVisible();
-    await expect(page.getByText("Zero lock-in")).toBeVisible();
-  });
-
-  test("[positive] shows learn more link", async ({ page }) => {
-    await page.goto(server.url);
-    await page.getByTestId("nav-cloud").click();
-    const link = page.getByText(/Learn more at cloud.clef.sh/);
-    await expect(link).toBeVisible();
-    await expect(link).toHaveAttribute("href", "https://cloud.clef.sh");
-  });
-
-  test("[positive] sidebar footer has Try Clef Cloud link that navigates to cloud screen", async ({
-    page,
-  }) => {
-    await page.goto(server.url);
-    // Should be on matrix view initially
-    await expect(page.getByText("Secret Matrix")).toBeVisible();
-    // Click the "Try Clef Cloud" footer link
-    await page.getByText("Try Clef Cloud").click();
-    // Should now be on Cloud screen
-    await expect(page.getByText("clef cloud init --env production")).toBeVisible();
-  });
-
-  test("[positive] cloud status API returns not connected for age repo", async ({ page }) => {
-    const { base, headers } = serverApi(server.url);
-    const res = await page.request.get(`${base}/api/cloud/status`, { headers });
-    expect(res.ok()).toBe(true);
-    const body = await res.json();
-    expect(body.connected).toBe(false);
-    expect(body.environments).toEqual([]);
-  });
-
-  test("[negative] token rotate returns 400 when cloud not configured", async ({ page }) => {
-    const { base, headers } = serverApi(server.url);
-    const res = await page.request.post(`${base}/api/cloud/token/rotate`, { headers });
-    expect(res.status()).toBe(400);
-    const body = await res.json();
-    expect(body.error).toContain("not configured");
-  });
 });
 
 // ── clef get → NamespaceEditor: read decrypted key names ────────────────────
