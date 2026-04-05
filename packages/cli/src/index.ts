@@ -26,9 +26,11 @@ import { registerReportCommand } from "./commands/report";
 import { registerInstallCommand } from "./commands/install";
 import { registerSearchCommand } from "./commands/search";
 import { registerMigrateBackendCommand } from "./commands/migrate-backend";
-import { registerCloudCommand } from "./commands/cloud";
+import { registerServeCommand } from "./commands/serve";
 import { formatter } from "./output/formatter";
-import { setPlainMode, isPlainMode, symbols } from "./output/symbols";
+import { setPlainMode, isPlainMode, symbols, sym } from "./output/symbols";
+import { openBrowser } from "./browser";
+import { createSopsClient } from "./age-credential";
 import pkg from "../package.json";
 
 const VERSION = pkg.version as string;
@@ -104,9 +106,41 @@ registerReportCommand(program, deps);
 registerInstallCommand(program, deps);
 registerSearchCommand(program, deps);
 registerMigrateBackendCommand(program, deps);
-registerCloudCommand(program, deps);
+registerServeCommand(program, deps);
 
-program.parseAsync(process.argv).catch((err) => {
-  formatter.error(err.message);
-  process.exit(1);
-});
+// Cloud commands are provided by @clef-sh/cloud (optional package).
+// If not installed, register a stub that tells users how to install it.
+// Set CLEF_CLOUD=1 to enable (not yet generally available).
+async function loadCloudPlugin(): Promise<void> {
+  if (!process.env.CLEF_CLOUD) return;
+
+  try {
+    const { registerCloudCommands } = await import("@clef-sh/cloud/cli");
+    registerCloudCommands(program, {
+      runner,
+      formatter,
+      sym,
+      openBrowser,
+      createSopsClient,
+      cliVersion: VERSION,
+    });
+  } catch {
+    program
+      .command("cloud")
+      .description("Manage Clef Cloud integration (requires @clef-sh/cloud).")
+      .action(() => {
+        formatter.print("Clef Cloud is not installed.\n");
+        formatter.print("Install it with:");
+        formatter.print("  npm install @clef-sh/cloud\n");
+        formatter.print("Then re-run:");
+        formatter.print("  clef cloud init --env <environment>");
+      });
+  }
+}
+
+loadCloudPlugin()
+  .then(() => program.parseAsync(process.argv))
+  .catch((err) => {
+    formatter.error(err.message);
+    process.exit(1);
+  });

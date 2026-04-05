@@ -1,10 +1,9 @@
-import * as fs from "fs";
-import * as path from "path";
 import * as crypto from "crypto";
 import { ClefManifest, EncryptionBackend, isKmsEnvelope } from "../types";
 import { KmsProvider } from "../kms";
 import { MatrixManager } from "../matrix/manager";
 import { PackConfig, PackResult, PackedArtifact } from "./types";
+import { FilePackOutput } from "./output";
 import { resolveIdentitySecrets } from "./resolve";
 import { buildSigningPayload, signEd25519, signKms } from "./signer";
 
@@ -120,11 +119,6 @@ export class ArtifactPacker {
       };
     }
 
-    const outputDir = path.dirname(config.outputPath);
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
-
     // Set expiresAt before signing — the signature covers this field
     if (config.ttl && config.ttl > 0) {
       artifact.expiresAt = new Date(Date.now() + config.ttl * 1000).toISOString();
@@ -145,12 +139,13 @@ export class ArtifactPacker {
     }
 
     const json = JSON.stringify(artifact, null, 2);
-    const tmpOutput = `${config.outputPath}.tmp.${process.pid}`;
-    fs.writeFileSync(tmpOutput, json, "utf-8");
-    fs.renameSync(tmpOutput, config.outputPath);
+
+    // Use provided output backend, or fall back to FilePackOutput for backward compat
+    const output = config.output ?? new FilePackOutput(config.outputPath ?? "artifact.json");
+    await output.write(artifact, json);
 
     return {
-      outputPath: config.outputPath,
+      outputPath: config.outputPath ?? "",
       namespaceCount: resolved.identity.namespaces.length,
       keyCount: Object.keys(resolved.values).length,
       artifactSize: Buffer.byteLength(json, "utf-8"),

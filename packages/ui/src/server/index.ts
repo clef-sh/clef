@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import * as path from "path";
 import { extname } from "path";
 import { randomBytes, timingSafeEqual } from "crypto";
@@ -169,7 +170,20 @@ export async function startServer(
   // npm-linked installs).  SEA binaries serve everything from the embedded
   // blob via mountSeaStaticRoutes above; the disk path doesn't exist.
   if (!isSeaBinary) {
-    const resolvedClientDir = clientDir ?? path.resolve(__dirname, "../client");
+    let resolvedClientDir = clientDir ?? path.resolve(__dirname, "../client");
+
+    // When the server code is inlined into another bundle (e.g. CLI via esbuild),
+    // __dirname points to the host bundle's dist dir, not @clef-sh/ui's.
+    // Fall back to resolving the package location at runtime.
+    if (!clientDir && !fs.existsSync(path.join(resolvedClientDir, "index.html"))) {
+      try {
+        // Dynamic string hides the specifier from esbuild's static analyzer
+        const uiPkg = require.resolve(`${"@clef-sh/ui"}/package.json`);
+        resolvedClientDir = path.join(path.dirname(uiPkg), "dist", "client");
+      } catch {
+        // Keep the __dirname fallback
+      }
+    }
     app.use(staticLimiter, express.static(resolvedClientDir));
 
     // SPA fallback — serve index.html for non-API routes.

@@ -101,7 +101,7 @@ export function Sidebar({
               marginTop: -1,
             }}
           >
-            local / main
+            {manifest?.sops.default_backend ?? "local"} / main
           </div>
         </div>
       </div>
@@ -233,28 +233,29 @@ export function Sidebar({
             {uncommittedCount} uncommitted
           </span>
         </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            color: theme.green,
-            marginTop: 5,
-          }}
-        >
-          <span
+        <div style={{ marginTop: 5 }}>
+          <div
             style={{
-              display: "inline-block",
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: theme.green,
-              boxShadow: `0 0 5px ${theme.green}`,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              color: theme.green,
             }}
-          />
-          <span style={{ fontFamily: theme.mono, fontSize: 10 }}>
-            {manifest?.sops.default_backend ?? "age"} key loaded
-          </span>
+          >
+            <span
+              style={{
+                display: "inline-block",
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: theme.green,
+                boxShadow: `0 0 5px ${theme.green}`,
+              }}
+            />
+            <span style={{ fontFamily: theme.mono, fontSize: 10 }}>
+              {manifest?.sops.default_backend ?? "age"} key loaded
+            </span>
+          </div>
         </div>
       </div>
     </div>
