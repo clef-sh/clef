@@ -68,7 +68,10 @@ export function registerMigrateBackendCommand(
     .option("--azure-kv-url <url>", "Migrate to Azure Key Vault with this URL")
     .option("--pgp-fingerprint <fp>", "Migrate to PGP with this fingerprint")
     .option("--age", "Migrate to age backend")
-    .option("--cloud <keyId>", "Migrate to Clef Cloud managed KMS (e.g. clef:integrationId/production)")
+    .option(
+      "--cloud <keyId>",
+      "Migrate to Clef Cloud managed KMS (e.g. clef:integrationId/production)",
+    )
     .option("-e, --environment <env>", "Scope migration to a single environment")
     .option("--dry-run", "Preview changes without modifying any files")
     .option("--skip-verify", "Skip post-migration verification step")
