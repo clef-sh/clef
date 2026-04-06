@@ -32,6 +32,13 @@ export type CreateSopsClientFn = (
  * Otherwise refreshes via the Cognito token endpoint.
  */
 export async function resolveAccessToken(): Promise<{ accessToken: string; endpoint?: string }> {
+  // Service account token — used in CI, no refresh needed
+  const clefToken = process.env.CLEF_TOKEN;
+  if (clefToken) {
+    const creds = readCloudCredentials();
+    return { accessToken: clefToken, endpoint: creds?.endpoint };
+  }
+
   const creds = readCloudCredentials();
   const refreshToken = process.env.CLEF_CLOUD_REFRESH_TOKEN ?? creds?.refreshToken;
 
@@ -39,16 +46,17 @@ export async function resolveAccessToken(): Promise<{ accessToken: string; endpo
     throw new Error("Not authenticated. Run 'clef cloud login' to connect to Clef Cloud.");
   }
 
-  if (!creds?.cognitoDomain || !creds?.clientId) {
-    throw new Error("Missing Cognito configuration. Run 'clef cloud login' to re-authenticate.");
-  }
-
+  // Return cached access token if still valid (before checking Cognito config)
   if (
-    creds.accessToken &&
-    creds.accessTokenExpiry &&
+    creds?.accessToken &&
+    creds?.accessTokenExpiry &&
     Date.now() < creds.accessTokenExpiry - 60000
   ) {
-    return { accessToken: creds.accessToken, endpoint: creds.endpoint };
+    return { accessToken: creds.accessToken, endpoint: creds?.endpoint };
+  }
+
+  if (!creds?.cognitoDomain || !creds?.clientId) {
+    throw new Error("Missing Cognito configuration. Run 'clef cloud login' to re-authenticate.");
   }
 
   const result = await refreshAccessToken({
