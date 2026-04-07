@@ -15,14 +15,24 @@ export interface DeviceSession {
   expiresIn: number;
 }
 
+export type DeviceFlowType = "login" | "setup";
+
 export interface DevicePollResult {
   status: "pending" | "awaiting_payment" | "complete" | "cancelled" | "expired";
-  /** Present when status is "complete". */
+  /** Cognito refresh token. Present when status is "complete". */
   token?: string;
+  /** Cognito access token. Present when status is "complete". */
+  accessToken?: string;
+  /** Access token lifetime in seconds. Present alongside accessToken. */
+  accessTokenExpiresIn?: number;
   /** Present when status is "complete". */
   integrationId?: string;
   /** Present when status is "complete". */
   keyId?: string;
+  /** Cognito OAuth2 domain URL for token refresh. Present when status is "complete". */
+  cognitoDomain?: string;
+  /** CLI Cognito app client ID. Present when status is "complete". */
+  clientId?: string;
 }
 
 /**
@@ -34,18 +44,27 @@ export interface DevicePollResult {
  */
 export async function initiateDeviceFlow(
   endpoint: string | undefined,
-  options: { repoName: string; environment: string; clientVersion: string },
+  options: {
+    repoName: string;
+    environment?: string;
+    clientVersion: string;
+    flow: DeviceFlowType;
+  },
 ): Promise<DeviceSession> {
   const base = endpoint ?? CLOUD_DEFAULT_ENDPOINT;
+  const payload: Record<string, string> = {
+    clientType: "cli",
+    clientVersion: options.clientVersion,
+    repoName: options.repoName,
+    flow: options.flow,
+  };
+  if (options.environment) {
+    payload.environment = options.environment;
+  }
   const res = await fetch(`${base}/api/v1/device/init`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      clientType: "cli",
-      clientVersion: options.clientVersion,
-      repoName: options.repoName,
-      environment: options.environment,
-    }),
+    body: JSON.stringify(payload),
   });
 
   if (!res.ok) {

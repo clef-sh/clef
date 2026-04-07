@@ -112,6 +112,7 @@ export type {
   KeyserviceSource,
   DeviceSession,
   DevicePollResult,
+  DeviceFlowType,
   RemotePackConfig,
   RemotePackResult,
 } from "./cloud";

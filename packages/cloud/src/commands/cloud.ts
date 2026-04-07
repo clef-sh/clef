@@ -15,9 +15,10 @@ import {
   initiateDeviceFlow,
   pollDeviceFlow,
   spawnKeyservice,
+  resolveAccessToken,
   CLOUD_DEFAULT_ENDPOINT,
 } from "../index";
-import type { DevicePollResult } from "../index";
+import type { DevicePollResult, ClefCloudCredentials } from "../index";
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -160,16 +161,15 @@ export function registerCloudCommands(program: Command, deps: CloudCliDeps): voi
         const cloudEndpoint = existingCreds?.endpoint ?? CLOUD_DEFAULT_ENDPOINT;
         formatter.print(`   Endpoint:  ${cloudEndpoint}`);
         formatter.print(
-          `   Creds:     ${existingCreds ? `token=${existingCreds.token ? "yes" : "no"}, endpoint=${existingCreds.endpoint}` : "none"}`,
+          `   Creds:     ${existingCreds ? `authenticated=${existingCreds.refreshToken ? "yes" : "no"}, endpoint=${existingCreds.endpoint}` : "none"}`,
         );
 
-        let token: string;
         let integrationId: string;
         let keyId: string;
+        let deviceFlowAccessToken: string | undefined;
 
-        if (existingCreds && existingCreds.token && manifest.cloud) {
+        if (existingCreds && existingCreds.refreshToken && manifest.cloud) {
           // Already authenticated and cloud config exists — skip device flow
-          token = existingCreds.token;
           integrationId = manifest.cloud.integrationId;
           keyId = manifest.cloud.keyId;
           formatter.print(`   Using existing Cloud integration: ${keyId}`);
@@ -180,6 +180,7 @@ export function registerCloudCommands(program: Command, deps: CloudCliDeps): voi
             repoName: path.basename(repoRoot),
             environment: opts.env,
             clientVersion: deps.cliVersion,
+            flow: "setup",
           });
 
           formatter.print(`   If the browser doesn't open, visit:\n   ${session.loginUrl}\n`);
@@ -204,11 +205,21 @@ export function registerCloudCommands(program: Command, deps: CloudCliDeps): voi
             return;
           }
 
-          token = result.token;
           integrationId = result.integrationId;
           keyId = result.keyId;
 
-          writeCloudCredentials({ token, endpoint: existingCreds?.endpoint });
+          const creds: ClefCloudCredentials = {
+            refreshToken: result.token,
+            endpoint: existingCreds?.endpoint,
+            cognitoDomain: result.cognitoDomain,
+            clientId: result.clientId,
+          };
+          if (result.accessToken && result.accessTokenExpiresIn) {
+            creds.accessToken = result.accessToken;
+            creds.accessTokenExpiry = Date.now() + result.accessTokenExpiresIn * 1000;
+            deviceFlowAccessToken = result.accessToken;
+          }
+          writeCloudCredentials(creds);
           formatter.success("Authorized");
         }
 
@@ -235,10 +246,14 @@ export function registerCloudCommands(program: Command, deps: CloudCliDeps): voi
           formatter.print(`   No encrypted files found for ${opts.env}.`);
         } else {
           const ageSopsClient = await deps.createSopsClient(repoRoot, runner);
+          const { accessToken, endpoint: ksEndpoint } = deviceFlowAccessToken
+            ? { accessToken: deviceFlowAccessToken, endpoint: cloudEndpoint }
+            : await resolveAccessToken();
+
           const ksHandle = await spawnKeyservice({
             binaryPath: keyservicePath,
-            token,
-            endpoint: existingCreds?.endpoint,
+            token: accessToken,
+            endpoint: ksEndpoint,
           });
 
           try {
@@ -300,8 +315,8 @@ export function registerCloudCommands(program: Command, deps: CloudCliDeps): voi
 
         const session = await initiateDeviceFlow(endpoint, {
           repoName: path.basename(process.cwd()),
-          environment: "",
           clientVersion: deps.cliVersion,
+          flow: "login",
         });
 
         formatter.print(`   Opening browser to log in...`);
@@ -327,8 +342,18 @@ export function registerCloudCommands(program: Command, deps: CloudCliDeps): voi
         }
 
         if (result.token) {
-          writeCloudCredentials({ token: result.token, endpoint });
-          formatter.success("Logged in. Token saved to ~/.clef/credentials.yaml");
+          const creds: ClefCloudCredentials = {
+            refreshToken: result.token,
+            endpoint,
+            cognitoDomain: result.cognitoDomain,
+            clientId: result.clientId,
+          };
+          if (result.accessToken && result.accessTokenExpiresIn) {
+            creds.accessToken = result.accessToken;
+            creds.accessTokenExpiry = Date.now() + result.accessTokenExpiresIn * 1000;
+          }
+          writeCloudCredentials(creds);
+          formatter.success("Logged in. Credentials saved to ~/.clef/credentials.yaml");
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

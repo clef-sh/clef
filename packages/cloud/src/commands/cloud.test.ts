@@ -42,6 +42,10 @@ jest.mock("../index", () => ({
     expiresIn: 900,
   }),
   pollDeviceFlow: jest.fn().mockResolvedValue({ status: "pending" }),
+  resolveAccessToken: jest.fn().mockResolvedValue({
+    accessToken: "fresh_access_token",
+    endpoint: "https://api.clef.sh",
+  }),
   CLOUD_DEFAULT_ENDPOINT: "https://api.clef.sh",
 }));
 
@@ -81,6 +85,7 @@ function getCloudMock() {
     initiateDeviceFlow: jest.Mock;
     pollDeviceFlow: jest.Mock;
     writeCloudCredentials: jest.Mock;
+    resolveAccessToken: jest.Mock;
   };
 }
 
@@ -167,11 +172,40 @@ describe("clef cloud login", () => {
     const { program } = makeProgram();
     await program.parseAsync(["node", "test", "cloud", "login"]);
 
-    expect(cloud.initiateDeviceFlow).toHaveBeenCalled();
+    expect(cloud.initiateDeviceFlow).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ flow: "login" }),
+    );
+    // Login flow should not send environment
+    const callArgs = cloud.initiateDeviceFlow.mock.calls[0][1];
+    expect(callArgs.environment).toBeUndefined();
+
     expect(cloud.writeCloudCredentials).toHaveBeenCalledWith(
-      expect.objectContaining({ token: "clef_tok_new" }),
+      expect.objectContaining({ refreshToken: "clef_tok_new" }),
     );
     expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Logged in"));
+  });
+
+  it("should save accessToken when server returns it", async () => {
+    const cloud = getCloudMock();
+    cloud.pollDeviceFlow.mockResolvedValueOnce({
+      status: "complete",
+      token: "refresh_tok",
+      accessToken: "access_tok",
+      accessTokenExpiresIn: 3600,
+      cognitoDomain: "https://auth.example.com",
+      clientId: "cli_123",
+    });
+
+    const { program } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "login"]);
+
+    expect(cloud.writeCloudCredentials).toHaveBeenCalledWith(
+      expect.objectContaining({
+        refreshToken: "refresh_tok",
+        accessToken: "access_tok",
+      }),
+    );
   });
 
   it("should handle expired session", async () => {
@@ -263,13 +297,92 @@ describe("clef cloud init", () => {
     const { program } = makeProgram();
     await program.parseAsync(["node", "test", "cloud", "init", "--env", "production"]);
 
+    expect(cloud.initiateDeviceFlow).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ flow: "setup", environment: "production" }),
+    );
     expect(cloud.writeCloudCredentials).toHaveBeenCalledWith(
-      expect.objectContaining({ token: "clef_tok_init" }),
+      expect.objectContaining({ refreshToken: "clef_tok_init" }),
     );
     expect(coreFull.writeManifestYaml).toHaveBeenCalled();
     expect(mockFormatter.print).toHaveBeenCalledWith(
       expect.stringContaining("Cloud setup complete"),
     );
+  });
+
+  it("should use accessToken from device flow when available", async () => {
+    const manifest = {
+      version: 1,
+      environments: [{ name: "production", description: "Prod" }],
+      namespaces: [{ name: "api", description: "API" }],
+      sops: { default_backend: "age" },
+      file_pattern: "{namespace}/{environment}.enc.yaml",
+    };
+    mockParse.mockReturnValue(manifest);
+
+    const cloud = getCloudMock();
+    cloud.readCloudCredentials.mockReturnValue(null);
+    cloud.pollDeviceFlow.mockResolvedValueOnce({
+      status: "complete",
+      token: "clef_tok_init",
+      accessToken: "device_flow_access_tok",
+      accessTokenExpiresIn: 3600,
+      integrationId: "int_new",
+      keyId: "clef:int_new/production",
+      cognitoDomain: "https://auth.example.com",
+      clientId: "cli_123",
+    });
+
+    const { program } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "init", "--env", "production"]);
+
+    // Should NOT call resolveAccessToken when device flow provides an access token
+    expect(cloud.resolveAccessToken).not.toHaveBeenCalled();
+    expect(cloud.writeCloudCredentials).toHaveBeenCalledWith(
+      expect.objectContaining({
+        refreshToken: "clef_tok_init",
+        accessToken: "device_flow_access_tok",
+      }),
+    );
+  });
+
+  it("should fall back to resolveAccessToken when no accessToken in poll", async () => {
+    const manifest = {
+      version: 1,
+      environments: [{ name: "production", description: "Prod" }],
+      namespaces: [{ name: "api", description: "API" }],
+      sops: { default_backend: "age" },
+      file_pattern: "{namespace}/{environment}.enc.yaml",
+    };
+    mockParse.mockReturnValue(manifest);
+
+    // Provide cells so the migration block executes
+    const coreMock = jest.requireMock("@clef-sh/core") as { MatrixManager: jest.Mock };
+    coreMock.MatrixManager.mockImplementationOnce(() => ({
+      resolveMatrix: jest.fn().mockReturnValue([
+        {
+          namespace: "api",
+          environment: "production",
+          filePath: "/tmp/api/production.enc.yaml",
+          exists: true,
+        },
+      ]),
+    }));
+
+    const cloud = getCloudMock();
+    cloud.readCloudCredentials.mockReturnValue(null);
+    cloud.pollDeviceFlow.mockResolvedValueOnce({
+      status: "complete",
+      token: "clef_tok_init",
+      integrationId: "int_new",
+      keyId: "clef:int_new/production",
+    });
+
+    const { program } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "init", "--env", "production"]);
+
+    // Should call resolveAccessToken as fallback
+    expect(cloud.resolveAccessToken).toHaveBeenCalled();
   });
 
   it("should skip device flow when already authenticated with cloud config", async () => {
@@ -285,8 +398,10 @@ describe("clef cloud init", () => {
 
     const cloud = getCloudMock();
     cloud.readCloudCredentials.mockReturnValue({
-      token: "existing_token",
+      refreshToken: "existing_refresh_token",
       endpoint: "https://api.clef.sh",
+      cognitoDomain: "https://auth.example.com",
+      clientId: "cli_123",
     });
 
     const coreFull = jest.requireMock("@clef-sh/core") as {

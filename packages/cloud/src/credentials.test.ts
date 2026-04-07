@@ -19,28 +19,27 @@ describe("readCloudCredentials", () => {
     expect(readCloudCredentials()).toBeNull();
   });
 
-  it("should read valid credentials", () => {
+  it("should read valid credentials with refreshToken", () => {
     mockFs.existsSync.mockReturnValue(true);
-    mockFs.readFileSync.mockReturnValue("token: clef_tok_abc123\nendpoint: https://custom.api\n");
+    mockFs.readFileSync.mockReturnValue(
+      "refreshToken: rt_abc123\ncognitoDomain: https://auth.example.com\nclientId: cli_123\nendpoint: https://custom.api\n",
+    );
 
     const result = readCloudCredentials();
 
-    expect(result).toEqual({
-      token: "clef_tok_abc123",
+    expect(result).toMatchObject({
+      refreshToken: "rt_abc123",
+      cognitoDomain: "https://auth.example.com",
+      clientId: "cli_123",
       endpoint: "https://custom.api",
     });
   });
 
-  it("should use default endpoint when not specified", () => {
+  it("should return null when only legacy token is present", () => {
     mockFs.existsSync.mockReturnValue(true);
     mockFs.readFileSync.mockReturnValue("token: clef_tok_abc123\n");
 
-    const result = readCloudCredentials();
-
-    expect(result).toEqual({
-      token: "clef_tok_abc123",
-      endpoint: "https://api.clef.sh",
-    });
+    expect(readCloudCredentials()).toBeNull();
   });
 
   it("should return null when token is missing", () => {
@@ -73,17 +72,17 @@ describe("writeCloudCredentials", () => {
   });
 
   it("should write credentials to ~/.clef/credentials.yaml", () => {
-    writeCloudCredentials({ token: "clef_tok_abc123" });
+    writeCloudCredentials({ refreshToken: "cognito_refresh_abc123" });
 
     expect(mockFs.writeFileSync).toHaveBeenCalledWith(
       "/home/test/.clef/credentials.yaml",
-      expect.stringContaining("clef_tok_abc123"),
+      expect.stringContaining("cognito_refresh_abc123"),
       { mode: 0o600 },
     );
   });
 
   it("should include endpoint when specified", () => {
-    writeCloudCredentials({ token: "tok", endpoint: "https://custom.api" });
+    writeCloudCredentials({ refreshToken: "tok", endpoint: "https://custom.api" });
 
     const written = mockFs.writeFileSync.mock.calls[0][1] as string;
     expect(written).toContain("custom.api");
@@ -92,7 +91,7 @@ describe("writeCloudCredentials", () => {
   it("should create ~/.clef/ directory if it does not exist", () => {
     mockFs.existsSync.mockReturnValue(false);
 
-    writeCloudCredentials({ token: "tok" });
+    writeCloudCredentials({ refreshToken: "tok" });
 
     expect(mockFs.mkdirSync).toHaveBeenCalledWith("/home/test/.clef", {
       recursive: true,

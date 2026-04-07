@@ -31,6 +31,7 @@ describe("initiateDeviceFlow", () => {
       repoName: "my-app",
       environment: "production",
       clientVersion: "0.1.11",
+      flow: "setup",
     });
 
     expect(result).toEqual(session);
@@ -52,6 +53,7 @@ describe("initiateDeviceFlow", () => {
       repoName: "r",
       environment: "e",
       clientVersion: "v",
+      flow: "setup",
     });
 
     expect(mockFetch).toHaveBeenCalledWith(
@@ -68,8 +70,42 @@ describe("initiateDeviceFlow", () => {
         repoName: "r",
         environment: "e",
         clientVersion: "v",
+        flow: "setup",
       }),
     ).rejects.toThrow("Device flow init failed (500)");
+  });
+
+  it("should include flow field and environment for setup flow", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(200, { sessionId: "s", loginUrl: "u", pollUrl: "p", expiresIn: 900 }),
+    );
+
+    await initiateDeviceFlow("https://api.clef.sh", {
+      repoName: "my-app",
+      environment: "production",
+      clientVersion: "0.1.0",
+      flow: "setup",
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.flow).toBe("setup");
+    expect(body.environment).toBe("production");
+  });
+
+  it("should omit environment for login flow", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(200, { sessionId: "s", loginUrl: "u", pollUrl: "p", expiresIn: 900 }),
+    );
+
+    await initiateDeviceFlow("https://api.clef.sh", {
+      repoName: "my-app",
+      clientVersion: "0.1.0",
+      flow: "login",
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.flow).toBe("login");
+    expect(body.environment).toBeUndefined();
   });
 });
 
@@ -102,6 +138,28 @@ describe("pollDeviceFlow", () => {
     expect(result.token).toBe("clef_tok_abc");
     expect(result.integrationId).toBe("int_abc123");
     expect(result.keyId).toBe("clef:int_abc123/production");
+  });
+
+  it("should return complete with accessToken when server provides it", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(200, {
+        status: "complete",
+        token: "refresh_tok",
+        accessToken: "access_tok",
+        accessTokenExpiresIn: 3600,
+        cognitoDomain: "https://auth.example.com",
+        clientId: "cli_123",
+        integrationId: "int_abc",
+        keyId: "clef:int_abc/prod",
+      }),
+    );
+
+    const result = await pollDeviceFlow("https://api.clef.sh/api/v1/device/poll/sess_abc");
+
+    expect(result.status).toBe("complete");
+    expect(result.accessToken).toBe("access_tok");
+    expect(result.accessTokenExpiresIn).toBe(3600);
+    expect(result.token).toBe("refresh_tok");
   });
 
   it("should return expired status", async () => {

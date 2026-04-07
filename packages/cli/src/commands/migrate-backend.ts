@@ -20,6 +20,7 @@ interface MigrateBackendFlags {
   azureKvUrl?: string;
   pgpFingerprint?: string;
   age?: boolean;
+  cloud?: string;
   environment?: string;
   dryRun?: boolean;
   skipVerify?: boolean;
@@ -33,11 +34,12 @@ function resolveTarget(opts: MigrateBackendFlags): MigrationTarget {
   if (opts.azureKvUrl) provided.push({ backend: "azurekv", key: opts.azureKvUrl });
   if (opts.pgpFingerprint) provided.push({ backend: "pgp", key: opts.pgpFingerprint });
   if (opts.age) provided.push({ backend: "age" });
+  if (opts.cloud) provided.push({ backend: "cloud", key: opts.cloud });
 
   if (provided.length === 0) {
     throw new Error(
       "No target backend specified. " +
-        "Provide one of: --aws-kms-arn, --gcp-kms-resource-id, --azure-kv-url, --pgp-fingerprint, or --age",
+        "Provide one of: --aws-kms-arn, --gcp-kms-resource-id, --azure-kv-url, --pgp-fingerprint, --age, or --cloud",
     );
   }
   if (provided.length > 1) {
@@ -66,6 +68,10 @@ export function registerMigrateBackendCommand(
     .option("--azure-kv-url <url>", "Migrate to Azure Key Vault with this URL")
     .option("--pgp-fingerprint <fp>", "Migrate to PGP with this fingerprint")
     .option("--age", "Migrate to age backend")
+    .option(
+      "--cloud <keyId>",
+      "Migrate to Clef Cloud managed KMS (e.g. clef:integrationId/production)",
+    )
     .option("-e, --environment <env>", "Scope migration to a single environment")
     .option("--dry-run", "Preview changes without modifying any files")
     .option("--skip-verify", "Skip post-migration verification step")

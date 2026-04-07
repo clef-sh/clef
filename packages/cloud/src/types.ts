@@ -1,9 +1,17 @@
 /** User-scoped Cloud credentials stored in ~/.clef/credentials.yaml. */
 export interface ClefCloudCredentials {
-  /** Bearer token for Cloud API authentication. */
-  token: string;
+  /** Cognito refresh token — long-lived, auto-refreshed to get access tokens. */
+  refreshToken: string;
+  /** Cached Cognito access token — short-lived, refreshed as needed. */
+  accessToken?: string;
+  /** Epoch ms when the cached access token expires. */
+  accessTokenExpiry?: number;
   /** Cloud API endpoint override. Defaults to https://api.clef.sh. */
   endpoint?: string;
+  /** Cognito OAuth2 domain for token refresh (e.g. https://clefcloud-123.auth.us-east-1.amazoncognito.com). */
+  cognitoDomain?: string;
+  /** Cognito CLI app client ID. */
+  clientId?: string;
 }
 
 // ── Cloud report types ─────────────────────────────────────────────────────

@@ -72,19 +72,11 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
 
           // --remote: send to Cloud for packing
           if (opts.remote) {
-            const { readCloudCredentials, CloudPackClient } = await import("@clef-sh/cloud");
-            const creds = readCloudCredentials();
-            const token = process.env.CLEF_CLOUD_TOKEN ?? creds?.token;
-            if (!token) {
-              formatter.error(
-                "Cloud token required. Set CLEF_CLOUD_TOKEN or run 'clef cloud login'.",
-              );
-              process.exit(1);
-              return;
-            }
+            const { resolveAccessToken, CloudPackClient } = await import("@clef-sh/cloud");
+            const { accessToken: token, endpoint } = await resolveAccessToken();
             const ttl = opts.ttl ? parseInt(opts.ttl, 10) : undefined;
             formatter.print(`${sym("working")}  Sending to Cloud for packing...`);
-            const packClient = new CloudPackClient(creds?.endpoint);
+            const packClient = new CloudPackClient(endpoint);
             const remoteResult = await packClient.pack(token, {
               identity,
               environment,
@@ -174,18 +166,10 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
 
           // --push: upload artifact to Cloud from memory
           if (opts.push && memOutput?.json) {
-            const { readCloudCredentials, CloudArtifactClient } = await import("@clef-sh/cloud");
-            const creds = readCloudCredentials();
-            const token = process.env.CLEF_CLOUD_TOKEN ?? creds?.token;
-            if (!token) {
-              formatter.error(
-                "Cloud token required. Set CLEF_CLOUD_TOKEN or run 'clef cloud login'.",
-              );
-              process.exit(1);
-              return;
-            }
+            const { resolveAccessToken, CloudArtifactClient } = await import("@clef-sh/cloud");
+            const { accessToken: token, endpoint } = await resolveAccessToken();
             formatter.print(`${sym("working")}  Uploading artifact to Cloud...`);
-            const artifactClient = new CloudArtifactClient(creds?.endpoint);
+            const artifactClient = new CloudArtifactClient(endpoint);
             await artifactClient.upload(token, {
               identity,
               environment,

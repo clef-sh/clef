@@ -24,14 +24,17 @@ export function readCloudCredentials(): ClefCloudCredentials | null {
   if (!raw || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
 
-  // Token may be absent before first login — endpoint should still be readable
-  const token = typeof obj.token === "string" && obj.token.length > 0 ? obj.token : "";
+  const refreshToken = typeof obj.refreshToken === "string" ? obj.refreshToken : "";
+  const accessToken = typeof obj.accessToken === "string" ? obj.accessToken : undefined;
+  const accessTokenExpiry =
+    typeof obj.accessTokenExpiry === "number" ? obj.accessTokenExpiry : undefined;
   const endpoint = typeof obj.endpoint === "string" ? obj.endpoint : CLOUD_DEFAULT_ENDPOINT;
+  const cognitoDomain = typeof obj.cognitoDomain === "string" ? obj.cognitoDomain : undefined;
+  const clientId = typeof obj.clientId === "string" ? obj.clientId : undefined;
 
-  // Return null only if neither token nor custom endpoint is present
-  if (!token && endpoint === CLOUD_DEFAULT_ENDPOINT) return null;
+  if (!refreshToken && endpoint === CLOUD_DEFAULT_ENDPOINT) return null;
 
-  return { token, endpoint };
+  return { refreshToken, accessToken, accessTokenExpiry, endpoint, cognitoDomain, clientId };
 }
 
 /**
@@ -43,9 +46,10 @@ export function writeCloudCredentials(credentials: ClefCloudCredentials): void {
   const clefDir = path.join(os.homedir(), ".clef");
   fs.mkdirSync(clefDir, { recursive: true, mode: 0o700 });
   const credPath = path.join(clefDir, CREDENTIALS_FILENAME);
-  const content: Record<string, string> = { token: credentials.token };
-  if (credentials.endpoint) {
-    content.endpoint = credentials.endpoint;
-  }
+
+  const content = Object.fromEntries(
+    Object.entries(credentials).filter(([, v]) => v !== undefined),
+  );
+
   fs.writeFileSync(credPath, YAML.stringify(content), { mode: 0o600 });
 }
