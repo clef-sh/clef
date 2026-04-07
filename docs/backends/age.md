@@ -10,7 +10,7 @@
 - You want to avoid cloud vendor dependencies
 - You are working in development, open source, or early-stage projects
 
-For teams that need IAM integration or centralised key management, consider [AWS KMS](/backends/aws-kms) or [GCP KMS](/backends/gcp-kms).
+For teams that need IAM integration or centralised key management, consider [AWS KMS](/backends/aws-kms) or [GCP KMS](/backends/gcp-kms). For a fully managed option that handles KMS provisioning without an AWS account, see [Clef Cloud](/cli/cloud).
 
 ## Key generation
 

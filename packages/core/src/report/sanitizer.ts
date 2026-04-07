@@ -4,7 +4,7 @@ import { LintIssue, ReportIssueCounts, ReportPolicy, ReportPolicyIssue } from ".
  * Transforms raw `LintIssue[]` from LintRunner into `ReportPolicy` with all
  * key names stripped and similar issues aggregated into counts.
  *
- * This is the trust boundary for Clef Pro: nothing emitted by this class
+ * This is the trust boundary for Clef Cloud: nothing emitted by this class
  * should contain a secret key name.
  */
 export class ReportSanitizer {

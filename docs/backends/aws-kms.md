@@ -160,4 +160,5 @@ No key files to generate, distribute, or rotate.
 
 - [age](/backends/age) — simpler alternative for teams without AWS
 - [GCP KMS](/backends/gcp-kms) — similar cloud-managed approach for GCP
+- [Clef Cloud](/cli/cloud) — managed KMS without needing an AWS account or ARN
 - [clef init](/cli/init) — initialising with a KMS backend
