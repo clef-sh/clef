@@ -70,7 +70,8 @@ export async function initiateDeviceFlow(
     });
   } catch (err) {
     const cause = err instanceof Error ? (err as Error & { cause?: unknown }).cause : undefined;
-    const reason = cause instanceof Error ? cause.message : err instanceof Error ? err.message : String(err);
+    const reason =
+      cause instanceof Error ? cause.message : err instanceof Error ? err.message : String(err);
     throw new Error(`Could not reach Clef Cloud at ${base}: ${reason}`);
   }
 
@@ -103,7 +104,8 @@ export async function pollDeviceFlow(pollUrl: string): Promise<DevicePollResult>
     res = await fetch(pollUrl);
   } catch (err) {
     const cause = err instanceof Error ? (err as Error & { cause?: unknown }).cause : undefined;
-    const reason = cause instanceof Error ? cause.message : err instanceof Error ? err.message : String(err);
+    const reason =
+      cause instanceof Error ? cause.message : err instanceof Error ? err.message : String(err);
     throw new Error(`Could not reach Clef Cloud poll endpoint: ${reason}`);
   }
 
