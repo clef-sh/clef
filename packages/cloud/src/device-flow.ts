@@ -61,11 +61,18 @@ export async function initiateDeviceFlow(
   if (options.environment) {
     payload.environment = options.environment;
   }
-  const res = await fetch(`${base}/api/v1/device/init`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/v1/device/init`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    const cause = err instanceof Error ? (err as Error & { cause?: unknown }).cause : undefined;
+    const reason = cause instanceof Error ? cause.message : err instanceof Error ? err.message : String(err);
+    throw new Error(`Could not reach Clef Cloud at ${base}: ${reason}`);
+  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -91,7 +98,14 @@ export async function initiateDeviceFlow(
  * @returns The current session state.
  */
 export async function pollDeviceFlow(pollUrl: string): Promise<DevicePollResult> {
-  const res = await fetch(pollUrl);
+  let res: Response;
+  try {
+    res = await fetch(pollUrl);
+  } catch (err) {
+    const cause = err instanceof Error ? (err as Error & { cause?: unknown }).cause : undefined;
+    const reason = cause instanceof Error ? cause.message : err instanceof Error ? err.message : String(err);
+    throw new Error(`Could not reach Clef Cloud poll endpoint: ${reason}`);
+  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
