@@ -69,10 +69,12 @@ export { ServiceIdentityManager, PartialRotationError } from "./service-identity
 export { resolveIdentitySecrets } from "./artifact/resolve";
 export type { ResolvedSecrets } from "./artifact/resolve";
 export { ArtifactPacker } from "./artifact/packer";
+export { FilePackOutput, MemoryPackOutput } from "./artifact/output";
 export type {
   PackedArtifact,
   PackConfig,
   PackResult,
+  PackOutput,
   ArtifactEnvelope,
   SignatureAlgorithm,
 } from "./artifact/types";
@@ -110,6 +112,7 @@ export type {
   KeyserviceSource,
   DeviceSession,
   DevicePollResult,
+  DeviceFlowType,
   RemotePackConfig,
   RemotePackResult,
 } from "./cloud";

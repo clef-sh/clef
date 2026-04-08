@@ -43,4 +43,10 @@ module.exports = [
       "no-console": "warn",
     },
   },
+  {
+    files: ["**/*.test.ts", "**/*.spec.ts"],
+    rules: {
+      "no-console": "off",
+    },
+  },
 ];

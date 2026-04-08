@@ -1,16 +1,9 @@
 /**
  * Creates a SopsClient that is cloud-aware: if any environment in the manifest
- * uses the cloud backend, spawns the keyservice sidecar and passes its address
- * to the SopsClient. Returns a cleanup function to kill the sidecar.
+ * uses the cloud backend, dynamically loads @clef-sh/cloud to spawn the
+ * keyservice sidecar and passes its address to the SopsClient.
  */
-import {
-  ClefManifest,
-  SopsClient,
-  SubprocessRunner,
-  readCloudCredentials,
-  resolveKeyservicePath,
-  spawnKeyservice,
-} from "@clef-sh/core";
+import { ClefManifest, SopsClient, SubprocessRunner } from "@clef-sh/core";
 import { createSopsClient } from "./age-credential";
 
 export interface CloudAwareSopsResult {
@@ -22,8 +15,8 @@ export interface CloudAwareSopsResult {
  * Create a SopsClient with cloud backend support.
  *
  * If the manifest has any environment using the "cloud" backend (or
- * default_backend is "cloud"), spawns the keyservice sidecar and creates
- * a SopsClient with the keyservice address.
+ * default_backend is "cloud"), dynamically imports @clef-sh/cloud to spawn
+ * the keyservice sidecar and creates a SopsClient with the keyservice address.
  *
  * Otherwise, returns a standard age-based SopsClient with a no-op cleanup.
  */
@@ -41,22 +34,15 @@ export async function createCloudAwareSopsClient(
     return { client, cleanup: async () => {} };
   }
 
-  const creds = readCloudCredentials();
-  const token = process.env.CLEF_CLOUD_TOKEN ?? creds?.token;
-  if (!token) {
-    throw new Error("Cloud token required. Set CLEF_CLOUD_TOKEN or run 'clef cloud login'.");
+  let cloud;
+  try {
+    cloud = await import("@clef-sh/cloud");
+  } catch {
+    throw new Error(
+      "This repository uses the Cloud backend but @clef-sh/cloud is not installed.\n" +
+        "Install it with: npm install @clef-sh/cloud",
+    );
   }
 
-  const binaryPath = resolveKeyservicePath().path;
-  const handle = await spawnKeyservice({
-    binaryPath,
-    token,
-    endpoint: creds?.endpoint,
-  });
-
-  const client = await createSopsClient(repoRoot, runner, handle.addr);
-  return {
-    client,
-    cleanup: () => handle.kill(),
-  };
+  return cloud.createCloudSopsClient(repoRoot, runner, createSopsClient);
 }

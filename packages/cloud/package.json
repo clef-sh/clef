@@ -1,0 +1,95 @@
+{
+  "name": "@clef-sh/cloud",
+  "version": "0.1.16-alpha.80",
+  "description": "Clef Cloud integration — managed KMS, device-flow auth, artifact hosting",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clef-sh/clef",
+    "directory": "packages/cloud"
+  },
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./cli": {
+      "import": {
+        "types": "./dist/cli.d.mts",
+        "default": "./dist/cli.mjs"
+      },
+      "require": {
+        "types": "./dist/cli.d.ts",
+        "default": "./dist/cli.js"
+      }
+    },
+    "./ui": {
+      "import": {
+        "types": "./dist/ui/index.d.mts",
+        "default": "./dist/ui/index.mjs"
+      },
+      "require": {
+        "types": "./dist/ui/index.d.ts",
+        "default": "./dist/ui/index.js"
+      }
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "cli": [
+        "dist/cli.d.ts"
+      ],
+      "ui": [
+        "dist/ui/index.d.ts"
+      ]
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --noEmit && node scripts/build.mjs",
+    "test": "jest",
+    "test:coverage": "jest --coverage"
+  },
+  "dependencies": {
+    "yaml": "^2.8.3"
+  },
+  "optionalDependencies": {
+    "@clef-sh/keyservice-darwin-arm64": "0.1.5",
+    "@clef-sh/keyservice-darwin-x64": "0.1.5",
+    "@clef-sh/keyservice-linux-x64": "0.1.5",
+    "@clef-sh/keyservice-linux-arm64": "0.1.5",
+    "@clef-sh/keyservice-win32-x64": "0.1.5"
+  },
+  "peerDependencies": {
+    "@clef-sh/core": ">=0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@clef-sh/core": {
+      "optional": false
+    }
+  },
+  "devDependencies": {
+    "@clef-sh/core": "*",
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.27.4",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.4.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "license": "MIT"
+}

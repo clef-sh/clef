@@ -4,26 +4,47 @@ import {
   ManifestParser,
   MatrixManager,
   SubprocessRunner,
+  SopsClient,
+  readManifestYaml,
+  writeManifestYaml,
+} from "@clef-sh/core";
+import {
   readCloudCredentials,
   writeCloudCredentials,
   resolveKeyservicePath,
   initiateDeviceFlow,
   pollDeviceFlow,
   spawnKeyservice,
-  readManifestYaml,
-  writeManifestYaml,
-} from "@clef-sh/core";
-import type { DevicePollResult } from "@clef-sh/core";
-import { formatter } from "../output/formatter";
-import { sym } from "../output/symbols";
-import { openBrowser } from "../browser";
-import { createSopsClient } from "../age-credential";
-import pkg from "../../package.json";
+  resolveAccessToken,
+  CLOUD_DEFAULT_ENDPOINT,
+} from "../index";
+import type { DevicePollResult, ClefCloudCredentials } from "../index";
 
 const POLL_INTERVAL_MS = 2000;
-const CLI_VERSION = pkg.version as string;
 
-export function registerCloudCommand(program: Command, deps: { runner: SubprocessRunner }): void {
+/** CLI utilities injected by the host CLI package. */
+export interface CloudCliDeps {
+  runner: SubprocessRunner;
+  formatter: {
+    print(msg: string): void;
+    success(msg: string): void;
+    error(msg: string): void;
+    warn(msg: string): void;
+    info(msg: string): void;
+    hint(msg: string): void;
+  };
+  sym(name: string): string;
+  openBrowser(url: string, runner: SubprocessRunner): Promise<boolean>;
+  createSopsClient(
+    repoRoot: string,
+    runner: SubprocessRunner,
+    keyserviceAddr?: string,
+  ): Promise<SopsClient>;
+  cliVersion: string;
+}
+
+export function registerCloudCommands(program: Command, deps: CloudCliDeps): void {
+  const { formatter, sym, runner } = deps;
   const cloud = program.command("cloud").description("Manage Clef Cloud integration.");
 
   cloud
@@ -83,7 +104,7 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
           formatter.print(`   Keyservice:   ${ks.source} (${ks.path})`);
         } catch {
           formatter.print(`   Keyservice:   not found`);
-          formatter.hint("   Reinstall the CLI: npm install @clef-sh/cli");
+          formatter.hint("   Install the cloud package: npm install @clef-sh/cloud");
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -127,7 +148,7 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
           keyservicePath = resolveKeyservicePath().path;
         } catch {
           formatter.error(
-            "Keyservice binary not found. Reinstall the CLI: npm install @clef-sh/cli",
+            "Keyservice binary not found. Install the cloud package: npm install @clef-sh/cloud",
           );
           process.exit(1);
           return;
@@ -137,28 +158,34 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
 
         // Device flow — auth + payment
         const existingCreds = readCloudCredentials();
-        let token: string;
+        const cloudEndpoint = existingCreds?.endpoint ?? CLOUD_DEFAULT_ENDPOINT;
+        formatter.print(`   Endpoint:  ${cloudEndpoint}`);
+        formatter.print(
+          `   Creds:     ${existingCreds ? `authenticated=${existingCreds.refreshToken ? "yes" : "no"}, endpoint=${existingCreds.endpoint}` : "none"}`,
+        );
+
         let integrationId: string;
         let keyId: string;
+        let deviceFlowAccessToken: string | undefined;
 
-        if (existingCreds && manifest.cloud) {
+        if (existingCreds && existingCreds.refreshToken && manifest.cloud) {
           // Already authenticated and cloud config exists — skip device flow
-          token = existingCreds.token;
           integrationId = manifest.cloud.integrationId;
           keyId = manifest.cloud.keyId;
           formatter.print(`   Using existing Cloud integration: ${keyId}`);
         } else {
           formatter.print(`   Opening browser to set up Cloud for ${opts.env}...`);
 
-          const session = await initiateDeviceFlow(existingCreds?.endpoint, {
+          const session = await initiateDeviceFlow(cloudEndpoint, {
             repoName: path.basename(repoRoot),
             environment: opts.env,
-            clientVersion: CLI_VERSION,
+            clientVersion: deps.cliVersion,
+            flow: "setup",
           });
 
           formatter.print(`   If the browser doesn't open, visit:\n   ${session.loginUrl}\n`);
 
-          await openBrowser(session.loginUrl, deps.runner);
+          await deps.openBrowser(session.loginUrl, runner);
           formatter.print(`   Waiting for authorization... (press Ctrl+C to cancel)`);
 
           const result = await pollUntilComplete(session.pollUrl);
@@ -178,16 +205,84 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
             return;
           }
 
-          token = result.token;
           integrationId = result.integrationId;
           keyId = result.keyId;
 
-          writeCloudCredentials({ token, endpoint: existingCreds?.endpoint });
+          const creds: ClefCloudCredentials = {
+            refreshToken: result.token,
+            endpoint: existingCreds?.endpoint,
+            cognitoDomain: result.cognitoDomain,
+            clientId: result.clientId,
+          };
+          if (result.accessToken && result.accessTokenExpiresIn) {
+            creds.accessToken = result.accessToken;
+            creds.accessTokenExpiry = Date.now() + result.accessTokenExpiresIn * 1000;
+            deviceFlowAccessToken = result.accessToken;
+          }
+          writeCloudCredentials(creds);
           formatter.success("Authorized");
         }
 
         formatter.print(`\n   Provisioning Cloud backend for ${opts.env}...`);
+        formatter.print(`   ${sym("success")}  KMS key provisioned: ${keyId}`);
 
+        formatter.print(`\n   Migrating ${opts.env} secrets to Cloud backend...`);
+
+        // Build the cloud-enabled manifest in memory — don't write to disk yet
+        // so a failed migration can be retried with `clef cloud init` again.
+        const cloudManifest = structuredClone(manifest);
+        cloudManifest.cloud = { integrationId, keyId };
+        const cloudEnv = cloudManifest.environments.find((e) => e.name === opts.env);
+        if (cloudEnv) {
+          cloudEnv.sops = { backend: "cloud" };
+        }
+
+        const matrixManager = new MatrixManager();
+        const cells = matrixManager
+          .resolveMatrix(manifest, repoRoot)
+          .filter((c) => c.environment === opts.env && c.exists);
+
+        if (cells.length === 0) {
+          formatter.print(`   No encrypted files found for ${opts.env}.`);
+        } else {
+          const ageSopsClient = await deps.createSopsClient(repoRoot, runner);
+          const { accessToken, endpoint: ksEndpoint } = deviceFlowAccessToken
+            ? { accessToken: deviceFlowAccessToken, endpoint: cloudEndpoint }
+            : await resolveAccessToken();
+
+          const ksHandle = await spawnKeyservice({
+            binaryPath: keyservicePath,
+            token: accessToken,
+            endpoint: ksEndpoint,
+          });
+
+          try {
+            const cloudSopsClient = await deps.createSopsClient(repoRoot, runner, ksHandle.addr);
+
+            for (const cell of cells) {
+              const decrypted = await ageSopsClient.decrypt(cell.filePath);
+              await cloudSopsClient.encrypt(
+                cell.filePath,
+                decrypted.values,
+                cloudManifest,
+                cell.environment,
+              );
+              const relPath = path.relative(repoRoot, cell.filePath);
+              formatter.print(`   ${sym("success")}  ${relPath}`);
+            }
+
+            formatter.print(`\n   Verifying encrypted files...`);
+            for (const cell of cells) {
+              await cloudSopsClient.decrypt(cell.filePath);
+              const relPath = path.relative(repoRoot, cell.filePath);
+              formatter.print(`   ${sym("success")}  ${relPath}`);
+            }
+          } finally {
+            await ksHandle.kill();
+          }
+        }
+
+        // Migration succeeded — now persist the manifest changes
         const rawManifest = readManifestYaml(repoRoot);
         rawManifest.cloud = { integrationId, keyId };
         const envs = rawManifest.environments as Array<Record<string, unknown>>;
@@ -196,44 +291,6 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
           targetRawEnv.sops = { backend: "cloud" };
         }
         writeManifestYaml(repoRoot, rawManifest);
-        formatter.print(`   ${sym("success")}  KMS key provisioned: ${keyId}`);
-
-        formatter.print(`\n   Migrating ${opts.env} secrets to Cloud backend...`);
-
-        const updatedManifest = parser.parse(path.join(repoRoot, "clef.yaml"));
-        const matrixManager = new MatrixManager();
-        const cells = matrixManager
-          .resolveMatrix(updatedManifest, repoRoot)
-          .filter((c) => c.environment === opts.env && c.exists);
-
-        if (cells.length === 0) {
-          formatter.print(`   No encrypted files found for ${opts.env}.`);
-        } else {
-          const ageSopsClient = await createSopsClient(repoRoot, deps.runner);
-          const ksHandle = await spawnKeyservice({
-            binaryPath: keyservicePath,
-            token,
-            endpoint: existingCreds?.endpoint,
-          });
-
-          try {
-            const cloudSopsClient = await createSopsClient(repoRoot, deps.runner, ksHandle.addr);
-
-            for (const cell of cells) {
-              const decrypted = await ageSopsClient.decrypt(cell.filePath);
-              await cloudSopsClient.encrypt(
-                cell.filePath,
-                decrypted.values,
-                updatedManifest,
-                cell.environment,
-              );
-              const relPath = path.relative(repoRoot, cell.filePath);
-              formatter.print(`   ${sym("success")}  ${relPath}`);
-            }
-          } finally {
-            await ksHandle.kill();
-          }
-        }
 
         formatter.print(`\n   ${sym("success")}  Cloud setup complete.\n`);
         formatter.print(`   Your ${opts.env} environment now uses Clef Cloud for encryption.`);
@@ -258,14 +315,14 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
 
         const session = await initiateDeviceFlow(endpoint, {
           repoName: path.basename(process.cwd()),
-          environment: "",
-          clientVersion: CLI_VERSION,
+          clientVersion: deps.cliVersion,
+          flow: "login",
         });
 
         formatter.print(`   Opening browser to log in...`);
         formatter.print(`   If the browser doesn't open, visit:\n   ${session.loginUrl}\n`);
 
-        const opened = await openBrowser(session.loginUrl, deps.runner);
+        const opened = await deps.openBrowser(session.loginUrl, runner);
         if (!opened) {
           formatter.warn("Could not open browser automatically. Visit the URL above.");
         }
@@ -285,8 +342,18 @@ export function registerCloudCommand(program: Command, deps: { runner: Subproces
         }
 
         if (result.token) {
-          writeCloudCredentials({ token: result.token, endpoint });
-          formatter.success("Logged in. Token saved to ~/.clef/credentials.yaml");
+          const creds: ClefCloudCredentials = {
+            refreshToken: result.token,
+            endpoint,
+            cognitoDomain: result.cognitoDomain,
+            clientId: result.clientId,
+          };
+          if (result.accessToken && result.accessTokenExpiresIn) {
+            creds.accessToken = result.accessToken;
+            creds.accessTokenExpiry = Date.now() + result.accessTokenExpiresIn * 1000;
+          }
+          writeCloudCredentials(creds);
+          formatter.success("Logged in. Credentials saved to ~/.clef/credentials.yaml");
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

@@ -197,6 +197,7 @@ export default function App() {
         {view === "backend" && (
           <BackendScreen manifest={manifest} setView={setView} reloadManifest={loadManifest} />
         )}
+        {view === "cloud" && null}
         {view === "history" && <GitLogView manifest={manifest} />}
       </div>
     </div>
