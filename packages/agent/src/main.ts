@@ -16,6 +16,8 @@ import {
   createVcsProvider,
   VcsArtifactSource,
   HttpArtifactSource,
+  S3ArtifactSource,
+  isS3Url,
   FileArtifactSource,
   DiskCache,
   TelemetryEmitter,
@@ -24,6 +26,7 @@ import type { ArtifactSource } from "@clef-sh/runtime";
 import { startAgentServer } from "./server";
 import { Daemon } from "./lifecycle/daemon";
 import { LambdaExtension } from "./lifecycle/lambda-extension";
+import { initialFetch } from "./initial-fetch";
 
 import { version as agentVersion } from "../package.json";
 
@@ -54,10 +57,13 @@ async function main(): Promise<void> {
     });
     source = new VcsArtifactSource(provider, config.vcs.identity, config.vcs.environment);
   } else if (config.source) {
-    source =
-      config.source.startsWith("http://") || config.source.startsWith("https://")
-        ? new HttpArtifactSource(config.source)
-        : new FileArtifactSource(config.source);
+    if (isS3Url(config.source)) {
+      source = new S3ArtifactSource(config.source);
+    } else if (config.source.startsWith("http://") || config.source.startsWith("https://")) {
+      source = new HttpArtifactSource(config.source);
+    } else {
+      source = new FileArtifactSource(config.source);
+    }
   } else {
     throw new ConfigError("No artifact source configured.");
   }
@@ -81,17 +87,11 @@ async function main(): Promise<void> {
     onError: (err) => console.error(`[clef-agent] poll error: ${err.message}`),
   });
 
-  if (jitMode) {
-    // JIT mode: fetch + validate (no decrypt) — stores encrypted artifact
-    await poller.fetchAndValidate();
+  const sourceDesc = source.describe();
+  console.log(`[clef-agent] source: ${sourceDesc}`);
+  console.log(`[clef-agent] fetching initial artifact...`);
 
-    // One-shot decrypt for telemetry bootstrap, then wipe the cache
-    const artifact = encryptedStore!.get()!;
-    const { values } = await poller.getDecryptor().decrypt(artifact);
-    cache.swap(values, artifact.keys, artifact.revision);
-  } else {
-    await poller.fetchAndDecrypt();
-  }
+  await initialFetch(poller, jitMode, encryptedStore, cache, sourceDesc);
 
   // Telemetry setup — after first fetch so the auth token can be read from packed secrets
   let telemetry: TelemetryEmitter | undefined;
@@ -172,6 +172,9 @@ main().catch((err) => {
     console.error(`[clef-agent] config error: ${err.message}`);
   } else {
     console.error(`[clef-agent] fatal: ${err.message}`);
+    if (err instanceof Error && err.stack) {
+      console.error(err.stack);
+    }
   }
   process.exit(1);
 });

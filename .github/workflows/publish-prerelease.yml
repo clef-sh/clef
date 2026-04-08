@@ -113,6 +113,10 @@ jobs:
             || cp packages/broker/package.json /tmp/broker-main.json
           git show origin/main:packages/ui/package.json    > /tmp/ui-main.json 2>/dev/null \
             || cp packages/ui/package.json /tmp/ui-main.json
+          git show origin/main:packages/cloud/package.json > /tmp/cloud-main.json 2>/dev/null \
+            || cp packages/cloud/package.json /tmp/cloud-main.json
+          git show origin/main:packages/analytics/package.json > /tmp/analytics-main.json 2>/dev/null \
+            || cp packages/analytics/package.json /tmp/analytics-main.json
 
           # Compute the next semver for a package by replaying the same bump rules
           # used by the release workflow against commits since the last release tag.
@@ -158,6 +162,8 @@ jobs:
           }
 
           CORE_BASE=$(node -p "require('/tmp/core-main.json').version.replace(/-.*/, '')")
+          CLOUD_BASE=$(node -p "require('/tmp/cloud-main.json').version.replace(/-.*/, '')")
+          ANALYTICS_BASE=$(node -p "require('/tmp/analytics-main.json').version.replace(/-.*/, '')")
           RUNTIME_BASE=$(node -p "require('/tmp/runtime-main.json').version.replace(/-.*/, '')")
           CLI_BASE=$(node -p "require('/tmp/cli-main.json').version.replace(/-.*/, '')")
           AGENT_BASE=$(node -p "require('/tmp/agent-main.json').version.replace(/-.*/, '')")
@@ -165,13 +171,17 @@ jobs:
           UI_BASE=$(node -p "require('/tmp/ui-main.json').version.replace(/-.*/, '')")
 
           CORE_NEXT=$(next_version    "@clef-sh/core"    "packages/core"    "$CORE_BASE")
-          RUNTIME_NEXT=$(next_version "@clef-sh/runtime" "packages/runtime" "$RUNTIME_BASE")
+          CLOUD_NEXT=$(next_version     "@clef-sh/cloud"     "packages/cloud"     "$CLOUD_BASE")
+          ANALYTICS_NEXT=$(next_version "@clef-sh/analytics" "packages/analytics" "$ANALYTICS_BASE")
+          RUNTIME_NEXT=$(next_version   "@clef-sh/runtime"   "packages/runtime"   "$RUNTIME_BASE")
           CLI_NEXT=$(next_version     "@clef-sh/cli"     "packages/cli"     "$CLI_BASE")
           AGENT_NEXT=$(next_version   "@clef-sh/agent"   "packages/agent"   "$AGENT_BASE")
           BROKER_NEXT=$(next_version  "@clef-sh/broker"  "packages/broker"  "$BROKER_BASE")
           UI_NEXT=$(next_version      "@clef-sh/ui"      "packages/ui"      "$UI_BASE")
 
           CORE_VER="${CORE_NEXT}-${PRE}.${{ github.run_number }}"
+          CLOUD_VER="${CLOUD_NEXT}-${PRE}.${{ github.run_number }}"
+          ANALYTICS_VER="${ANALYTICS_NEXT}-${PRE}.${{ github.run_number }}"
           RUNTIME_VER="${RUNTIME_NEXT}-${PRE}.${{ github.run_number }}"
           CLI_VER="${CLI_NEXT}-${PRE}.${{ github.run_number }}"
           AGENT_VER="${AGENT_NEXT}-${PRE}.${{ github.run_number }}"
@@ -189,7 +199,9 @@ jobs:
           "; }
 
           stamp packages/core    "$CORE_VER"
-          stamp packages/runtime "$RUNTIME_VER"
+          stamp packages/cloud     "$CLOUD_VER"
+          stamp packages/analytics "$ANALYTICS_VER"
+          stamp packages/runtime   "$RUNTIME_VER"
           stamp packages/cli     "$CLI_VER"
           stamp packages/agent   "$AGENT_VER"
           stamp packages/broker  "$BROKER_VER"
@@ -198,7 +210,9 @@ jobs:
           echo "dist_tag=${DIST_TAG}"            >> "$GITHUB_OUTPUT"
           echo "prerelease=${PRE}"               >> "$GITHUB_OUTPUT"
           echo "core_version=${CORE_VER}"        >> "$GITHUB_OUTPUT"
-          echo "runtime_version=${RUNTIME_VER}"  >> "$GITHUB_OUTPUT"
+          echo "cloud_version=${CLOUD_VER}"          >> "$GITHUB_OUTPUT"
+          echo "analytics_version=${ANALYTICS_VER}"  >> "$GITHUB_OUTPUT"
+          echo "runtime_version=${RUNTIME_VER}"      >> "$GITHUB_OUTPUT"
           echo "cli_version=${CLI_VER}"          >> "$GITHUB_OUTPUT"
           echo "agent_version=${AGENT_VER}"      >> "$GITHUB_OUTPUT"
           echo "broker_version=${BROKER_VER}"    >> "$GITHUB_OUTPUT"
@@ -214,6 +228,20 @@ jobs:
       - name: Publish @clef-sh/core (alpha)
         if: github.ref_name == 'dev'
         working-directory: packages/core
+        run: npm publish --tag alpha --access restricted --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/cloud (alpha)
+        if: github.ref_name == 'dev'
+        working-directory: packages/cloud
+        run: npm publish --tag alpha --access restricted --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/analytics (alpha)
+        if: github.ref_name == 'dev'
+        working-directory: packages/analytics
         run: npm publish --tag alpha --access restricted --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -257,6 +285,20 @@ jobs:
       - name: Publish @clef-sh/core (beta)
         if: github.ref_name == 'staging'
         working-directory: packages/core
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/cloud (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/cloud
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/analytics (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/analytics
         run: npm publish --tag beta --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -324,6 +366,8 @@ jobs:
 
           git add \
             packages/core/package.json \
+            packages/cloud/package.json \
+            packages/analytics/package.json \
             packages/runtime/package.json \
             packages/cli/package.json \
             packages/agent/package.json \

@@ -109,7 +109,7 @@ describe("broker integration — real age-encryption", () => {
     expect(artifact.version).toBe(1);
     expect(artifact.identity).toBe("rds-primary");
     expect(artifact.environment).toBe("production");
-    expect(artifact.keys).toEqual(["DB_TOKEN", "DB_HOST"]);
+    expect(JSON.parse(envelopeJson).keys).toBeUndefined();
     expect(artifact.expiresAt).toBeTruthy();
     expect(artifact.envelope).toBeDefined();
     expect(artifact.envelope.provider).toBe("test");
@@ -184,7 +184,8 @@ describe("broker integration — real age-encryption", () => {
     );
 
     expect(envelopeJson).not.toContain("super-secret-p@ssw0rd!");
-    expect(envelopeJson).toContain("SECRET_PASSWORD");
+    // Key names are no longer included in the envelope (removed for security)
+    expect(envelopeJson).not.toContain("SECRET_PASSWORD");
   });
 
   it("expiresAt timestamp is ttl seconds in the future", () => {

@@ -32,12 +32,14 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
   const [newValue, setNewValue] = useState("");
   const [overflowKey, setOverflowKey] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [commitMessage, setCommitMessage] = useState("");
   const [showCommitInput, setShowCommitInput] = useState(false);
   const [sopsInfo, setSopsInfo] = useState("");
   const [lintIssues, setLintIssues] = useState<LintIssue[]>([]);
+  const [protectedConfirm, setProtectedConfirm] = useState<"save" | "add" | null>(null);
 
   const revealTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -47,6 +49,7 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
   useEffect(() => () => clearTimeout(revealTimeoutRef.current), []);
 
   const environments = manifest?.environments ?? [];
+  const isProduction = environments.find((e) => e.name === env)?.protected === true;
 
   useEffect(() => {
     if (environments.length > 0 && !env) {
@@ -124,15 +127,19 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
     setRows((r) => r.map((row) => (row.key === key ? { ...row, value: val, edited: true } : row)));
   };
 
-  const handleSave = async () => {
+  const handleSave = async (confirmed?: boolean) => {
     const dirtyRows = rows.filter((r) => r.edited);
-    for (const row of dirtyRows) {
-      await apiFetch(`/api/namespace/${ns}/${env}/${row.key}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: row.value }),
-      });
-    }
+    await Promise.all(
+      dirtyRows.map((row) => {
+        const payload: Record<string, unknown> = { value: row.value };
+        if (confirmed) payload.confirmed = true;
+        return apiFetch(`/api/namespace/${ns}/${env}/${row.key}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }),
+    );
     if (commitMessage) {
       onCommit(commitMessage);
     }
@@ -141,10 +148,12 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
     await loadData();
   };
 
-  const handleAdd = async () => {
+  const handleAdd = async (confirmed?: boolean) => {
     if (!newKey.trim()) return;
     const trimmedKey = newKey.trim();
-    const body = addMode === "random" ? { random: true } : { value: newValue };
+    const body: Record<string, unknown> =
+      addMode === "random" ? { random: true } : { value: newValue };
+    if (confirmed) body.confirmed = true;
     try {
       const res = await apiFetch(`/api/namespace/${ns}/${env}/${trimmedKey}`, {
         method: "PUT",
@@ -189,7 +198,7 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
       const res = await apiFetch(`/api/namespace/${ns}/${env}/${key}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ random: true }),
+        body: JSON.stringify({ random: true, ...(isProduction && { confirmed: true }) }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -210,8 +219,48 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
     }
   };
 
+  const handleAccept = async (key: string) => {
+    try {
+      const res = await apiFetch(`/api/namespace/${ns}/${env}/${key}/accept`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error || "Failed to accept value");
+        return;
+      }
+      const data = await res.json();
+      setRows((prev) =>
+        prev.map((row) =>
+          row.key === key ? { ...row, pending: false, value: data.value ?? row.value } : row,
+        ),
+      );
+    } catch {
+      setError("Failed to accept value");
+    }
+  };
+
+  const handleDelete = async (key: string) => {
+    try {
+      const res = await apiFetch(`/api/namespace/${ns}/${env}/${key}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(isProduction ? { confirmed: true } : {}),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error || "Failed to delete key");
+        return;
+      }
+      setRows((prev) => prev.filter((row) => row.key !== key));
+    } catch {
+      setError("Failed to delete key");
+    } finally {
+      setConfirmDelete(null);
+    }
+  };
+
   const hasChanges = rows.some((r) => r.edited);
-  const isProduction = manifest?.environments.find((e) => e.name === env)?.protected === true;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -244,13 +293,22 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
                     width: 220,
                   }}
                 />
-                <Button variant="primary" onClick={handleSave}>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    if (isProduction) {
+                      setProtectedConfirm("save");
+                    } else {
+                      handleSave();
+                    }
+                  }}
+                >
                   Save & Commit
                 </Button>
                 <Button onClick={() => setShowCommitInput(false)}>Cancel</Button>
               </div>
             )}
-            <Button data-testid="add-key-btn" onClick={() => setAdding(true)}>
+            <Button variant="primary" data-testid="add-key-btn" onClick={() => setAdding(true)}>
               + Add key
             </Button>
           </>
@@ -374,7 +432,6 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
                 background: theme.surface,
                 border: `1px solid ${theme.border}`,
                 borderRadius: 10,
-                overflow: "hidden",
               }}
             >
               {/* Header */}
@@ -385,6 +442,7 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
                   background: "#0D0F14",
                   padding: "10px 20px",
                   borderBottom: `1px solid ${theme.border}`,
+                  borderRadius: "10px 10px 0 0",
                 }}
               >
                 {["Key", "Value", "Type", ""].map((h) => (
@@ -523,23 +581,43 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
                       </span>
                     )}
                     {row.pending && !row.visible ? (
-                      <button
-                        data-testid={`set-value-${row.key}`}
-                        onClick={() => toggleVisible(row.key)}
-                        style={{
-                          background: `${theme.accent}18`,
-                          border: `1px solid ${theme.accent}55`,
-                          borderRadius: 5,
-                          cursor: "pointer",
-                          color: theme.accent,
-                          padding: "3px 10px",
-                          fontFamily: theme.sans,
-                          fontSize: 11,
-                          fontWeight: 600,
-                        }}
-                      >
-                        Set value
-                      </button>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          data-testid={`set-value-${row.key}`}
+                          onClick={() => toggleVisible(row.key)}
+                          style={{
+                            background: `${theme.accent}18`,
+                            border: `1px solid ${theme.accent}55`,
+                            borderRadius: 5,
+                            cursor: "pointer",
+                            color: theme.accent,
+                            padding: "3px 10px",
+                            fontFamily: theme.sans,
+                            fontSize: 11,
+                            fontWeight: 600,
+                          }}
+                        >
+                          Set value
+                        </button>
+                        <button
+                          data-testid={`accept-value-${row.key}`}
+                          onClick={() => handleAccept(row.key)}
+                          title="Accept the random value as the final secret"
+                          style={{
+                            background: `${theme.green}18`,
+                            border: `1px solid ${theme.green}55`,
+                            borderRadius: 5,
+                            cursor: "pointer",
+                            color: theme.green,
+                            padding: "3px 10px",
+                            fontFamily: theme.sans,
+                            fontSize: 11,
+                            fontWeight: 600,
+                          }}
+                        >
+                          Accept random
+                        </button>
+                      </div>
                     ) : (
                       <button
                         data-testid={`eye-${row.key}`}
@@ -656,6 +734,34 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
                         >
                           Reset to random (pending)
                         </button>
+                        <button
+                          data-testid={`delete-key-${row.key}`}
+                          onClick={() => {
+                            setOverflowKey(null);
+                            setConfirmDelete(row.key);
+                          }}
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            textAlign: "left",
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            fontFamily: theme.sans,
+                            fontSize: 12,
+                            color: theme.red,
+                            padding: "6px 10px",
+                            borderRadius: 4,
+                          }}
+                          onMouseEnter={(e) => {
+                            (e.currentTarget as HTMLElement).style.background = theme.surfaceHover;
+                          }}
+                          onMouseLeave={(e) => {
+                            (e.currentTarget as HTMLElement).style.background = "none";
+                          }}
+                        >
+                          Delete key
+                        </button>
                       </div>
                     )}
                   </div>
@@ -692,9 +798,19 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
                       }}
                     />
                     {/* Mode toggle */}
-                    <div style={{ display: "flex", gap: 4 }}>
+                    <div
+                      role="radiogroup"
+                      style={{
+                        display: "flex",
+                        border: `1px solid ${theme.border}`,
+                        borderRadius: 6,
+                        overflow: "hidden",
+                      }}
+                    >
                       <button
                         data-testid="mode-set-value"
+                        role="radio"
+                        aria-checked={addMode === "value"}
                         onClick={() => {
                           setAddMode("value");
                           setNewValue("");
@@ -703,9 +819,9 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
                           fontFamily: theme.sans,
                           fontSize: 11,
                           fontWeight: 600,
-                          padding: "4px 12px",
-                          borderRadius: 12,
-                          border: `1px solid ${addMode === "value" ? theme.accent : theme.border}`,
+                          padding: "4px 14px",
+                          border: "none",
+                          borderRight: `1px solid ${theme.border}`,
                           background: addMode === "value" ? `${theme.accent}22` : "transparent",
                           color: addMode === "value" ? theme.accent : theme.textMuted,
                           cursor: "pointer",
@@ -715,6 +831,8 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
                       </button>
                       <button
                         data-testid="mode-random"
+                        role="radio"
+                        aria-checked={addMode === "random"}
                         onClick={() => {
                           setAddMode("random");
                           setNewValue("");
@@ -723,9 +841,8 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
                           fontFamily: theme.sans,
                           fontSize: 11,
                           fontWeight: 600,
-                          padding: "4px 12px",
-                          borderRadius: 12,
-                          border: `1px solid ${addMode === "random" ? theme.accent : theme.border}`,
+                          padding: "4px 14px",
+                          border: "none",
                           background: addMode === "random" ? `${theme.accent}22` : "transparent",
                           color: addMode === "random" ? theme.accent : theme.textMuted,
                           cursor: "pointer",
@@ -770,7 +887,17 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
                         A cryptographically random placeholder will be generated server-side.
                       </div>
                     )}
-                    <Button variant="primary" data-testid="add-key-submit" onClick={handleAdd}>
+                    <Button
+                      variant="primary"
+                      data-testid="add-key-submit"
+                      onClick={() => {
+                        if (isProduction) {
+                          setProtectedConfirm("add");
+                        } else {
+                          handleAdd();
+                        }
+                      }}
+                    >
                       {addMode === "random" ? "Generate random value" : "Add"}
                     </Button>
                     <Button
@@ -806,6 +933,18 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
                   Reset <strong style={{ fontFamily: theme.mono }}>{confirmReset}</strong> to a
                   random placeholder? The current value will be overwritten.
                 </p>
+                {isProduction && (
+                  <p
+                    style={{
+                      color: theme.red,
+                      margin: "0 0 10px 0",
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {"\uD83D\uDD12"} This is a protected environment.
+                  </p>
+                )}
                 <div style={{ display: "flex", gap: 8 }}>
                   <Button
                     variant="primary"
@@ -815,6 +954,98 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
                     Reset to random
                   </Button>
                   <Button data-testid="confirm-reset-no" onClick={() => setConfirmReset(null)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Delete key confirmation dialog */}
+            {confirmDelete && (
+              <div
+                data-testid="confirm-delete-dialog"
+                style={{
+                  marginTop: 16,
+                  padding: "14px 18px",
+                  background: theme.redDim,
+                  border: `1px solid ${theme.red}44`,
+                  borderRadius: 8,
+                  fontFamily: theme.sans,
+                  fontSize: 12,
+                }}
+              >
+                <p style={{ color: theme.text, margin: "0 0 10px 0" }}>
+                  Permanently delete{" "}
+                  <strong style={{ fontFamily: theme.mono }}>{confirmDelete}</strong> from{" "}
+                  <strong>{env}</strong>? This cannot be undone.
+                </p>
+                {isProduction && (
+                  <p
+                    style={{
+                      color: theme.red,
+                      margin: "0 0 10px 0",
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {"\uD83D\uDD12"} This is a protected environment.
+                  </p>
+                )}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Button
+                    variant="danger"
+                    data-testid="confirm-delete-yes"
+                    onClick={() => handleDelete(confirmDelete)}
+                  >
+                    Delete
+                  </Button>
+                  <Button data-testid="confirm-delete-no" onClick={() => setConfirmDelete(null)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Protected environment confirmation dialog */}
+            {protectedConfirm && (
+              <div
+                data-testid="confirm-protected-dialog"
+                style={{
+                  marginTop: 16,
+                  padding: "14px 18px",
+                  background: theme.redDim,
+                  border: `1px solid ${theme.red}44`,
+                  borderRadius: 8,
+                  fontFamily: theme.sans,
+                  fontSize: 12,
+                }}
+              >
+                <p style={{ color: theme.text, margin: "0 0 10px 0" }}>
+                  {"\uD83D\uDD12"}{" "}
+                  <strong style={{ color: theme.red }}>Protected environment.</strong> You are about
+                  to {protectedConfirm === "save" ? "commit changes to" : "add a key to"}{" "}
+                  <strong>{env}</strong>. Are you sure?
+                </p>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Button
+                    variant="primary"
+                    data-testid="confirm-protected-yes"
+                    onClick={async () => {
+                      const action = protectedConfirm;
+                      setProtectedConfirm(null);
+                      if (action === "save") {
+                        await handleSave(true);
+                      } else {
+                        await handleAdd(true);
+                      }
+                    }}
+                  >
+                    Confirm
+                  </Button>
+                  <Button
+                    data-testid="confirm-protected-no"
+                    onClick={() => setProtectedConfirm(null)}
+                  >
                     Cancel
                   </Button>
                 </div>

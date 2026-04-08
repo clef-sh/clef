@@ -12,7 +12,7 @@ features:
     link: /guide/introduction
     linkText: Read the guide
   - title: CLI + UI
-    details: 23 commands and a local web UI for the full secrets lifecycle — browsing, editing, diffing, linting, and deploying.
+    details: A comprehensive CLI and local web UI for the full secrets lifecycle — browsing, editing, diffing, linting, and deploying.
     link: /cli/overview
     linkText: Browse commands
   - title: Validate before you ship

@@ -4,7 +4,7 @@ import { ManifestParser, MatrixManager, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createSopsClient } from "../age-credential";
+import { createCloudAwareSopsClient } from "../cloud-sops";
 import { parseTarget } from "../parse-target";
 
 export function registerRotateCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -46,20 +46,27 @@ export function registerRotateCommand(program: Command, deps: { runner: Subproce
             .replace("{environment}", environment),
         );
 
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-
-        const relativeFile = manifest.file_pattern
-          .replace("{namespace}", namespace)
-          .replace("{environment}", environment);
-
-        formatter.print(`${sym("working")}  Rotating ${namespace}/${environment}...`);
-
-        await sopsClient.reEncrypt(filePath, options.newKey);
-
-        formatter.success(`Rotated. New values encrypted. ${sym("locked")}`);
-        formatter.hint(
-          `git add ${relativeFile} && git commit -m "rotate: ${namespace}/${environment}"`,
+        const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
         );
+        try {
+          const relativeFile = manifest.file_pattern
+            .replace("{namespace}", namespace)
+            .replace("{environment}", environment);
+
+          formatter.print(`${sym("working")}  Rotating ${namespace}/${environment}...`);
+
+          await sopsClient.reEncrypt(filePath, options.newKey);
+
+          formatter.success(`Rotated. New values encrypted. ${sym("locked")}`);
+          formatter.hint(
+            `git add ${relativeFile} && git commit -m "rotate: ${namespace}/${environment}"`,
+          );
+        } finally {
+          await cleanup();
+        }
       } catch (err) {
         handleCommandError(err);
       }

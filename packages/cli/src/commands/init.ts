@@ -19,7 +19,6 @@ import {
   formatAgeKeyFile,
   generateRandomValue,
   markPending,
-  resolveRecipientsForEnvironment,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
@@ -401,24 +400,15 @@ async function handleFullSetup(
     formatter.success(`Key label: ${label}`);
   }
 
-  // Write clef.yaml — include age recipients if age backend
-  const manifestDoc = YAML.parse(YAML.stringify(manifest)) as Record<string, unknown>;
+  // Add age recipients to manifest before writing and scaffolding
   if (backend === "age" && publicKey) {
-    const sopsDoc = manifestDoc.sops as Record<string, unknown>;
-    sopsDoc.age = { recipients: [publicKey] };
+    manifest.sops.age = { recipients: [publicKey] };
   }
+  const manifestDoc = YAML.parse(YAML.stringify(manifest)) as Record<string, unknown>;
   fs.writeFileSync(manifestPath, YAML.stringify(manifestDoc), "utf-8");
   formatter.success("Created clef.yaml");
 
-  // Generate .sops.yaml (derived from manifest)
-  {
-    const sopsYamlPath = path.join(repoRoot, ".sops.yaml");
-    const sopsConfig = buildSopsYaml(manifest, repoRoot, publicKey);
-    fs.writeFileSync(sopsYamlPath, YAML.stringify(sopsConfig), "utf-8");
-    formatter.success("Created .sops.yaml");
-  }
-
-  // Scaffold the matrix
+  // Scaffold the matrix — manifest now has recipients so SOPS gets --age flag
   const sopsClient = new SopsClient(deps.runner, ageKeyFile, ageKey);
   const matrixManager = new MatrixManager();
   const cells = matrixManager.resolveMatrix(manifest, repoRoot);
@@ -504,137 +494,24 @@ async function handleFullSetup(
     );
   }
 
+  // Analytics notice — only on first init, not second-dev onboarding
+  try {
+    await import("@clef-sh/analytics");
+    formatter.print("");
+    formatter.info("Anonymous analytics are enabled to help improve Clef.");
+    formatter.print("   No secret values or file contents are ever collected.\n");
+    formatter.print("   To disable:");
+    formatter.print("     export CLEF_ANALYTICS=0          (session)");
+    formatter.print("     clef config set analytics false  (permanent)\n");
+  } catch {
+    // @clef-sh/analytics not installed — skip the notice
+  }
+
   formatter.section("Next steps:");
   formatter.hint("clef set <namespace>/<env> <KEY> <value>  \u2014 add a secret");
   formatter.hint("clef scan  \u2014 check for existing plaintext secrets");
   formatter.hint("clef lint  \u2014 check repo health");
   formatter.hint("clef ui    \u2014 open the web UI");
-}
-
-/**
- * Generate .sops.yaml from a manifest and write it to disk.
- * Used by `clef init` and `clef doctor --fix`.
- */
-export function scaffoldSopsConfig(repoRoot: string): void {
-  const manifestPath = path.join(repoRoot, "clef.yaml");
-  const parser = new ManifestParser();
-  const manifest = parser.parse(manifestPath);
-  const sopsYamlPath = path.join(repoRoot, ".sops.yaml");
-  // Resolve age public key from environment or local config
-  let agePublicKey: string | undefined;
-  if (manifest.sops.default_backend === "age") {
-    agePublicKey = resolveAgePublicKeyFromEnvOrFile(repoRoot);
-  }
-  const sopsConfig = buildSopsYaml(manifest, repoRoot, agePublicKey);
-  fs.writeFileSync(sopsYamlPath, YAML.stringify(sopsConfig), "utf-8");
-}
-
-function buildSopsYaml(
-  manifest: ClefManifest,
-  _repoRoot: string,
-  agePublicKey: string | undefined,
-): Record<string, unknown> {
-  const creationRules: Record<string, unknown>[] = [];
-
-  for (const ns of manifest.namespaces) {
-    for (const env of manifest.environments) {
-      const pathRegex = `${ns.name}/${env.name}\\.enc\\.yaml$`;
-      const rule: Record<string, unknown> = { path_regex: pathRegex };
-
-      // Resolve the effective backend for this environment, respecting per-env overrides
-      const backend = env.sops?.backend ?? manifest.sops.default_backend;
-
-      switch (backend) {
-        case "age": {
-          const envRecipients = resolveRecipientsForEnvironment(manifest, env.name);
-          if (envRecipients && envRecipients.length > 0) {
-            const keys = envRecipients.map((r) => (typeof r === "string" ? r : r.key));
-            rule.age = keys.join(",");
-          } else if (agePublicKey) {
-            rule.age = agePublicKey;
-          }
-          break;
-        }
-        case "awskms": {
-          const arn = env.sops?.aws_kms_arn ?? manifest.sops.aws_kms_arn;
-          if (arn) {
-            rule.kms = arn;
-          }
-          break;
-        }
-        case "gcpkms": {
-          const resourceId = env.sops?.gcp_kms_resource_id ?? manifest.sops.gcp_kms_resource_id;
-          if (resourceId) {
-            rule.gcp_kms = resourceId;
-          }
-          break;
-        }
-        case "azurekv": {
-          const kvUrl = env.sops?.azure_kv_url ?? manifest.sops.azure_kv_url;
-          if (kvUrl) {
-            rule.azure_keyvault = kvUrl;
-          }
-          break;
-        }
-        case "pgp": {
-          const fingerprint = env.sops?.pgp_fingerprint ?? manifest.sops.pgp_fingerprint;
-          if (fingerprint) {
-            rule.pgp = fingerprint;
-          }
-          break;
-        }
-      }
-
-      creationRules.push(rule);
-    }
-  }
-
-  return { creation_rules: creationRules };
-}
-
-/**
- * Resolve the age public key for .sops.yaml generation.
- * Checks (in order): CLEF_AGE_KEY_FILE env, CLEF_AGE_KEY env, .clef/config.yaml, default path.
- */
-function resolveAgePublicKeyFromEnvOrFile(repoRoot: string): string | undefined {
-  // 1. Try CLEF_AGE_KEY_FILE env
-  if (process.env.CLEF_AGE_KEY_FILE) {
-    const pubKey = extractAgePublicKey(process.env.CLEF_AGE_KEY_FILE);
-    if (pubKey) return pubKey;
-  }
-
-  // 2. Try CLEF_AGE_KEY env (inline key — extract public key comment)
-  if (process.env.CLEF_AGE_KEY) {
-    const match = process.env.CLEF_AGE_KEY.match(/# public key: (age1[a-z0-9]+)/);
-    if (match) return match[1];
-  }
-
-  // 3. Try .clef/config.yaml
-  const clefConfigPath = path.join(repoRoot, CLEF_DIR, CLEF_CONFIG_FILENAME);
-  if (fs.existsSync(clefConfigPath)) {
-    try {
-      const config = YAML.parse(fs.readFileSync(clefConfigPath, "utf-8")) as ClefLocalConfig;
-      if (config?.age_key_file) {
-        const pubKey = extractAgePublicKey(config.age_key_file);
-        if (pubKey) return pubKey;
-      }
-    } catch {
-      // ignore parse errors
-    }
-  }
-
-  return undefined;
-}
-
-function extractAgePublicKey(keyFilePath: string): string | undefined {
-  try {
-    if (!fs.existsSync(keyFilePath)) return undefined;
-    const content = fs.readFileSync(keyFilePath, "utf-8");
-    const match = content.match(/# public key: (age1[a-z0-9]+)/);
-    return match ? match[1] : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 /* istanbul ignore next -- only reachable if a namespace has a schema field, which init never sets */

@@ -83,14 +83,13 @@ describe("TelemetryEmitter", () => {
 
     it("should emit artifact.refreshed with typed attributes", () => {
       const emitter = new TelemetryEmitter(opts());
-      emitter.artifactRefreshed({ revision: "abc123", keyCount: 5, kmsEnvelope: true });
+      emitter.artifactRefreshed({ revision: "abc123", kmsEnvelope: true });
       emitter.flush();
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       const attrs = body.resourceLogs[0].scopeLogs[0].logRecords[0].attributes;
 
       expect(attrs).toContainEqual({ key: "clef.revision", value: { stringValue: "abc123" } });
-      expect(attrs).toContainEqual({ key: "clef.keyCount", value: { intValue: "5" } });
       expect(attrs).toContainEqual({ key: "clef.kmsEnvelope", value: { boolValue: true } });
       emitter.stop();
     });

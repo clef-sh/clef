@@ -28,7 +28,7 @@ import { validateAgePublicKey } from "../recipients/validator";
  */
 export const CLEF_MANIFEST_FILENAME = "clef.yaml";
 
-const VALID_BACKENDS = ["age", "awskms", "gcpkms", "azurekv", "pgp"] as const;
+const VALID_BACKENDS = ["age", "awskms", "gcpkms", "azurekv", "pgp", "cloud"] as const;
 const VALID_TOP_LEVEL_KEYS = [
   "version",
   "environments",
@@ -385,8 +385,31 @@ export class ManifestParser {
       );
     }
 
+    // Parse age.recipients if present
+    const ageObj = sopsObj.age as Record<string, unknown> | undefined;
+    const ageRecipients =
+      ageObj && Array.isArray(ageObj.recipients) ? (ageObj.recipients as unknown[]) : undefined;
+    const parsedAge = ageRecipients
+      ? {
+          age: {
+            recipients: ageRecipients.map((r) => {
+              if (typeof r === "string") return r;
+              if (typeof r === "object" && r !== null) {
+                const obj = r as Record<string, unknown>;
+                return {
+                  key: String(obj.key ?? ""),
+                  ...(typeof obj.label === "string" ? { label: obj.label } : {}),
+                };
+              }
+              return String(r);
+            }),
+          },
+        }
+      : {};
+
     const sopsConfig = {
       default_backend: sopsObj.default_backend as (typeof VALID_BACKENDS)[number],
+      ...parsedAge,
       ...(typeof sopsObj.aws_kms_arn === "string" ? { aws_kms_arn: sopsObj.aws_kms_arn } : {}),
       ...(typeof sopsObj.gcp_kms_resource_id === "string"
         ? { gcp_kms_resource_id: sopsObj.gcp_kms_resource_id }
@@ -451,6 +474,20 @@ export class ManifestParser {
           );
         }
         const siName = siObj.name;
+
+        // Identity names appear as DNS subdomains in Cloud serve URLs
+        // (e.g. api-gateway.serve.clef.sh) and as URL path segments, so
+        // they must be valid DNS labels: lowercase alphanumeric + hyphens,
+        // no leading/trailing hyphen, max 63 chars.
+        if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(siName)) {
+          throw new ManifestValidationError(
+            `Service identity '${siName}' has an invalid name. ` +
+              "Names must be lowercase alphanumeric with hyphens, " +
+              "must not start or end with a hyphen, and max 63 characters " +
+              "(e.g. 'api-gateway', 'auth-service').",
+            "service_identities",
+          );
+        }
 
         if (siObj.description != null && typeof siObj.description !== "string") {
           throw new ManifestValidationError(
@@ -615,7 +652,32 @@ export class ManifestParser {
           "cloud",
         );
       }
-      cloud = { integrationId: cloudObj.integrationId };
+      if (typeof cloudObj.keyId !== "string" || cloudObj.keyId.length === 0) {
+        throw new ManifestValidationError(
+          "Field 'cloud.keyId' is required and must be a non-empty string.",
+          "cloud",
+        );
+      }
+      if (!/^clef:[a-zA-Z0-9_]+\/[a-zA-Z0-9_-]+$/.test(cloudObj.keyId)) {
+        throw new ManifestValidationError(
+          `Field 'cloud.keyId' has invalid format '${cloudObj.keyId}'. ` +
+            "Must match: clef:<integrationId>/<keyAlias>",
+          "cloud",
+        );
+      }
+      cloud = { integrationId: cloudObj.integrationId, keyId: cloudObj.keyId };
+    }
+
+    // Validate: cloud backend requires cloud config
+    const usesCloudBackend =
+      sopsConfig.default_backend === "cloud" ||
+      environments.some((e) => e.sops?.backend === "cloud");
+    if (usesCloudBackend && !cloud) {
+      throw new ManifestValidationError(
+        "One or more environments use the 'cloud' backend but the manifest is missing " +
+          "the top-level 'cloud' block with 'integrationId' and 'keyId'.",
+        "cloud",
+      );
     }
 
     return {

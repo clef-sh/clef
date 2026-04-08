@@ -417,7 +417,7 @@ test.describe("clef scan → ScanScreen: detect plaintext secrets", () => {
     await page.getByTestId("nav-scan").click();
     await expect(page.getByTestId("scan-idle")).toBeVisible();
     // Use high-severity (patterns only) to avoid entropy false positives from
-    // non-secret config files (e.g. age public key in .sops.yaml triggers entropy)
+    // non-secret config files (e.g. age public key in clef.yaml triggers entropy)
     await page.getByTestId("severity-high").click();
     await page.getByRole("button", { name: "Scan repository" }).click();
     await expect(page.getByTestId("scan-clean")).toBeVisible({ timeout: 30_000 });
@@ -792,7 +792,7 @@ test.describe("clef service → ServiceIdentitiesScreen: create flow", () => {
     await page.getByTestId("ns-checkbox-payments").click();
     await page.getByTestId("create-si-submit").click();
     await expect(page.getByText("Copy these private keys now")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText("dev")).toBeVisible();
+    await expect(page.getByText("DEV", { exact: true })).toBeVisible();
   });
 
   test("[positive] done button returns to list with new identity", async ({ page }) => {
@@ -906,5 +906,80 @@ test.describe("clef service → ServiceIdentitiesScreen: delete flow", () => {
     // Back in detail view
     await expect(page.getByTestId("back-button")).toBeVisible();
     await expect(page.getByTestId("delete-identity-btn")).toBeVisible();
+  });
+});
+
+// ── clef migrate-backend → BackendScreen ────────────────────────────────────
+// Backend migration wizard: view config, select target, preview dry-run.
+
+test.describe("clef migrate-backend → BackendScreen", () => {
+  test("[positive] Backend nav item opens the backend migration view", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-backend").click();
+    await expect(page.getByText("clef migrate-backend")).toBeVisible();
+  });
+
+  test("[positive] current config displays age backend", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-backend").click();
+    await expect(page.getByText("Default backend")).toBeVisible();
+    await expect(page.getByText("age").first()).toBeVisible();
+  });
+
+  test("[positive] all 5 backend radio buttons are present", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-backend").click();
+    await expect(page.getByTestId("backend-radio-age")).toBeVisible();
+    await expect(page.getByTestId("backend-radio-awskms")).toBeVisible();
+    await expect(page.getByTestId("backend-radio-gcpkms")).toBeVisible();
+    await expect(page.getByTestId("backend-radio-azurekv")).toBeVisible();
+    await expect(page.getByTestId("backend-radio-pgp")).toBeVisible();
+  });
+
+  test("[positive] selecting a non-age backend shows the key input", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-backend").click();
+    // Key input hidden for age (default)
+    await expect(page.getByTestId("backend-key-input")).not.toBeVisible();
+    // Select AWS KMS
+    await page.getByTestId("backend-radio-awskms").click();
+    await expect(page.getByTestId("backend-key-input")).toBeVisible();
+  });
+
+  test("[negative] Preview button is disabled when KMS key is empty", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-backend").click();
+    await page.getByTestId("backend-radio-awskms").click();
+    // Key input empty — Preview should be disabled
+    await expect(page.getByRole("button", { name: "Preview" })).toBeDisabled();
+  });
+
+  test("[negative] protected env triggers confirmation before preview", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-backend").click();
+    // age → age, all envs — will trigger 409 because production is protected
+    await page.getByRole("button", { name: "Preview" }).click();
+    await expect(page.getByTestId("protected-confirm")).toBeVisible({ timeout: 5_000 });
+    // Should still be on step 1 — not advanced to preview
+    await expect(page.getByTestId("backend-radio-age")).toBeVisible();
+  });
+
+  test("[positive] dry-run preview shows files to migrate", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-backend").click();
+    // Select AWS KMS to get a real migration preview (age → awskms).
+    await page.getByTestId("backend-radio-awskms").click();
+    await page.getByTestId("backend-key-input").fill("arn:aws:kms:us-east-1:123:key/test");
+    await page.getByRole("button", { name: "Preview" }).click();
+
+    // Protected env confirmation will appear — the test repo has production marked protected.
+    await expect(page.getByTestId("protected-confirm")).toBeVisible({ timeout: 5_000 });
+    await page.getByTestId("protected-confirm").click();
+    await page.getByRole("button", { name: "Confirm & Preview" }).click();
+
+    // Preview step should show file list or warnings
+    await expect(page.getByText(/Files to migrate|Already on target|Would/).first()).toBeVisible({
+      timeout: 15_000,
+    });
   });
 });

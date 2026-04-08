@@ -1,7 +1,6 @@
 import * as fs from "fs";
 import { Command } from "commander";
 import { registerDoctorCommand } from "./doctor";
-import * as initModule from "./init";
 import { SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 
@@ -55,7 +54,7 @@ function makeProgram(runner: SubprocessRunner): Command {
 describe("clef doctor", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    // Default: manifest and .sops.yaml exist, age key exists via config-file
+    // Default: manifest exists, age key exists via config-file
     mockFs.existsSync.mockReturnValue(true);
     mockFs.readFileSync.mockImplementation((p: unknown) => {
       const pathStr = String(p);
@@ -161,28 +160,7 @@ describe("clef doctor", () => {
     if (origKeyFile !== undefined) process.env.CLEF_AGE_KEY_FILE = origKeyFile;
   });
 
-  it("should output valid JSON with --json flag and count age recipients", async () => {
-    const sopsYamlContent =
-      "creation_rules:\n" +
-      "  - path_regex: 'app/dev\\.enc\\.yaml$'\n" +
-      "    age: age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p\n" +
-      "  - path_regex: 'app/staging\\.enc\\.yaml$'\n" +
-      "    age: age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p\n" +
-      "  - path_regex: 'app/production\\.enc\\.yaml$'\n" +
-      "    age: age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p,age1second00000000000000000000000000000000000000000000000000000\n";
-
-    const manifestContent = "version: 1\nsops:\n  default_backend: age\n";
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- overloaded readFileSync needs loose typing for the mock
-    (mockFs.readFileSync as jest.Mock).mockImplementation((...args: any[]) => {
-      const p = String(args[0]);
-      if (p.includes(".sops.yaml")) return sopsYamlContent;
-      if (p.includes(".clef/config.yaml"))
-        return "age_key_file: /mock/keys.txt\nage_keychain_label: mock-label\n";
-      if (p.includes(".gitattributes")) return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n";
-      return manifestContent;
-    });
-
+  it("should output valid JSON with --json flag", async () => {
     const runner = allGoodRunner();
     const program = makeProgram(runner);
 
@@ -199,55 +177,9 @@ describe("clef doctor", () => {
     expect(parsed.git.version).toBe("2.43.0");
     expect(parsed.git.ok).toBe(true);
     expect(parsed.manifest.found).toBe(true);
-    expect(parsed.sopsYaml.found).toBe(true);
-    expect(parsed.ageKey.recipients).toBe(2);
+    expect(parsed.ageKey.ok).toBe(true);
+    expect(parsed.sopsYaml).toBeUndefined();
     expect(mockExit).toHaveBeenCalledWith(0);
-  });
-
-  it("should call scaffoldSopsConfig directly when --fix is used and only .sops.yaml is missing", async () => {
-    // .sops.yaml doesn't exist initially, but all other checks pass
-    let sopsYamlExists = false;
-    mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
-      if (String(p).includes(".sops.yaml")) return sopsYamlExists;
-      return true;
-    });
-
-    // Mock scaffoldSopsConfig to simulate writing .sops.yaml
-    const scaffoldSpy = jest.spyOn(initModule, "scaffoldSopsConfig").mockImplementation(() => {
-      sopsYamlExists = true;
-    });
-
-    const runner = allGoodRunner();
-    const program = makeProgram(runner);
-
-    await program.parseAsync(["node", "clef", "doctor", "--fix"]);
-
-    expect(scaffoldSpy).toHaveBeenCalledWith(expect.any(String));
-    expect(mockFormatter.info).toHaveBeenCalledWith(expect.stringContaining("Attempting to fix"));
-    expect(mockFormatter.success).toHaveBeenCalledWith(
-      expect.stringContaining(".sops.yaml created"),
-    );
-
-    scaffoldSpy.mockRestore();
-  });
-
-  it("should include fix hint in JSON when .sops.yaml is missing", async () => {
-    mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
-      if (String(p).includes(".sops.yaml")) return false;
-      return true;
-    });
-
-    const runner = allGoodRunner();
-    const program = makeProgram(runner);
-
-    await program.parseAsync(["node", "clef", "doctor", "--json"]);
-
-    const output = mockFormatter.raw.mock.calls[0][0] as string;
-    const parsed = JSON.parse(output);
-
-    expect(parsed.sopsYaml.found).toBe(false);
-    expect(parsed.sopsYaml.ok).toBe(false);
-    expect(parsed.sopsYaml.fix).toBe("clef init");
   });
 
   it("should exit 1 when git is missing", async () => {
@@ -268,12 +200,11 @@ describe("clef doctor", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
-  it("should warn when --fix is used but multiple failures exist", async () => {
-    // Both manifest and .sops.yaml missing
+  it("should warn when --fix is used but failures exist", async () => {
+    // manifest missing
     mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
       const s = String(p);
       if (s.includes("clef.yaml")) return false;
-      if (s.includes(".sops.yaml")) return false;
       return true;
     });
 
@@ -286,29 +217,6 @@ describe("clef doctor", () => {
       expect.stringContaining("--fix cannot resolve"),
     );
     expect(mockExit).toHaveBeenCalledWith(1);
-  });
-
-  it("should handle --fix when scaffoldSopsConfig throws", async () => {
-    const sopsYamlExists = false;
-    mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
-      if (String(p).includes(".sops.yaml")) return sopsYamlExists;
-      return true;
-    });
-
-    const scaffoldSpy = jest.spyOn(initModule, "scaffoldSopsConfig").mockImplementation(() => {
-      throw new Error("manifest parse failed");
-    });
-
-    const runner = allGoodRunner();
-    const program = makeProgram(runner);
-
-    await program.parseAsync(["node", "clef", "doctor", "--fix"]);
-
-    expect(mockFormatter.error).toHaveBeenCalledWith(
-      expect.stringContaining("Failed to generate .sops.yaml"),
-    );
-
-    scaffoldSpy.mockRestore();
   });
 
   it("should detect age key from CLEF_AGE_KEY env var", async () => {
@@ -396,57 +304,6 @@ describe("clef doctor", () => {
 
     if (origKey !== undefined) process.env.CLEF_AGE_KEY = origKey;
     if (origKeyFile !== undefined) process.env.CLEF_AGE_KEY_FILE = origKeyFile;
-  });
-
-  it("should count zero recipients when .sops.yaml has no creation_rules", async () => {
-    mockFs.readFileSync.mockImplementation((p: unknown) => {
-      const pathStr = String(p);
-      if (pathStr.includes(".sops.yaml")) return "some_other_key: true\n";
-      return "version: 1\nsops:\n  default_backend: age\n";
-    });
-
-    const runner = allGoodRunner();
-    const program = makeProgram(runner);
-
-    await program.parseAsync(["node", "clef", "doctor", "--json"]);
-
-    const output = mockFormatter.raw.mock.calls[0][0] as string;
-    const parsed = JSON.parse(output);
-    expect(parsed.ageKey.recipients).toBe(0);
-  });
-
-  it("should count zero recipients when .sops.yaml does not exist", async () => {
-    mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
-      if (String(p).includes(".sops.yaml")) return false;
-      return true;
-    });
-
-    const runner = allGoodRunner();
-    const program = makeProgram(runner);
-
-    await program.parseAsync(["node", "clef", "doctor", "--json"]);
-
-    const output = mockFormatter.raw.mock.calls[0][0] as string;
-    const parsed = JSON.parse(output);
-    expect(parsed.ageKey.recipients).toBe(0);
-  });
-
-  it("should handle countAgeRecipients when readFileSync throws", async () => {
-    mockFs.existsSync.mockReturnValue(true);
-    mockFs.readFileSync.mockImplementation((p: unknown) => {
-      const pathStr = String(p);
-      if (pathStr.includes(".sops.yaml")) throw new Error("read error");
-      return "version: 1\nsops:\n  default_backend: age\n";
-    });
-
-    const runner = allGoodRunner();
-    const program = makeProgram(runner);
-
-    await program.parseAsync(["node", "clef", "doctor", "--json"]);
-
-    const output = mockFormatter.raw.mock.calls[0][0] as string;
-    const parsed = JSON.parse(output);
-    expect(parsed.ageKey.recipients).toBe(0);
   });
 
   it("should return platform-specific install hints", async () => {

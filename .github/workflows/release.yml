@@ -76,12 +76,14 @@ jobs:
             echo "${NAME}_version=${STABLE}" >> "$GITHUB_OUTPUT"
           }
 
-          stamp_stable packages/core    core
-          stamp_stable packages/runtime runtime
-          stamp_stable packages/broker  broker
-          stamp_stable packages/agent   agent
-          stamp_stable packages/cli     cli
-          stamp_stable packages/ui      ui
+          stamp_stable packages/core      core
+          stamp_stable packages/cloud     cloud
+          stamp_stable packages/analytics analytics
+          stamp_stable packages/runtime   runtime
+          stamp_stable packages/broker    broker
+          stamp_stable packages/agent     agent
+          stamp_stable packages/cli       cli
+          stamp_stable packages/ui        ui
 
       - name: Build all packages
         run: npm run build
@@ -94,6 +96,20 @@ jobs:
       - name: Publish @clef-sh/core
         if: steps.versions.outputs.core_released == 'true'
         working-directory: packages/core
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @clef-sh/cloud
+        if: steps.versions.outputs.cloud_released == 'true'
+        working-directory: packages/cloud
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @clef-sh/analytics
+        if: steps.versions.outputs.analytics_released == 'true'
+        working-directory: packages/analytics
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -159,7 +175,9 @@ jobs:
           }
 
           tag_if_released core    core    "${{ steps.versions.outputs.core_released }}"    "${{ steps.versions.outputs.core_version }}"
-          tag_if_released runtime runtime "${{ steps.versions.outputs.runtime_released }}" "${{ steps.versions.outputs.runtime_version }}"
+          tag_if_released cloud     cloud     "${{ steps.versions.outputs.cloud_released }}"     "${{ steps.versions.outputs.cloud_version }}"
+          tag_if_released analytics analytics "${{ steps.versions.outputs.analytics_released }}" "${{ steps.versions.outputs.analytics_version }}"
+          tag_if_released runtime   runtime   "${{ steps.versions.outputs.runtime_released }}"   "${{ steps.versions.outputs.runtime_version }}"
           tag_if_released broker  broker  "${{ steps.versions.outputs.broker_released }}"  "${{ steps.versions.outputs.broker_version }}"
           tag_if_released agent   agent   "${{ steps.versions.outputs.agent_released }}"   "${{ steps.versions.outputs.agent_version }}"
           tag_if_released cli     cli     "${{ steps.versions.outputs.cli_released }}"     "${{ steps.versions.outputs.cli_version }}"
@@ -187,7 +205,9 @@ jobs:
           }
 
           create_release core    "${{ steps.versions.outputs.core_released }}"    "${{ steps.versions.outputs.core_version }}"
-          create_release runtime "${{ steps.versions.outputs.runtime_released }}" "${{ steps.versions.outputs.runtime_version }}"
+          create_release cloud     "${{ steps.versions.outputs.cloud_released }}"     "${{ steps.versions.outputs.cloud_version }}"
+          create_release analytics "${{ steps.versions.outputs.analytics_released }}" "${{ steps.versions.outputs.analytics_version }}"
+          create_release runtime   "${{ steps.versions.outputs.runtime_released }}"   "${{ steps.versions.outputs.runtime_version }}"
           create_release broker  "${{ steps.versions.outputs.broker_released }}"  "${{ steps.versions.outputs.broker_version }}"
           create_release agent   "${{ steps.versions.outputs.agent_released }}"   "${{ steps.versions.outputs.agent_version }}"
           create_release cli     "${{ steps.versions.outputs.cli_released }}"     "${{ steps.versions.outputs.cli_version }}"

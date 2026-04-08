@@ -32,8 +32,6 @@ export interface PackedArtifact {
   ciphertextHash: string;
   /** Base64-encoded ciphertext. Age format for age-only artifacts; AES-256-GCM for KMS envelope artifacts. */
   ciphertext: string;
-  /** Secret key names for introspection (not the values). */
-  keys: string[];
   /** KMS envelope metadata. Present when the identity uses KMS envelope encryption. */
   envelope?: ArtifactEnvelope;
   /** ISO-8601 expiry timestamp. Artifact is rejected after this time. */
@@ -44,14 +42,21 @@ export interface PackedArtifact {
   signatureAlgorithm?: SignatureAlgorithm;
 }
 
+/** Output backend for packed artifacts. */
+export interface PackOutput {
+  write(artifact: PackedArtifact, json: string): Promise<void>;
+}
+
 /** Configuration for the `pack` command. */
 export interface PackConfig {
   /** Service identity name from the manifest. */
   identity: string;
   /** Target environment name. */
   environment: string;
-  /** Local file path to write the artifact JSON to. */
-  outputPath: string;
+  /** Local file path to write the artifact JSON to. Used when `output` is not provided. */
+  outputPath?: string;
+  /** Output backend. When provided, `outputPath` is ignored and the backend handles storage. */
+  output?: PackOutput;
   /** TTL in seconds — embeds an `expiresAt` timestamp in the artifact envelope. */
   ttl?: number;
   /** Ed25519 private key for artifact signing (base64-encoded DER PKCS8). */
@@ -62,7 +67,7 @@ export interface PackConfig {
 
 /** Result of a pack operation. */
 export interface PackResult {
-  /** Path where the artifact was written. */
+  /** Path where the artifact was written (empty string for non-file outputs). */
   outputPath: string;
   /** Number of namespaces included. */
   namespaceCount: number;

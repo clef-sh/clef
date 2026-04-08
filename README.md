@@ -6,7 +6,9 @@
 
 **Git-native secrets management built on [Mozilla SOPS](https://github.com/getsops/sops) — structured, validated, and always encrypted in your own repo.**
 
-> **Early release** — Clef is under active development. You will hit rough edges. When you do, please [open an issue](https://github.com/clef-sh/clef/issues) and we will fix it fast.
+> **Early release** — Clef is under active development. Please [open an issue](https://github.com/clef-sh/clef/issues) if you happen to find one; we will fix it fast.
+
+![Image](https://github.com/user-attachments/assets/8e8735f8-80d2-4f69-b2ea-a03cf54574f4)
 
 Clef adds a namespace-by-environment matrix, schema validation, drift detection, and a local web UI building on what SOPS has accomplished in the direction of Secrets-as-Code (SaC). Your secrets stay in git, encrypted by your KMS. The access control, audit logs, and short-lived credential access you need for enterprise compliance come from your KMS — not from a new intermediary.
 
@@ -100,33 +102,34 @@ clef ui
 
 ## CLI Commands
 
-| Command             | Description                                                                          |
-| ------------------- | ------------------------------------------------------------------------------------ |
-| `clef init`         | Initialise a Clef repo (idempotent — safe to re-run for second-developer onboarding) |
-| `clef update`       | Scaffold missing matrix cells after adding namespaces or environments to `clef.yaml` |
-| `clef get`          | Retrieve a single decrypted value                                                    |
-| `clef set`          | Set a secret value (supports hidden input and random generation)                     |
-| `clef compare`      | Compare a stored secret with a supplied value without exposing either                |
-| `clef delete`       | Delete a key from an encrypted file (`--all-envs` for bulk)                          |
-| `clef diff`         | Compare secrets between two environments                                             |
-| `clef lint`         | Validate matrix completeness, schema compliance, and SOPS integrity                  |
-| `clef rotate`       | Rotate encryption keys for a namespace/environment                                   |
-| `clef recipients`   | Manage age recipients — list, add, remove, request, and approve access               |
-| `clef hooks`        | Install the pre-commit hook                                                          |
-| `clef exec`         | Run a command with decrypted secrets as environment variables                        |
-| `clef export`       | Print decrypted secrets as shell export statements                                   |
-| `clef import`       | Bulk-import secrets from a dotenv, JSON, or YAML file                                |
-| `clef scan`         | Scan the repository for secrets that have escaped the Clef matrix                    |
-| `clef doctor`       | Check for required dependencies and configuration                                    |
-| `clef merge-driver` | SOPS-aware three-way merge driver for encrypted files                                |
-| `clef service`      | Manage service identities for serverless/machine workloads                           |
-| `clef pack`         | Pack an encrypted artifact for a service identity                                    |
-| `clef revoke`       | Revoke a packed artifact                                                             |
-| `clef drift`        | Detect secrets drift across repositories                                             |
-| `clef report`       | Generate a JSON posture report                                                       |
-| `clef install`      | Install a broker template from the registry                                          |
-| `clef search`       | Search the broker registry                                                           |
-| `clef ui`           | Launch the local web UI                                                              |
+| Command                | Description                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------ |
+| `clef init`            | Initialise a Clef repo (idempotent — safe to re-run for second-developer onboarding) |
+| `clef update`          | Scaffold missing matrix cells after adding namespaces or environments to `clef.yaml` |
+| `clef get`             | Retrieve a single decrypted value                                                    |
+| `clef set`             | Set a secret value (supports hidden input and random generation)                     |
+| `clef compare`         | Compare a stored secret with a supplied value without exposing either                |
+| `clef delete`          | Delete a key from an encrypted file (`--all-envs` for bulk)                          |
+| `clef diff`            | Compare secrets between two environments                                             |
+| `clef lint`            | Validate matrix completeness, schema compliance, and SOPS integrity                  |
+| `clef rotate`          | Rotate encryption keys for a namespace/environment                                   |
+| `clef recipients`      | Manage age recipients — list, add, remove, request, and approve access               |
+| `clef hooks`           | Install the pre-commit hook                                                          |
+| `clef exec`            | Run a command with decrypted secrets as environment variables                        |
+| `clef export`          | Print decrypted secrets as shell export statements                                   |
+| `clef import`          | Bulk-import secrets from a dotenv, JSON, or YAML file                                |
+| `clef scan`            | Scan the repository for secrets that have escaped the Clef matrix                    |
+| `clef doctor`          | Check for required dependencies and configuration                                    |
+| `clef migrate-backend` | Migrate encrypted files from one SOPS backend to another                             |
+| `clef merge-driver`    | SOPS-aware three-way merge driver for encrypted files                                |
+| `clef service`         | Manage service identities for serverless/machine workloads                           |
+| `clef pack`            | Pack an encrypted artifact for a service identity                                    |
+| `clef revoke`          | Revoke a packed artifact                                                             |
+| `clef drift`           | Detect secrets drift across repositories                                             |
+| `clef report`          | Generate a JSON posture report                                                       |
+| `clef install`         | Install a broker template from the registry                                          |
+| `clef search`          | Search the broker registry                                                           |
+| `clef ui`              | Launch the local web UI                                                              |
 
 ## Web UI
 

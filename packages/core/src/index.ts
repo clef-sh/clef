@@ -1,5 +1,6 @@
 export * from "./types";
 export { ManifestParser, CLEF_MANIFEST_FILENAME } from "./manifest/parser";
+export { readManifestYaml, writeManifestYaml } from "./manifest/io";
 export {
   ScanRunner,
   shannonEntropy,
@@ -68,10 +69,12 @@ export { ServiceIdentityManager, PartialRotationError } from "./service-identity
 export { resolveIdentitySecrets } from "./artifact/resolve";
 export type { ResolvedSecrets } from "./artifact/resolve";
 export { ArtifactPacker } from "./artifact/packer";
+export { FilePackOutput, MemoryPackOutput } from "./artifact/output";
 export type {
   PackedArtifact,
   PackConfig,
   PackResult,
+  PackOutput,
   ArtifactEnvelope,
   SignatureAlgorithm,
 } from "./artifact/types";
@@ -85,3 +88,31 @@ export {
 } from "./artifact/signer";
 export type { KmsProvider, KmsWrapResult, KmsProviderType } from "./kms";
 export { VALID_KMS_PROVIDERS } from "./kms";
+export { BackendMigrator } from "./migration/backend";
+export type {
+  MigrationTarget,
+  MigrationOptions,
+  MigrationResult,
+  MigrationProgressEvent,
+} from "./migration/backend";
+export {
+  spawnKeyservice,
+  resolveKeyservicePath,
+  resetKeyserviceResolution,
+  readCloudCredentials,
+  writeCloudCredentials,
+  initiateDeviceFlow,
+  pollDeviceFlow,
+  CloudPackClient,
+  CloudArtifactClient,
+} from "./cloud";
+export type {
+  KeyserviceHandle,
+  KeyserviceResolution,
+  KeyserviceSource,
+  DeviceSession,
+  DevicePollResult,
+  DeviceFlowType,
+  RemotePackConfig,
+  RemotePackResult,
+} from "./cloud";

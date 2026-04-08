@@ -69,7 +69,7 @@ function makeMockRunner(
         if (cmd === "sops" && args[0] === "filestatus") {
           return { stdout: "", stderr: "not supported", exitCode: 1 };
         }
-        if (cmd === "sops" && args[0] === "encrypt") {
+        if (cmd === "sops" && args.includes("encrypt")) {
           if (options?.onEncrypt && opts?.stdin) {
             options.onEncrypt(opts.stdin);
           }
@@ -139,7 +139,7 @@ describe("clef merge-driver", () => {
     // Verify encrypt was called and the merged values are correct
     const runCalls = (runner.run as jest.Mock).mock.calls;
     const encryptCalls = runCalls.filter(
-      (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "encrypt",
+      (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
     );
     expect(encryptCalls.length).toBeGreaterThanOrEqual(1);
 

@@ -51,6 +51,7 @@ The CLI is built on [commander.js](https://github.com/tj/commander.js) and follo
 | ---------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | [`clef exec`](/cli/exec)     | Run a command with secrets injected as env vars | `<target> -- <cmd>`, `--only <keys>`, `--prefix <str>`, `--also <target>`, `--no-override` |
 | [`clef export`](/cli/export) | Print secrets as shell export statements        | `<target>`, `--format <fmt>`, `--no-export`                                                |
+| [`clef serve`](/cli/serve)   | Start a local secrets server for development    | `--identity <name>`, `--env <env>`, `--port <port>`                                        |
 
 ### Service identities & artifacts
 
@@ -62,6 +63,20 @@ The CLI is built on [commander.js](https://github.com/tj/commander.js) and follo
 | [`clef service rotate`](/cli/service) | Rotate keys for a service identity                   | `<name>`, `-e <env>`                           |
 | [`clef pack`](/cli/pack)              | Pack an encrypted artifact for a service identity    | `<identity> <env>`, `-o <path>`, `--ttl <sec>` |
 | [`clef revoke`](/cli/revoke)          | Revoke a packed artifact (emergency brake)           | `<identity> <env>`                             |
+
+### Backend migration
+
+| Command                                        | Description                                              | Arguments & flags                                                                                                                                        |
+| ---------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`clef migrate-backend`](/cli/migrate-backend) | Migrate encrypted files from one SOPS backend to another | `--age`, `--aws-kms-arn <arn>`, `--gcp-kms-resource-id <id>`, `--azure-kv-url <url>`, `--pgp-fingerprint <fp>`, `-e <env>`, `--dry-run`, `--skip-verify` |
+
+### Cloud
+
+| Command                           | Description                                      | Arguments & flags |
+| --------------------------------- | ------------------------------------------------ | ----------------- |
+| [`clef cloud init`](/cli/cloud)   | Provision managed KMS and migrate an environment | `--env <env>`     |
+| [`clef cloud login`](/cli/cloud)  | Authenticate with Clef Cloud                     | —                 |
+| [`clef cloud status`](/cli/cloud) | Show Cloud connection status                     | —                 |
 
 ### Interface & integration
 

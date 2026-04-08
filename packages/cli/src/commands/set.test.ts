@@ -62,7 +62,7 @@ function sopsRunner(): SubprocessRunner {
       if (cmd === "sops" && args[0] === "decrypt") {
         return { stdout: "EXISTING: old_value\n", stderr: "", exitCode: 0 };
       }
-      if (cmd === "sops" && args[0] === "encrypt") {
+      if (cmd === "sops" && args.includes("encrypt")) {
         return { stdout: "encrypted-content", stderr: "", exitCode: 0 };
       }
       if (cmd === "sops" && args[0] === "filestatus")
@@ -220,8 +220,8 @@ describe("clef set", () => {
     expect(mockFormatter.success).not.toHaveBeenCalled();
     // Rollback reuses in-scope decrypted values — only one decrypt call needed
     const runCalls = (runner.run as jest.Mock).mock.calls;
-    const encryptCalls = runCalls.filter(
-      ([_cmd, args]: [string, string[]]) => args?.[0] === "encrypt",
+    const encryptCalls = runCalls.filter(([_cmd, args]: [string, string[]]) =>
+      args?.includes("encrypt"),
     );
     // Two encrypt calls: one for original set, one for rollback
     expect(encryptCalls.length).toBe(2);
@@ -248,7 +248,7 @@ describe("clef set", () => {
             exitCode: 0,
           };
         }
-        if (cmd === "sops" && args[0] === "encrypt") {
+        if (cmd === "sops" && args.includes("encrypt")) {
           return { stdout: "", stderr: "encryption failed", exitCode: 1 };
         }
         return { stdout: "", stderr: "", exitCode: 0 };
@@ -283,7 +283,7 @@ describe("clef set", () => {
             exitCode: 0,
           };
         }
-        if (cmd === "sops" && args[0] === "encrypt") {
+        if (cmd === "sops" && args.includes("encrypt")) {
           return { stdout: "", stderr: "encrypt failed", exitCode: 1 };
         }
         return { stdout: "", stderr: "", exitCode: 0 };
@@ -310,7 +310,7 @@ describe("clef set", () => {
       );
       // sops encrypt called once per environment
       const encryptCalls = (runner.run as jest.Mock).mock.calls.filter(
-        (c) => c[0] === "sops" && c[1][0] === "encrypt",
+        (c) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(encryptCalls.length).toBe(2); // dev + production
     });

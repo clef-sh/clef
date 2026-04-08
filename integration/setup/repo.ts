@@ -23,23 +23,12 @@ export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
       { name: "production", description: "Production", protected: true },
     ],
     namespaces: [{ name: "payments", description: "Payment secrets" }],
-    sops: { default_backend: "age" },
+    sops: { default_backend: "age", age: { recipients: [keys.publicKey] } },
     file_pattern: "{namespace}/{environment}.enc.yaml",
   };
 
   // Write manifest
   fs.writeFileSync(path.join(dir, "clef.yaml"), YAML.stringify(manifest));
-
-  // Write .sops.yaml
-  const sopsConfig = {
-    creation_rules: [
-      {
-        path_regex: ".*\\.enc\\.yaml$",
-        age: keys.publicKey,
-      },
-    ],
-  };
-  fs.writeFileSync(path.join(dir, ".sops.yaml"), YAML.stringify(sopsConfig));
 
   // Create namespace directory
   fs.mkdirSync(path.join(dir, "payments"), { recursive: true });
@@ -56,7 +45,11 @@ export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
   const encrypted = execFileSync(
     "sops",
     [
+      "--config",
+      process.platform === "win32" ? "NUL" : "/dev/null",
       "encrypt",
+      "--age",
+      keys.publicKey,
       "--input-type",
       "yaml",
       "--output-type",
@@ -89,7 +82,11 @@ export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
   const prodEncrypted = execFileSync(
     "sops",
     [
+      "--config",
+      process.platform === "win32" ? "NUL" : "/dev/null",
       "encrypt",
+      "--age",
+      keys.publicKey,
       "--input-type",
       "yaml",
       "--output-type",

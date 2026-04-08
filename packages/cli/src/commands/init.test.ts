@@ -1,9 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
-import * as YAML from "yaml";
 import { Command } from "commander";
-import { registerInitCommand, scaffoldSopsConfig } from "./init";
+import { registerInitCommand } from "./init";
 import { SubprocessRunner, markPending } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { setKeychainKey } from "../keychain";
@@ -219,31 +218,9 @@ describe("clef init", () => {
       "utf-8",
     );
 
-    // .sops.yaml should be written with the mock public key
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining(".sops.yaml"),
-      expect.any(String),
-      "utf-8",
-    );
-
     // age key should have been generated
     expect(getMockGenerateAgeIdentity()).toHaveBeenCalled();
     expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("clef.yaml"));
-  });
-
-  it("should write .sops.yaml with the generated age public key", async () => {
-    const runner = mockRunner();
-    const program = makeProgram(runner);
-
-    await program.parseAsync(["node", "clef", "init", "--namespaces", "db", "--non-interactive"]);
-
-    const sopsYamlCall = mockFs.writeFileSync.mock.calls.find((c) =>
-      String(c[0]).includes(".sops.yaml"),
-    );
-    expect(sopsYamlCall).toBeDefined();
-    expect(String(sopsYamlCall![1])).toContain(
-      "age1mockpublickey00000000000000000000000000000000000000000000",
-    );
   });
 
   it("should write .clef/config.yaml with the key path and label", async () => {
@@ -408,7 +385,7 @@ describe("clef init", () => {
     expect(getMockGenerateAgeIdentity()).not.toHaveBeenCalled();
   });
 
-  it("should handle awskms backend in .sops.yaml", async () => {
+  it("should handle awskms backend", async () => {
     mockFs.existsSync.mockReturnValue(false);
     const runner = mockRunner();
     const program = makeProgram(runner);
@@ -432,7 +409,7 @@ describe("clef init", () => {
     expect(getMockGenerateAgeIdentity()).not.toHaveBeenCalled();
   });
 
-  it("should handle gcpkms backend in .sops.yaml", async () => {
+  it("should handle gcpkms backend", async () => {
     mockFs.existsSync.mockReturnValue(false);
     const runner = mockRunner();
     const program = makeProgram(runner);
@@ -888,179 +865,6 @@ describe("clef init", () => {
     if (origKeyFile === undefined) {
       delete process.env.CLEF_AGE_KEY_FILE;
     } else {
-      process.env.CLEF_AGE_KEY_FILE = origKeyFile;
-    }
-  });
-});
-
-describe("scaffoldSopsConfig", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockFs.writeFileSync.mockReturnValue(undefined);
-  });
-
-  it("should generate .sops.yaml from an existing manifest", () => {
-    const manifest = YAML.stringify({
-      version: 1,
-      environments: [{ name: "dev", description: "Dev" }],
-      namespaces: [{ name: "db", description: "DB" }],
-      sops: { default_backend: "age" },
-      file_pattern: "{namespace}/{environment}.enc.yaml",
-    });
-
-    mockFs.readFileSync.mockReturnValue(manifest);
-    mockFs.existsSync.mockReturnValue(false);
-
-    scaffoldSopsConfig("/test/repo");
-
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
-      expect.stringContaining(".sops.yaml"),
-      expect.any(String),
-      "utf-8",
-    );
-  });
-
-  it("should include aws_kms_arn in .sops.yaml for awskms backend", () => {
-    const manifest = YAML.stringify({
-      version: 1,
-      environments: [{ name: "dev", description: "Dev" }],
-      namespaces: [{ name: "db", description: "DB" }],
-      sops: { default_backend: "awskms", aws_kms_arn: "arn:aws:kms:us-east-1:123:key/abc" },
-      file_pattern: "{namespace}/{environment}.enc.yaml",
-    });
-
-    mockFs.readFileSync.mockReturnValue(manifest);
-    mockFs.existsSync.mockReturnValue(false);
-
-    scaffoldSopsConfig("/test/repo");
-
-    const sopsYamlCall = mockFs.writeFileSync.mock.calls.find((c) =>
-      String(c[0]).includes(".sops.yaml"),
-    );
-    expect(sopsYamlCall).toBeDefined();
-    expect(String(sopsYamlCall![1])).toContain("arn:aws:kms");
-  });
-
-  it("should include gcp_kms_resource_id in .sops.yaml for gcpkms backend", () => {
-    const manifest = YAML.stringify({
-      version: 1,
-      environments: [{ name: "dev", description: "Dev" }],
-      namespaces: [{ name: "db", description: "DB" }],
-      sops: {
-        default_backend: "gcpkms",
-        gcp_kms_resource_id: "projects/p/locations/l/keyRings/r/cryptoKeys/k",
-      },
-      file_pattern: "{namespace}/{environment}.enc.yaml",
-    });
-
-    mockFs.readFileSync.mockReturnValue(manifest);
-    mockFs.existsSync.mockReturnValue(false);
-
-    scaffoldSopsConfig("/test/repo");
-
-    const sopsYamlCall = mockFs.writeFileSync.mock.calls.find((c) =>
-      String(c[0]).includes(".sops.yaml"),
-    );
-    expect(sopsYamlCall).toBeDefined();
-    expect(String(sopsYamlCall![1])).toContain("projects/p/locations/l");
-  });
-
-  it("should include pgp_fingerprint in .sops.yaml for pgp backend", () => {
-    const manifest = YAML.stringify({
-      version: 1,
-      environments: [{ name: "dev", description: "Dev" }],
-      namespaces: [{ name: "db", description: "DB" }],
-      sops: { default_backend: "pgp", pgp_fingerprint: "ABCDEF1234567890" },
-      file_pattern: "{namespace}/{environment}.enc.yaml",
-    });
-
-    mockFs.readFileSync.mockReturnValue(manifest);
-    mockFs.existsSync.mockReturnValue(false);
-
-    scaffoldSopsConfig("/test/repo");
-
-    const sopsYamlCall = mockFs.writeFileSync.mock.calls.find((c) =>
-      String(c[0]).includes(".sops.yaml"),
-    );
-    expect(sopsYamlCall).toBeDefined();
-    expect(String(sopsYamlCall![1])).toContain("ABCDEF1234567890");
-  });
-
-  it("should resolve age public key from CLEF_AGE_KEY_FILE env for scaffoldSopsConfig", () => {
-    const origKeyFile = process.env.CLEF_AGE_KEY_FILE;
-    process.env.CLEF_AGE_KEY_FILE = "/custom/age/keys.txt";
-
-    const manifest = YAML.stringify({
-      version: 1,
-      environments: [{ name: "dev", description: "Dev" }],
-      namespaces: [{ name: "db", description: "DB" }],
-      sops: { default_backend: "age" },
-      file_pattern: "{namespace}/{environment}.enc.yaml",
-    });
-
-    mockFs.readFileSync.mockImplementation(((p: string) => {
-      if (String(p).endsWith("clef.yaml")) return manifest;
-      if (String(p) === "/custom/age/keys.txt")
-        return "# public key: age1envfilekey\nAGE-SECRET-KEY-1234\n";
-      return "";
-    }) as typeof fs.readFileSync);
-
-    mockFs.existsSync.mockImplementation((p) => {
-      const s = String(p);
-      return s.endsWith("clef.yaml") || s === "/custom/age/keys.txt";
-    });
-
-    scaffoldSopsConfig("/test/repo");
-
-    const sopsYamlCall = mockFs.writeFileSync.mock.calls.find((c) =>
-      String(c[0]).includes(".sops.yaml"),
-    );
-    expect(sopsYamlCall).toBeDefined();
-    expect(String(sopsYamlCall![1])).toContain("age1envfilekey");
-
-    if (origKeyFile === undefined) {
-      delete process.env.CLEF_AGE_KEY_FILE;
-    } else {
-      process.env.CLEF_AGE_KEY_FILE = origKeyFile;
-    }
-  });
-
-  it("should resolve age public key from CLEF_AGE_KEY env for scaffoldSopsConfig", () => {
-    const origKey = process.env.CLEF_AGE_KEY;
-    const origKeyFile = process.env.CLEF_AGE_KEY_FILE;
-    process.env.CLEF_AGE_KEY =
-      "# created: 2024-01-01\n# public key: age1envvarkey\nAGE-SECRET-KEY-1234";
-    delete process.env.CLEF_AGE_KEY_FILE;
-
-    const manifest = YAML.stringify({
-      version: 1,
-      environments: [{ name: "dev", description: "Dev" }],
-      namespaces: [{ name: "db", description: "DB" }],
-      sops: { default_backend: "age" },
-      file_pattern: "{namespace}/{environment}.enc.yaml",
-    });
-
-    mockFs.readFileSync.mockImplementation(((p: string) => {
-      if (String(p).endsWith("clef.yaml")) return manifest;
-      return "";
-    }) as typeof fs.readFileSync);
-
-    mockFs.existsSync.mockImplementation((p) => String(p).endsWith("clef.yaml"));
-
-    scaffoldSopsConfig("/test/repo");
-
-    const sopsYamlCall = mockFs.writeFileSync.mock.calls.find((c) =>
-      String(c[0]).includes(".sops.yaml"),
-    );
-    expect(sopsYamlCall).toBeDefined();
-    expect(String(sopsYamlCall![1])).toContain("age1envvarkey");
-
-    if (origKey === undefined) {
-      delete process.env.CLEF_AGE_KEY;
-    } else {
-      process.env.CLEF_AGE_KEY = origKey;
-    }
-    if (origKeyFile !== undefined) {
       process.env.CLEF_AGE_KEY_FILE = origKeyFile;
     }
   });

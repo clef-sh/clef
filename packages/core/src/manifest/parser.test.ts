@@ -339,6 +339,65 @@ describe("ManifestParser", () => {
       );
     });
 
+    it("should parse sops.age.recipients with string entries", () => {
+      const manifest = {
+        ...validManifest(),
+        sops: {
+          default_backend: "age",
+          age: {
+            recipients: ["age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"],
+          },
+        },
+      };
+      const result = parser.validate(manifest);
+      expect(result.sops.age).toEqual({
+        recipients: ["age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"],
+      });
+    });
+
+    it("should parse sops.age.recipients with object entries (key + label)", () => {
+      const manifest = {
+        ...validManifest(),
+        sops: {
+          default_backend: "age",
+          age: {
+            recipients: [
+              {
+                key: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
+                label: "Alice",
+              },
+              { key: "age1second0000000000000000000000000000000000000000000000000000" },
+            ],
+          },
+        },
+      };
+      const result = parser.validate(manifest);
+      expect(result.sops.age).toEqual({
+        recipients: [
+          { key: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p", label: "Alice" },
+          { key: "age1second0000000000000000000000000000000000000000000000000000" },
+        ],
+      });
+    });
+
+    it("should handle non-string non-object entries in sops.age.recipients", () => {
+      const manifest = {
+        ...validManifest(),
+        sops: {
+          default_backend: "age",
+          age: { recipients: [42] },
+        },
+      };
+      const result = parser.validate(manifest);
+      expect(result.sops.age).toEqual({ recipients: ["42"] });
+    });
+
+    it("should not include age field when sops.age is absent", () => {
+      const manifest = { ...validManifest(), sops: { default_backend: "age" } };
+      const result = parser.validate(manifest);
+      expect(result.sops.age).toBeUndefined();
+    });
+
     it("should accept per-env sops override with age backend (no extra fields)", () => {
       const manifest = {
         ...validManifest(),
@@ -649,10 +708,13 @@ describe("ManifestParser", () => {
       it("should accept a valid cloud section", () => {
         const manifest = {
           ...validManifest(),
-          cloud: { integrationId: "int_abc123" },
+          cloud: { integrationId: "int_abc123", keyId: "clef:int_abc123/production" },
         };
         const result = parser.validate(manifest);
-        expect(result.cloud).toEqual({ integrationId: "int_abc123" });
+        expect(result.cloud).toEqual({
+          integrationId: "int_abc123",
+          keyId: "clef:int_abc123/production",
+        });
       });
 
       it("should accept manifest without cloud section", () => {
@@ -661,21 +723,50 @@ describe("ManifestParser", () => {
       });
 
       it("should reject cloud with missing integrationId", () => {
-        const manifest = { ...validManifest(), cloud: {} };
+        const manifest = {
+          ...validManifest(),
+          cloud: { keyId: "clef:int_abc123/production" },
+        };
         expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
         expect(() => parser.validate(manifest)).toThrow(/integrationId/);
       });
 
       it("should reject cloud with non-string integrationId", () => {
-        const manifest = { ...validManifest(), cloud: { integrationId: 123 } };
+        const manifest = {
+          ...validManifest(),
+          cloud: { integrationId: 123, keyId: "clef:int_abc123/production" },
+        };
         expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
         expect(() => parser.validate(manifest)).toThrow(/integrationId/);
+      });
+
+      it("should reject cloud with missing keyId", () => {
+        const manifest = { ...validManifest(), cloud: { integrationId: "int_abc123" } };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/keyId/);
+      });
+
+      it("should reject cloud with invalid keyId format", () => {
+        const manifest = {
+          ...validManifest(),
+          cloud: { integrationId: "int_abc123", keyId: "arn:aws:kms:us-east-1:123:key/abc" },
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/invalid format/);
       });
 
       it("should reject non-object cloud field", () => {
         const manifest = { ...validManifest(), cloud: "not-an-object" };
         expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
         expect(() => parser.validate(manifest)).toThrow(/must be an object/);
+      });
+
+      it("should reject cloud backend without cloud block", () => {
+        const manifest = validManifest() as Record<string, unknown>;
+        const envs = manifest.environments as Array<Record<string, unknown>>;
+        envs[0].sops = { backend: "cloud" };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/missing.*cloud.*block/i);
       });
     });
 
@@ -720,6 +811,120 @@ describe("ManifestParser", () => {
         };
         expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
         expect(() => parser.validate(manifest)).toThrow(/name/);
+      });
+
+      it("should reject service identity with uppercase name", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "ApiGateway",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/invalid name/);
+      });
+
+      it("should reject service identity name with underscores", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api_gateway",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/invalid name/);
+      });
+
+      it("should reject service identity name starting with hyphen", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "-api",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/invalid name/);
+      });
+
+      it("should reject service identity name with spaces", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api gateway",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
+        expect(() => parser.validate(manifest)).toThrow(/invalid name/);
+      });
+
+      it("should accept valid DNS-safe service identity names", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "api-gateway",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        const result = parser.validate(manifest);
+        expect(result.service_identities![0].name).toBe("api-gateway");
+      });
+
+      it("should accept single-char service identity name", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "a",
+              namespaces: ["database"],
+              environments: {
+                dev: { recipient: testRecipient },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        const result = parser.validate(manifest);
+        expect(result.service_identities![0].name).toBe("a");
       });
 
       it("should accept service identity with missing description", () => {

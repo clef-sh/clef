@@ -26,7 +26,7 @@ export interface ScanOptions {
 const ALWAYS_SKIP_EXTENSIONS = [".enc.yaml", ".enc.json"] as const;
 const ALWAYS_SKIP_NAMES = [
   ".clef-meta.yaml",
-  ".sops.yaml", // contains age public keys and KMS ARNs — configuration, not secrets
+  "clef.yaml", // manifest — contains public keys and config, not secrets
 ] as const;
 const ALWAYS_SKIP_DIRS = ["node_modules", ".git"] as const;
 const MAX_FILE_SIZE = 1024 * 1024; // 1 MB

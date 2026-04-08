@@ -22,7 +22,6 @@ export interface BrokerArtifact {
   revision: string;
   ciphertextHash: string;
   ciphertext: string;
-  keys: string[];
   envelope: ArtifactEnvelopeField;
   expiresAt: string;
 }
@@ -92,7 +91,6 @@ export async function packEnvelope(options: PackEnvelopeOptions): Promise<string
     revision,
     ciphertextHash,
     ciphertext,
-    keys: Object.keys(data),
     envelope: {
       provider: kmsProviderName,
       keyId: kmsKeyId,

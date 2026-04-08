@@ -62,7 +62,6 @@ function makeArtifact(
     revision: overrides.revision ?? "1705276800000",
     ciphertextHash: hash,
     ciphertext,
-    keys: overrides.keys ?? ["DB_URL", "API_KEY"],
   };
   if (overrides.envelope) {
     artifact.envelope = overrides.envelope;
@@ -93,7 +92,6 @@ function makeKmsArtifact(
     revision: overrides.revision ?? "kms-rev",
     ciphertextHash: crypto.createHash("sha256").update(ciphertext).digest("hex"),
     ciphertext,
-    keys: Object.keys(values),
     envelope: {
       provider: "aws",
       keyId: "arn:aws:kms:us-east-1:111:key/test",
@@ -317,7 +315,6 @@ describe("ArtifactPoller", () => {
         revision: "bad-envelope",
         ciphertextHash: hash,
         ciphertext,
-        keys: ["DB_URL"],
         envelope: { provider: "aws" },
       });
       const source = mockSource(raw);
@@ -342,7 +339,6 @@ describe("ArtifactPoller", () => {
         revision: "missing-iv-authtag",
         ciphertextHash: hash,
         ciphertext,
-        keys: ["DB_URL"],
         envelope: {
           provider: "aws",
           keyId: "arn:aws:kms:us-east-1:111:key/test",
@@ -1029,7 +1025,6 @@ describe("ArtifactPoller", () => {
         revision: overrides.revision ?? "signed-rev-1",
         ciphertextHash,
         ciphertext,
-        keys: overrides.keys ?? ["DB_URL", "API_KEY"],
       };
 
       const payload = buildSigningPayload(artifact);
@@ -1128,7 +1123,6 @@ describe("ArtifactPoller", () => {
         revision: "tampered-rev",
         ciphertextHash: realHash,
         ciphertext,
-        keys: ["DB_URL"],
       };
 
       const payload = buildSigningPayload(artifact);
@@ -1238,7 +1232,6 @@ describe("ArtifactPoller", () => {
         revision: "ecdsa-rev",
         ciphertextHash,
         ciphertext,
-        keys: ["DB_URL"],
       };
 
       const payload = buildSigningPayload(artifact);

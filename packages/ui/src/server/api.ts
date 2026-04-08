@@ -31,8 +31,10 @@ import {
   ServiceIdentityManager,
   validateAgePublicKey,
   VALID_KMS_PROVIDERS,
+  BackendMigrator,
+  resolveBackendConfig,
 } from "@clef-sh/core";
-import type { ImportFormat } from "@clef-sh/core";
+import type { ImportFormat, MigrationProgressEvent } from "@clef-sh/core";
 
 export interface ApiDeps {
   runner: SubprocessRunner;
@@ -46,9 +48,8 @@ export function createApiRouter(deps: ApiDeps): Router {
   const router = Router();
   const parser = new ManifestParser();
   const matrix = new MatrixManager();
-  // Wrap the runner so sops subprocesses always run from the repo root,
-  // receive an explicit config path via $SOPS_CONFIG, and work around
-  // /dev/stdin failures on Linux.
+  // Wrap the runner so sops subprocesses always run from the repo root
+  // and work around /dev/stdin failures on Linux.
   //
   // Problem: SopsClient.encrypt passes /dev/stdin as the input file.
   // On Linux /dev/stdin → /proc/self/fd/0 which fails with ENXIO when
@@ -70,7 +71,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         return deps.runner.run(cmd, args, {
           ...opts,
           cwd: opts?.cwd ?? deps.repoRoot,
-          env: { SOPS_CONFIG: path.join(deps.repoRoot, ".sops.yaml"), ...opts?.env },
+          env: opts?.env,
         });
       }
 
@@ -121,6 +122,7 @@ export function createApiRouter(deps: ApiDeps): Router {
   const scanRunner = new ScanRunner(deps.runner);
   const recipientManager = new RecipientManager(sops, matrix);
   const serviceIdManager = new ServiceIdentityManager(sops, matrix);
+  const backendMigrator = new BackendMigrator(sops, matrix);
   const bulkOps = new BulkOps();
 
   // In-session scan cache
@@ -393,6 +395,37 @@ export function createApiRouter(deps: ApiDeps): Router {
         res.json({ success: true, key });
       } catch {
         res.status(500).json({ error: "Failed to delete key", code: "DELETE_ERROR" });
+      }
+    },
+  );
+
+  // POST /api/namespace/:ns/:env/:key/accept — resolve pending state without changing the value
+  router.post(
+    "/namespace/:ns/:env/:key/accept",
+    async (req: Request<{ ns: string; env: string; key: string }>, res: Response) => {
+      setNoCacheHeaders(res);
+      try {
+        const manifest = loadManifest();
+        const { ns, env, key } = req.params;
+
+        const nsExists = manifest.namespaces.some((n) => n.name === ns);
+        const envExists = manifest.environments.some((e) => e.name === env);
+
+        if (!nsExists || !envExists) {
+          res.status(404).json({
+            error: `Namespace '${ns}' or environment '${env}' not found in manifest.`,
+            code: "NOT_FOUND",
+          });
+          return;
+        }
+
+        const filePath = `${deps.repoRoot}/${manifest.file_pattern.replace("{namespace}", ns).replace("{environment}", env)}`;
+        const decrypted = await sops.decrypt(filePath);
+        const value = key in decrypted.values ? String(decrypted.values[key]) : undefined;
+        await markResolved(filePath, [key]);
+        res.json({ success: true, key, value });
+      } catch {
+        res.status(500).json({ error: "Failed to accept pending value", code: "ACCEPT_ERROR" });
       }
     },
   );
@@ -1026,6 +1059,103 @@ export function createApiRouter(deps: ApiDeps): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to rotate service identity key";
       res.status(500).json({ error: message, code: "SERVICE_IDENTITY_ERROR" });
+    }
+  });
+
+  // ── Backend Migration ──────────────────────────────────────────────
+
+  router.get("/backend-config", (_req: Request, res: Response) => {
+    try {
+      const manifest = loadManifest();
+      const global = manifest.sops;
+      const environments = manifest.environments.map((env) => ({
+        name: env.name,
+        protected: env.protected === true,
+        effective: resolveBackendConfig(manifest, env.name),
+        hasOverride: env.sops !== undefined,
+      }));
+      res.json({ global, environments });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to load backend config";
+      res.status(500).json({ error: message, code: "BACKEND_CONFIG_ERROR" });
+    }
+  });
+
+  router.post("/migrate-backend/preview", async (req: Request, res: Response) => {
+    try {
+      const manifest = loadManifest();
+      const { target, environment, confirmed } = req.body;
+
+      if (!target || !target.backend) {
+        res.status(400).json({ error: "Missing target backend", code: "BAD_REQUEST" });
+        return;
+      }
+
+      // Protected environment check
+      const impactedEnvs = environment
+        ? manifest.environments.filter((e) => e.name === environment)
+        : manifest.environments;
+      const protectedEnvs = impactedEnvs.filter((e) => e.protected);
+      if (protectedEnvs.length > 0 && !confirmed) {
+        res.status(409).json({
+          error: "Protected environment requires confirmation",
+          code: "PROTECTED_ENV",
+          protected: true,
+        });
+        return;
+      }
+
+      const events: MigrationProgressEvent[] = [];
+      const result = await backendMigrator.migrate(
+        manifest,
+        deps.repoRoot,
+        { target, environment, dryRun: true },
+        (event) => events.push(event),
+      );
+
+      res.json({ success: !result.rolledBack, result, events });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Migration preview failed";
+      res.status(500).json({ error: message, code: "MIGRATION_ERROR" });
+    }
+  });
+
+  router.post("/migrate-backend/apply", async (req: Request, res: Response) => {
+    try {
+      const manifest = loadManifest();
+      const { target, environment, confirmed } = req.body;
+
+      if (!target || !target.backend) {
+        res.status(400).json({ error: "Missing target backend", code: "BAD_REQUEST" });
+        return;
+      }
+
+      // Protected environment check
+      const impactedEnvs = environment
+        ? manifest.environments.filter((e) => e.name === environment)
+        : manifest.environments;
+      const protectedEnvs = impactedEnvs.filter((e) => e.protected);
+      if (protectedEnvs.length > 0 && !confirmed) {
+        res.status(409).json({
+          error: "Protected environment requires confirmation",
+          code: "PROTECTED_ENV",
+          protected: true,
+        });
+        return;
+      }
+
+      const events: MigrationProgressEvent[] = [];
+      const result = await backendMigrator.migrate(
+        manifest,
+        deps.repoRoot,
+        { target, environment, dryRun: false },
+        (event) => events.push(event),
+      );
+
+      res.json({ success: !result.rolledBack, result, events });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Migration failed";
+      res.status(500).json({ error: message, code: "MIGRATION_ERROR" });
     }
   });
 

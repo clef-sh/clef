@@ -10,7 +10,7 @@ import {
 const DEFAULT_RETRY_DELAY_MS = 1000;
 
 /**
- * HTTP client for the Clef Pro API.
+ * HTTP client for the Clef Cloud API.
  * Uses native `fetch()` (Node 18+). Retries once on 5xx or network errors.
  */
 export class CloudClient {
@@ -73,7 +73,7 @@ export class CloudClient {
         response = await fetch(url, init);
       } catch (retryErr) {
         throw new CloudApiError(
-          `Network error contacting Clef Pro: ${(retryErr as Error).message}`,
+          `Network error contacting Clef Cloud: ${(retryErr as Error).message}`,
           0,
           "Check your network connection and CLEF_API_URL.",
         );
@@ -107,7 +107,7 @@ export class CloudClient {
           : undefined;
 
     return new CloudApiError(
-      `Clef Pro API returned ${response.status} ${response.statusText}`,
+      `Clef Cloud API returned ${response.status} ${response.statusText}`,
       response.status,
       hint,
     );

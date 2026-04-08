@@ -1,11 +1,9 @@
 import * as fs from "fs";
 import * as path from "path";
-import * as YAML from "yaml";
 import { Command } from "commander";
 import { checkAll, GitIntegration, REQUIREMENTS, SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { scaffoldSopsConfig } from "./init";
 import {
   resolveAgeCredential,
   getExpectedKeyStorage,
@@ -28,8 +26,7 @@ interface DoctorJsonOutput {
   sops: { version: string | null; required: string; ok: boolean; source?: string; path?: string };
   git: { version: string | null; required: string; ok: boolean };
   manifest: { found: boolean; ok: boolean };
-  ageKey: { source: string | null; recipients: number; ok: boolean };
-  sopsYaml: { found: boolean; ok: boolean; fix?: string };
+  ageKey: { source: string | null; ok: boolean };
   scanner: { clefignoreFound: boolean; ok: boolean };
   mergeDriver: { gitConfig: boolean; gitattributes: boolean; ok: boolean };
 }
@@ -44,10 +41,7 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
         "  1  One or more checks failed",
     )
     .option("--json", "Output the full status as JSON")
-    .option(
-      "--fix",
-      "Attempt to auto-fix issues (runs clef init if .sops.yaml is the only failure)",
-    )
+    .option("--fix", "Attempt to auto-fix issues")
     .action(async (options: { json?: boolean; fix?: boolean }) => {
       const repoRoot = (program.opts().dir as string) || process.cwd();
       const clefVersion = program.version() ?? "unknown";
@@ -120,17 +114,7 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
       const ageKeyResult = await checkAgeKey(repoRoot, deps.runner);
       checks.push(ageKeyResult);
 
-      // 7. .sops.yaml
-      const sopsYamlPath = path.join(repoRoot, ".sops.yaml");
-      const sopsYamlFound = fs.existsSync(sopsYamlPath);
-      checks.push({
-        name: ".sops.yaml",
-        ok: sopsYamlFound,
-        detail: sopsYamlFound ? "found" : "not found",
-        hint: sopsYamlFound ? undefined : "run: clef init",
-      });
-
-      // 8. .clefignore
+      // 7. .clefignore
       const clefignorePath = path.join(repoRoot, ".clefignore");
       const clefignoreFound = fs.existsSync(clefignorePath);
       let clefignoreRuleCount = 0;
@@ -172,30 +156,10 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
         hint: mergeDriverOk ? undefined : "run: clef hooks install",
       });
 
-      // --fix: if the only failure is .sops.yaml missing, run clef init
+      // --fix: placeholder for future auto-fix logic
       if (options.fix) {
         const failures = checks.filter((c) => !c.ok);
-        const onlySopsYamlMissing =
-          failures.length === 1 && failures[0].name === ".sops.yaml" && !sopsYamlFound;
-
-        if (onlySopsYamlMissing) {
-          formatter.info("Attempting to fix: generating .sops.yaml from manifest...");
-          try {
-            scaffoldSopsConfig(repoRoot);
-            const nowFound = fs.existsSync(sopsYamlPath);
-            if (nowFound) {
-              const sopsYamlCheck = checks.find((c) => c.name === ".sops.yaml");
-              if (sopsYamlCheck) {
-                sopsYamlCheck.ok = true;
-                sopsYamlCheck.detail = "found (fixed)";
-                delete sopsYamlCheck.hint;
-              }
-              formatter.success(".sops.yaml created from manifest.");
-            }
-          } catch {
-            formatter.error("Failed to generate .sops.yaml. Run 'clef init' manually to diagnose.");
-          }
-        } else if (failures.length > 0) {
+        if (failures.length > 0) {
           formatter.warn("--fix cannot resolve these issues automatically.");
         }
       }
@@ -219,13 +183,7 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
           manifest: { found: manifestFound, ok: manifestFound },
           ageKey: {
             source: ageKeyResult.source,
-            recipients: countAgeRecipients(sopsYamlPath),
             ok: ageKeyResult.ok,
-          },
-          sopsYaml: {
-            found: checks.find((c) => c.name === ".sops.yaml")!.ok,
-            ok: checks.find((c) => c.name === ".sops.yaml")!.ok,
-            ...(!checks.find((c) => c.name === ".sops.yaml")!.ok ? { fix: "clef init" } : {}),
           },
           scanner: {
             clefignoreFound: checks.find((c) => c.name === "scanner")?.ok ?? false,
@@ -337,32 +295,6 @@ async function checkAgeKey(repoRoot: string, runner: SubprocessRunner): Promise<
         detail: `loaded (from ${credential.path}${labelSuffix})`,
         source: "file",
       };
-  }
-}
-
-function countAgeRecipients(sopsYamlPath: string): number {
-  try {
-    if (!fs.existsSync(sopsYamlPath)) return 0;
-    const content = fs.readFileSync(sopsYamlPath, "utf-8");
-    const config = YAML.parse(content);
-    if (!config?.creation_rules || !Array.isArray(config.creation_rules)) {
-      return 0;
-    }
-    const recipients = new Set<string>();
-    for (const rule of config.creation_rules) {
-      if (typeof rule.age === "string") {
-        // age field may contain comma-separated recipients
-        for (const r of rule.age.split(",")) {
-          const trimmed = r.trim();
-          if (trimmed) {
-            recipients.add(trimmed);
-          }
-        }
-      }
-    }
-    return recipients.size;
-  } catch {
-    return 0;
   }
 }
 

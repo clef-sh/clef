@@ -125,15 +125,19 @@ Two mechanisms restrict access within a repo:
 1. **Per-environment recipients** — scope age recipients to specific environments with `clef recipients add <key> -e production`. See [Team Setup](/guide/team-setup).
 2. **Per-environment backends** — configure production to use AWS KMS or GCP KMS for IAM-based access control and server-side audit logging. See [Per-environment SOPS override](/guide/manifest#per-environment-sops-override).
 
-|                      | age (all envs) | Per-env age recipients | Per-env KMS              |
-| -------------------- | -------------- | ---------------------- | ------------------------ |
-| **Setup complexity** | Lowest         | Low                    | Medium                   |
-| **Access control**   | All-or-nothing | Per-environment        | Per-environment + IAM    |
-| **Audit logging**    | None           | None                   | Server-side (CloudTrail) |
-| **Key management**   | Self-managed   | Self-managed           | Cloud-managed            |
-| **Cost**             | Free           | Free                   | KMS API charges          |
+|                      | age (all envs) | Per-env age recipients | Per-env KMS              | [Clef Cloud](/cli/cloud)        |
+| -------------------- | -------------- | ---------------------- | ------------------------ | ------------------------------- |
+| **Setup complexity** | Lowest         | Low                    | Medium                   | Low (one command)               |
+| **Access control**   | All-or-nothing | Per-environment        | Per-environment + IAM    | Per-environment + IAM           |
+| **Audit logging**    | None           | None                   | Server-side (CloudTrail) | Server-side (CloudTrail)        |
+| **Key management**   | Self-managed   | Self-managed           | Cloud-managed            | Managed (no AWS setup required) |
+| **Cost**             | Free           | Free                   | KMS API charges          | Flat monthly                    |
 
 For most teams, age for all environments is the right starting point. Add per-environment recipients for access restrictions; move to KMS for audit logging.
+
+::: tip Managed KMS without the AWS setup
+[Clef Cloud](/cli/cloud) provisions and manages a KMS key for you — no AWS account, ARNs, or IAM policies required. Run `clef cloud init --env production` to migrate production to managed KMS in one step.
+:::
 
 ## Next steps
 

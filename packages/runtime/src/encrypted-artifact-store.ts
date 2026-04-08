@@ -5,7 +5,6 @@ import type { ArtifactEnvelope } from "./poller";
  *
  * In JIT mode (cacheTtl=0) the poller writes here after fetch+validate,
  * and the HTTP server reads from here on each request to decrypt on demand.
- * Key names and revision are readable without decryption (SOPS metadata).
  */
 export class EncryptedArtifactStore {
   private artifact: ArtifactEnvelope | null = null;
@@ -30,11 +29,6 @@ export class EncryptedArtifactStore {
   /** Epoch ms of last store, or null. */
   getStoredAt(): number | null {
     return this._storedAt;
-  }
-
-  /** Get key names from the stored artifact metadata (no decryption needed). */
-  getKeys(): string[] {
-    return this.artifact ? [...this.artifact.keys] : [];
   }
 
   /** Get the revision from the stored artifact. */

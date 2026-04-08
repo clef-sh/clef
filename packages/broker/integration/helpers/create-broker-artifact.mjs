@@ -53,7 +53,6 @@ const artifact = {
   revision,
   ciphertextHash,
   ciphertext,
-  keys: Object.keys(JSON.parse(secretsJson)),
   envelope: {
     provider: "test",
     keyId: "test-key",

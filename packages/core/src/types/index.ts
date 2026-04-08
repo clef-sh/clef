@@ -34,6 +34,7 @@ export interface SubprocessOptions {
 /** Cloud integration configuration stored in the manifest. */
 export interface ClefCloudConfig {
   integrationId: string;
+  keyId: string;
 }
 
 /** Parsed and validated contents of a `clef.yaml` manifest file. */
@@ -47,9 +48,12 @@ export interface ClefManifest {
   cloud?: ClefCloudConfig;
 }
 
+/** Supported SOPS encryption backend identifiers. */
+export type BackendType = "age" | "awskms" | "gcpkms" | "azurekv" | "pgp" | "cloud";
+
 /** Per-environment SOPS backend override. */
 export interface EnvironmentSopsOverride {
-  backend: "age" | "awskms" | "gcpkms" | "azurekv" | "pgp";
+  backend: BackendType;
   aws_kms_arn?: string;
   gcp_kms_resource_id?: string;
   azure_kv_url?: string;
@@ -113,7 +117,8 @@ export interface ClefNamespace {
 
 /** SOPS encryption backend configuration from the manifest. */
 export interface SopsConfig {
-  default_backend: "age" | "awskms" | "gcpkms" | "azurekv" | "pgp";
+  default_backend: BackendType;
+  age?: { recipients: (string | { key: string; label?: string })[] };
   aws_kms_arn?: string;
   gcp_kms_resource_id?: string;
   azure_kv_url?: string;
@@ -137,6 +142,14 @@ export interface ClefLocalConfig {
   age_key_storage?: "keychain" | "file";
   /** Label identifying this repo's age key in the OS keychain or filesystem. */
   age_keychain_label?: string;
+}
+
+/** User-scoped Cloud credentials stored in ~/.clef/credentials.yaml. */
+export interface ClefCloudCredentials {
+  /** Bearer token for Cloud API authentication. */
+  token: string;
+  /** Cloud API endpoint override. Defaults to https://api.clef.sh. */
+  endpoint?: string;
 }
 
 // ── Matrix ──────────────────────────────────────────────────────────────────
@@ -295,7 +308,7 @@ export interface DecryptedFile {
 
 /** SOPS metadata extracted from an encrypted file without decrypting its values. */
 export interface SopsMetadata {
-  backend: "age" | "awskms" | "gcpkms" | "azurekv" | "pgp";
+  backend: BackendType;
   /** List of recipient identifiers (age public keys, KMS ARNs, Azure KV URLs, PGP fingerprints). */
   recipients: string[];
   lastModified: Date;
@@ -737,7 +750,7 @@ export interface CloudBatchResponse {
   reportIds: string[];
 }
 
-/** Thrown when a Clef Pro API request fails. */
+/** Thrown when a Clef Cloud API request fails. */
 export class CloudApiError extends ClefError {
   constructor(
     message: string,

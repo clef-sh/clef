@@ -40,6 +40,7 @@ export type { ArtifactSource, ArtifactFetchResult } from "./sources/types";
 export { HttpArtifactSource } from "./sources/http";
 export { FileArtifactSource } from "./sources/file";
 export { VcsArtifactSource } from "./sources/vcs";
+export { S3ArtifactSource, isS3Url } from "./sources/s3";
 
 // Signature verification
 export { buildSigningPayload, verifySignature } from "./signature";
@@ -53,6 +54,7 @@ import { createVcsProvider } from "./vcs/index";
 import { VcsArtifactSource } from "./sources/vcs";
 import { HttpArtifactSource } from "./sources/http";
 import { FileArtifactSource } from "./sources/file";
+import { S3ArtifactSource, isS3Url } from "./sources/s3";
 import { ArtifactSource } from "./sources/types";
 import { TelemetryEmitter } from "./telemetry";
 
@@ -231,8 +233,11 @@ export class ClefRuntime {
       return new VcsArtifactSource(provider, config.identity!, config.environment!);
     }
 
-    // HTTP or file source
+    // HTTP, S3, or file source
     if (config.source) {
+      if (isS3Url(config.source)) {
+        return new S3ArtifactSource(config.source);
+      }
       if (config.source.startsWith("http://") || config.source.startsWith("https://")) {
         return new HttpArtifactSource(config.source);
       }

@@ -10,6 +10,7 @@ import { ScanScreen } from "./screens/ScanScreen";
 import { ImportScreen } from "./screens/ImportScreen";
 import { RecipientsScreen } from "./screens/RecipientsScreen";
 import { ServiceIdentitiesScreen } from "./screens/ServiceIdentitiesScreen";
+import { BackendScreen } from "./screens/BackendScreen";
 import { GitLogView } from "./screens/GitLogView";
 import type { ClefManifest, MatrixStatus, GitStatus, LintResult } from "@clef-sh/core";
 
@@ -29,16 +30,14 @@ export default function App() {
       if (res.ok) {
         const data: ClefManifest = await res.json();
         setManifest(data);
-        if (!activeNs && data.namespaces.length > 0) {
-          setActiveNs(data.namespaces[0].name);
-        }
+        setActiveNs((prev) => (prev ? prev : (data.namespaces[0]?.name ?? "")));
       }
     } catch {
       // Will retry on next navigation
     } finally {
       setLoading(false);
     }
-  }, [activeNs]);
+  }, []);
 
   const loadMatrix = useCallback(async () => {
     try {
@@ -99,6 +98,12 @@ export default function App() {
     loadScanCount();
   }, [loadManifest, loadMatrix, loadGitStatus, loadLintCount, loadScanCount]);
 
+  // Refresh data on every view change — manifest and matrix are cheap (no decryption)
+  useEffect(() => {
+    loadManifest();
+    loadMatrix();
+  }, [view, loadManifest, loadMatrix]);
+
   const handleCommit = async (message: string) => {
     try {
       await apiFetch("/api/git/commit", {
@@ -106,8 +111,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
       });
-      await loadGitStatus();
-      await loadMatrix();
+      await Promise.all([loadGitStatus(), loadMatrix()]);
     } catch {
       // Error handling in production would show a toast
     }
@@ -190,6 +194,10 @@ export default function App() {
         {view === "import" && <ImportScreen manifest={manifest} setView={setView} />}
         {view === "recipients" && <RecipientsScreen manifest={manifest} setView={setView} />}
         {view === "identities" && <ServiceIdentitiesScreen manifest={manifest} />}
+        {view === "backend" && (
+          <BackendScreen manifest={manifest} setView={setView} reloadManifest={loadManifest} />
+        )}
+        {view === "cloud" && null}
         {view === "history" && <GitLogView manifest={manifest} />}
       </div>
     </div>

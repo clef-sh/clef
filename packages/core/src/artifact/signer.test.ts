@@ -19,7 +19,6 @@ function makeArtifact(overrides: Partial<PackedArtifact> = {}): PackedArtifact {
     revision: "1711101600000-a1b2c3d4",
     ciphertextHash: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
     ciphertext: "base64-encoded-ciphertext",
-    keys: ["DB_URL", "API_KEY", "STRIPE_SECRET"],
     ...overrides,
   };
 }
@@ -32,24 +31,18 @@ describe("buildSigningPayload", () => {
     expect(p1.equals(p2)).toBe(true);
   });
 
-  it("should sort keys to ensure determinism", () => {
-    const a1 = makeArtifact({ keys: ["Z_KEY", "A_KEY", "M_KEY"] });
-    const a2 = makeArtifact({ keys: ["A_KEY", "M_KEY", "Z_KEY"] });
-    expect(buildSigningPayload(a1).equals(buildSigningPayload(a2))).toBe(true);
-  });
-
   it("should include all security-relevant fields", () => {
     const artifact = makeArtifact({ expiresAt: "2026-03-22T11:00:00.000Z" });
     const payload = buildSigningPayload(artifact).toString("utf-8");
 
-    expect(payload).toContain("clef-sig-v2");
+    expect(payload).toContain("clef-sig-v3");
     expect(payload).toContain("1");
     expect(payload).toContain("api-gateway");
     expect(payload).toContain("production");
     expect(payload).toContain("1711101600000-a1b2c3d4");
     expect(payload).toContain("2026-03-22T10:00:00.000Z");
     expect(payload).toContain(artifact.ciphertextHash);
-    expect(payload).toContain("API_KEY,DB_URL,STRIPE_SECRET");
+    expect(payload).not.toContain("DB_URL");
     expect(payload).toContain("2026-03-22T11:00:00.000Z");
   });
 
@@ -84,13 +77,13 @@ describe("buildSigningPayload", () => {
     const payload = buildSigningPayload(artifact).toString("utf-8");
     const lines = payload.split("\n");
     // expiresAt and envelope fields should be empty strings
-    expect(lines[8]).toBe(""); // expiresAt
-    expect(lines[9]).toBe(""); // envelope.provider
-    expect(lines[10]).toBe(""); // envelope.keyId
-    expect(lines[11]).toBe(""); // envelope.wrappedKey
-    expect(lines[12]).toBe(""); // envelope.algorithm
-    expect(lines[13]).toBe(""); // envelope.iv
-    expect(lines[14]).toBe(""); // envelope.authTag
+    expect(lines[7]).toBe(""); // expiresAt
+    expect(lines[8]).toBe(""); // envelope.provider
+    expect(lines[9]).toBe(""); // envelope.keyId
+    expect(lines[10]).toBe(""); // envelope.wrappedKey
+    expect(lines[11]).toBe(""); // envelope.algorithm
+    expect(lines[12]).toBe(""); // envelope.iv
+    expect(lines[13]).toBe(""); // envelope.authTag
   });
 
   it("produces canonical payload matching runtime specification", () => {
@@ -112,16 +105,15 @@ describe("buildSigningPayload", () => {
     const payload = buildSigningPayload(artifact).toString("utf-8");
 
     // The canonical format is: domain prefix, then each field on its own line,
-    // keys sorted lexicographically and comma-joined, missing optionals as "".
+    // key names excluded for security, missing optionals as "".
     const expected = [
-      "clef-sig-v2",
+      "clef-sig-v3",
       "1",
       "api-gateway",
       "production",
       "1711101600000-a1b2c3d4",
       "2026-03-22T10:00:00.000Z",
       "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
-      "API_KEY,DB_URL,STRIPE_SECRET",
       "2026-03-22T12:00:00.000Z",
       "aws",
       "arn:aws:kms:us-east-1:123456789012:key/abcd-1234",
@@ -133,8 +125,8 @@ describe("buildSigningPayload", () => {
 
     expect(payload).toBe(expected);
 
-    // Verify exact line count (15 lines = domain prefix + 14 fields)
-    expect(payload.split("\n")).toHaveLength(15);
+    // Verify exact line count (14 lines = domain prefix + 13 fields)
+    expect(payload.split("\n")).toHaveLength(14);
   });
 });
 
