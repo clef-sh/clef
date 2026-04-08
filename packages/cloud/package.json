@@ -64,11 +64,11 @@
     "yaml": "^2.8.3"
   },
   "optionalDependencies": {
-    "@clef-sh/keyservice-darwin-arm64": "0.1.5",
-    "@clef-sh/keyservice-darwin-x64": "0.1.5",
-    "@clef-sh/keyservice-linux-x64": "0.1.5",
-    "@clef-sh/keyservice-linux-arm64": "0.1.5",
-    "@clef-sh/keyservice-win32-x64": "0.1.5"
+    "@clef-sh/keyservice-darwin-arm64": "0.1.7",
+    "@clef-sh/keyservice-darwin-x64": "0.1.7",
+    "@clef-sh/keyservice-linux-x64": "0.1.7",
+    "@clef-sh/keyservice-linux-arm64": "0.1.7",
+    "@clef-sh/keyservice-win32-x64": "0.1.7"
   },
   "peerDependencies": {
     "@clef-sh/core": ">=0.1.0"
@@ -84,7 +84,7 @@
     "@types/node": "^20.11.0",
     "esbuild": "^0.27.4",
     "jest": "^29.7.0",
-    "ts-jest": "^29.1.0",
+    "ts-jest": "^29.4.9",
     "typescript": "^5.4.0"
   },
   "publishConfig": {
