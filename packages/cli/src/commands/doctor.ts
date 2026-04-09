@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { Command } from "commander";
 import { checkAll, GitIntegration, REQUIREMENTS, SubprocessRunner } from "@clef-sh/core";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import {
   resolveAgeCredential,
@@ -40,9 +40,8 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
         "  0  All checks pass\n" +
         "  1  One or more checks failed",
     )
-    .option("--json", "Output the full status as JSON")
     .option("--fix", "Attempt to auto-fix issues")
-    .action(async (options: { json?: boolean; fix?: boolean }) => {
+    .action(async (options: { fix?: boolean }) => {
       const repoRoot = (program.opts().dir as string) || process.cwd();
       const clefVersion = program.version() ?? "unknown";
 
@@ -165,7 +164,7 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
       }
 
       // JSON output
-      if (options.json) {
+      if (isJsonMode()) {
         const json: DoctorJsonOutput = {
           clef: { version: clefVersion, ok: true },
           sops: {
@@ -196,7 +195,7 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
           },
         };
 
-        formatter.raw(JSON.stringify(json, null, 2) + "\n");
+        formatter.json(json);
         const hasFailures = checks.some((c) => !c.ok);
         process.exit(hasFailures ? 1 : 0);
         return;

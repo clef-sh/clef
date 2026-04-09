@@ -21,6 +21,7 @@ jest.mock("./init", () => ({
 }));
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -32,6 +33,9 @@ jest.mock("../output/formatter", () => ({
     secretPrompt: jest.fn(),
     formatDependencyError: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
@@ -99,6 +103,34 @@ describe("clef migrate-backend", () => {
     expect(mockFormatter.hint).toHaveBeenCalled();
   });
 
+  it("should output JSON with --json flag", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    const program = makeProgram();
+    await program.parseAsync([
+      "node",
+      "clef",
+      "migrate-backend",
+      "--aws-kms-arn",
+      "arn:aws:kms:us-east-1:123:key/abc",
+    ]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.backend).toBe("awskms");
+    expect(data.migratedFiles).toBeDefined();
+    expect(data.skippedFiles).toBeDefined();
+    expect(data.verifiedFiles).toBeDefined();
+    expect(data.warnings).toBeDefined();
+    expect(data.rolledBack).toBe(false);
+    expect(data.dryRun).toBe(false);
+
+    isJsonMode.mockReturnValue(false);
+  });
+
   it("should show environments in confirmation prompt", async () => {
     const program = makeProgram();
     await program.parseAsync(["node", "clef", "migrate-backend", "--aws-kms-arn", "arn:..."]);
@@ -118,6 +150,52 @@ describe("clef migrate-backend", () => {
 
     expect(mockFormatter.info).toHaveBeenCalledWith("Migration cancelled.");
     expect(MockBackendMigrator).not.toHaveBeenCalled();
+  });
+
+  it("should output JSON with --json flag for --age migration", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    const program = makeProgram();
+    await program.parseAsync(["node", "clef", "migrate-backend", "--age"]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.backend).toBe("age");
+    expect(data.rolledBack).toBe(false);
+
+    isJsonMode.mockReturnValue(false);
+  });
+
+  it("should output JSON with --json flag for dry-run", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    const mockMigrate = jest.fn().mockResolvedValue(mockMigrateResult({ migratedFiles: [] }));
+    MockBackendMigrator.mockImplementation(
+      () => ({ migrate: mockMigrate }) as unknown as BackendMigrator,
+    );
+
+    const program = makeProgram();
+    await program.parseAsync([
+      "node",
+      "clef",
+      "migrate-backend",
+      "--aws-kms-arn",
+      "arn:...",
+      "--dry-run",
+    ]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.dryRun).toBe(true);
+    expect(data.backend).toBe("awskms");
+
+    isJsonMode.mockReturnValue(false);
   });
 
   it("should not prompt in dry-run mode", async () => {

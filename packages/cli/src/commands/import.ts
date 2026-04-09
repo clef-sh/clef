@@ -11,7 +11,7 @@ import {
   ImportFormat,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createCloudAwareSopsClient } from "../cloud-sops";
 
@@ -170,6 +170,18 @@ export function registerImportCommand(program: Command, deps: { runner: Subproce
               }
               formatter.error((err as Error).message);
               process.exit(2);
+              return;
+            }
+
+            if (isJsonMode()) {
+              formatter.json({
+                imported: result.imported,
+                skipped: result.skipped,
+                failed: result.failed,
+                warnings: result.warnings,
+                dryRun: opts.dryRun,
+              });
+              process.exit(result.failed.length > 0 ? 1 : 0);
               return;
             }
 

@@ -3,11 +3,12 @@ import * as YAML from "yaml";
 import { Command } from "commander";
 import { registerLintCommand } from "./lint";
 import { SubprocessRunner, LintResult, SopsMissingError } from "@clef-sh/core";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 
 jest.mock("fs");
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -20,6 +21,9 @@ jest.mock("../output/formatter", () => ({
     secretPrompt: jest.fn(),
     formatDependencyError: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 // Mock the LintRunner to control returned results
@@ -122,11 +126,13 @@ describe("clef lint", () => {
     const runner = goodRunner();
     const program = makeProgram(runner);
 
-    await program.parseAsync(["node", "clef", "lint", "--json"]);
+    (isJsonMode as jest.Mock).mockReturnValue(true);
+    await program.parseAsync(["node", "clef", "lint"]);
+    (isJsonMode as jest.Mock).mockReturnValue(false);
 
-    expect(mockFormatter.raw).toHaveBeenCalled();
-    const jsonOutput = (mockFormatter.raw as jest.Mock).mock.calls[0][0];
-    const parsed = JSON.parse(jsonOutput);
+    expect(mockFormatter.json).toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test assertion
+    const parsed = mockFormatter.json.mock.calls[0][0] as any;
     expect(parsed.issues).toBeDefined();
     expect(parsed.fileCount).toBeDefined();
   });

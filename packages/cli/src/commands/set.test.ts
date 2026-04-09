@@ -22,6 +22,7 @@ jest.mock("@clef-sh/core", () => {
 });
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -33,6 +34,9 @@ jest.mock("../output/formatter", () => ({
     secretPrompt: jest.fn().mockResolvedValue("prompted-secret"),
     formatDependencyError: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
@@ -110,6 +114,50 @@ describe("clef set", () => {
         expect(call[0]).not.toContain("sk_test_123");
       }
     }
+  });
+
+  it("should output JSON with --json flag", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    const runner = sopsRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "set", "payments/dev", "STRIPE_KEY", "sk_test_123"]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.key).toBe("STRIPE_KEY");
+    expect(data.namespace).toBe("payments");
+    expect(data.environment).toBe("dev");
+    expect(data.action).toBe("created");
+    expect(data.pending).toBe(false);
+
+    isJsonMode.mockReturnValue(false);
+  });
+
+  it("should output JSON with pending=true for --random --json", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    const runner = sopsRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "set", "payments/dev", "API_KEY", "--random"]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.key).toBe("API_KEY");
+    expect(data.namespace).toBe("payments");
+    expect(data.environment).toBe("dev");
+    expect(data.action).toBe("created");
+    expect(data.pending).toBe(true);
+
+    isJsonMode.mockReturnValue(false);
   });
 
   it("should prompt for value when not provided", async () => {
@@ -298,6 +346,29 @@ describe("clef set", () => {
   });
 
   describe("--all-envs", () => {
+    it("should output JSON with --json flag for --all-envs", async () => {
+      const { isJsonMode } = jest.requireMock("../output/formatter") as {
+        isJsonMode: jest.Mock;
+      };
+      isJsonMode.mockReturnValue(true);
+
+      mockFormatter.secretPrompt.mockResolvedValue("shared-secret");
+      const runner = sopsRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync(["node", "clef", "set", "payments", "API_KEY", "--all-envs"]);
+
+      expect(mockFormatter.json).toHaveBeenCalled();
+      const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+      expect(data.key).toBe("API_KEY");
+      expect(data.namespace).toBe("payments");
+      expect(data.action).toBe("created");
+      expect(data.pending).toBe(false);
+      expect(data.environments).toBeDefined();
+
+      isJsonMode.mockReturnValue(false);
+    });
+
     it("should set the same value in all environments", async () => {
       mockFormatter.secretPrompt.mockResolvedValue("shared-secret");
       const runner = sopsRunner();
@@ -313,6 +384,35 @@ describe("clef set", () => {
         (c) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
       );
       expect(encryptCalls.length).toBe(2); // dev + production
+    });
+
+    it("should output JSON with --json flag for --random --all-envs", async () => {
+      const { isJsonMode } = jest.requireMock("../output/formatter") as {
+        isJsonMode: jest.Mock;
+      };
+      isJsonMode.mockReturnValue(true);
+
+      const runner = sopsRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync([
+        "node",
+        "clef",
+        "set",
+        "payments",
+        "WEBHOOK_SECRET",
+        "--all-envs",
+        "--random",
+      ]);
+
+      expect(mockFormatter.json).toHaveBeenCalled();
+      const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+      expect(data.key).toBe("WEBHOOK_SECRET");
+      expect(data.namespace).toBe("payments");
+      expect(data.action).toBe("created");
+      expect(data.pending).toBe(true);
+
+      isJsonMode.mockReturnValue(false);
     });
 
     it("should generate distinct random values per env with --random --all-envs", async () => {

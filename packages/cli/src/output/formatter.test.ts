@@ -1,6 +1,6 @@
 import * as readline from "readline";
 import { SopsMissingError, SopsVersionError } from "@clef-sh/core";
-import { formatter } from "./formatter";
+import { formatter, setJsonMode, setYesMode, isJsonMode } from "./formatter";
 import { setPlainMode, isPlainMode } from "./symbols";
 
 // Mock readline so we can control createInterface
@@ -633,6 +633,64 @@ describe("formatter", () => {
 
       Object.defineProperty(process.stdin, "isTTY", { value: origIsTTY, configurable: true });
       process.stdin.setRawMode = origSetRawMode;
+    });
+  });
+
+  describe("JSON mode", () => {
+    afterEach(() => {
+      setJsonMode(false);
+      setYesMode(false);
+    });
+
+    it("isJsonMode returns false by default", () => {
+      expect(isJsonMode()).toBe(false);
+    });
+
+    it("setJsonMode enables JSON mode", () => {
+      setJsonMode(true);
+      expect(isJsonMode()).toBe(true);
+    });
+
+    it("suppresses stdout methods in JSON mode", () => {
+      setJsonMode(true);
+      formatter.success("test");
+      formatter.info("test");
+      formatter.hint("test");
+      formatter.print("test");
+      formatter.keyValue("k", "v");
+      formatter.section("s");
+      expect(stdoutWrite).not.toHaveBeenCalled();
+    });
+
+    it("json() writes compact JSON to stdout", () => {
+      formatter.json({ foo: "bar", n: 1 });
+      expect(stdoutWrite).toHaveBeenCalledWith('{"foo":"bar","n":1}\n');
+    });
+
+    it("confirm() throws in JSON mode without --yes", async () => {
+      setJsonMode(true);
+      await expect(formatter.confirm("Delete?")).rejects.toThrow(
+        "--json requires --yes for destructive operations",
+      );
+    });
+
+    it("confirm() auto-returns true with --yes", async () => {
+      setYesMode(true);
+      const result = await formatter.confirm("Delete?");
+      expect(result).toBe(true);
+    });
+
+    it("--yes works without --json", async () => {
+      setYesMode(true);
+      const result = await formatter.confirm("Delete?");
+      expect(result).toBe(true);
+    });
+
+    it("secretPrompt() throws in JSON mode", async () => {
+      setJsonMode(true);
+      await expect(formatter.secretPrompt("Enter value")).rejects.toThrow(
+        "--json mode requires value on the command line",
+      );
     });
   });
 });

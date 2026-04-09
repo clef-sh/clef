@@ -3,7 +3,7 @@ import * as path from "path";
 import { Command } from "commander";
 import { parse as parseYaml } from "yaml";
 import { SubprocessRunner } from "@clef-sh/core";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { DEFAULT_REGISTRY, fetchIndex, fetchBrokerFile, findBroker } from "../registry/client";
 
@@ -99,6 +99,17 @@ export function registerInstallCommand(
         const manifestFile = files.find((f) => f.name === "broker.yaml");
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- parsed YAML is untyped
         const manifest: any = manifestFile ? parseYaml(manifestFile.content) : {};
+
+        if (isJsonMode()) {
+          formatter.json({
+            broker: entry.name,
+            provider: entry.provider,
+            tier: entry.tier,
+            files: files.map((f) => `brokers/${entry.name}/${f.name}`),
+          });
+          process.exit(0);
+          return;
+        }
 
         // Print summary
         formatter.print("");

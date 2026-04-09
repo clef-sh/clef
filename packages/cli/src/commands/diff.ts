@@ -9,9 +9,11 @@ import {
   SubprocessRunner,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createCloudAwareSopsClient } from "../cloud-sops";
+
+const MASKED = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
 
 export function registerDiffCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -24,13 +26,12 @@ export function registerDiffCommand(program: Command, deps: { runner: Subprocess
     )
     .option("--show-identical", "Include identical keys in the output")
     .option("--show-values", "Show plaintext values instead of masking them")
-    .option("--json", "Output raw DiffResult JSON")
     .action(
       async (
         namespace: string,
         envA: string,
         envB: string,
-        options: { showIdentical?: boolean; showValues?: boolean; json?: boolean },
+        options: { showIdentical?: boolean; showValues?: boolean },
       ) => {
         try {
           const repoRoot = (program.opts().dir as string) || process.cwd();
@@ -65,27 +66,22 @@ export function registerDiffCommand(program: Command, deps: { runner: Subprocess
               }
             }
 
-            if (options.json) {
-              const jsonOutput = options.showValues
+            if (isJsonMode()) {
+              const jsonData = options.showValues
                 ? result
                 : {
                     ...result,
                     rows: result.rows.map((r) => ({
                       ...r,
-                      valueA:
-                        r.valueA !== null
-                          ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
-                          : null,
-                      valueB:
-                        r.valueB !== null
-                          ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
-                          : null,
+                      valueA: r.valueA !== null ? MASKED : null,
+                      valueB: r.valueB !== null ? MASKED : null,
                       masked: true,
                     })),
                   };
-              formatter.raw(JSON.stringify(jsonOutput, null, 2) + "\n");
+              formatter.json(jsonData);
               const hasDiffs = result.rows.some((r) => r.status !== "identical");
               process.exit(hasDiffs ? 1 : 0);
+              return;
             }
 
             formatDiffOutput(
@@ -107,8 +103,6 @@ export function registerDiffCommand(program: Command, deps: { runner: Subprocess
       },
     );
 }
-
-const MASKED = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
 
 function formatDiffOutput(
   result: DiffResult,

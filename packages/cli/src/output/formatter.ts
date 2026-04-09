@@ -3,12 +3,28 @@ import * as readline from "readline";
 import { SopsMissingError, SopsVersionError } from "@clef-sh/core";
 import { sym, isPlainMode } from "./symbols";
 
+let _jsonMode = false;
+let _yesMode = false;
+
+export function setJsonMode(json: boolean): void {
+  _jsonMode = json;
+}
+
+export function isJsonMode(): boolean {
+  return _jsonMode;
+}
+
+export function setYesMode(yes: boolean): void {
+  _yesMode = yes;
+}
+
 function color(fn: (s: string) => string, str: string): string {
   return isPlainMode() ? str : fn(str);
 }
 
 export const formatter = {
   success(message: string): void {
+    if (_jsonMode) return;
     const icon = sym("success");
     process.stdout.write(color(pc.green, `${icon}  ${message}`) + "\n");
   },
@@ -29,16 +45,19 @@ export const formatter = {
   },
 
   info(message: string): void {
+    if (_jsonMode) return;
     const icon = sym("info");
     process.stdout.write(color(pc.blue, `${icon}  ${message}`) + "\n");
   },
 
   hint(message: string): void {
+    if (_jsonMode) return;
     const icon = sym("arrow");
     process.stdout.write(`${icon}  ${message}\n`);
   },
 
   keyValue(key: string, value: string): void {
+    if (_jsonMode) return;
     const icon = sym("key");
     const arrow = sym("arrow");
     const prefix = icon ? `${icon}  ` : "";
@@ -46,22 +65,26 @@ export const formatter = {
   },
 
   pendingItem(key: string, days: number): void {
+    if (_jsonMode) return;
     const icon = sym("pending");
     const prefix = icon ? `${icon}  ` : "[pending]  ";
     process.stdout.write(`${prefix}${key} \u2014 ${days} day${days !== 1 ? "s" : ""} pending\n`);
   },
 
   recipientItem(label: string, keyPreview: string): void {
+    if (_jsonMode) return;
     const icon = sym("recipient");
     const prefix = icon ? `${icon}  ` : "";
     process.stdout.write(`${prefix}${label.padEnd(15)}${keyPreview}\n`);
   },
 
   section(label: string): void {
+    if (_jsonMode) return;
     process.stdout.write(`\n${label}\n\n`);
   },
 
   print(message: string): void {
+    if (_jsonMode) return;
     process.stdout.write(message + "\n");
   },
 
@@ -69,7 +92,12 @@ export const formatter = {
     process.stdout.write(message);
   },
 
+  json(data: unknown): void {
+    process.stdout.write(JSON.stringify(data) + "\n");
+  },
+
   table(rows: string[][], columns: string[]): void {
+    if (_jsonMode) return;
     const widths = columns.map((col, i) => {
       const maxDataWidth = rows.reduce(
         (max, row) => Math.max(max, stripAnsi(row[i] ?? "").length),
@@ -91,6 +119,10 @@ export const formatter = {
   },
 
   async confirm(prompt: string): Promise<boolean> {
+    if (_yesMode) return true;
+    if (_jsonMode) {
+      throw new Error("--json requires --yes for destructive operations");
+    }
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stderr,
@@ -126,6 +158,9 @@ export const formatter = {
   },
 
   async secretPrompt(prompt: string): Promise<string> {
+    if (_jsonMode) {
+      throw new Error("--json mode requires value on the command line (no interactive prompt)");
+    }
     return new Promise((resolve, reject) => {
       process.stderr.write(color(pc.cyan, `${prompt}: `));
 

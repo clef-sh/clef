@@ -8,7 +8,7 @@ import {
   SubprocessRunner,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { createCloudAwareSopsClient } from "../cloud-sops";
 import { parseTarget } from "../parse-target";
 
@@ -62,6 +62,15 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
 
             const bulkOps = new BulkOps();
             await bulkOps.deleteAcrossEnvironments(namespace, key, manifest, sopsClient, repoRoot);
+            if (isJsonMode()) {
+              formatter.json({
+                key,
+                namespace,
+                environments: manifest.environments.map((e) => e.name),
+                action: "deleted",
+              });
+              return;
+            }
             formatter.success(`Deleted '${key}' from ${namespace} in all environments`);
           } else {
             const [namespace, environment] = parseTarget(target);
@@ -111,6 +120,10 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
               );
             }
 
+            if (isJsonMode()) {
+              formatter.json({ key, namespace, environment, action: "deleted" });
+              return;
+            }
             formatter.success(`Deleted '${key}' from ${namespace}/${environment}`);
             formatter.hint(
               `Commit: git add ${manifest.file_pattern.replace("{namespace}", namespace).replace("{environment}", environment)}`,

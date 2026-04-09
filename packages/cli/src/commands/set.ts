@@ -10,7 +10,7 @@ import {
   markResolved,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createCloudAwareSopsClient } from "../cloud-sops";
 import { parseTarget } from "../parse-target";
@@ -127,6 +127,16 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                     pendingErrors.push(env.name);
                   }
                 }
+                if (isJsonMode()) {
+                  formatter.json({
+                    key,
+                    namespace,
+                    environments: manifest.environments.map((e) => e.name),
+                    action: "created",
+                    pending: true,
+                  });
+                  return;
+                }
                 formatter.success(
                   `'${key}' set in ${namespace} across all environments ${sym("locked")}`,
                 );
@@ -152,6 +162,16 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                   } catch {
                     // Non-fatal — file may not have had pending state
                   }
+                }
+                if (isJsonMode()) {
+                  formatter.json({
+                    key,
+                    namespace,
+                    environments: manifest.environments.map((e) => e.name),
+                    action: "created",
+                    pending: false,
+                  });
+                  return;
                 }
                 formatter.success(`'${key}' set in ${namespace} across all environments`);
                 formatter.hint(`git add ${namespace}/  # stage all updated files`);
@@ -237,6 +257,10 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                 process.exit(1);
                 return;
               }
+              if (isJsonMode()) {
+                formatter.json({ key, namespace, environment, action: "created", pending: true });
+                return;
+              }
               formatter.success(`${key} set in ${namespace}/${environment} ${sym("locked")}`);
               formatter.print(
                 `   ${sym("pending")}  Marked as pending \u2014 replace with a real value before deploying`,
@@ -251,6 +275,10 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                   `${key} was set but pending state could not be cleared.\n` +
                     "  The value is saved. Run clef lint to check for stale pending markers.",
                 );
+              }
+              if (isJsonMode()) {
+                formatter.json({ key, namespace, environment, action: "created", pending: false });
+                return;
               }
               formatter.success(`${key} set in ${namespace}/${environment}`);
               formatter.hint(

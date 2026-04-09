@@ -2,7 +2,7 @@ import * as path from "path";
 import { Command } from "commander";
 import { ManifestParser, MatrixManager, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createCloudAwareSopsClient } from "../cloud-sops";
 import { parseTarget } from "../parse-target";
@@ -60,6 +60,10 @@ export function registerRotateCommand(program: Command, deps: { runner: Subproce
 
           await sopsClient.reEncrypt(filePath, options.newKey);
 
+          if (isJsonMode()) {
+            formatter.json({ namespace, environment, file: relativeFile, action: "rotated" });
+            return;
+          }
           formatter.success(`Rotated. New values encrypted. ${sym("locked")}`);
           formatter.hint(
             `git add ${relativeFile} && git commit -m "rotate: ${namespace}/${environment}"`,
