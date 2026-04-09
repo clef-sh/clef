@@ -73,7 +73,7 @@ jobs:
     name: Publish ${{ github.ref_name == 'dev' && 'Alpha' || 'Beta' }}
     needs: wait-for-ci
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'dev' && 'alpha' || 'beta' }}
+    environment: ${{ github.ref_name == 'dev' && 'dev' || 'staging' }}
 
     steps:
       - uses: actions/checkout@v6

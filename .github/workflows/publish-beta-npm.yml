@@ -22,7 +22,7 @@ jobs:
   promote:
     name: Promote staging to npm
     runs-on: ubuntu-latest
-    environment: beta-npm
+    environment: staging
 
     steps:
       - uses: actions/checkout@v6
