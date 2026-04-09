@@ -68,7 +68,6 @@ jobs:
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/cloud publish failed (may already exist)"
         env:
           NPM_CONFIG_PROVENANCE: "true"
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/analytics
         continue-on-error: true
@@ -76,7 +75,6 @@ jobs:
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/analytics publish failed (may already exist)"
         env:
           NPM_CONFIG_PROVENANCE: "true"
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/runtime
         continue-on-error: true
