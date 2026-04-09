@@ -85,7 +85,7 @@ export class ArtifactDecryptor {
     const envelope = artifact.envelope!;
     let dek: Buffer;
     try {
-      const kms = createKmsProvider(envelope.provider);
+      const kms = await createKmsProvider(envelope.provider);
       const wrappedKey = Buffer.from(envelope.wrappedKey, "base64");
       dek = await kms.unwrap(envelope.keyId, wrappedKey, envelope.algorithm);
     } catch (err) {

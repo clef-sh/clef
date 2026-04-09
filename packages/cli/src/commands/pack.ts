@@ -97,7 +97,7 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
           const envConfig = si?.environments[environment];
           if (envConfig && isKmsEnvelope(envConfig)) {
             const { createKmsProvider } = await import("@clef-sh/runtime");
-            kmsProvider = createKmsProvider(envConfig.kms.provider, {
+            kmsProvider = await createKmsProvider(envConfig.kms.provider, {
               region: envConfig.kms.region,
             });
           }

@@ -85,6 +85,7 @@ jobs:
           stamp_stable packages/agent     agent
           stamp_stable packages/cli       cli
           stamp_stable packages/ui        ui
+          stamp_stable packages/client   client
 
       - name: Build all packages
         run: npm run build
@@ -134,6 +135,11 @@ jobs:
         working-directory: packages/ui
         run: npm publish --provenance --access public
 
+      - name: Publish @clef-sh/client
+        if: steps.versions.outputs.client_released == 'true'
+        working-directory: packages/client
+        run: npm publish --provenance --access public
+
       # ── Commit version stamps and tag ───────────────────────────────────
 
       - name: Commit stable versions
@@ -172,6 +178,7 @@ jobs:
           tag_if_released agent   agent   "${{ steps.versions.outputs.agent_released }}"   "${{ steps.versions.outputs.agent_version }}"
           tag_if_released cli     cli     "${{ steps.versions.outputs.cli_released }}"     "${{ steps.versions.outputs.cli_version }}"
           tag_if_released ui      ui      "${{ steps.versions.outputs.ui_released }}"      "${{ steps.versions.outputs.ui_version }}"
+          tag_if_released client  client  "${{ steps.versions.outputs.client_released }}"  "${{ steps.versions.outputs.client_version }}"
 
           git push --tags
 
@@ -203,3 +210,4 @@ jobs:
           create_release agent   "${{ steps.versions.outputs.agent_released }}"   "${{ steps.versions.outputs.agent_version }}"
           create_release cli     "${{ steps.versions.outputs.cli_released }}"     "${{ steps.versions.outputs.cli_version }}"
           create_release ui      "${{ steps.versions.outputs.ui_released }}"      "${{ steps.versions.outputs.ui_version }}"
+          create_release client  "${{ steps.versions.outputs.client_released }}"  "${{ steps.versions.outputs.client_version }}"
