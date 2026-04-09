@@ -6,12 +6,16 @@ import { RegistryIndex } from "../registry/client";
 
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
     info: jest.fn(),
     print: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockFormatter = formatter as jest.Mocked<typeof formatter>;
@@ -86,6 +90,27 @@ describe("clef search", () => {
     expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("sts-assume-role"));
     expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("sql-database"));
     expect(mockExit).toHaveBeenCalledWith(0);
+  });
+
+  it("should output JSON with --json flag", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    const program = makeProgram();
+    await program.parseAsync(["node", "clef", "search"]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(Array.isArray(data)).toBe(true);
+    expect(data).toHaveLength(3);
+    expect(data[0].name).toBe("rds-iam");
+    expect(data[1].name).toBe("sts-assume-role");
+    expect(data[2].name).toBe("sql-database");
+    expect(mockExit).toHaveBeenCalledWith(0);
+
+    isJsonMode.mockReturnValue(false);
   });
 
   it("filters by text query", async () => {

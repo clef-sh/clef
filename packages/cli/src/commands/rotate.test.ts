@@ -8,6 +8,7 @@ import { formatter } from "../output/formatter";
 jest.mock("fs");
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -19,6 +20,9 @@ jest.mock("../output/formatter", () => ({
     secretPrompt: jest.fn(),
     formatDependencyError: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
@@ -83,6 +87,47 @@ describe("clef rotate", () => {
     expect(mockFormatter.hint).toHaveBeenCalledWith(
       expect.stringContaining("git add payments/dev.enc.yaml"),
     );
+  });
+
+  it("should output JSON with --json flag", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    const runner: SubprocessRunner = {
+      run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
+        if (cmd === "age") {
+          return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
+        }
+        if (cmd === "sops" && args[0] === "--version") {
+          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+        }
+        if (cmd === "sops" && args[0] === "rotate") return { stdout: "", stderr: "", exitCode: 0 };
+        if (cmd === "sops" && args[0] === "filestatus")
+          return { stdout: "", stderr: "", exitCode: 1 };
+        if (cmd === "cat") {
+          return {
+            stdout: "sops:\n  age:\n    - recipient: age1old\n  lastmodified: '2024-01-15'\n",
+            stderr: "",
+            exitCode: 0,
+          };
+        }
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }),
+    };
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "rotate", "payments/dev", "--new-key", "age1newkey"]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.namespace).toBe("payments");
+    expect(data.environment).toBe("dev");
+    expect(data.file).toBe("payments/dev.enc.yaml");
+    expect(data.action).toBe("rotated");
+
+    isJsonMode.mockReturnValue(false);
   });
 
   it("should show confirm prompt for protected environments", async () => {

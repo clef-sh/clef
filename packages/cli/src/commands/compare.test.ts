@@ -8,6 +8,7 @@ import { formatter } from "../output/formatter";
 jest.mock("fs");
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -22,6 +23,9 @@ jest.mock("../output/formatter", () => ({
     failure: jest.fn(),
     section: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
@@ -99,6 +103,54 @@ describe("clef compare", () => {
 
     expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("values match"));
     expect(mockExit).not.toHaveBeenCalled();
+  });
+
+  it("should output JSON with --json flag when values match", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    const runner = makeSopsRunner({ DB_URL: "postgres://localhost", DB_POOL: "10" });
+    const program = makeProgram(runner);
+
+    await program.parseAsync([
+      "node",
+      "clef",
+      "compare",
+      "database/dev",
+      "DB_URL",
+      "postgres://localhost",
+    ]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.match).toBe(true);
+    expect(data.key).toBe("DB_URL");
+    expect(data.namespace).toBe("database");
+    expect(data.environment).toBe("dev");
+
+    isJsonMode.mockReturnValue(false);
+  });
+
+  it("should output JSON with --json flag when values do not match", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    const runner = makeSopsRunner({ DB_URL: "postgres://localhost" });
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "compare", "database/dev", "DB_URL", "wrong-value"]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.match).toBe(false);
+    expect(data.key).toBe("DB_URL");
+    expect(mockExit).toHaveBeenCalledWith(1);
+
+    isJsonMode.mockReturnValue(false);
   });
 
   it("should report mismatch when values differ (exit 1)", async () => {

@@ -17,11 +17,12 @@ import {
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import type { ClefManifest } from "@clef-sh/core";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient, resolveAgePrivateKey } from "../age-credential";
 
 export function waitForEnter(message: string): Promise<void> {
+  if (isJsonMode()) return Promise.resolve();
   return new Promise((resolve) => {
     const rl = readline.createInterface({
       input: process.stdin,
@@ -71,6 +72,11 @@ export function registerRecipientsCommand(
 
         const recipients = await recipientManager.list(manifest, repoRoot, opts.environment);
 
+        if (isJsonMode()) {
+          formatter.json(recipients);
+          return;
+        }
+
         if (recipients.length === 0) {
           const scope = opts.environment ? ` for environment '${opts.environment}'` : "";
           formatter.info(`No recipients configured${scope}.`);
@@ -113,7 +119,7 @@ export function registerRecipientsCommand(
         }
 
         const normalizedKey = validation.key!;
-        const success = await executeRecipientAdd(
+        const result = await executeRecipientAdd(
           repoRoot,
           program,
           deps,
@@ -122,11 +128,21 @@ export function registerRecipientsCommand(
           opts.environment,
         );
 
-        if (success) {
-          const label = opts.label || keyPreview(normalizedKey);
-          formatter.hint(
-            `git add clef.yaml && git add -A && git commit -m "add recipient: ${label} [${opts.environment}]"`,
-          );
+        if (result) {
+          if (isJsonMode()) {
+            formatter.json({
+              action: "added",
+              key: normalizedKey,
+              label: opts.label || keyPreview(normalizedKey),
+              environment: opts.environment,
+              reEncryptedFiles: result.reEncryptedFiles.length,
+            });
+          } else {
+            const label = opts.label || keyPreview(normalizedKey);
+            formatter.hint(
+              `git add clef.yaml && git add -A && git commit -m "add recipient: ${label} [${opts.environment}]"`,
+            );
+          }
         }
       } catch (err) {
         handleCommandError(err);
@@ -254,6 +270,17 @@ export function registerRecipientsCommand(
           formatter.print(`   ${sym("success")}  ${relative}`);
         }
 
+        if (isJsonMode()) {
+          formatter.json({
+            action: "removed",
+            key: trimmedKey,
+            label,
+            environment: opts.environment ?? null,
+            reEncryptedFiles: result.reEncryptedFiles.length,
+          });
+          return;
+        }
+
         formatter.success(
           `${label} removed. ${result.reEncryptedFiles.length} files re-encrypted. ${sym("locked")}`,
         );
@@ -344,6 +371,16 @@ export function registerRecipientsCommand(
 
         upsertRequest(repoRoot, publicKey, label, opts.environment);
 
+        if (isJsonMode()) {
+          formatter.json({
+            action: "requested",
+            label,
+            key: publicKey,
+            environment: opts.environment ?? null,
+          });
+          return;
+        }
+
         const scope = opts.environment ? ` for environment '${opts.environment}'` : "";
         formatter.success(`Access requested as '${label}'${scope}`);
         formatter.print(`  Key: ${keyPreview(publicKey)}`);
@@ -364,6 +401,16 @@ export function registerRecipientsCommand(
       try {
         const repoRoot = (program.opts().dir as string) || process.cwd();
         const requests = loadRequests(repoRoot);
+
+        if (isJsonMode()) {
+          formatter.json(
+            requests.map((r) => ({
+              ...r,
+              requestedAt: r.requestedAt.toISOString(),
+            })),
+          );
+          return;
+        }
 
         if (requests.length === 0) {
           formatter.info("No pending access requests.");
@@ -421,7 +468,7 @@ export function registerRecipientsCommand(
           return;
         }
 
-        const success = await executeRecipientAdd(
+        const result = await executeRecipientAdd(
           repoRoot,
           program,
           deps,
@@ -430,11 +477,21 @@ export function registerRecipientsCommand(
           environment,
         );
 
-        if (success) {
+        if (result) {
           removeAccessRequest(repoRoot, identifier);
-          formatter.hint(
-            `git add clef.yaml ${REQUESTS_FILENAME} && git add -A && git commit -m "approve recipient: ${request.label} [${environment}]"`,
-          );
+          if (isJsonMode()) {
+            formatter.json({
+              action: "approved",
+              identifier,
+              label: request.label,
+              environment,
+              reEncryptedFiles: result.reEncryptedFiles.length,
+            });
+          } else {
+            formatter.hint(
+              `git add clef.yaml ${REQUESTS_FILENAME} && git add -A && git commit -m "approve recipient: ${request.label} [${environment}]"`,
+            );
+          }
         }
       } catch (err) {
         handleCommandError(err);
@@ -454,7 +511,7 @@ async function executeRecipientAdd(
   key: string,
   label: string | undefined,
   environment: string,
-): Promise<boolean> {
+): Promise<{ reEncryptedFiles: string[] } | null> {
   const parser = new ManifestParser();
   const manifest: ClefManifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
@@ -464,7 +521,7 @@ async function executeRecipientAdd(
       `Environment '${environment}' not found. Available: ${manifest.environments.map((e) => e.name).join(", ")}`,
     );
     process.exit(2);
-    return false;
+    return null;
   }
 
   const matrixManager = new MatrixManager();
@@ -476,7 +533,7 @@ async function executeRecipientAdd(
   if (existing.some((r) => r.key === key)) {
     formatter.error(`Recipient '${keyPreview(key)}' is already present.`);
     process.exit(2);
-    return false;
+    return null;
   }
 
   // Count files for confirmation
@@ -497,7 +554,7 @@ async function executeRecipientAdd(
   const confirmed = await formatter.confirm("Proceed?");
   if (!confirmed) {
     formatter.info("Aborted.");
-    return false;
+    return null;
   }
 
   formatter.print(`\n${sym("working")}  Re-encrypting matrix...`);
@@ -515,7 +572,7 @@ async function executeRecipientAdd(
     );
     formatter.print("\nNo changes were applied. Investigate the error above and retry.");
     process.exit(1);
-    return false;
+    return null;
   }
 
   for (const file of result.reEncryptedFiles) {
@@ -527,5 +584,5 @@ async function executeRecipientAdd(
   formatter.success(
     `${displayLabel} added. ${result.reEncryptedFiles.length} files re-encrypted. ${sym("locked")}`,
   );
-  return true;
+  return { reEncryptedFiles: result.reEncryptedFiles };
 }

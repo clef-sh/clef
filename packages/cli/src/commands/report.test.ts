@@ -3,11 +3,12 @@ import * as YAML from "yaml";
 import { Command } from "commander";
 import { registerReportCommand } from "./report";
 import { SubprocessRunner, ClefReport, SopsMissingError } from "@clef-sh/core";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 
 jest.mock("fs");
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -20,6 +21,9 @@ jest.mock("../output/formatter", () => ({
     secretPrompt: jest.fn(),
     formatDependencyError: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockGenerate = jest.fn<Promise<ClefReport>, []>();
@@ -148,15 +152,17 @@ describe("clef report", () => {
     expect(mockExit).toHaveBeenCalledWith(0);
   });
 
-  it("--json outputs valid JSON to formatter.raw", async () => {
+  it("--json outputs valid JSON to formatter.json", async () => {
     mockGenerate.mockResolvedValue(makeClefReport());
     const program = makeProgram(goodRunner());
 
-    await program.parseAsync(["node", "clef", "report", "--json"]);
+    (isJsonMode as jest.Mock).mockReturnValue(true);
+    await program.parseAsync(["node", "clef", "report"]);
+    (isJsonMode as jest.Mock).mockReturnValue(false);
 
-    expect(mockFormatter.raw).toHaveBeenCalled();
-    const jsonOutput = (mockFormatter.raw as jest.Mock).mock.calls[0][0] as string;
-    const parsed = JSON.parse(jsonOutput);
+    expect(mockFormatter.json).toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test assertion
+    const parsed = mockFormatter.json.mock.calls[0][0] as any;
     expect(parsed.schemaVersion).toBe(1);
     expect(parsed.matrix).toBeDefined();
     expect(parsed.policy).toBeDefined();
@@ -238,7 +244,9 @@ describe("clef report", () => {
       mockGenerateReportAtCommit.mockResolvedValue(report);
       const program = makeProgram(goodRunner());
 
-      await program.parseAsync(["node", "clef", "report", "--at", "abc123", "--json"]);
+      (isJsonMode as jest.Mock).mockReturnValue(true);
+      await program.parseAsync(["node", "clef", "report", "--at", "abc123"]);
+      (isJsonMode as jest.Mock).mockReturnValue(false);
 
       expect(mockGenerateReportAtCommit).toHaveBeenCalledWith(
         expect.any(String),
@@ -246,7 +254,7 @@ describe("clef report", () => {
         expect.any(String),
         expect.any(Object),
       );
-      expect(mockFormatter.raw).toHaveBeenCalled();
+      expect(mockFormatter.json).toHaveBeenCalled();
       expect(mockExit).toHaveBeenCalledWith(0);
     });
   });
@@ -284,11 +292,13 @@ describe("clef report", () => {
       mockGetHeadSha.mockResolvedValue("head123");
 
       const program = makeProgram(goodRunner());
-      await program.parseAsync(["node", "clef", "report", "--since", "old", "--json"]);
+      (isJsonMode as jest.Mock).mockReturnValue(true);
+      await program.parseAsync(["node", "clef", "report", "--since", "old"]);
+      (isJsonMode as jest.Mock).mockReturnValue(false);
 
-      expect(mockFormatter.raw).toHaveBeenCalled();
-      const jsonOutput = (mockFormatter.raw as jest.Mock).mock.calls[0][0] as string;
-      const parsed = JSON.parse(jsonOutput);
+      expect(mockFormatter.json).toHaveBeenCalled();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test assertion
+      const parsed = mockFormatter.json.mock.calls[0][0] as any;
       expect(Array.isArray(parsed)).toBe(true);
     });
   });

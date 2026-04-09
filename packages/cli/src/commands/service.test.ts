@@ -24,6 +24,7 @@ jest.mock(
 );
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -38,6 +39,9 @@ jest.mock("../output/formatter", () => ({
     section: jest.fn(),
     table: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
@@ -119,6 +123,26 @@ describe("clef service", () => {
       expect(rows[0][0]).toBe("existing-svc");
     });
 
+    it("should output JSON with --json flag", async () => {
+      const { isJsonMode } = jest.requireMock("../output/formatter") as {
+        isJsonMode: jest.Mock;
+      };
+      isJsonMode.mockReturnValue(true);
+
+      const runner = makeRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync(["node", "clef", "service", "list"]);
+
+      expect(mockFormatter.json).toHaveBeenCalled();
+      const data = mockFormatter.json.mock.calls[0][0] as Array<Record<string, unknown>>;
+      expect(Array.isArray(data)).toBe(true);
+      expect(data).toHaveLength(1);
+      expect(data[0].name).toBe("existing-svc");
+
+      isJsonMode.mockReturnValue(false);
+    });
+
     it("should show info when no identities configured", async () => {
       const noIdentities = { ...manifestWithIdentity };
       delete (noIdentities as Record<string, unknown>).service_identities;
@@ -150,6 +174,24 @@ describe("clef service", () => {
       expect(allPrintCalls).not.toContain("AGE-SECRET-KEY-");
       expect(allPrintCalls).not.toContain(VALID_KEY_DEV);
       expect(allPrintCalls).not.toContain(VALID_KEY_STG);
+    });
+
+    it("should output JSON with --json flag for show", async () => {
+      const { isJsonMode } = jest.requireMock("../output/formatter") as {
+        isJsonMode: jest.Mock;
+      };
+      isJsonMode.mockReturnValue(true);
+
+      const runner = makeRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync(["node", "clef", "service", "show", "existing-svc"]);
+
+      expect(mockFormatter.json).toHaveBeenCalled();
+      const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+      expect(data.name).toBe("existing-svc");
+
+      isJsonMode.mockReturnValue(false);
     });
 
     it("should error on unknown identity", async () => {
@@ -197,6 +239,48 @@ describe("clef service", () => {
       expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("clipboard"));
     });
 
+    it("should output JSON with --json flag for create", async () => {
+      const { isJsonMode } = jest.requireMock("../output/formatter") as {
+        isJsonMode: jest.Mock;
+      };
+      isJsonMode.mockReturnValue(true);
+
+      const noIdentities = {
+        version: 1,
+        environments: [
+          { name: "dev", description: "Dev" },
+          { name: "staging", description: "Staging" },
+        ],
+        namespaces: [{ name: "api", description: "API" }],
+        sops: { default_backend: "age" },
+        file_pattern: "{namespace}/{environment}.enc.yaml",
+      };
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(noIdentities));
+      mockFs.existsSync.mockReturnValue(false);
+
+      const runner = makeRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync([
+        "node",
+        "clef",
+        "service",
+        "create",
+        "new-svc",
+        "--namespaces",
+        "api",
+        "--description",
+        "New service",
+      ]);
+
+      expect(mockFormatter.json).toHaveBeenCalled();
+      const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+      expect(data.action).toBe("created");
+      expect(data.identity).toBe("new-svc");
+
+      isJsonMode.mockReturnValue(false);
+    });
+
     it("should error when namespace not found", async () => {
       const noIdentities = {
         version: 1,
@@ -233,6 +317,25 @@ describe("clef service", () => {
 
       expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("rotated"));
       expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("clipboard"));
+    });
+
+    it("should output JSON with --json flag for rotate", async () => {
+      const { isJsonMode } = jest.requireMock("../output/formatter") as {
+        isJsonMode: jest.Mock;
+      };
+      isJsonMode.mockReturnValue(true);
+
+      const runner = makeRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync(["node", "clef", "service", "rotate", "existing-svc"]);
+
+      expect(mockFormatter.json).toHaveBeenCalled();
+      const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+      expect(data.action).toBe("rotated");
+      expect(data.identity).toBe("existing-svc");
+
+      isJsonMode.mockReturnValue(false);
     });
 
     it("should error on unknown identity", async () => {
@@ -280,6 +383,34 @@ describe("clef service", () => {
       ]);
 
       expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("updated"));
+    });
+
+    it("should output JSON with --json flag for update", async () => {
+      const { isJsonMode } = jest.requireMock("../output/formatter") as {
+        isJsonMode: jest.Mock;
+      };
+      isJsonMode.mockReturnValue(true);
+
+      mockFs.existsSync.mockReturnValue(false);
+      const runner = makeRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync([
+        "node",
+        "clef",
+        "service",
+        "update",
+        "existing-svc",
+        "--kms-env",
+        "dev=aws:arn:aws:kms:us-east-1:123:key/test",
+      ]);
+
+      expect(mockFormatter.json).toHaveBeenCalled();
+      const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+      expect(data.action).toBe("updated");
+      expect(data.identity).toBe("existing-svc");
+
+      isJsonMode.mockReturnValue(false);
     });
 
     it("should error with no --kms-env flags", async () => {
