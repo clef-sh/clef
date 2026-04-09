@@ -9,8 +9,8 @@ describe("KMS types cross-package sync", () => {
       "utf-8",
     );
     // Core has VALID_KMS_PROVIDERS which runtime does not — strip that
-    // single line before comparing.
-    const coreShared = coreTypes.replace(/^export const VALID_KMS_PROVIDERS.*\n\n?/m, "").trim();
+    // declaration (single or multi-line) before comparing.
+    const coreShared = coreTypes.replace(/^export const VALID_KMS_PROVIDERS.*?;\n\n?/ms, "").trim();
     expect(coreShared).toBe(runtimeTypes.trim());
   });
 });

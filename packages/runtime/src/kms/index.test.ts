@@ -40,22 +40,22 @@ jest.mock(
 );
 
 describe("createKmsProvider", () => {
-  it("should create an AWS KMS provider", () => {
-    const provider = createKmsProvider("aws", { region: "us-west-2" });
+  it("should create an AWS KMS provider", async () => {
+    const provider = await createKmsProvider("aws", { region: "us-west-2" });
     expect(provider).toBeInstanceOf(AwsKmsProvider);
   });
 
-  it("should create a GCP KMS provider", () => {
-    const provider = createKmsProvider("gcp");
+  it("should create a GCP KMS provider", async () => {
+    const provider = await createKmsProvider("gcp");
     expect(provider).toBeInstanceOf(GcpKmsProvider);
   });
 
-  it("should create an Azure Key Vault provider", () => {
-    const provider = createKmsProvider("azure");
+  it("should create an Azure Key Vault provider", async () => {
+    const provider = await createKmsProvider("azure");
     expect(provider).toBeInstanceOf(AzureKmsProvider);
   });
 
-  it("should throw for unknown provider", () => {
-    expect(() => createKmsProvider("unknown")).toThrow("Unknown KMS provider");
+  it("should throw for unknown provider", async () => {
+    await expect(createKmsProvider("unknown")).rejects.toThrow("Unknown KMS provider");
   });
 });

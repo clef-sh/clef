@@ -11,6 +11,7 @@
     "packages/broker",
     "packages/agent",
     "packages/analytics",
+    "packages/client",
     "packages/cli"
   ],
   "scripts": {
