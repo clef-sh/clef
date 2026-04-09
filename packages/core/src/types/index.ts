@@ -481,7 +481,7 @@ export class SopsVersionError extends ClefError {
 
 // ── KMS Envelope Encryption ──────────────────────────────────────────────
 
-export type KmsProviderType = "aws" | "gcp" | "azure";
+export type KmsProviderType = "aws" | "gcp" | "azure" | "cloud";
 
 export interface KmsConfig {
   provider: KmsProviderType;

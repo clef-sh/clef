@@ -170,7 +170,7 @@ All encryption and decryption is performed by SOPS via subprocess — Clef never
 | [`@clef-sh/runtime`](packages/runtime) | [![npm](https://img.shields.io/npm/v/@clef-sh/runtime.svg)](https://www.npmjs.com/package/@clef-sh/runtime) | Lightweight runtime — artifact fetch, age decrypt, KMS, caching       |
 | [`@clef-sh/agent`](packages/agent)     | [![npm](https://img.shields.io/npm/v/@clef-sh/agent.svg)](https://www.npmjs.com/package/@clef-sh/agent)     | Sidecar agent — HTTP API on 127.0.0.1:7779, polling, Lambda extension |
 | [`@clef-sh/broker`](packages/broker)   | [![npm](https://img.shields.io/npm/v/@clef-sh/broker.svg)](https://www.npmjs.com/package/@clef-sh/broker)   | Broker SDK — dynamic credential envelope construction + serving       |
-| [`@clef-sh/ui`](packages/ui)           | —                                                                                                           | Local web UI — matrix view, editor, diff, lint, scan                  |
+| [`@clef-sh/ui`](packages/ui)           | [![npm](https://img.shields.io/npm/v/@clef-sh/ui.svg)](https://www.npmjs.com/package/@clef-sh/ui)           | Local web UI — matrix view, editor, diff, lint, scan                  |
 
 ## Security
 

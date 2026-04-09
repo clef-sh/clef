@@ -84,7 +84,7 @@ export function registerServeCommand(program: Command, deps: { runner: Subproces
         const envConfig = si.environments[opts.env];
         if (envConfig && isKmsEnvelope(envConfig)) {
           const { createKmsProvider } = await import("@clef-sh/runtime");
-          kmsProvider = createKmsProvider(envConfig.kms.provider, {
+          kmsProvider = await createKmsProvider(envConfig.kms.provider, {
             region: envConfig.kms.region,
           });
         }

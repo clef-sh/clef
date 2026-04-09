@@ -9,7 +9,7 @@ import {
   BackendType,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createCloudAwareSopsClient } from "../cloud-sops";
 import { createSopsClient } from "../age-credential";
@@ -159,6 +159,21 @@ export function registerMigrateBackendCommand(
               }
             },
           );
+
+          if (isJsonMode()) {
+            formatter.json({
+              backend: target.backend,
+              migratedFiles: result.migratedFiles,
+              skippedFiles: result.skippedFiles,
+              verifiedFiles: result.verifiedFiles,
+              warnings: result.warnings,
+              rolledBack: result.rolledBack,
+              error: result.error ?? null,
+              dryRun: opts.dryRun ?? false,
+            });
+            process.exit(result.rolledBack ? 1 : 0);
+            return;
+          }
 
           if (result.rolledBack) {
             formatter.error(`Migration failed: ${result.error}`);

@@ -11,7 +11,7 @@ import {
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import type { KmsProvider } from "@clef-sh/core";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
 
@@ -97,7 +97,7 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
           const envConfig = si?.environments[environment];
           if (envConfig && isKmsEnvelope(envConfig)) {
             const { createKmsProvider } = await import("@clef-sh/runtime");
-            kmsProvider = createKmsProvider(envConfig.kms.provider, {
+            kmsProvider = await createKmsProvider(envConfig.kms.provider, {
               region: envConfig.kms.region,
             });
           }
@@ -143,6 +143,19 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
           if (opts.push && outputPath && memOutput?.json) {
             const fileOut = new FilePackOutput(outputPath);
             await fileOut.write(memOutput.artifact!, memOutput.json);
+          }
+
+          if (isJsonMode()) {
+            formatter.json({
+              identity,
+              environment,
+              keyCount: result.keyCount,
+              namespaceCount: result.namespaceCount,
+              artifactSize: result.artifactSize,
+              revision: result.revision,
+              output: outputPath ?? null,
+            });
+            return;
           }
 
           formatter.success(

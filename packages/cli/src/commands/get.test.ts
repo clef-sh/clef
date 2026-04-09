@@ -12,6 +12,7 @@ jest.mock("../clipboard", () => ({
 }));
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -26,6 +27,9 @@ jest.mock("../output/formatter", () => ({
     failure: jest.fn(),
     section: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
@@ -131,6 +135,50 @@ describe("clef get", () => {
 
     expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("Invalid target"));
     expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it("should output JSON with --json flag", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    const runner: SubprocessRunner = {
+      run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
+        if (cmd === "age") {
+          return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
+        }
+        if (cmd === "sops" && args[0] === "--version") {
+          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+        }
+        if (cmd === "sops" && args[0] === "decrypt") {
+          return { stdout: "DB_URL: postgres://localhost\nDB_POOL: 10\n", stderr: "", exitCode: 0 };
+        }
+        if (cmd === "sops" && args[0] === "filestatus") {
+          return { stdout: "", stderr: "", exitCode: 1 };
+        }
+        if (cmd === "cat") {
+          return {
+            stdout: "sops:\n  age:\n    - recipient: age1test\n  lastmodified: '2024-01-15'\n",
+            stderr: "",
+            exitCode: 0,
+          };
+        }
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }),
+    };
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "get", "database/dev", "DB_URL"]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.key).toBe("DB_URL");
+    expect(data.value).toBe("postgres://localhost");
+    expect(data.namespace).toBe("database");
+    expect(data.environment).toBe("dev");
+
+    isJsonMode.mockReturnValue(false);
   });
 
   it("should exit 1 on decryption error", async () => {

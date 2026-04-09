@@ -12,7 +12,7 @@ import {
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import type { KmsConfig, KmsProviderType } from "@clef-sh/core";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
 import { copyToClipboard, maskedPlaceholder } from "../clipboard";
@@ -82,6 +82,17 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
             kmsEnvConfigs,
           );
 
+          if (isJsonMode()) {
+            formatter.json({
+              action: "created",
+              identity: result.identity.name,
+              namespaces: result.identity.namespaces,
+              environments: Object.keys(result.identity.environments),
+              privateKeys: result.privateKeys,
+            });
+            return;
+          }
+
           formatter.success(`Service identity '${name}' created.`);
           formatter.print(`\n  Namespaces: ${result.identity.namespaces.join(", ")}`);
           formatter.print(
@@ -145,6 +156,11 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
 
         const identities = manager.list(manifest);
 
+        if (isJsonMode()) {
+          formatter.json(identities);
+          return;
+        }
+
         if (identities.length === 0) {
           formatter.info("No service identities configured.");
           return;
@@ -188,6 +204,11 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           return;
         }
 
+        if (isJsonMode()) {
+          formatter.json(identity);
+          return;
+        }
+
         formatter.print(`\nService Identity: ${identity.name}`);
         formatter.print(`Description: ${identity.description}`);
         formatter.print(`Namespaces: ${identity.namespaces.join(", ")}\n`);
@@ -222,6 +243,12 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         const manager = new ServiceIdentityManager(sopsClient, matrixManager);
 
         const issues = await manager.validate(manifest, repoRoot);
+
+        if (isJsonMode()) {
+          formatter.json({ issues });
+          process.exit(issues.length > 0 ? 1 : 0);
+          return;
+        }
 
         if (issues.length === 0) {
           formatter.success("All service identities are valid.");
@@ -291,6 +318,18 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
 
         await manager.updateEnvironments(name, kmsEnvConfigs, manifest, repoRoot);
 
+        if (isJsonMode()) {
+          formatter.json({
+            action: "updated",
+            identity: name,
+            changed: Object.entries(kmsEnvConfigs).map(([env, cfg]) => ({
+              environment: env,
+              provider: cfg.provider,
+            })),
+          });
+          return;
+        }
+
         formatter.success(`Service identity '${name}' updated.`);
         for (const [envName, kmsConfig] of Object.entries(kmsEnvConfigs)) {
           formatter.print(`  ${envName}: switched to KMS envelope (${kmsConfig.provider})`);
@@ -338,6 +377,10 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
 
         await manager.delete(name, manifest, repoRoot);
 
+        if (isJsonMode()) {
+          formatter.json({ action: "deleted", identity: name });
+          return;
+        }
         formatter.success(`Service identity '${name}' deleted.`);
         formatter.hint(
           `git add clef.yaml && git commit -m "chore: delete service identity '${name}'"`,
@@ -391,6 +434,16 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         formatter.print(`${sym("working")}  Rotating key for '${name}'...`);
 
         const newKeys = await manager.rotateKey(name, manifest, repoRoot, opts.environment);
+
+        if (isJsonMode()) {
+          formatter.json({
+            action: "rotated",
+            identity: name,
+            environments: Object.keys(newKeys),
+            privateKeys: newKeys,
+          });
+          return;
+        }
 
         formatter.success(`Key rotated for '${name}'.`);
 

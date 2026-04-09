@@ -15,6 +15,7 @@ jest.mock("@clef-sh/core", () => {
 });
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -26,6 +27,9 @@ jest.mock("../output/formatter", () => ({
     secretPrompt: jest.fn(),
     formatDependencyError: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
@@ -99,6 +103,27 @@ describe("clef delete", () => {
     );
   });
 
+  it("should output JSON with --json flag", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    const runner = sopsRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "delete", "database/dev", "KEY_TO_DELETE"]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.key).toBe("KEY_TO_DELETE");
+    expect(data.namespace).toBe("database");
+    expect(data.environment).toBe("dev");
+    expect(data.action).toBe("deleted");
+
+    isJsonMode.mockReturnValue(false);
+  });
+
   it("should abort when confirmation is denied", async () => {
     (mockFormatter.confirm as jest.Mock).mockResolvedValueOnce(false);
     const runner = sopsRunner();
@@ -118,6 +143,27 @@ describe("clef delete", () => {
 
     expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("not found"));
     expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it("should output JSON with --json flag for --all-envs", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    const runner = sopsRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "delete", "database", "KEY_TO_DELETE", "--all-envs"]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.key).toBe("KEY_TO_DELETE");
+    expect(data.namespace).toBe("database");
+    expect(data.action).toBe("deleted");
+    expect(data.environments).toBeDefined();
+
+    isJsonMode.mockReturnValue(false);
   });
 
   it("should delete from all environments with --all-envs", async () => {

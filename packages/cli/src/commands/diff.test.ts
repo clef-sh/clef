@@ -3,11 +3,12 @@ import * as YAML from "yaml";
 import { Command } from "commander";
 import { registerDiffCommand } from "./diff";
 import { SubprocessRunner } from "@clef-sh/core";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 
 jest.mock("fs");
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -22,6 +23,9 @@ jest.mock("../output/formatter", () => ({
     failure: jest.fn(),
     section: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
@@ -135,17 +139,66 @@ describe("clef diff", () => {
     const runner = diffRunner("KEY: a\n", "KEY: b\n");
     const program = makeProgram(runner);
 
-    await program.parseAsync(["node", "clef", "diff", "database", "dev", "production", "--json"]);
+    (isJsonMode as jest.Mock).mockReturnValue(true);
+    await program.parseAsync(["node", "clef", "diff", "database", "dev", "production"]);
+    (isJsonMode as jest.Mock).mockReturnValue(false);
 
-    expect(mockFormatter.raw).toHaveBeenCalled();
-    const jsonOutput = (mockFormatter.raw as jest.Mock).mock.calls[0][0];
-    const parsed = JSON.parse(jsonOutput);
+    expect(mockFormatter.json).toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test assertion
+    const parsed = mockFormatter.json.mock.calls[0][0] as any;
     expect(parsed.rows).toBeDefined();
     expect(parsed.envA).toBe("dev");
     // JSON output should mask values and include masked: true
     expect(parsed.rows[0].masked).toBe(true);
     expect(parsed.rows[0].valueA).not.toBe("a");
     expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it("should output JSON with --show-values and --json flag", async () => {
+    const runner = diffRunner("KEY: a\n", "KEY: b\n");
+    const program = makeProgram(runner);
+
+    (isJsonMode as jest.Mock).mockReturnValue(true);
+    await program.parseAsync([
+      "node",
+      "clef",
+      "diff",
+      "database",
+      "dev",
+      "production",
+      "--show-values",
+    ]);
+    (isJsonMode as jest.Mock).mockReturnValue(false);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test assertion
+    const parsed = mockFormatter.json.mock.calls[0][0] as any;
+    // With --show-values, the JSON output should NOT add masked: true
+    expect(parsed.rows[0].masked).toBeUndefined();
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it("should output JSON with missing keys and null values", async () => {
+    const runner = diffRunner("DEV_ONLY: x\nSHARED: same\n", "PROD_ONLY: y\nSHARED: same\n");
+    const program = makeProgram(runner);
+
+    (isJsonMode as jest.Mock).mockReturnValue(true);
+    await program.parseAsync(["node", "clef", "diff", "database", "dev", "production"]);
+    (isJsonMode as jest.Mock).mockReturnValue(false);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test assertion
+    const parsed = mockFormatter.json.mock.calls[0][0] as any;
+    const rows = parsed.rows as Array<{
+      key: string;
+      valueA: string | null;
+      valueB: string | null;
+    }>;
+    const devOnly = rows.find((r) => r.key === "DEV_ONLY");
+    const prodOnly = rows.find((r) => r.key === "PROD_ONLY");
+    // Missing values should be masked (not null) when not using --show-values
+    expect(devOnly).toBeDefined();
+    expect(prodOnly).toBeDefined();
   });
 
   it("should warn when --show-values on protected environment", async () => {
@@ -183,7 +236,9 @@ describe("clef diff", () => {
     const runner = diffRunner("KEY: same\n", "KEY: same\n");
     const program = makeProgram(runner);
 
-    await program.parseAsync(["node", "clef", "diff", "database", "dev", "production", "--json"]);
+    (isJsonMode as jest.Mock).mockReturnValue(true);
+    await program.parseAsync(["node", "clef", "diff", "database", "dev", "production"]);
+    (isJsonMode as jest.Mock).mockReturnValue(false);
 
     expect(mockExit).toHaveBeenCalledWith(0);
   });

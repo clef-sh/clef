@@ -48,8 +48,12 @@ export function createHandler(
   const handlerConfig = options?.config ?? envConfig.handlerConfig;
   const onLog = options?.onLog ?? noop;
 
-  // Create KMS provider once, reuse across invocations
-  const kms: KmsProvider = createKmsProvider(kmsProviderName, { region: kmsRegion });
+  // Create KMS provider lazily, reuse across invocations
+  let kms: KmsProvider | undefined;
+  async function getKms(): Promise<KmsProvider> {
+    if (!kms) kms = await createKmsProvider(kmsProviderName, { region: kmsRegion });
+    return kms;
+  }
 
   let cached: CachedResponse | undefined;
   let inflightPromise: Promise<BrokerResponse> | undefined;
@@ -91,7 +95,7 @@ export function createHandler(
       environment,
       data: result.data,
       ttl: result.ttl,
-      kmsProvider: kms,
+      kmsProvider: await getKms(),
       kmsProviderName,
       kmsKeyId,
     });

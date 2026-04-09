@@ -8,6 +8,7 @@ import { formatter } from "../output/formatter";
 jest.mock("fs");
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -21,6 +22,9 @@ jest.mock("../output/formatter", () => ({
     failure: jest.fn(),
     section: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
@@ -86,6 +90,27 @@ describe("clef revoke", () => {
       "utf-8",
     );
     expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Artifact revoked"));
+  });
+
+  it("should output JSON with --json flag", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    const runner = makeRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "revoke", "api-gateway", "production"]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.identity).toBe("api-gateway");
+    expect(data.environment).toBe("production");
+    expect(data.revokedAt).toBeTruthy();
+    expect(data.markerPath).toContain("production.age.json");
+
+    isJsonMode.mockReturnValue(false);
   });
 
   it("should include version, identity, environment, and revokedAt in revoked artifact", async () => {

@@ -73,7 +73,7 @@ jobs:
     name: Publish ${{ github.ref_name == 'dev' && 'Alpha' || 'Beta' }}
     needs: wait-for-ci
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'dev' && 'alpha' || 'beta' }}
+    environment: ${{ github.ref_name == 'dev' && 'dev' || 'staging' }}
 
     steps:
       - uses: actions/checkout@v6
@@ -117,6 +117,8 @@ jobs:
             || cp packages/cloud/package.json /tmp/cloud-main.json
           git show origin/main:packages/analytics/package.json > /tmp/analytics-main.json 2>/dev/null \
             || cp packages/analytics/package.json /tmp/analytics-main.json
+          git show origin/main:packages/client/package.json > /tmp/client-main.json 2>/dev/null \
+            || cp packages/client/package.json /tmp/client-main.json
 
           # Compute the next semver for a package by replaying the same bump rules
           # used by the release workflow against commits since the last release tag.
@@ -169,6 +171,7 @@ jobs:
           AGENT_BASE=$(node -p "require('/tmp/agent-main.json').version.replace(/-.*/, '')")
           BROKER_BASE=$(node -p "require('/tmp/broker-main.json').version.replace(/-.*/, '')")
           UI_BASE=$(node -p "require('/tmp/ui-main.json').version.replace(/-.*/, '')")
+          CLIENT_BASE=$(node -p "require('/tmp/client-main.json').version.replace(/-.*/, '')")
 
           CORE_NEXT=$(next_version    "@clef-sh/core"    "packages/core"    "$CORE_BASE")
           CLOUD_NEXT=$(next_version     "@clef-sh/cloud"     "packages/cloud"     "$CLOUD_BASE")
@@ -178,6 +181,7 @@ jobs:
           AGENT_NEXT=$(next_version   "@clef-sh/agent"   "packages/agent"   "$AGENT_BASE")
           BROKER_NEXT=$(next_version  "@clef-sh/broker"  "packages/broker"  "$BROKER_BASE")
           UI_NEXT=$(next_version      "@clef-sh/ui"      "packages/ui"      "$UI_BASE")
+          CLIENT_NEXT=$(next_version "@clef-sh/client"  "packages/client"  "$CLIENT_BASE")
 
           CORE_VER="${CORE_NEXT}-${PRE}.${{ github.run_number }}"
           CLOUD_VER="${CLOUD_NEXT}-${PRE}.${{ github.run_number }}"
@@ -187,6 +191,7 @@ jobs:
           AGENT_VER="${AGENT_NEXT}-${PRE}.${{ github.run_number }}"
           BROKER_VER="${BROKER_NEXT}-${PRE}.${{ github.run_number }}"
           UI_VER="${UI_NEXT}-${PRE}.${{ github.run_number }}"
+          CLIENT_VER="${CLIENT_NEXT}-${PRE}.${{ github.run_number }}"
 
           # Stamp package.json files NOW, before the build, so that esbuild
           # bakes the correct version string into the CLI bundle. The CLI reads
@@ -206,6 +211,7 @@ jobs:
           stamp packages/agent   "$AGENT_VER"
           stamp packages/broker  "$BROKER_VER"
           stamp packages/ui      "$UI_VER"
+          stamp packages/client  "$CLIENT_VER"
 
           echo "dist_tag=${DIST_TAG}"            >> "$GITHUB_OUTPUT"
           echo "prerelease=${PRE}"               >> "$GITHUB_OUTPUT"
@@ -217,6 +223,7 @@ jobs:
           echo "agent_version=${AGENT_VER}"      >> "$GITHUB_OUTPUT"
           echo "broker_version=${BROKER_VER}"    >> "$GITHUB_OUTPUT"
           echo "ui_version=${UI_VER}"            >> "$GITHUB_OUTPUT"
+          echo "client_version=${CLIENT_VER}"    >> "$GITHUB_OUTPUT"
 
       - name: Build all packages
         run: npm run build
@@ -281,6 +288,13 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Publish @clef-sh/client (alpha)
+        if: github.ref_name == 'dev'
+        working-directory: packages/client
+        run: npm publish --tag alpha --access restricted --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # ── Beta (staging → GitHub Packages, public) ─────────────────────────
       - name: Publish @clef-sh/core (beta)
         if: github.ref_name == 'staging'
@@ -338,6 +352,13 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Publish @clef-sh/client (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/client
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # Beta: create a GitHub pre-release so the version surfaces in Releases
       - name: Create GitHub pre-release (beta)
         if: github.ref_name == 'staging'
@@ -372,7 +393,8 @@ jobs:
             packages/cli/package.json \
             packages/agent/package.json \
             packages/broker/package.json \
-            packages/ui/package.json
+            packages/ui/package.json \
+            packages/client/package.json
 
           PRE="${{ steps.ver.outputs.prerelease }}"
           CLI_VER="${{ steps.ver.outputs.cli_version }}"

@@ -2,7 +2,7 @@ import * as path from "path";
 import { Command } from "commander";
 import { ManifestParser, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { createCloudAwareSopsClient } from "../cloud-sops";
 import { copyToClipboard, maskedPlaceholder } from "../clipboard";
 import { parseTarget } from "../parse-target";
@@ -53,7 +53,9 @@ export function registerGetCommand(program: Command, deps: { runner: SubprocessR
           }
 
           const val = decrypted.values[key];
-          if (opts.raw) {
+          if (isJsonMode()) {
+            formatter.json({ key, value: val, namespace, environment });
+          } else if (opts.raw) {
             formatter.raw(val);
           } else {
             const copied = copyToClipboard(val);

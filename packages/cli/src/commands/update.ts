@@ -3,7 +3,7 @@ import * as path from "path";
 import { Command } from "commander";
 import { ManifestParser, MatrixManager, SopsClient, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { resolveAgeCredential, prepareSopsClientArgs } from "../age-credential";
 
 export function registerUpdateCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -57,6 +57,12 @@ export function registerUpdateCommand(program: Command, deps: { runner: Subproce
               `Could not scaffold ${cell.namespace}/${cell.environment}: ${(err as Error).message}`,
             );
           }
+        }
+
+        if (isJsonMode()) {
+          formatter.json({ scaffolded: scaffoldedCount, failed: failedCount });
+          process.exit(failedCount > 0 ? 1 : 0);
+          return;
         }
 
         if (scaffoldedCount > 0) {

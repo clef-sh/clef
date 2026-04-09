@@ -8,7 +8,7 @@ import {
   SubprocessRunner,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
 import { generateReportAtCommit, getHeadSha, listCommitRange } from "../report/historical";
@@ -26,7 +26,6 @@ export function registerReportCommand(program: Command, deps: { runner: Subproce
         "  0  No errors\n" +
         "  1  Errors found",
     )
-    .option("--json", "Output full report as JSON")
     .option("--push", "Push report as OTLP to CLEF_TELEMETRY_URL (with automatic gap-fill)")
     .option("--at <sha>", "Generate report at a specific commit")
     .option("--since <sha>", "Generate reports for all commits since <sha>")
@@ -34,7 +33,6 @@ export function registerReportCommand(program: Command, deps: { runner: Subproce
     .option("--environment <name...>", "Filter to environment(s)")
     .action(
       async (options: {
-        json?: boolean;
         push?: boolean;
         at?: string;
         since?: string;
@@ -53,7 +51,7 @@ export function registerReportCommand(program: Command, deps: { runner: Subproce
               deps.runner,
             );
             await maybePush(report, options.push);
-            outputReport(report, options);
+            outputReport(report);
             return;
           }
 
@@ -76,7 +74,7 @@ export function registerReportCommand(program: Command, deps: { runner: Subproce
           // ── --push: checkpoint + gap-fill + push ──────────────────────
           if (options.push) {
             await pushWithGapFill(repoRoot, headReport, deps.runner);
-            outputReport(headReport, options);
+            outputReport(headReport);
             return;
           }
 
@@ -94,8 +92,8 @@ export function registerReportCommand(program: Command, deps: { runner: Subproce
               }
             }
 
-            if (options.json) {
-              formatter.raw(JSON.stringify(reports, null, 2) + "\n");
+            if (isJsonMode()) {
+              formatter.json(reports);
             } else {
               formatter.print(
                 `Generated ${reports.length} report(s) for commits since ${options.since.slice(0, 8)}`,
@@ -112,7 +110,7 @@ export function registerReportCommand(program: Command, deps: { runner: Subproce
           }
 
           // ── Default: output single report ───────────────────────────────
-          outputReport(headReport, options);
+          outputReport(headReport);
         } catch (err) {
           handleCommandError(err);
         }
@@ -193,9 +191,9 @@ async function maybePush(report: ClefReport, push?: boolean): Promise<void> {
   formatter.success("Report pushed to telemetry endpoint.");
 }
 
-function outputReport(report: ClefReport, opts: { json?: boolean }): void {
-  if (opts.json) {
-    formatter.raw(JSON.stringify(report, null, 2) + "\n");
+function outputReport(report: ClefReport): void {
+  if (isJsonMode()) {
+    formatter.json(report);
     process.exit(report.policy.issueCount.error > 0 ? 1 : 0);
     return;
   }
