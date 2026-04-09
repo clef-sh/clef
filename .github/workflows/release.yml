@@ -99,36 +99,50 @@ jobs:
         if: steps.versions.outputs.core_released == 'true'
         working-directory: packages/core
         run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/cloud
         if: steps.versions.outputs.cloud_released == 'true'
         working-directory: packages/cloud
         run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/analytics
         if: steps.versions.outputs.analytics_released == 'true'
         working-directory: packages/analytics
         run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/runtime
         if: steps.versions.outputs.runtime_released == 'true'
         working-directory: packages/runtime
         run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/broker
         if: steps.versions.outputs.broker_released == 'true'
         working-directory: packages/broker
         run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/agent
         if: steps.versions.outputs.agent_released == 'true'
         working-directory: packages/agent
         run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/cli
         if: steps.versions.outputs.cli_released == 'true'
         working-directory: packages/cli
         run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/ui
         if: steps.versions.outputs.ui_released == 'true'
