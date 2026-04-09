@@ -61,56 +61,56 @@ jobs:
         working-directory: packages/core
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/core publish failed (may already exist)"
         env:
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/cloud
         continue-on-error: true
         working-directory: packages/cloud
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/cloud publish failed (may already exist)"
         env:
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/analytics
         continue-on-error: true
         working-directory: packages/analytics
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/analytics publish failed (may already exist)"
         env:
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/runtime
         continue-on-error: true
         working-directory: packages/runtime
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/runtime publish failed (may already exist)"
         env:
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/agent
         continue-on-error: true
         working-directory: packages/agent
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/agent publish failed (may already exist)"
         env:
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/broker
         continue-on-error: true
         working-directory: packages/broker
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/broker publish failed (may already exist)"
         env:
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/cli
         continue-on-error: true
         working-directory: packages/cli
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/cli publish failed (may already exist)"
         env:
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/ui
         continue-on-error: true
         working-directory: packages/ui
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/ui publish failed (may already exist)"
         env:
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # Tag the promoted commit so it's traceable from npm back to source
       - name: Tag promoted commit

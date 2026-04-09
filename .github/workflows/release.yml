@@ -132,8 +132,6 @@ jobs:
         if: steps.versions.outputs.ui_released == 'true'
         working-directory: packages/ui
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # ── Commit version stamps and tag ───────────────────────────────────
 
