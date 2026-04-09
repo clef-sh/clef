@@ -160,7 +160,7 @@ Two categories of KMS key appear in the architecture:
 
 | Key type       | Purpose in Clef                                                                                                          | Example algorithms                    |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
-| **Symmetric**  | SOPS backend encryption; envelope wrapping of ephemeral keys                                                             | AES-256-GCM (AWS `SYMMETRIC_DEFAULT`) |
+| **Symmetric**  | SOPS backend encryption; envelope wrapping of ephemeral DEKs                                                             | AES-256-GCM (AWS `SYMMETRIC_DEFAULT`) |
 | **Asymmetric** | Artifact signing (provenance). The private half never leaves the HSM; the public half is exported for local verification | ECDSA P-256 (AWS `ECC_NIST_P256`)     |
 
 These terms are used consistently throughout Sections 4–8. Where a section refers to "the SOPS key," "the envelope key," or "the signing key," it means a KMS key with the corresponding permission and type from the tables above.
@@ -184,10 +184,10 @@ The limitation is specifically at the production service identity boundary: a ru
 The **KMS-native tier** eliminates all static credentials from the CI pipeline. This requires three things to be true simultaneously:
 
 1. **The SOPS backend is KMS.** The `.sops.yaml` creation rule points to a KMS key ARN (AWS, GCP, or Azure), not an age recipient. SOPS encrypts and decrypts `.enc.yaml` files by calling the cloud KMS API directly — no private key exists anywhere. This is configured at `clef init` time with `--backend awskms --kms-arn <arn>`.
-2. **The service identity uses KMS envelope encryption.** The `clef.yaml` service identity has a `kms:` block (provider + keyId) instead of a `recipient:` age public key. `clef pack` generates an ephemeral age key pair per invocation, wraps the ephemeral private key with this KMS key, and discards both after packing.
+2. **The service identity uses KMS envelope encryption.** The `clef.yaml` service identity has a `kms:` block (provider + keyId) instead of a `recipient:` age public key. `clef pack` generates a random AES-256 data encryption key (DEK) per invocation, wraps the DEK with this KMS key via `kms:Encrypt`, and zeroes the plaintext DEK after packing.
 3. **CI authenticates via IAM role.** GitHub Actions OIDC federation, GCP Workload Identity, or equivalent platform-native identity — not a stored access key or service account JSON.
 
-When all three hold, no static credential exists anywhere in the pipeline. CI's IAM role calls `kms:Decrypt` on the SOPS key (the KMS key in `.sops.yaml`) to read the source encrypted files, and `kms:Encrypt` on the service identity's envelope key (the KMS key in `clef.yaml` under `service_identities[].environments[].kms.keyId`) to wrap the ephemeral key in the output artifact.
+When all three hold, no static credential exists anywhere in the pipeline. CI's IAM role calls `kms:Decrypt` on the SOPS key (the KMS key in `.sops.yaml`) to read the source encrypted files, and `kms:Encrypt` on the service identity's envelope key (the KMS key in `clef.yaml` under `service_identities[].environments[].kms.keyId`) to wrap the DEK in the output artifact.
 
 The SOPS key and envelope key can be the same KMS key (simpler — one key, one IAM policy) or different keys (separation of duty — a compromised runtime that can unwrap its own artifact cannot decrypt the source SOPS files, because it has `kms:Decrypt` on the envelope key but not on the SOPS key).
 
@@ -208,7 +208,7 @@ The `clef pack` command:
 1. Resolves the service identity's namespace scope from the manifest
 2. Decrypts only the SOPS files within that scope
 3. Merges values from all scoped namespaces into a single key-value map
-4. Re-encrypts the merged plaintext using the service identity's age recipient key (or KMS envelope; see Section 6)
+4. Encrypts the merged plaintext — AES-256-GCM with a random DEK for KMS envelope identities (the DEK is wrapped by the service identity's KMS key), or age encryption for age-only identities
 5. Writes a JSON envelope with integrity metadata
 6. Optionally signs the envelope with an Ed25519 or KMS ECDSA key
 
@@ -246,7 +246,7 @@ clef pack api-gateway production \
 
 A SHA-256 digest of the canonical payload is passed to `kms:Sign` with `ECDSA_SHA_256` and `MessageType: DIGEST`. There is no private key to leak — the risk surface is an IAM misconfiguration granting `kms:Sign` to an unauthorized principal, which is auditable via CloudTrail (or equivalent).
 
-The signing key is a **third KMS key**, distinct from both the SOPS backend key (symmetric, used for source file encryption) and the envelope wrapping key (symmetric, used to wrap the ephemeral age key). The signing key is asymmetric and only the `kms:Sign` permission is needed — never `kms:Encrypt` or `kms:Decrypt`.
+The signing key is a **third KMS key**, distinct from both the SOPS backend key (symmetric, used for source file encryption) and the envelope wrapping key (symmetric, used to wrap the DEK). The signing key is asymmetric and only the `kms:Sign` permission is needed — never `kms:Encrypt` or `kms:Decrypt`.
 
 #### Verification (shared)
 
@@ -279,7 +279,7 @@ The packed artifact is a structured JSON document:
   "packedAt": "2026-03-22T10:00:00.000Z",
   "revision": "1711101600000-a1b2c3d4",
   "ciphertextHash": "sha256:...",
-  "ciphertext": "YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgy...",
+  "ciphertext": "base64...",
   "expiresAt": "2026-03-22T11:00:00.000Z",
   "signature": "base64...",
   "signatureAlgorithm": "Ed25519",
@@ -287,7 +287,9 @@ The packed artifact is a structured JSON document:
     "provider": "aws",
     "keyId": "arn:aws:kms:us-east-1:...",
     "wrappedKey": "base64...",
-    "algorithm": "SYMMETRIC_DEFAULT"
+    "algorithm": "SYMMETRIC_DEFAULT",
+    "iv": "base64...",
+    "authTag": "base64..."
   }
 }
 ```
@@ -299,21 +301,21 @@ Key design properties:
 - **`revokedAt`**: When present, signals immediate revocation. The runtime wipes its cache and refuses to serve secrets.
 - **`signature`**: Optional base64-encoded cryptographic signature over a canonical payload containing all security-relevant fields. Verified by the runtime before decryption when a verify key is configured (see Section 4.3).
 - **`signatureAlgorithm`**: Informational — the runtime derives the actual verification algorithm from the public key type, not this field.
-- **`envelope`**: Optional KMS wrapper enabling tokenless, keyless deployments (see Section 6).
+- **`envelope`**: Optional KMS wrapper enabling tokenless, keyless deployments (see Section 6). Contains the KMS-wrapped DEK (`wrappedKey`), KMS key identifier (`keyId`), encryption algorithm, AES-GCM initialization vector (`iv`), and authentication tag (`authTag`).
 
-The `ciphertext` field is always base64-encoded age-encrypted binary. Base64 is used because age's binary format cannot survive a JSON string round-trip intact — base64 provides a standard, language-agnostic encoding that any runtime can decode. When the `envelope` field is present, it contains the age private key wrapped by KMS. The runtime first unwraps the age key via `kms:Decrypt`, then base64-decodes and decrypts the ciphertext. Without the envelope, the runtime uses a locally-held age private key directly.
+The `ciphertext` field is base64-encoded encrypted binary — age format for age-only artifacts, AES-256-GCM for KMS envelope artifacts. Base64 is used because neither format can survive a JSON string round-trip intact — base64 provides a standard, language-agnostic encoding that any runtime can decode. When the `envelope` field is present, it contains the AES-256 DEK wrapped by KMS, plus the GCM initialization vector and authentication tag. The runtime first unwraps the DEK via `kms:Decrypt`, then base64-decodes and AES-256-GCM decrypts the ciphertext. Without the envelope, the runtime uses a locally-held age private key to decrypt the age-encrypted ciphertext directly.
 
 ### 4.5 Service Identity Scoping
 
 Service identities provide **cryptographic least privilege**. Each identity has:
 
 - A list of namespace scopes (which secrets it can access)
-- Per-environment cryptographic keys (age key pairs or KMS envelope configuration)
+- Per-environment cryptographic configuration (age recipient keys or KMS envelope keys)
 - Registration as a SOPS recipient on scoped files only (age mode) or no registration at all (KMS envelope mode)
 
 An `api-gateway` identity scoped to `["api-keys", "database"]` cannot decrypt the `payments` namespace — the enforcement is cryptographic at the file level. The configuration of that enforcement — who is a recipient on which files — is controlled by the manifest in git (see Section 2.3 for the implications of git as the access control layer).
 
-**KMS envelope identities have zero access to git-stored secrets.** In KMS envelope mode, the service identity has no age key pair and is not registered as a SOPS recipient on any file. The `registerRecipients` step is skipped entirely for KMS-backed environments. This means a compromised workload with IAM `kms:Decrypt` permission on the envelope key can unwrap the packed artifact — recovering only the pre-scoped secrets for its identity and environment — but it has no cryptographic path to decrypt anything in git. The SOPS backend uses a different KMS key entirely, and the workload's IAM role should not have permission on it. This separation is the strongest isolation the architecture provides: the workload never touches the source-of-truth encrypted files, only the derivative artifact built specifically for it.
+**KMS envelope identities have zero access to git-stored secrets.** In KMS envelope mode, the service identity has no age key and is not registered as a SOPS recipient on any file. The `registerRecipients` step is skipped entirely for KMS-backed environments. This means a compromised workload with IAM `kms:Decrypt` permission on the envelope key can unwrap the packed artifact — recovering only the pre-scoped secrets for its identity and environment — but it has no cryptographic path to decrypt anything in git. The SOPS backend uses a different KMS key entirely, and the workload's IAM role should not have permission on it. This separation is the strongest isolation the architecture provides: the workload never touches the source-of-truth encrypted files, only the derivative artifact built specifically for it.
 
 ---
 
@@ -413,52 +415,52 @@ Regardless of polling source, any machine with a local clone of the repository c
 As discussed in Section 1.3, age keys reduce the custody problem but don't eliminate it. **KMS envelope encryption breaks this cycle** — when the full KMS-native stack is in place (Section 4.1: SOPS backend is KMS, service identity uses KMS envelope, CI authenticates via IAM role). Under those conditions, no static credential exists anywhere in the pipeline:
 
 - CI calls `kms:Decrypt` on the SOPS key (the KMS key in `.sops.yaml`) to read encrypted files. No private key.
-- `clef pack` calls `kms:Encrypt` on the service identity's envelope key to wrap the ephemeral private key. No static key stored.
+- `clef pack` calls `kms:Encrypt` on the service identity's envelope key to wrap the ephemeral DEK. No static key stored.
 - When KMS ECDSA signing is enabled, `clef pack` also calls `kms:Sign` on a separate asymmetric signing key to sign the artifact (see Section 4.3). No signing secret stored.
-- Runtime calls `kms:Decrypt` on the envelope key to unwrap the ephemeral private key. No static key deployed.
+- Runtime calls `kms:Decrypt` on the envelope key to unwrap the DEK. No static key deployed.
 - All authenticate via IAM role. Key material never leaves the HSM.
-- Every `clef pack` generates a fresh ephemeral key pair. There is no long-lived secret to rotate or protect.
+- Every `clef pack` generates a fresh random DEK. There is no long-lived secret to rotate or protect.
 
-**Ephemeral key lifecycle — step by step:**
+**Ephemeral DEK lifecycle — step by step:**
 
 **CI pipeline (pack time):**
 
 1. `clef pack` calls `kms:Decrypt` on the SOPS backend key to decrypt the source `.enc.yaml` files. Plaintext exists only in the CI runner's memory.
-2. A fresh ephemeral age key pair is generated. This key pair is unique to this pack invocation — it will never be reused.
-3. The decrypted secrets (scoped to the service identity's namespaces) are encrypted with the ephemeral age public key.
-4. The ephemeral age **private** key is wrapped (encrypted) by calling `kms:Encrypt` on the service identity's envelope KMS key. The plaintext private key is then discarded.
+2. A fresh 32-byte random DEK and 12-byte IV are generated. The DEK is unique to this pack invocation — it will never be reused.
+3. The decrypted secrets (scoped to the service identity's namespaces) are encrypted with AES-256-GCM using the DEK and IV.
+4. The DEK is wrapped (encrypted) by calling `kms:Encrypt` on the service identity's envelope KMS key. The plaintext DEK is then zeroed.
 5. If signing is enabled, the canonical payload is signed — either directly with an Ed25519 private key (CI secret) or via `kms:Sign` on an asymmetric KMS key (IAM permission, no secret). See Section 4.3.
-6. The artifact envelope is assembled: encrypted secrets, wrapped ephemeral key, integrity hash, optional signature. Published to VCS, S3, or the artifact store.
+6. The artifact envelope is assembled: AES-256-GCM ciphertext, KMS-wrapped DEK, IV, GCM authentication tag, integrity hash, optional signature. Published to VCS, S3, or the artifact store.
 
 **Production runtime (serve time):**
 
 1. The agent fetches the artifact from VCS API, S3, or HTTP.
 2. Validates the envelope: version, integrity hash (SHA-256 of ciphertext), signature (if verification key is configured), and expiry.
-3. Extracts the wrapped ephemeral private key from the `envelope` field and calls `kms:Decrypt` to unwrap it. This is the only KMS call at runtime — and it is the authorization gate. If the workload's IAM role lacks `kms:Decrypt` permission on this key, the request fails here.
-4. Uses the unwrapped ephemeral private key to AES-256-GCM decrypt the secrets. The ephemeral key is zeroed immediately after use.
+3. Extracts the wrapped DEK from the `envelope` field and calls `kms:Decrypt` to unwrap it. This is the only KMS call at runtime — and it is the authorization gate. If the workload's IAM role lacks `kms:Decrypt` permission on this key, the request fails here.
+4. Uses the unwrapped DEK with the IV and authentication tag to AES-256-GCM decrypt the secrets. The DEK is zeroed immediately after use.
 5. Serves the decrypted secrets via `GET /v1/secrets`. In cached mode, the plaintext is held in memory until the next poll. In JIT mode (Section 6.4), steps 3–4 execute on every request and no plaintext is retained between requests.
 
 **What the runtime needs**: IAM permission to call `kms:Decrypt` on a specific KMS key. No token. No static credential. No secret to bootstrap.
 
 **What this means**: An EC2 instance, ECS task, or Lambda function with the right IAM role can decrypt secrets without any provisioned credentials. The IAM role is the authentication. KMS is the key management. Clef is the envelope and delivery mechanism.
 
-### 6.2 Ephemeral Key Rotation
+### 6.2 Ephemeral DEK Rotation
 
-Each `clef pack` invocation generates a fresh ephemeral age key pair. This means:
+Each `clef pack` invocation generates a fresh random AES-256 DEK. This means:
 
-- No long-lived age private key exists in production.
+- No long-lived symmetric key exists in production.
 - Each artifact revision has a unique encryption key.
-- Compromising one artifact's key yields only that artifact's secrets, not historical or future versions.
+- Compromising one artifact's DEK yields only that artifact's secrets, not historical or future versions.
 - Key rotation is automatic: every pack is a rotation.
 
 ### 6.3 IAM as the Authentication Layer
 
 In KMS envelope mode, the security model reduces to IAM permissions on a small set of KMS keys. In the hardened topology these are three separate keys; in simpler setups the SOPS and envelope keys may be the same (see Section 4.1).
 
-1. **Who can call `kms:Decrypt`?** CI pipelines (to decrypt SOPS files via the SOPS backend key) and production workloads (to unwrap the ephemeral key via the envelope key). With separate keys, these are two different IAM policies — the workload has no permission on the SOPS key.
-2. **Who can call `kms:Encrypt`?** CI pipelines that wrap the ephemeral key during `clef pack` (envelope key). In KMS-native mode, also used for SOPS encryption (SOPS backend key).
+1. **Who can call `kms:Decrypt`?** CI pipelines (to decrypt SOPS files via the SOPS backend key) and production workloads (to unwrap the DEK via the envelope key). With separate keys, these are two different IAM policies — the workload has no permission on the SOPS key.
+2. **Who can call `kms:Encrypt`?** CI pipelines that wrap the DEK during `clef pack` (envelope key). In KMS-native mode, also used for SOPS encryption (SOPS backend key).
 3. **Who can call `kms:Sign`?** CI pipelines that sign artifacts during `clef pack` (signing key — asymmetric, separate from both the SOPS and envelope keys). Only relevant when KMS ECDSA signing is enabled (see Section 4.3). The signing key requires only the `kms:Sign` permission — never `kms:Encrypt` or `kms:Decrypt`.
-4. **Who can read the artifact?** Anyone with VCS API access or HTTP access to the storage location. But the artifact is useless without `kms:Decrypt` on the correct envelope key. The wrapped ephemeral key is inert without KMS. When signing is enabled, a replaced artifact will also fail signature verification.
+4. **Who can read the artifact?** Anyone with VCS API access or HTTP access to the storage location. But the artifact is useless without `kms:Decrypt` on the correct envelope key. The wrapped DEK is inert without KMS. When signing is enabled, a replaced artifact will also fail signature verification.
 
 ### 6.4 Just-In-Time Decryption: IAM as a Live Authorization Gate
 
@@ -490,7 +492,7 @@ A broker is any HTTP endpoint that returns a valid Clef artifact envelope. The a
 
 ### 7.2 The Broker SDK
 
-Building a conforming envelope from scratch requires age key generation, age encryption, KMS wrapping, SHA-256 hashing, and JSON construction. The `@clef-sh/broker` package handles all of it. A broker author implements one function:
+Building a conforming envelope from scratch requires symmetric key generation, AES-256-GCM encryption, KMS wrapping, SHA-256 hashing, and JSON construction. The `@clef-sh/broker` package handles all of it. A broker author implements one function:
 
 ```typescript
 import type { BrokerHandler } from "@clef-sh/broker";
@@ -595,9 +597,9 @@ Clef's architecture ensures that no Clef-operated system ever has access to cust
 | Read access to git repo               | Key names, encrypted values, recipient list, manifest structure     | Decrypt any secret value (requires age private key or KMS `Decrypt` permission)                                                                |
 | Write access to git repo              | Everything above, plus can modify manifest                          | Decrypt existing secrets (can add rogue recipient, but PR review + `clef lint` detect this; see Section 8.8)                                   |
 | Compromised CI runner                 | Plaintext of secrets within the service identity scope being packed | Access secrets outside that scope; persist access beyond the CI run (KMS mode)                                                                 |
-| Compromised agent sidecar             | Plaintext of secrets in that service identity's current artifact    | Access other service identities' secrets; access historical or future artifact revisions (ephemeral keys)                                      |
+| Compromised agent sidecar             | Plaintext of secrets in that service identity's current artifact    | Access other service identities' secrets; access historical or future artifact revisions (ephemeral DEKs)                                      |
 | Artifact store write access           | Can replace artifacts in S3/GCS/VCS                                 | Produce a validly signed artifact without the signing key (when signing is enabled; see Section 4.3). Without signing, this is a viable attack |
-| Artifact store read access            | Ciphertext and KMS-wrapped ephemeral key                            | Decrypt without `kms:Decrypt` permission on the specific KMS key                                                                               |
+| Artifact store read access            | Ciphertext and KMS-wrapped DEK                                      | Decrypt without `kms:Decrypt` permission on the specific KMS key                                                                               |
 | KMS `Decrypt` permission on wrong key | Nothing useful                                                      | Decrypt artifacts wrapped with a different KMS key                                                                                             |
 
 ### 8.3 Access Control
@@ -606,7 +608,7 @@ Access control in Clef is the git repository itself: the manifest declares recip
 
 - **Per-environment encryption**: Each environment can use a different backend (age, KMS) and different recipients. A developer with the `development` age key cannot decrypt `production`.
 - **Per-service-identity scoping**: Service identities are registered as SOPS recipients only on the namespace files they need. The `api-gateway` identity cannot decrypt `payments` secrets because it is not a recipient on those files.
-- **Per-artifact ephemeral keys** (KMS mode): Each packed artifact uses a unique ephemeral age key pair. Compromising one artifact's decrypted content reveals nothing about other artifacts.
+- **Per-artifact ephemeral DEKs** (KMS mode): Each packed artifact uses a unique random AES-256 DEK. Compromising one artifact's decrypted content reveals nothing about other artifacts.
 
 The trust chain is: git write access → manifest control → recipient list → cryptographic enforcement. The residual risk — an insider who adds a rogue recipient via a legitimate-looking PR — is mitigated by `clef lint` (detects unrecognized recipients), CODEOWNERS, and required CI checks (see Section 8.8).
 
@@ -618,7 +620,7 @@ The blast radius of a key compromise depends on the KMS key topology. The archit
 
 **SOPS backend keys** (source encryption, symmetric): The manifest supports per-environment backend overrides. Each environment can use a different encryption backend and key — age for local development, a regional KMS key for staging, a separate KMS key for production. A compromised key exposes only the SOPS files encrypted with that key, not files in other environments. Relevant permissions: `kms:Decrypt` (to read), `kms:Encrypt` (to write).
 
-**Service identity envelope keys** (artifact encryption, symmetric): Each service identity declares its own KMS key per environment via `clef service create --kms-env`. The `api-gateway` production artifact can use a different KMS key than the `payments-svc` production artifact. Relevant permissions: `kms:Encrypt` (CI wraps the ephemeral key), `kms:Decrypt` (runtime unwraps it).
+**Service identity envelope keys** (artifact encryption, symmetric): Each service identity declares its own KMS key per environment via `clef service create --kms-env`. The `api-gateway` production artifact can use a different KMS key than the `payments-svc` production artifact. Relevant permissions: `kms:Encrypt` (CI wraps the DEK), `kms:Decrypt` (runtime unwraps it).
 
 **Signing key** (artifact provenance, asymmetric): When KMS ECDSA signing is enabled, a separate asymmetric KMS key is used to sign artifacts at pack time. This key requires only the `kms:Sign` permission — never `kms:Encrypt` or `kms:Decrypt`. Because it is asymmetric, it cannot be the same key as either the SOPS backend or envelope key. The signing key does not protect secrets directly; it proves that an artifact was produced by an authorized CI pipeline (see Section 4.3).
 
@@ -641,7 +643,7 @@ The three-key topology — SOPS source files on one symmetric CMK, artifact enve
 Multiple layers prevent secret exposure:
 
 1. **Encryption at rest**: SOPS encrypts values in git.
-2. **Encryption in transit**: Artifacts are age-encrypted; VCS APIs use HTTPS.
+2. **Encryption in transit**: Artifacts are encrypted (AES-256-GCM for KMS envelope, age for age-only); VCS APIs use HTTPS.
 3. **Memory-only plaintext**: No plaintext files, no temp directories. Standard OS-level caveats apply: process environment variables (from `clef exec`) are visible in `/proc/<pid>/environ` on Linux to processes with appropriate permissions, and in-memory values are subject to OS swap unless the host is configured with encrypted swap or `mlock`. These are inherent limitations of any in-memory approach.
 4. **Pre-commit scanning**: Pattern and entropy analysis catches accidental plaintext commits.
 5. **Integrity verification**: SHA-256 hash in the artifact envelope detects tampering or corruption.
@@ -669,7 +671,7 @@ Clef does not implement its own key recovery mechanism. The cloud provider's KMS
 
 In KMS envelope mode, the audit trail is comprehensive, distributed across infrastructure the customer already operates:
 
-1. **KMS audit logs**: Every `kms:Decrypt` call is logged by the cloud provider's audit system (CloudTrail, Cloud Audit Logs, Azure Monitor) with the caller's identity, timestamp, and key identifier. Since each artifact has a unique ephemeral key, each decrypt event maps to a specific artifact revision. This answers: who exercised decryption capability, and when?
+1. **KMS audit logs**: Every `kms:Decrypt` call is logged by the cloud provider's audit system (CloudTrail, Cloud Audit Logs, Azure Monitor) with the caller's identity, timestamp, and key identifier. Since each artifact has a unique ephemeral DEK, each decrypt event maps to a specific artifact revision. This answers: who exercised decryption capability, and when?
 2. **VCS history**: Git log shows who changed which secrets (key names are visible in plaintext), when, and in which namespace/environment. The artifact's `revision` field ties runtime consumption back to a specific commit.
 3. **CI pipeline logs**: Show who triggered `clef pack`, for which service identity and environment, and when, creating the link from source change to published artifact.
 4. **Agent telemetry**: `artifact.refreshed` events with revision, key count, and KMS envelope usage log the consumption side. Delivered as OTLP log records to the customer's observability platform.
