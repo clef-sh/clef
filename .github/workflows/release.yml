@@ -128,7 +128,12 @@ jobs:
         working-directory: packages/cli
         run: npm publish --provenance --access public
 
-      # UI is not published — it's bundled into the CLI SEA binary.
+      - name: Publish @clef-sh/ui
+        if: steps.versions.outputs.ui_released == 'true'
+        working-directory: packages/ui
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # ── Commit version stamps and tag ───────────────────────────────────
 
@@ -167,6 +172,7 @@ jobs:
           tag_if_released broker  broker  "${{ steps.versions.outputs.broker_released }}"  "${{ steps.versions.outputs.broker_version }}"
           tag_if_released agent   agent   "${{ steps.versions.outputs.agent_released }}"   "${{ steps.versions.outputs.agent_version }}"
           tag_if_released cli     cli     "${{ steps.versions.outputs.cli_released }}"     "${{ steps.versions.outputs.cli_version }}"
+          tag_if_released ui      ui      "${{ steps.versions.outputs.ui_released }}"      "${{ steps.versions.outputs.ui_version }}"
 
           git push --tags
 
@@ -197,3 +203,4 @@ jobs:
           create_release broker  "${{ steps.versions.outputs.broker_released }}"  "${{ steps.versions.outputs.broker_version }}"
           create_release agent   "${{ steps.versions.outputs.agent_released }}"   "${{ steps.versions.outputs.agent_version }}"
           create_release cli     "${{ steps.versions.outputs.cli_released }}"     "${{ steps.versions.outputs.cli_version }}"
+          create_release ui      "${{ steps.versions.outputs.ui_released }}"      "${{ steps.versions.outputs.ui_version }}"
