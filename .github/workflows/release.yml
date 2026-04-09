@@ -29,6 +29,7 @@ jobs:
   release:
     name: Publish Stable
     runs-on: ubuntu-latest
+    environment: release-npm
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
