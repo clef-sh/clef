@@ -59,6 +59,7 @@ jest.mock("../age-credential", () => {
 });
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -74,6 +75,9 @@ jest.mock("../output/formatter", () => ({
     recipientItem: jest.fn(),
     section: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
@@ -161,6 +165,32 @@ describe("clef recipients", () => {
         "CI deploy key",
         "age1\u2026qrstuvwx",
       );
+    });
+
+    it("should output JSON with --json flag", async () => {
+      const { isJsonMode } = jest.requireMock("../output/formatter") as {
+        isJsonMode: jest.Mock;
+      };
+      isJsonMode.mockReturnValue(true);
+
+      mockRecipientManager({
+        list: jest.fn().mockResolvedValue([
+          { key: "age1key1abcdefgh", preview: "age1\u2026abcdefgh", label: "Alice" },
+          { key: "age1key2ijklmnop", preview: "age1\u2026ijklmnop", label: "Bob" },
+        ]),
+      });
+      const program = makeProgram();
+
+      await program.parseAsync(["node", "clef", "recipients", "list"]);
+
+      expect(mockFormatter.json).toHaveBeenCalled();
+      const data = mockFormatter.json.mock.calls[0][0] as Array<Record<string, unknown>>;
+      expect(Array.isArray(data)).toBe(true);
+      expect(data).toHaveLength(2);
+      expect(data[0].label).toBe("Alice");
+      expect(data[1].label).toBe("Bob");
+
+      isJsonMode.mockReturnValue(false);
     });
 
     it("should show correct output format without labels", async () => {
@@ -356,6 +386,24 @@ describe("clef recipients", () => {
       );
     });
 
+    it("should output JSON with --json flag for request", async () => {
+      const { isJsonMode } = jest.requireMock("../output/formatter") as {
+        isJsonMode: jest.Mock;
+      };
+      isJsonMode.mockReturnValue(true);
+
+      const program = makeProgram();
+
+      await program.parseAsync(["node", "clef", "recipients", "request", "--label", "Alice"]);
+
+      expect(mockFormatter.json).toHaveBeenCalled();
+      const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+      expect(data.action).toBe("requested");
+      expect(data.label).toBe("Alice");
+
+      isJsonMode.mockReturnValue(false);
+    });
+
     it("should error when no age key found", async () => {
       (resolveAgePrivateKey as jest.Mock).mockResolvedValueOnce(null);
       const program = makeProgram();
@@ -473,6 +521,35 @@ describe("clef recipients", () => {
       await program.parseAsync(["node", "clef", "recipients", "pending"]);
 
       expect(mockFormatter.info).toHaveBeenCalledWith("No pending access requests.");
+    });
+
+    it("should output JSON with --json flag", async () => {
+      const { isJsonMode } = jest.requireMock("../output/formatter") as {
+        isJsonMode: jest.Mock;
+      };
+      isJsonMode.mockReturnValue(true);
+
+      (loadRequests as jest.Mock).mockReturnValue([
+        {
+          key: "age1qqnv7zhqs7fqmnqf8kfr33n32tyxdsacrpwlsnt0yeqyqvc2jmyqsyjssv",
+          label: "Alice",
+          requestedAt: new Date("2026-01-01T00:00:00Z"),
+          environment: "staging",
+        },
+      ]);
+      const program = makeProgram();
+
+      await program.parseAsync(["node", "clef", "recipients", "pending"]);
+
+      expect(mockFormatter.json).toHaveBeenCalled();
+      const data = mockFormatter.json.mock.calls[0][0] as Array<Record<string, unknown>>;
+      expect(Array.isArray(data)).toBe(true);
+      expect(data).toHaveLength(1);
+      expect(data[0].label).toBe("Alice");
+      expect(data[0].environment).toBe("staging");
+      expect(data[0].requestedAt).toBe("2026-01-01T00:00:00.000Z");
+
+      isJsonMode.mockReturnValue(false);
     });
 
     it("should list pending requests", async () => {

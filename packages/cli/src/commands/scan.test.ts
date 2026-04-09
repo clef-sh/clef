@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { registerScanCommand } from "./scan";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 
 jest.mock("fs");
 jest.mock("@clef-sh/core", () => {
@@ -30,6 +30,7 @@ jest.mock("@clef-sh/core", () => {
 
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     print: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
@@ -41,6 +42,9 @@ jest.mock("../output/formatter", () => ({
     failure: jest.fn(),
     section: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockFormatter = formatter as jest.Mocked<typeof formatter>;
@@ -259,13 +263,15 @@ describe("clef scan --json", () => {
         }) as unknown as { scan: jest.Mock },
     );
 
-    await runScan(["--json"]);
-    const rawCall = mockFormatter.raw.mock.calls[0][0] as string;
-    const parsed = JSON.parse(rawCall);
+    (isJsonMode as jest.Mock).mockReturnValue(true);
+    await runScan([]);
+    (isJsonMode as jest.Mock).mockReturnValue(false);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test assertion
+    const parsed = mockFormatter.json.mock.calls[0][0] as any;
     expect(parsed).toHaveProperty("matches");
     expect(parsed).toHaveProperty("durationMs", 200);
     expect(parsed).toHaveProperty("filesScanned", 8);
-    expect(parsed).toHaveProperty("summary");
+    expect(parsed).toHaveProperty("filesSkipped");
   });
 
   it("exits 1 when JSON output has issues", async () => {
@@ -291,11 +297,13 @@ describe("clef scan --json", () => {
         }) as unknown as { scan: jest.Mock },
     );
 
+    (isJsonMode as jest.Mock).mockReturnValue(true);
     const exitSpy = jest.spyOn(process, "exit").mockImplementation(() => undefined as never);
     const { program } = makeProgram();
-    await program.parseAsync(["node", "clef", "scan", "--json"]);
+    await program.parseAsync(["node", "clef", "scan"]);
     expect(exitSpy).toHaveBeenCalledWith(1);
     exitSpy.mockRestore();
+    (isJsonMode as jest.Mock).mockReturnValue(false);
   });
 });
 

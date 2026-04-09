@@ -8,6 +8,7 @@ import { formatter } from "../output/formatter";
 jest.mock("fs");
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -20,6 +21,9 @@ jest.mock("../output/formatter", () => ({
     secretPrompt: jest.fn(),
     formatDependencyError: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockResolveMatrix = jest.fn();
@@ -112,6 +116,28 @@ describe("clef update", () => {
 
     expect(mockScaffoldCell).toHaveBeenCalledTimes(2);
     expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Scaffolded 2"));
+  });
+
+  it("should output JSON with --json flag", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    mockResolveMatrix.mockReturnValue([
+      { namespace: "database", environment: "dev", exists: false },
+      { namespace: "database", environment: "staging", exists: false },
+    ]);
+    const program = makeProgram(goodRunner());
+
+    await program.parseAsync(["node", "clef", "update"]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.scaffolded).toBe(2);
+    expect(data.failed).toBe(0);
+
+    isJsonMode.mockReturnValue(false);
   });
 
   it("should error when clef.yaml is not found", async () => {

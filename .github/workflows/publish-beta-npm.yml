@@ -22,7 +22,7 @@ jobs:
   promote:
     name: Promote staging to npm
     runs-on: ubuntu-latest
-    environment: beta-npm
+    environment: staging
 
     steps:
       - uses: actions/checkout@v6
@@ -54,20 +54,20 @@ jobs:
           echo "agent=$(node -p "require('./packages/agent/package.json').version")" >> "$GITHUB_OUTPUT"
           echo "broker=$(node -p "require('./packages/broker/package.json').version")" >> "$GITHUB_OUTPUT"
           echo "cli=$(node -p "require('./packages/cli/package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "ui=$(node -p "require('./packages/ui/package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Publish @clef-sh/core
         continue-on-error: true
         working-directory: packages/core
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/core publish failed (may already exist)"
         env:
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/cloud
         continue-on-error: true
         working-directory: packages/cloud
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/cloud publish failed (may already exist)"
         env:
-          NPM_CONFIG_PROVENANCE: "true"
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/analytics
@@ -75,7 +75,6 @@ jobs:
         working-directory: packages/analytics
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/analytics publish failed (may already exist)"
         env:
-          NPM_CONFIG_PROVENANCE: "true"
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/runtime
@@ -83,28 +82,35 @@ jobs:
         working-directory: packages/runtime
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/runtime publish failed (may already exist)"
         env:
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/agent
         continue-on-error: true
         working-directory: packages/agent
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/agent publish failed (may already exist)"
         env:
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/broker
         continue-on-error: true
         working-directory: packages/broker
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/broker publish failed (may already exist)"
         env:
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/cli
         continue-on-error: true
         working-directory: packages/cli
         run: npm publish --tag beta --access public || echo "::warning::@clef-sh/cli publish failed (may already exist)"
         env:
-          NPM_CONFIG_PROVENANCE: "true"
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @clef-sh/ui
+        continue-on-error: true
+        working-directory: packages/ui
+        run: npm publish --tag beta --access public || echo "::warning::@clef-sh/ui publish failed (may already exist)"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # Tag the promoted commit so it's traceable from npm back to source
       - name: Tag promoted commit
@@ -145,5 +151,6 @@ jobs:
           echo "| \`@clef-sh/agent\` | \`${{ steps.ver.outputs.agent }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/broker\` | \`${{ steps.ver.outputs.broker }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/cli\` | \`${{ steps.ver.outputs.cli }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/ui\` | \`${{ steps.ver.outputs.ui }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Install: \`npm install @clef-sh/cli@beta\`" >> "$GITHUB_STEP_SUMMARY"

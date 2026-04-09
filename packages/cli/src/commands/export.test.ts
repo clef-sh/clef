@@ -11,6 +11,7 @@ jest.mock("../clipboard", () => ({
 }));
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -24,6 +25,9 @@ jest.mock("../output/formatter", () => ({
     failure: jest.fn(),
     section: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
@@ -113,6 +117,29 @@ describe("clef export", () => {
     const output = mockFormatter.raw.mock.calls[0][0] as string;
     expect(output).toContain("export DATABASE_URL='postgres://localhost'");
     expect(output).toContain("export API_KEY='sk-123'");
+  });
+
+  it("should output JSON with --json flag", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    const runner = makeRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "export", "payments/dev"]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.namespace).toBe("payments");
+    expect(data.environment).toBe("dev");
+    expect(data.pairs).toEqual([
+      { key: "DATABASE_URL", value: "postgres://localhost" },
+      { key: "API_KEY", value: "sk-123" },
+    ]);
+
+    isJsonMode.mockReturnValue(false);
   });
 
   it("should handle special characters with proper quoting", async () => {

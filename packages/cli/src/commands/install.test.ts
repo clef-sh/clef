@@ -8,6 +8,7 @@ import { RegistryIndex } from "../registry/client";
 jest.mock("fs");
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -19,6 +20,9 @@ jest.mock("../output/formatter", () => ({
     section: jest.fn(),
     confirm: jest.fn().mockResolvedValue(true),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
@@ -98,6 +102,33 @@ describe("clef install", () => {
     expect(mockFs.writeFileSync).toHaveBeenCalledTimes(3);
     expect(mockFormatter.keyValue).toHaveBeenCalledWith("  Name", "rds-iam");
     expect(mockExit).toHaveBeenCalledWith(0);
+  });
+
+  it("should output JSON with --json flag", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => mockIndex } as Response) // index
+      .mockResolvedValueOnce({ ok: true, text: async () => brokerYaml } as Response) // broker.yaml
+      .mockResolvedValueOnce({ ok: true, text: async () => "handler code" } as Response) // handler.ts
+      .mockResolvedValueOnce({ ok: true, text: async () => "# README" } as Response); // README.md
+
+    const program = makeProgram();
+    await program.parseAsync(["node", "clef", "install", "rds-iam"]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.broker).toBe("rds-iam");
+    expect(data.provider).toBe("aws");
+    expect(data.tier).toBe(1);
+    expect(data.files).toBeDefined();
+    expect(data.files).toHaveLength(3);
+    expect(mockExit).toHaveBeenCalledWith(0);
+
+    isJsonMode.mockReturnValue(false);
   });
 
   it("exits 1 when broker not found", async () => {

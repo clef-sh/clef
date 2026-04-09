@@ -7,6 +7,7 @@ import { formatter } from "../output/formatter";
 jest.mock("fs");
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
@@ -19,6 +20,9 @@ jest.mock("../output/formatter", () => ({
     failure: jest.fn(),
     section: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
@@ -50,6 +54,29 @@ describe("clef hooks install", () => {
     expect(mockFormatter.success).toHaveBeenCalledWith(
       expect.stringContaining("Pre-commit hook installed"),
     );
+  });
+
+  it("should output JSON with --json flag", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as {
+      isJsonMode: jest.Mock;
+    };
+    isJsonMode.mockReturnValue(true);
+
+    mockFs.existsSync.mockReturnValue(false);
+    const runner: SubprocessRunner = {
+      run: jest.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 }),
+    };
+    const program = makeProgram(runner);
+
+    await program.parseAsync(["node", "clef", "hooks", "install"]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.preCommitHook).toBe(true);
+    expect(typeof data.mergeDriver).toBe("boolean");
+    expect(data.hookPath).toContain("pre-commit");
+
+    isJsonMode.mockReturnValue(false);
   });
 
   it("should ask before overwriting existing clef hook", async () => {

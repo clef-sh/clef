@@ -21,7 +21,7 @@ import {
   markPending,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { setKeychainKey } from "../keychain";
 import { generateKeyLabel } from "../label-generator";
 
@@ -197,7 +197,7 @@ async function handleSecondDevOnboarding(
     );
     let keyPath: string;
 
-    if (options.nonInteractive || !process.stdin.isTTY) {
+    if (options.nonInteractive || isJsonMode() || !process.stdin.isTTY) {
       keyPath = process.env.CLEF_AGE_KEY_FILE || defaultAgeKeyPath(label);
       keyPath = path.resolve(keyPath);
     } else {
@@ -239,6 +239,11 @@ async function handleSecondDevOnboarding(
 
   formatter.success(`Key label: ${label}`);
 
+  if (isJsonMode()) {
+    formatter.json({ action: "onboarded", manifest: "clef.yaml", config: ".clef/config.yaml" });
+    return;
+  }
+
   formatter.section("Next steps:");
   formatter.hint("clef recipients request  \u2014 request access to encrypted secrets");
   formatter.hint("clef update  \u2014 scaffold new environments");
@@ -269,7 +274,7 @@ async function handleFullSetup(
   const backend: string = options.backend ?? "age";
   let secretsDir: string = options.secretsDir ?? "secrets";
 
-  if (!options.nonInteractive && process.stdin.isTTY) {
+  if (!options.nonInteractive && !isJsonMode() && process.stdin.isTTY) {
     const envAnswer = await promptWithDefault(
       "Environments (comma-separated)",
       environments.join(","),
@@ -344,7 +349,7 @@ async function handleFullSetup(
           "  See https://docs.clef.sh/guide/key-storage for security implications.",
       );
 
-      if (!options.nonInteractive && process.stdin.isTTY) {
+      if (!options.nonInteractive && !isJsonMode() && process.stdin.isTTY) {
         const confirmed = await formatter.confirm("Write the private key to the filesystem?");
         if (!confirmed) {
           formatter.error(
@@ -358,7 +363,7 @@ async function handleFullSetup(
 
       // Determine key path
       let keyPath: string;
-      if (options.nonInteractive || !process.stdin.isTTY) {
+      if (options.nonInteractive || isJsonMode() || !process.stdin.isTTY) {
         keyPath = defaultAgeKeyPath(label);
         if (await isInsideAnyGitRepo(path.resolve(keyPath))) {
           throw new Error(
@@ -505,6 +510,18 @@ async function handleFullSetup(
     formatter.print("     clef config set analytics false  (permanent)\n");
   } catch {
     // @clef-sh/analytics not installed — skip the notice
+  }
+
+  if (isJsonMode()) {
+    formatter.json({
+      action: "initialized",
+      manifest: "clef.yaml",
+      environments: manifest.environments.map((e) => e.name),
+      namespaces: manifest.namespaces.map((n) => n.name),
+      backend,
+      scaffolded: scaffoldedCount,
+    });
+    return;
   }
 
   formatter.section("Next steps:");

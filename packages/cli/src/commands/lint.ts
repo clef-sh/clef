@@ -10,7 +10,7 @@ import {
   SubprocessRunner,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createCloudAwareSopsClient } from "../cloud-sops";
 import { lintResultToOtlp, pushOtlp, resolveTelemetryConfig } from "../output/otlp";
@@ -26,9 +26,8 @@ export function registerLintCommand(program: Command, deps: { runner: Subprocess
         "  1  Errors found",
     )
     .option("--fix", "Auto-fix safe issues (scaffold missing files)")
-    .option("--json", "Output raw LintResult JSON")
     .option("--push", "Push results as OTLP to CLEF_TELEMETRY_URL")
-    .action(async (options: { fix?: boolean; json?: boolean; push?: boolean }) => {
+    .action(async (options: { fix?: boolean; push?: boolean }) => {
       try {
         const repoRoot = (program.opts().dir as string) || process.cwd();
         const parser = new ManifestParser();
@@ -68,8 +67,8 @@ export function registerLintCommand(program: Command, deps: { runner: Subprocess
             formatter.success("Lint results pushed to telemetry endpoint.");
           }
 
-          if (options.json) {
-            formatter.raw(JSON.stringify(result, null, 2) + "\n");
+          if (isJsonMode()) {
+            formatter.json(result);
             const hasErrors = result.issues.some((i) => i.severity === "error");
             process.exit(hasErrors ? 1 : 0);
             return;

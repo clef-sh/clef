@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { SubprocessRunner } from "@clef-sh/core";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { DEFAULT_REGISTRY, fetchIndex, RegistryBroker } from "../registry/client";
 
 export function registerSearchCommand(program: Command, _deps: { runner: SubprocessRunner }): void {
@@ -44,6 +44,12 @@ export function registerSearchCommand(program: Command, _deps: { runner: Subproc
           // Filter by tier
           if (options.tier) {
             results = results.filter((b) => b.tier === Number(options.tier));
+          }
+
+          if (isJsonMode()) {
+            formatter.json(results);
+            process.exit(0);
+            return;
           }
 
           if (results.length === 0) {

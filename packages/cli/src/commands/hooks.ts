@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { Command } from "commander";
 import { GitIntegration, SubprocessRunner } from "@clef-sh/core";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 
 export function registerHooksCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -41,17 +41,33 @@ export function registerHooksCommand(program: Command, deps: { runner: Subproces
         const git = new GitIntegration(deps.runner);
         await git.installPreCommitHook(repoRoot);
 
+        // Also ensure the merge driver is configured (idempotent)
+        let mergeDriverOk = false;
+        try {
+          await git.installMergeDriver(repoRoot);
+          mergeDriverOk = true;
+        } catch {
+          // handled below
+        }
+
+        if (isJsonMode()) {
+          formatter.json({
+            preCommitHook: true,
+            mergeDriver: mergeDriverOk,
+            hookPath,
+          });
+          return;
+        }
+
         formatter.success("Pre-commit hook installed");
         formatter.print(`   ${sym("pending")}  ${hookPath}`);
         formatter.hint(
           "Hook checks SOPS metadata on staged .enc files and runs: clef scan --staged",
         );
 
-        // Also ensure the merge driver is configured (idempotent)
-        try {
-          await git.installMergeDriver(repoRoot);
+        if (mergeDriverOk) {
           formatter.success("SOPS merge driver configured");
-        } catch {
+        } else {
           formatter.warn("Could not configure SOPS merge driver. Run inside a git repository.");
         }
       } catch (err) {

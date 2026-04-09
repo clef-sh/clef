@@ -2,7 +2,7 @@ import * as path from "path";
 import { Command } from "commander";
 import { ManifestParser, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createCloudAwareSopsClient } from "../cloud-sops";
 import { parseTarget } from "../parse-target";
@@ -83,7 +83,10 @@ export function registerCompareCommand(program: Command, deps: { runner: Subproc
           const timingEqual = crypto.timingSafeEqual(paddedStored, paddedCompare);
           const match = storedBuf.length === compareBuf.length && timingEqual;
 
-          if (match) {
+          if (isJsonMode()) {
+            formatter.json({ match, key, namespace, environment });
+            if (!match) process.exit(1);
+          } else if (match) {
             formatter.success(`${key} ${sym("arrow")} values match`);
           } else {
             formatter.failure(`${key} ${sym("arrow")} values do not match`);

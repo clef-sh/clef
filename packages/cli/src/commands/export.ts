@@ -2,7 +2,7 @@ import * as path from "path";
 import { Command } from "commander";
 import { ManifestParser, ConsumptionClient, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { createCloudAwareSopsClient } from "../cloud-sops";
 import { copyToClipboard } from "../clipboard";
 import { parseTarget } from "../parse-target";
@@ -70,6 +70,15 @@ export function registerExportCommand(program: Command, deps: { runner: Subproce
         );
         try {
           const decrypted = await sopsClient.decrypt(filePath);
+
+          if (isJsonMode()) {
+            const pairs = Object.entries(decrypted.values).map(([k, v]) => ({
+              key: k,
+              value: v,
+            }));
+            formatter.json({ pairs, namespace, environment });
+            return;
+          }
 
           const consumption = new ConsumptionClient();
           const output = consumption.formatExport(decrypted, "env", !options.export);

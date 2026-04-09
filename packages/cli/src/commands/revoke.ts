@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { Command } from "commander";
 import { ManifestParser, SubprocessRunner } from "@clef-sh/core";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 
 export function registerRevokeCommand(program: Command, _deps: { runner: SubprocessRunner }): void {
@@ -58,6 +58,16 @@ export function registerRevokeCommand(program: Command, _deps: { runner: Subproc
         fs.writeFileSync(artifactPath, JSON.stringify(revoked, null, 2) + "\n", "utf-8");
 
         const relPath = path.relative(repoRoot, artifactPath);
+
+        if (isJsonMode()) {
+          formatter.json({
+            identity,
+            environment,
+            revokedAt: revoked.revokedAt,
+            markerPath: relPath,
+          });
+          return;
+        }
 
         formatter.success(`Artifact revoked: ${relPath}`);
         formatter.print("");

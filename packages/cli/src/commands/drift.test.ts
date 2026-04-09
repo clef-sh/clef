@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { registerDriftCommand } from "./drift";
-import { formatter } from "../output/formatter";
+import { formatter, isJsonMode } from "../output/formatter";
 
 jest.mock("fs");
 jest.mock("@clef-sh/core", () => {
@@ -21,6 +21,7 @@ jest.mock("@clef-sh/core", () => {
 
 jest.mock("../output/formatter", () => ({
   formatter: {
+    json: jest.fn(),
     print: jest.fn(),
     success: jest.fn(),
     error: jest.fn(),
@@ -32,6 +33,9 @@ jest.mock("../output/formatter", () => ({
     failure: jest.fn(),
     section: jest.fn(),
   },
+  isJsonMode: jest.fn().mockReturnValue(false),
+  setJsonMode: jest.fn(),
+  setYesMode: jest.fn(),
 }));
 
 const mockFormatter = formatter as jest.Mocked<typeof formatter>;
@@ -130,9 +134,11 @@ describe("clef drift --json", () => {
           }),
         }) as unknown as { detect: jest.Mock },
     );
-    await runDrift(["/tmp/other-repo", "--json"]);
-    const rawCall = mockFormatter.raw.mock.calls[0][0] as string;
-    const parsed = JSON.parse(rawCall);
+    (isJsonMode as jest.Mock).mockReturnValue(true);
+    await runDrift(["/tmp/other-repo"]);
+    (isJsonMode as jest.Mock).mockReturnValue(false);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test assertion
+    const parsed = mockFormatter.json.mock.calls[0][0] as any;
     expect(parsed).toHaveProperty("issues");
     expect(parsed).toHaveProperty("namespacesCompared", 2);
     expect(parsed).toHaveProperty("namespacesClean", 2);
@@ -161,11 +167,13 @@ describe("clef drift --json", () => {
         }) as unknown as { detect: jest.Mock },
     );
 
+    (isJsonMode as jest.Mock).mockReturnValue(true);
     const exitSpy = jest.spyOn(process, "exit").mockImplementation(() => undefined as never);
     const { program } = makeProgram();
-    await program.parseAsync(["node", "clef", "drift", "--json", "/tmp/other-repo"]);
+    await program.parseAsync(["node", "clef", "drift", "/tmp/other-repo"]);
     expect(exitSpy).toHaveBeenCalledWith(1);
     exitSpy.mockRestore();
+    (isJsonMode as jest.Mock).mockReturnValue(false);
   });
 });
 

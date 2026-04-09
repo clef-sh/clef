@@ -27,7 +27,8 @@ import { registerInstallCommand } from "./commands/install";
 import { registerSearchCommand } from "./commands/search";
 import { registerMigrateBackendCommand } from "./commands/migrate-backend";
 import { registerServeCommand } from "./commands/serve";
-import { formatter } from "./output/formatter";
+import { formatter, setJsonMode, setYesMode, isJsonMode } from "./output/formatter";
+import { exitJsonError } from "./handle-error";
 import { setPlainMode, isPlainMode, symbols, sym } from "./output/symbols";
 import { openBrowser } from "./browser";
 import { createSopsClient } from "./age-credential";
@@ -42,7 +43,9 @@ const deps = { runner };
 program
   .name("clef")
   .option("--dir <path>", "Path to a local Clef repository root (default: current directory)")
-  .option("--plain", "Plain output, no emoji or colour");
+  .option("--plain", "Plain output, no emoji or colour")
+  .option("--json", "Output machine-readable JSON (suppresses human output)")
+  .option("--yes", "Auto-confirm destructive operations (required with --json for writes)");
 
 // Resolve --plain before any command runs.
 program.hook("preAction", async () => {
@@ -50,6 +53,14 @@ program.hook("preAction", async () => {
 
   if (opts.plain) {
     setPlainMode(true);
+  }
+
+  if (opts.json) {
+    setJsonMode(true);
+  }
+
+  if (opts.yes) {
+    setYesMode(true);
   }
 });
 
@@ -181,6 +192,9 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
+  if (isJsonMode()) {
+    exitJsonError(err.message);
+  }
   formatter.error(err.message);
   process.exit(1);
 });
