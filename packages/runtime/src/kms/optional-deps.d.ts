@@ -2,3 +2,4 @@
 declare module "@azure/identity";
 declare module "@azure/keyvault-keys";
 declare module "@google-cloud/kms";
+declare module "@clef-sh/client/kms";
