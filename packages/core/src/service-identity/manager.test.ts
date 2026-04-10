@@ -1,13 +1,19 @@
 import * as fs from "fs";
 import * as YAML from "yaml";
+import writeFileAtomic from "write-file-atomic";
 import { ServiceIdentityManager } from "./manager";
 import { ClefManifest, EncryptionBackend, ServiceIdentityDefinition, SopsMetadata } from "../types";
 import { MatrixManager } from "../matrix/manager";
 
 jest.mock("fs");
 jest.mock("../age/keygen");
+jest.mock("write-file-atomic", () => ({
+  __esModule: true,
+  default: { sync: jest.fn() },
+}));
 
 const mockFs = fs as jest.Mocked<typeof fs> & { renameSync: jest.Mock };
+const mockWriteFileAtomicSync = writeFileAtomic.sync as jest.Mock;
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest mock
 const { generateAgeIdentity } = require("../age/keygen") as {
@@ -92,7 +98,8 @@ describe("ServiceIdentityManager", () => {
       expect(Object.keys(result.privateKeys)).toHaveLength(3);
       expect(result.privateKeys.dev).toMatch(/^AGE-SECRET-KEY-/);
       expect(result.identity.environments.dev.recipient).toMatch(/^age1pubkey/);
-      expect(mockFs.writeFileSync).toHaveBeenCalled();
+      // Manifest is written via write-file-atomic
+      expect(mockWriteFileAtomicSync).toHaveBeenCalled();
     });
 
     it("should throw if identity name already exists", async () => {
@@ -293,7 +300,8 @@ describe("ServiceIdentityManager", () => {
 
       expect(Object.keys(result)).toHaveLength(3);
       expect(result.dev).toMatch(/^AGE-SECRET-KEY-/);
-      expect(mockFs.writeFileSync).toHaveBeenCalled();
+      // Manifest is written via write-file-atomic
+      expect(mockWriteFileAtomicSync).toHaveBeenCalled();
 
       // Verify old recipients were removed and new ones added
       expect(encryption.removeRecipient).toHaveBeenCalledWith(
@@ -526,11 +534,10 @@ describe("ServiceIdentityManager", () => {
 
       await manager.addNamespacesToScope("web-app", ["database"], manifest, "/repo");
 
-      // The atomic write goes through a temp file (.clef.yaml.tmp.{pid}.{ts})
-      const writeCall = mockFs.writeFileSync.mock.calls.find((c) => {
-        const p = String(c[0]);
-        return p.endsWith("clef.yaml") || p.includes("clef.yaml.tmp.");
-      });
+      // Manifest is written via write-file-atomic
+      const writeCall = mockWriteFileAtomicSync.mock.calls.find((c) =>
+        String(c[0]).endsWith("clef.yaml"),
+      );
       expect(writeCall).toBeDefined();
       const writtenDoc = YAML.parse(writeCall![1] as string) as ClefManifest;
       const si = writtenDoc.service_identities!.find((s) => s.name === "web-app")!;
@@ -546,7 +553,7 @@ describe("ServiceIdentityManager", () => {
       expect(result.added).toEqual([]);
       expect(result.affectedFiles).toEqual([]);
       expect(encryption.addRecipient).not.toHaveBeenCalled();
-      expect(mockFs.writeFileSync).not.toHaveBeenCalled();
+      expect(mockWriteFileAtomicSync).not.toHaveBeenCalled();
     });
 
     it("skips already-scoped namespaces but processes new ones in the same call", async () => {
@@ -668,10 +675,10 @@ describe("ServiceIdentityManager", () => {
 
       await manager.removeNamespacesFromScope("web-app", ["database"], manifest, "/repo");
 
-      const writeCall = mockFs.writeFileSync.mock.calls.find((c) => {
-        const p = String(c[0]);
-        return p.endsWith("clef.yaml") || p.includes("clef.yaml.tmp.");
-      });
+      // Manifest is written via write-file-atomic
+      const writeCall = mockWriteFileAtomicSync.mock.calls.find((c) =>
+        String(c[0]).endsWith("clef.yaml"),
+      );
       expect(writeCall).toBeDefined();
       const writtenDoc = YAML.parse(writeCall![1] as string) as ClefManifest;
       const si = writtenDoc.service_identities!.find((s) => s.name === "web-app")!;

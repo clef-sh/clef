@@ -16,6 +16,7 @@ import {
   SubprocessResult,
   SubprocessRunner,
 } from "../types";
+import writeFileAtomic from "write-file-atomic";
 
 jest.mock("fs", () => ({
   readFileSync: jest.fn(),
@@ -24,6 +25,13 @@ jest.mock("fs", () => ({
 
 jest.mock("net", () => ({
   createServer: jest.fn(),
+}));
+
+// SopsClient.encrypt() writes the encrypted output via write-file-atomic.
+// Mock it so tests don't actually touch disk.
+jest.mock("write-file-atomic", () => ({
+  __esModule: true,
+  default: { sync: jest.fn() },
 }));
 
 jest.mock("./resolver", () => ({
@@ -41,6 +49,7 @@ jest.mock("../age/keygen", () => ({
 
 const mockReadFileSync = fs.readFileSync as jest.Mock;
 const mockWriteFileSync = fs.writeFileSync as jest.Mock;
+const mockWriteFileAtomicSync = writeFileAtomic.sync as jest.Mock;
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- require() needed to access jest mock after jest.mock()
 const { deriveAgePublicKey: mockDeriveAgePublicKey } = require("../age/keygen") as {
@@ -90,6 +99,7 @@ describe("SopsClient", () => {
   beforeEach(() => {
     mockReadFileSync.mockReturnValue(sopsMetadataYaml);
     mockWriteFileSync.mockReturnValue(undefined);
+    mockWriteFileAtomicSync.mockReset();
     mockDeriveAgePublicKey.mockReset();
   });
 
@@ -281,7 +291,10 @@ sops:
       const YAML = await import("yaml");
       const parsed = YAML.parse(stdinContent);
       expect(parsed).toEqual({ KEY: "value" });
-      expect(mockWriteFileSync).toHaveBeenCalledWith("database/dev.enc.yaml", "encrypted-content");
+      expect(mockWriteFileAtomicSync).toHaveBeenCalledWith(
+        "database/dev.enc.yaml",
+        "encrypted-content",
+      );
     });
 
     it("passes /dev/stdin as the input file argument on Unix", async () => {
@@ -499,7 +512,7 @@ sops:
         return { stdout: "", stderr: "", exitCode: 1 };
       });
 
-      mockWriteFileSync.mockImplementation(() => {
+      mockWriteFileAtomicSync.mockImplementation(() => {
         throw new Error("Permission denied");
       });
 

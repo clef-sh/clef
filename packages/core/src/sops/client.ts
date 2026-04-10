@@ -13,6 +13,7 @@
 import * as fs from "fs";
 import * as net from "net";
 import { randomBytes } from "crypto";
+import writeFileAtomic from "write-file-atomic";
 import * as YAML from "yaml";
 import {
   BackendType,
@@ -259,9 +260,12 @@ export class SopsClient implements EncryptionBackend {
       );
     }
 
-    // Write the encrypted output to the file (using fs directly — tee is not available on Windows)
+    // Write the encrypted output atomically: write-file-atomic uses temp file
+    // + rename so a Ctrl+C / crash mid-write never leaves a torn file on disk.
+    // Handles Windows EPERM retries internally and registers signal-exit
+    // cleanup handlers to remove orphan temp files on SIGINT/SIGTERM.
     try {
-      fs.writeFileSync(filePath, result.stdout);
+      writeFileAtomic.sync(filePath, result.stdout);
     } catch {
       throw new SopsEncryptionError(`Failed to write encrypted data to '${filePath}'.`, filePath);
     }

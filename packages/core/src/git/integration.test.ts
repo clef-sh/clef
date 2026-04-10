@@ -1,3 +1,6 @@
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import { GitIntegration } from "./integration";
 import { GitOperationError, SubprocessRunner } from "../types";
 
@@ -458,71 +461,69 @@ describe("GitIntegration", () => {
   });
 
   describe("isMidOperation", () => {
-    // These tests check fs.existsSync directly. We mock fs to control file presence.
-    const realFs = jest.requireActual("fs") as typeof import("fs");
-    let existsSyncSpy: jest.SpyInstance;
+    // Real temp dirs with real .git/* files. No mocking — tests the real
+    // fs.existsSync calls in isMidOperation against actual file presence.
+    let tmpRepo: string;
+
+    beforeEach(() => {
+      tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), "git-int-test-"));
+      fs.mkdirSync(path.join(tmpRepo, ".git"), { recursive: true });
+    });
 
     afterEach(() => {
-      existsSyncSpy?.mockRestore();
+      try {
+        fs.rmSync(tmpRepo, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
     });
 
     it("should detect mid-merge", async () => {
-      existsSyncSpy = jest
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        .spyOn(require("fs"), "existsSync")
-        .mockImplementation((p: unknown) => String(p).endsWith("MERGE_HEAD"));
+      fs.writeFileSync(path.join(tmpRepo, ".git", "MERGE_HEAD"), "abc1234");
       const git = new GitIntegration(mockRunner());
 
-      const result = await git.isMidOperation("/repo");
+      const result = await git.isMidOperation(tmpRepo);
       expect(result).toEqual({ midOp: true, kind: "merge" });
     });
 
     it("should detect mid-rebase (rebase-merge)", async () => {
-      existsSyncSpy = jest
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        .spyOn(require("fs"), "existsSync")
-        .mockImplementation((p: unknown) => String(p).endsWith("rebase-merge"));
+      fs.mkdirSync(path.join(tmpRepo, ".git", "rebase-merge"));
       const git = new GitIntegration(mockRunner());
 
-      const result = await git.isMidOperation("/repo");
+      const result = await git.isMidOperation(tmpRepo);
+      expect(result).toEqual({ midOp: true, kind: "rebase" });
+    });
+
+    it("should detect mid-rebase (rebase-apply)", async () => {
+      fs.mkdirSync(path.join(tmpRepo, ".git", "rebase-apply"));
+      const git = new GitIntegration(mockRunner());
+
+      const result = await git.isMidOperation(tmpRepo);
       expect(result).toEqual({ midOp: true, kind: "rebase" });
     });
 
     it("should detect mid-cherry-pick", async () => {
-      existsSyncSpy = jest
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        .spyOn(require("fs"), "existsSync")
-        .mockImplementation((p: unknown) => String(p).endsWith("CHERRY_PICK_HEAD"));
+      fs.writeFileSync(path.join(tmpRepo, ".git", "CHERRY_PICK_HEAD"), "abc1234");
       const git = new GitIntegration(mockRunner());
 
-      const result = await git.isMidOperation("/repo");
+      const result = await git.isMidOperation(tmpRepo);
       expect(result).toEqual({ midOp: true, kind: "cherry-pick" });
     });
 
     it("should detect mid-revert", async () => {
-      existsSyncSpy = jest
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        .spyOn(require("fs"), "existsSync")
-        .mockImplementation((p: unknown) => String(p).endsWith("REVERT_HEAD"));
+      fs.writeFileSync(path.join(tmpRepo, ".git", "REVERT_HEAD"), "abc1234");
       const git = new GitIntegration(mockRunner());
 
-      const result = await git.isMidOperation("/repo");
+      const result = await git.isMidOperation(tmpRepo);
       expect(result).toEqual({ midOp: true, kind: "revert" });
     });
 
     it("should return midOp: false when no operation files exist", async () => {
-      existsSyncSpy = jest
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        .spyOn(require("fs"), "existsSync")
-        .mockReturnValue(false);
       const git = new GitIntegration(mockRunner());
 
-      const result = await git.isMidOperation("/repo");
+      const result = await git.isMidOperation(tmpRepo);
       expect(result).toEqual({ midOp: false });
     });
-
-    // realFs is referenced in the file's lifetime to satisfy lint
-    expect(realFs).toBeDefined();
   });
 
   describe("getAuthorIdentity", () => {

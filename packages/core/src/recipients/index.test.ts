@@ -1,13 +1,19 @@
 import * as fs from "fs";
 import * as YAML from "yaml";
+import writeFileAtomic from "write-file-atomic";
 import { RecipientManager } from "./index";
 import { ClefManifest, EncryptionBackend } from "../types";
 
 jest.mock("fs");
+jest.mock("write-file-atomic", () => ({
+  __esModule: true,
+  default: { sync: jest.fn() },
+}));
 
 const mockReadFileSync = fs.readFileSync as jest.MockedFunction<typeof fs.readFileSync>;
 const mockWriteFileSync = fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>;
 const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
+const mockWriteFileAtomicSync = writeFileAtomic.sync as jest.Mock;
 
 const validKey1 = "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p";
 const validKey2 = "age1deadgyu9nk64as3xhfmz05u94lef3nym6hvqntrrmyzpq28pjxdqs5gfng";
@@ -244,8 +250,8 @@ describe("RecipientManager", () => {
         validKey1,
       );
 
-      // Check that manifest was written
-      expect(mockWriteFileSync).toHaveBeenCalled();
+      // Check that manifest was written (via write-file-atomic)
+      expect(mockWriteFileAtomicSync).toHaveBeenCalled();
     });
 
     it("adds key as plain string when no label", async () => {
@@ -261,8 +267,8 @@ describe("RecipientManager", () => {
       expect(result.added!.key).toBe(validKey1);
       expect(result.added!.label).toBeUndefined();
 
-      // Verify what was written to manifest
-      const writeCall = mockWriteFileSync.mock.calls[0];
+      // Verify what was written to manifest (via write-file-atomic)
+      const writeCall = mockWriteFileAtomicSync.mock.calls[0];
       const writtenYaml = YAML.parse(writeCall[1] as string) as Record<string, unknown>;
       const sops = writtenYaml.sops as Record<string, unknown>;
       const age = sops.age as Record<string, unknown>;
@@ -280,7 +286,7 @@ describe("RecipientManager", () => {
 
       await manager.add(validKey1, "Alice", manifest, repoRoot);
 
-      const writeCall = mockWriteFileSync.mock.calls[0];
+      const writeCall = mockWriteFileAtomicSync.mock.calls[0];
       const writtenYaml = YAML.parse(writeCall[1] as string) as Record<string, unknown>;
       const sops = writtenYaml.sops as Record<string, unknown>;
       const age = sops.age as Record<string, unknown>;
@@ -335,17 +341,18 @@ describe("RecipientManager", () => {
         "Rollback completed: manifest and re-encrypted files have been restored.",
       );
 
-      // Verify manifest was restored. Atomic writes go through a temp file
-      // (.clef.yaml.tmp.{pid}.{ts}) so filter for any clef.yaml-related write.
-      const manifestWriteCalls = mockWriteFileSync.mock.calls.filter((call) => {
+      // Verify manifest was restored (via write-file-atomic for both
+      // the initial mutation and the rollback restore).
+      const manifestWriteCalls = mockWriteFileAtomicSync.mock.calls.filter((call) => {
         const p = call[0] as string;
-        return p.endsWith("clef.yaml") || p.includes("clef.yaml.tmp.");
+        return p.endsWith("clef.yaml");
       });
       // Last write should be the rollback (with the original raw manifest contents)
       const lastManifestWrite = manifestWriteCalls[manifestWriteCalls.length - 1];
       expect(lastManifestWrite[1]).toBe(originalManifest);
 
-      // Verify staging file was restored (it was re-encrypted before the failure)
+      // Verify staging file was restored (it was re-encrypted before the failure).
+      // The rollback path uses fs.writeFileSync to restore file backups verbatim.
       const stagingWriteCalls = mockWriteFileSync.mock.calls.filter(
         (call) => call[0] === "/repo/database/staging.enc.yaml",
       );
@@ -384,7 +391,7 @@ describe("RecipientManager", () => {
 
       expect(result.added!.key).toBe(validKey1);
 
-      const writeCall = mockWriteFileSync.mock.calls[0];
+      const writeCall = mockWriteFileAtomicSync.mock.calls[0];
       const writtenYaml = YAML.parse(writeCall[1] as string) as Record<string, unknown>;
       const sops = writtenYaml.sops as Record<string, unknown>;
       const age = sops.age as Record<string, unknown>;
@@ -495,16 +502,15 @@ describe("RecipientManager", () => {
         "Re-encryption removes future access, not past access. Rotate secret values to complete revocation.",
       );
 
-      // Verify manifest was restored. Atomic writes go through a temp file
-      // so filter for any clef.yaml-related write.
-      const manifestWriteCalls = mockWriteFileSync.mock.calls.filter((call) => {
+      // Verify manifest was restored (via write-file-atomic)
+      const manifestWriteCalls = mockWriteFileAtomicSync.mock.calls.filter((call) => {
         const p = call[0] as string;
-        return p.endsWith("clef.yaml") || p.includes("clef.yaml.tmp.");
+        return p.endsWith("clef.yaml");
       });
       const lastManifestWrite = manifestWriteCalls[manifestWriteCalls.length - 1];
       expect(lastManifestWrite[1]).toBe(originalManifest);
 
-      // Verify staging file was restored
+      // Verify staging file was restored (via fs.writeFileSync from rollback path)
       const stagingWriteCalls = mockWriteFileSync.mock.calls.filter(
         (call) => call[0] === "/repo/database/staging.enc.yaml",
       );

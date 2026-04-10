@@ -1,13 +1,19 @@
 import * as fs from "fs";
 import * as YAML from "yaml";
+import writeFileAtomic from "write-file-atomic";
 import { BackendMigrator, MigrationTarget } from "./backend";
 import { ClefManifest, EncryptionBackend, SopsMetadata } from "../types";
 
 jest.mock("fs");
+jest.mock("write-file-atomic", () => ({
+  __esModule: true,
+  default: { sync: jest.fn() },
+}));
 
 const mockReadFileSync = fs.readFileSync as jest.MockedFunction<typeof fs.readFileSync>;
 const mockWriteFileSync = fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>;
 const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
+const mockWriteFileAtomicSync = writeFileAtomic.sync as jest.Mock;
 
 const repoRoot = "/repo";
 
@@ -108,13 +114,10 @@ describe("BackendMigrator", () => {
     expect(enc.decrypt).toHaveBeenCalledTimes(4);
     expect(enc.encrypt).toHaveBeenCalledTimes(2);
 
-    // Verify manifest was updated. Atomic writes go through a temp file
-    // (.clef.yaml.tmp.{pid}.{ts}) which then gets renamed to clef.yaml.
-    const writeCalls = mockWriteFileSync.mock.calls;
-    const manifestWrite = writeCalls.find((c) => {
-      const p = String(c[0]);
-      return p.endsWith("clef.yaml") || p.includes("clef.yaml.tmp.");
-    });
+    // Verify manifest was updated (via write-file-atomic).
+    const manifestWrite = mockWriteFileAtomicSync.mock.calls.find((c) =>
+      String(c[0]).endsWith("clef.yaml"),
+    );
     expect(manifestWrite).toBeDefined();
     const written = YAML.parse(manifestWrite![1] as string) as ClefManifest;
     expect(written.sops.default_backend).toBe("awskms");
@@ -139,11 +142,10 @@ describe("BackendMigrator", () => {
     expect(enc.decrypt).toHaveBeenCalledTimes(2);
     expect(enc.encrypt).toHaveBeenCalledTimes(1);
 
-    // Verify per-env override in manifest (atomic write goes through temp file)
-    const manifestWrite = mockWriteFileSync.mock.calls.find((c) => {
-      const p = String(c[0]);
-      return p.endsWith("clef.yaml") || p.includes("clef.yaml.tmp.");
-    });
+    // Verify per-env override in manifest (via write-file-atomic)
+    const manifestWrite = mockWriteFileAtomicSync.mock.calls.find((c) =>
+      String(c[0]).endsWith("clef.yaml"),
+    );
     const written = YAML.parse(manifestWrite![1] as string);
     const prodEnv = written.environments.find((e: { name: string }) => e.name === "production");
     expect(prodEnv.sops.backend).toBe("awskms");
@@ -201,6 +203,7 @@ describe("BackendMigrator", () => {
     expect(enc.decrypt).not.toHaveBeenCalled();
     expect(enc.encrypt).not.toHaveBeenCalled();
     expect(mockWriteFileSync).not.toHaveBeenCalled();
+    expect(mockWriteFileAtomicSync).not.toHaveBeenCalled();
   });
 
   it("should rollback all changes on decrypt failure", async () => {
@@ -220,11 +223,12 @@ describe("BackendMigrator", () => {
     expect(result.error).toContain("Decryption failed");
     expect(result.migratedFiles).toHaveLength(0);
 
-    // Verify rollback writes happened (manifest + sops.yaml + file)
-    const restoreWrites = mockWriteFileSync.mock.calls.filter(
-      (c) => mockWriteFileSync.mock.calls.indexOf(c) > 0,
-    );
-    expect(restoreWrites.length).toBeGreaterThan(0);
+    // Verify rollback writes happened. The manifest is restored via
+    // write-file-atomic; the per-cell file backups are restored via
+    // direct fs.writeFileSync. Either signals that rollback ran.
+    const totalWrites =
+      mockWriteFileSync.mock.calls.length + mockWriteFileAtomicSync.mock.calls.length;
+    expect(totalWrites).toBeGreaterThan(0);
   });
 
   it("should rollback all changes on encrypt failure", async () => {

@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
 import { Command } from "commander";
+import writeFileAtomic from "write-file-atomic";
 import { registerInitCommand } from "./init";
 import { SubprocessRunner, markPending } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
@@ -9,6 +10,10 @@ import { setKeychainKey } from "../keychain";
 
 jest.mock("fs");
 jest.mock("readline");
+jest.mock("write-file-atomic", () => ({
+  __esModule: true,
+  default: { sync: jest.fn() },
+}));
 jest.mock("../keychain", () => ({
   setKeychainKey: jest.fn().mockResolvedValue(false),
 }));
@@ -71,6 +76,7 @@ jest.mock("util", () => ({
 }));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
+const mockWriteFileAtomicSync = writeFileAtomic.sync as jest.Mock;
 const mockFormatter = formatter as jest.Mocked<typeof formatter>;
 const mockExit = jest.spyOn(process, "exit").mockImplementation(() => undefined as never);
 
@@ -215,11 +221,10 @@ describe("clef init", () => {
       "--non-interactive",
     ]);
 
-    // clef.yaml should be written
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+    // clef.yaml should be written via write-file-atomic
+    expect(mockWriteFileAtomicSync).toHaveBeenCalledWith(
       expect.stringContaining("clef.yaml"),
       expect.stringContaining("version: 1"),
-      "utf-8",
     );
 
     // age key should have been generated
@@ -309,7 +314,7 @@ describe("clef init", () => {
       "--non-interactive",
     ]);
 
-    const manifestCall = mockFs.writeFileSync.mock.calls.find((c) =>
+    const manifestCall = mockWriteFileAtomicSync.mock.calls.find((c) =>
       String(c[0]).includes("clef.yaml"),
     );
     expect(manifestCall).toBeDefined();
@@ -324,7 +329,7 @@ describe("clef init", () => {
 
     await program.parseAsync(["node", "clef", "init", "--namespaces", "db", "--non-interactive"]);
 
-    const manifestCall = mockFs.writeFileSync.mock.calls.find((c) =>
+    const manifestCall = mockWriteFileAtomicSync.mock.calls.find((c) =>
       String(c[0]).includes("clef.yaml"),
     );
     expect(manifestCall).toBeDefined();
@@ -355,7 +360,7 @@ describe("clef init", () => {
 
     await program.parseAsync(["node", "clef", "init"]);
 
-    const manifestCall = mockFs.writeFileSync.mock.calls.find((c) =>
+    const manifestCall = mockWriteFileAtomicSync.mock.calls.find((c) =>
       String(c[0]).includes("clef.yaml"),
     );
     expect(manifestCall).toBeDefined();
@@ -380,10 +385,9 @@ describe("clef init", () => {
       "--non-interactive",
     ]);
 
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+    expect(mockWriteFileAtomicSync).toHaveBeenCalledWith(
       expect.stringContaining("clef.yaml"),
       expect.stringContaining("pgp"),
-      "utf-8",
     );
     // age identity should NOT be generated for pgp backend
     expect(getMockGenerateAgeIdentity()).not.toHaveBeenCalled();
@@ -405,10 +409,9 @@ describe("clef init", () => {
       "--non-interactive",
     ]);
 
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+    expect(mockWriteFileAtomicSync).toHaveBeenCalledWith(
       expect.stringContaining("clef.yaml"),
       expect.stringContaining("awskms"),
-      "utf-8",
     );
     expect(getMockGenerateAgeIdentity()).not.toHaveBeenCalled();
   });
@@ -429,10 +432,9 @@ describe("clef init", () => {
       "--non-interactive",
     ]);
 
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+    expect(mockWriteFileAtomicSync).toHaveBeenCalledWith(
       expect.stringContaining("clef.yaml"),
       expect.stringContaining("gcpkms"),
-      "utf-8",
     );
     expect(getMockGenerateAgeIdentity()).not.toHaveBeenCalled();
   });
@@ -529,10 +531,9 @@ describe("clef init", () => {
     await program.parseAsync(["node", "clef", "init"]);
 
     // The manifest should contain the interactively provided namespaces
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+    expect(mockWriteFileAtomicSync).toHaveBeenCalledWith(
       expect.stringContaining("clef.yaml"),
       expect.stringContaining("api"),
-      "utf-8",
     );
 
     Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
@@ -570,10 +571,9 @@ describe("clef init", () => {
     await program.parseAsync(["node", "clef", "init"]);
 
     // Default environments (dev,staging,production) should be used
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+    expect(mockWriteFileAtomicSync).toHaveBeenCalledWith(
       expect.stringContaining("clef.yaml"),
       expect.stringContaining("staging"),
-      "utf-8",
     );
 
     Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
@@ -608,10 +608,9 @@ describe("clef init", () => {
     await program.parseAsync(["node", "clef", "init", "--namespaces", "db"]);
 
     // manifest should be written
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+    expect(mockWriteFileAtomicSync).toHaveBeenCalledWith(
       expect.stringContaining("clef.yaml"),
       expect.any(String),
-      "utf-8",
     );
 
     Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });

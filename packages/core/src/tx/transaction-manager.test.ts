@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import * as lockfile from "proper-lockfile";
 import { TransactionManager } from "./transaction-manager";
 import {
   TransactionLockError,
@@ -442,9 +443,6 @@ describe("TransactionManager", () => {
 
     it("refuses with TransactionLockError when lock is held", async () => {
       // Hold the lock manually with proper-lockfile
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const lockfile = require("proper-lockfile") as typeof import("proper-lockfile");
-
       const clefDir = path.join(repoRoot, ".clef");
       fs.mkdirSync(clefDir, { recursive: true });
       const lockPath = path.join(clefDir, ".lock");

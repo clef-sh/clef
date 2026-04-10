@@ -107,6 +107,9 @@ function makeRunner(overrides?: Partial<Record<string, SubprocessResult>>): Subp
       if (cmd === "git" && args[0] === "commit") {
         return { stdout: "[main abc1234] test commit", stderr: "", exitCode: 0 };
       }
+      if (cmd === "git" && args[0] === "rev-parse" && args[1] === "HEAD") {
+        return { stdout: "abc1234", stderr: "", exitCode: 0 };
+      }
       if (cmd === "git" && args[0] === "add") {
         return { stdout: "", stderr: "", exitCode: 0 };
       }

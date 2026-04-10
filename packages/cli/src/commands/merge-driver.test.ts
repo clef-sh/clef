@@ -9,6 +9,13 @@ jest.mock("fs", () => ({
   readFileSync: jest.fn(),
   writeFileSync: jest.fn(),
 }));
+// SopsClient.encrypt now writes via write-file-atomic. Stub it so the test
+// doesn't try to actually touch the disk through the unmocked low-level fs
+// methods that write-file-atomic uses internally.
+jest.mock("write-file-atomic", () => ({
+  __esModule: true,
+  default: { sync: jest.fn() },
+}));
 jest.mock("../output/formatter", () => ({
   formatter: {
     json: jest.fn(),
