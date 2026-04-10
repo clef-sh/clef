@@ -261,6 +261,150 @@ export class ServiceIdentityManager {
   }
 
   /**
+   * Expand a service identity's namespace scope. Registers the SI's existing
+   * per-env recipient on every matrix cell in the new namespace × env
+   * combinations. KMS-backed environments are skipped (no recipient to
+   * register).
+   *
+   * Idempotent: namespaces already in scope are silently skipped. Refuses if
+   * any requested namespace does not exist in the manifest.
+   */
+  async addNamespacesToScope(
+    name: string,
+    namespacesToAdd: string[],
+    manifest: ClefManifest,
+    repoRoot: string,
+  ): Promise<{ added: string[]; affectedFiles: string[] }> {
+    const identity = this.get(manifest, name);
+    if (!identity) {
+      throw new Error(`Service identity '${name}' not found.`);
+    }
+
+    // Validate every namespace exists in the manifest
+    const manifestNamespaceNames = new Set(manifest.namespaces.map((n) => n.name));
+    const unknown = namespacesToAdd.filter((n) => !manifestNamespaceNames.has(n));
+    if (unknown.length > 0) {
+      throw new Error(
+        `Namespace(s) not found in manifest: ${unknown.join(", ")}. ` +
+          `Available: ${manifest.namespaces.map((n) => n.name).join(", ")}`,
+      );
+    }
+
+    // Filter out namespaces already in scope (idempotent no-op)
+    const existingScope = new Set(identity.namespaces);
+    const toAdd = namespacesToAdd.filter((n) => !existingScope.has(n));
+    if (toAdd.length === 0) {
+      return { added: [], affectedFiles: [] };
+    }
+
+    // Register the SI's recipient on every cell in (new namespaces × all envs)
+    const cells = this.matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
+    const affectedFiles: string[] = [];
+    for (const cell of cells) {
+      if (!toAdd.includes(cell.namespace)) continue;
+
+      const envConfig = identity.environments[cell.environment];
+      if (!envConfig) continue;
+      if (isKmsEnvelope(envConfig)) continue;
+      if (!envConfig.recipient) continue;
+
+      try {
+        await this.encryption.addRecipient(cell.filePath, envConfig.recipient);
+        affectedFiles.push(cell.filePath);
+      } catch (err) {
+        // SOPS may exit non-zero for duplicate recipients — safe to ignore
+        const message = err instanceof Error ? err.message : String(err);
+        if (!message.includes("already")) {
+          throw err;
+        }
+      }
+    }
+
+    // Update manifest atomically
+    const doc = readManifestYaml(repoRoot);
+    const identities = doc.service_identities as Record<string, unknown>[];
+    const siDoc = identities.find((si) => (si as Record<string, unknown>).name === name) as Record<
+      string,
+      unknown
+    >;
+    siDoc.namespaces = [...identity.namespaces, ...toAdd];
+    writeManifestYaml(repoRoot, doc);
+
+    return { added: toAdd, affectedFiles };
+  }
+
+  /**
+   * Shrink a service identity's namespace scope. De-registers the SI's
+   * per-env recipient from every matrix cell in the removed namespace × env
+   * combinations. KMS-backed environments are skipped (no recipient to remove).
+   *
+   * Refuses if removing would leave the SI with zero namespaces — point the
+   * caller at `clef service delete` for that case. Refuses if any requested
+   * namespace is not currently in the SI's scope.
+   */
+  async removeNamespacesFromScope(
+    name: string,
+    namespacesToRemove: string[],
+    manifest: ClefManifest,
+    repoRoot: string,
+  ): Promise<{ removed: string[]; affectedFiles: string[] }> {
+    const identity = this.get(manifest, name);
+    if (!identity) {
+      throw new Error(`Service identity '${name}' not found.`);
+    }
+
+    // Validate every namespace is currently in scope
+    const currentScope = new Set(identity.namespaces);
+    const notInScope = namespacesToRemove.filter((n) => !currentScope.has(n));
+    if (notInScope.length > 0) {
+      throw new Error(
+        `Namespace(s) not in scope of '${name}': ${notInScope.join(", ")}. ` +
+          `Current scope: ${identity.namespaces.join(", ")}`,
+      );
+    }
+
+    // Refuse if it would leave zero namespaces
+    const remaining = identity.namespaces.filter((n) => !namespacesToRemove.includes(n));
+    if (remaining.length === 0) {
+      throw new Error(
+        `Cannot remove the last namespace from service identity '${name}'. ` +
+          `Use \`clef service delete ${name}\` to delete the identity instead.`,
+      );
+    }
+
+    // De-register the SI's recipient from every cell in (removed namespaces × all envs)
+    const cells = this.matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
+    const affectedFiles: string[] = [];
+    for (const cell of cells) {
+      if (!namespacesToRemove.includes(cell.namespace)) continue;
+
+      const envConfig = identity.environments[cell.environment];
+      if (!envConfig) continue;
+      if (isKmsEnvelope(envConfig)) continue;
+      if (!envConfig.recipient) continue;
+
+      try {
+        await this.encryption.removeRecipient(cell.filePath, envConfig.recipient);
+        affectedFiles.push(cell.filePath);
+      } catch {
+        // May not be a current recipient — safe to skip
+      }
+    }
+
+    // Update manifest atomically
+    const doc = readManifestYaml(repoRoot);
+    const identities = doc.service_identities as Record<string, unknown>[];
+    const siDoc = identities.find((si) => (si as Record<string, unknown>).name === name) as Record<
+      string,
+      unknown
+    >;
+    siDoc.namespaces = remaining;
+    writeManifestYaml(repoRoot, doc);
+
+    return { removed: namespacesToRemove, affectedFiles };
+  }
+
+  /**
    * Rotate the age key for a service identity (all envs or a specific env).
    * Returns the new private keys.
    */
