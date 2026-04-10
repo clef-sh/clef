@@ -277,7 +277,7 @@ describe("clef delete", () => {
     );
   });
 
-  it("should warn but succeed when markResolved fails after delete", async () => {
+  it("succeeds even when markResolved fails after delete (non-fatal)", async () => {
     const { markResolved: mockMarkResolved } = jest.requireMock("@clef-sh/core");
     mockMarkResolved.mockRejectedValueOnce(new Error("disk full"));
     const runner = sopsRunner();
@@ -285,9 +285,9 @@ describe("clef delete", () => {
 
     await program.parseAsync(["node", "clef", "delete", "database/dev", "KEY_TO_DELETE"]);
 
-    expect(mockFormatter.warn).toHaveBeenCalledWith(
-      expect.stringContaining("pending metadata could not be cleaned up"),
-    );
+    // markResolved failure is swallowed inside the tx mutate callback
+    // (the file may simply not have had pending state). The delete still
+    // succeeds and commits.
     expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Deleted"));
   });
 });

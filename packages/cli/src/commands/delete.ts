@@ -97,40 +97,41 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
               return;
             }
 
-            const filePath = path.join(
-              repoRoot,
-              manifest.file_pattern
-                .replace("{namespace}", namespace)
-                .replace("{environment}", environment),
-            );
+            const relCellPath = manifest.file_pattern
+              .replace("{namespace}", namespace)
+              .replace("{environment}", environment);
+            const filePath = path.join(repoRoot, relCellPath);
 
-            const decrypted = await sopsClient.decrypt(filePath);
-            if (!(key in decrypted.values)) {
+            // Preflight the key existence check OUTSIDE the transaction so
+            // we don't open a tx + lock just to error out.
+            const existing = await sopsClient.decrypt(filePath);
+            if (!(key in existing.values)) {
               formatter.error(`Key '${key}' not found in ${namespace}/${environment}.`);
               process.exit(1);
               return;
             }
 
-            delete decrypted.values[key];
-            await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
-
-            // Clean up pending metadata if it exists
-            try {
-              await markResolved(filePath, [key]);
-            } catch {
-              formatter.warn(
-                `Key deleted but pending metadata could not be cleaned up. Run clef lint to verify.`,
-              );
-            }
+            const tx = new TransactionManager(new GitIntegration(deps.runner));
+            await tx.run(repoRoot, {
+              description: `clef delete ${namespace}/${environment} ${key}`,
+              paths: [relCellPath, relCellPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
+              mutate: async () => {
+                const decrypted = await sopsClient.decrypt(filePath);
+                delete decrypted.values[key];
+                await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
+                try {
+                  await markResolved(filePath, [key]);
+                } catch {
+                  // Non-fatal — file may not have had pending state
+                }
+              },
+            });
 
             if (isJsonMode()) {
               formatter.json({ key, namespace, environment, action: "deleted" });
               return;
             }
             formatter.success(`Deleted '${key}' from ${namespace}/${environment}`);
-            formatter.hint(
-              `Commit: git add ${manifest.file_pattern.replace("{namespace}", namespace).replace("{environment}", environment)}`,
-            );
           }
         } finally {
           await cleanup();

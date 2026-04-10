@@ -82,6 +82,14 @@ export class TransactionManager {
     if (!fs.existsSync(clefDir)) {
       fs.mkdirSync(clefDir, { recursive: true });
     }
+    // The lock file (and anything else clef puts under .clef/) must never
+    // land in git. `clef init` writes this gitignore on first run; ensure it
+    // exists on every transaction so older repos and repos scaffolded
+    // outside `clef init` are also self-healing.
+    const clefGitignore = path.join(clefDir, ".gitignore");
+    if (!fs.existsSync(clefGitignore)) {
+      fs.writeFileSync(clefGitignore, "*\n");
+    }
     const lockPath = path.join(clefDir, LOCK_FILE);
     // proper-lockfile requires the file to exist before it can lock it.
     if (!fs.existsSync(lockPath)) {
@@ -99,6 +107,11 @@ export class TransactionManager {
           `Another clef process may be running against this repository.`,
       );
     }
+
+    // Test seam: hold the lock for N ms before continuing. Used by the
+    // integration test that proves concurrent writers get refused.
+    const testDelay = Number(process.env.CLEF_TX_TEST_DELAY_MS);
+    if (testDelay > 0) await new Promise((r) => setTimeout(r, testDelay));
 
     try {
       // ── Phase 2: preflight ─────────────────────────────────────────────
