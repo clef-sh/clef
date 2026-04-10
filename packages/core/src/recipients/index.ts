@@ -1,10 +1,10 @@
-import * as fs from "fs";
 import * as path from "path";
 import { ClefManifest, EncryptionBackend } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { validateAgePublicKey, keyPreview } from "./validator";
 import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
-import { readManifestYaml, writeManifestYaml, writeManifestYamlRaw } from "../manifest/io";
+import { readManifestYaml, writeManifestYaml } from "../manifest/io";
+import { TransactionManager } from "../tx";
 
 export interface Recipient {
   key: string;
@@ -106,12 +106,15 @@ function ensureEnvironmentRecipientsArray(
 }
 
 /**
- * Manages age recipient keys in the manifest and re-encrypts matrix files on add/remove.
- * All add/remove operations are transactional — a failure triggers a full rollback.
+ * Manages age recipient keys in the manifest and re-encrypts matrix files on
+ * add/remove. Both `add` and `remove` run inside a single TransactionManager
+ * commit — any failure rolls back ALL re-encrypted files plus the manifest
+ * via `git reset --hard` rather than the previous in-method rollback dance.
  *
  * @example
  * ```ts
- * const manager = new RecipientManager(runner, matrixManager);
+ * const tx = new TransactionManager(new GitIntegration(runner));
+ * const manager = new RecipientManager(sopsClient, matrixManager, tx);
  * const result = await manager.add("age1...", "Alice", manifest, repoRoot);
  * ```
  */
@@ -119,6 +122,7 @@ export class RecipientManager {
   constructor(
     private readonly encryption: EncryptionBackend,
     private readonly matrixManager: MatrixManager,
+    private readonly tx: TransactionManager,
   ) {}
 
   /**
@@ -173,79 +177,51 @@ export class RecipientManager {
       }
     }
 
-    // Read current manifest
-    const doc = readManifestYaml(repoRoot);
-    const currentEntries = environment
-      ? getEnvironmentRecipientsArray(doc, environment)
-      : getRecipientsArray(doc);
-    const currentKeys = currentEntries.map((e) => parseRecipientEntry(e).key);
-
-    if (currentKeys.includes(normalizedKey)) {
+    // Preflight: refuse if the recipient is already present (no transaction needed yet).
+    const initialDoc = readManifestYaml(repoRoot);
+    const initialEntries = environment
+      ? getEnvironmentRecipientsArray(initialDoc, environment)
+      : getRecipientsArray(initialDoc);
+    const initialKeys = initialEntries.map((e) => parseRecipientEntry(e).key);
+    if (initialKeys.includes(normalizedKey)) {
       throw new Error(`Recipient '${keyPreview(normalizedKey)}' is already present.`);
     }
 
-    // Save backup of manifest for rollback
-    const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
-    const manifestBackup = fs.readFileSync(manifestPath, "utf-8");
-
-    // Add new recipient to manifest
-    const recipients = environment
-      ? ensureEnvironmentRecipientsArray(doc, environment)
-      : ensureRecipientsArray(doc);
-    if (label) {
-      recipients.push({ key: normalizedKey, label });
-    } else {
-      recipients.push(normalizedKey);
-    }
-    writeManifestYaml(repoRoot, doc);
-
-    // Re-encrypt matching files
+    // Compute affected cells (manifest + every existing matrix cell, scoped
+    // to the chosen environment if any).
     const allCells = this.matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
     const cells = environment ? allCells.filter((c) => c.environment === environment) : allCells;
     const reEncryptedFiles: string[] = [];
-    const failedFiles: string[] = [];
-    const fileBackups = new Map<string, string>();
 
-    for (const cell of cells) {
-      try {
-        // Save file backup before re-encryption
-        fileBackups.set(cell.filePath, fs.readFileSync(cell.filePath, "utf-8"));
-
-        await this.encryption.addRecipient(cell.filePath, normalizedKey);
-
-        reEncryptedFiles.push(cell.filePath);
-      } catch {
-        failedFiles.push(cell.filePath);
-
-        // Rollback: restore manifest
-        writeManifestYamlRaw(repoRoot, manifestBackup);
-
-        // Rollback: restore previously re-encrypted files
-        for (const reEncryptedFile of reEncryptedFiles) {
-          const backup = fileBackups.get(reEncryptedFile);
-          if (backup) {
-            fs.writeFileSync(reEncryptedFile, backup, "utf-8");
-          }
+    await this.tx.run(repoRoot, {
+      description: environment
+        ? `clef recipients add ${keyPreview(normalizedKey)} -e ${environment}`
+        : `clef recipients add ${keyPreview(normalizedKey)}`,
+      paths: [...cells.map((c) => path.relative(repoRoot, c.filePath)), CLEF_MANIFEST_FILENAME],
+      mutate: async () => {
+        // Update manifest first so a re-encrypt failure rolls back via the
+        // git reset, not via a manual write.
+        const doc = readManifestYaml(repoRoot);
+        const recipients = environment
+          ? ensureEnvironmentRecipientsArray(doc, environment)
+          : ensureRecipientsArray(doc);
+        if (label) {
+          recipients.push({ key: normalizedKey, label });
+        } else {
+          recipients.push(normalizedKey);
         }
+        writeManifestYaml(repoRoot, doc);
 
-        // Re-read the restored manifest for the result
-        const restoredDoc = readManifestYaml(repoRoot);
-        const restoredEntries = environment
-          ? getEnvironmentRecipientsArray(restoredDoc, environment)
-          : getRecipientsArray(restoredDoc);
-        const restoredRecipients = restoredEntries.map((e) => toRecipient(parseRecipientEntry(e)));
+        for (const cell of cells) {
+          await this.encryption.addRecipient(cell.filePath, normalizedKey);
+          reEncryptedFiles.push(cell.filePath);
+        }
+      },
+    });
 
-        return {
-          added: toRecipient({ key: normalizedKey, label }),
-          recipients: restoredRecipients,
-          reEncryptedFiles: [],
-          failedFiles,
-          warnings: ["Rollback completed: manifest and re-encrypted files have been restored."],
-        };
-      }
-    }
-
-    // Build final recipient list
+    // Re-read the manifest to build the final recipient list (includes the
+    // new entry). Reading from disk also ensures we reflect the post-commit
+    // state, not just our in-memory view.
     const updatedDoc = readManifestYaml(repoRoot);
     const updatedEntries = environment
       ? getEnvironmentRecipientsArray(updatedDoc, environment)
@@ -256,7 +232,7 @@ export class RecipientManager {
       added: toRecipient({ key: normalizedKey, label }),
       recipients: finalRecipients,
       reEncryptedFiles,
-      failedFiles,
+      failedFiles: [],
       warnings: [],
     };
   }
@@ -287,81 +263,45 @@ export class RecipientManager {
       }
     }
 
-    // Read current manifest
-    const doc = readManifestYaml(repoRoot);
-    const currentEntries = environment
-      ? getEnvironmentRecipientsArray(doc, environment)
-      : getRecipientsArray(doc);
-    const parsed = currentEntries.map((e) => parseRecipientEntry(e));
+    // Preflight: locate the recipient and refuse early if it's not present.
+    const initialDoc = readManifestYaml(repoRoot);
+    const initialEntries = environment
+      ? getEnvironmentRecipientsArray(initialDoc, environment)
+      : getRecipientsArray(initialDoc);
+    const parsed = initialEntries.map((e) => parseRecipientEntry(e));
     const matchIndex = parsed.findIndex((p) => p.key === trimmedKey);
-
     if (matchIndex === -1) {
       throw new Error(`Recipient '${keyPreview(trimmedKey)}' is not in the manifest.`);
     }
-
     const removedEntry = parsed[matchIndex];
 
-    // Save backup of manifest for rollback
-    const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
-    const manifestBackup = fs.readFileSync(manifestPath, "utf-8");
-
-    // Remove recipient from manifest
-    const recipients = environment
-      ? ensureEnvironmentRecipientsArray(doc, environment)
-      : ensureRecipientsArray(doc);
-    recipients.splice(matchIndex, 1);
-    writeManifestYaml(repoRoot, doc);
-
-    // Re-encrypt matching files
     const allCells = this.matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
     const cells = environment ? allCells.filter((c) => c.environment === environment) : allCells;
     const reEncryptedFiles: string[] = [];
-    const failedFiles: string[] = [];
-    const fileBackups = new Map<string, string>();
 
-    for (const cell of cells) {
-      try {
-        // Save file backup before re-encryption
-        fileBackups.set(cell.filePath, fs.readFileSync(cell.filePath, "utf-8"));
+    await this.tx.run(repoRoot, {
+      description: environment
+        ? `clef recipients remove ${keyPreview(trimmedKey)} -e ${environment}`
+        : `clef recipients remove ${keyPreview(trimmedKey)}`,
+      paths: [...cells.map((c) => path.relative(repoRoot, c.filePath)), CLEF_MANIFEST_FILENAME],
+      mutate: async () => {
+        const doc = readManifestYaml(repoRoot);
+        const recipients = environment
+          ? ensureEnvironmentRecipientsArray(doc, environment)
+          : ensureRecipientsArray(doc);
+        const idx = recipients
+          .map((e) => parseRecipientEntry(e).key)
+          .findIndex((k) => k === trimmedKey);
+        recipients.splice(idx, 1);
+        writeManifestYaml(repoRoot, doc);
 
-        await this.encryption.removeRecipient(cell.filePath, trimmedKey);
-
-        reEncryptedFiles.push(cell.filePath);
-      } catch {
-        failedFiles.push(cell.filePath);
-
-        // Rollback: restore manifest
-        writeManifestYamlRaw(repoRoot, manifestBackup);
-
-        // Rollback: restore previously re-encrypted files
-        for (const reEncryptedFile of reEncryptedFiles) {
-          const backup = fileBackups.get(reEncryptedFile);
-          if (backup) {
-            fs.writeFileSync(reEncryptedFile, backup, "utf-8");
-          }
+        for (const cell of cells) {
+          await this.encryption.removeRecipient(cell.filePath, trimmedKey);
+          reEncryptedFiles.push(cell.filePath);
         }
+      },
+    });
 
-        // Re-read the restored manifest for the result
-        const restoredDoc = readManifestYaml(repoRoot);
-        const restoredEntries = environment
-          ? getEnvironmentRecipientsArray(restoredDoc, environment)
-          : getRecipientsArray(restoredDoc);
-        const restoredRecipients = restoredEntries.map((e) => toRecipient(parseRecipientEntry(e)));
-
-        return {
-          removed: toRecipient(removedEntry),
-          recipients: restoredRecipients,
-          reEncryptedFiles: [],
-          failedFiles,
-          warnings: [
-            "Rollback completed: manifest and re-encrypted files have been restored.",
-            "Re-encryption removes future access, not past access. Rotate secret values to complete revocation.",
-          ],
-        };
-      }
-    }
-
-    // Build final recipient list
     const updatedDoc = readManifestYaml(repoRoot);
     const updatedEntries = environment
       ? getEnvironmentRecipientsArray(updatedDoc, environment)
@@ -372,7 +312,7 @@ export class RecipientManager {
       removed: toRecipient(removedEntry),
       recipients: finalRecipients,
       reEncryptedFiles,
-      failedFiles,
+      failedFiles: [],
       warnings: [
         "Re-encryption removes future access, not past access. Rotate secret values to complete revocation.",
       ],

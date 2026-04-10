@@ -72,7 +72,7 @@ export {
 } from "./report";
 export { SopsMergeDriver } from "./merge/driver";
 export type { MergeResult, MergeKey, MergeKeyStatus } from "./merge/driver";
-export { ServiceIdentityManager, PartialRotationError } from "./service-identity/manager";
+export { ServiceIdentityManager } from "./service-identity/manager";
 export { resolveIdentitySecrets } from "./artifact/resolve";
 export type { ResolvedSecrets } from "./artifact/resolve";
 export { ArtifactPacker } from "./artifact/packer";

@@ -1,6 +1,21 @@
 import { BulkOps } from "./ops";
 import { ClefManifest, MatrixCell } from "../types";
 import { SopsClient } from "../sops/client";
+import { TransactionManager } from "../tx";
+
+/** Stub TransactionManager that just runs the mutate callback inline. */
+function makeStubTx(): TransactionManager {
+  return {
+    run: jest
+      .fn()
+      .mockImplementation(
+        async (_repoRoot: string, opts: { mutate: () => Promise<void>; paths: string[] }) => {
+          await opts.mutate();
+          return { sha: null, paths: opts.paths, startedDirty: false };
+        },
+      ),
+  } as unknown as TransactionManager;
+}
 
 function testManifest(): ClefManifest {
   return {
@@ -50,7 +65,7 @@ describe("BulkOps", () => {
   let ops: BulkOps;
 
   beforeEach(() => {
-    ops = new BulkOps();
+    ops = new BulkOps(makeStubTx());
   });
 
   describe("setAcrossEnvironments", () => {
@@ -119,6 +134,9 @@ describe("BulkOps", () => {
         encrypt: jest.fn().mockResolvedValue(undefined),
       } as unknown as SopsClient;
 
+      // BulkOps is now all-or-nothing: any failure aborts the whole batch
+      // and the underlying error propagates so TransactionManager can roll
+      // back. The previous "collect failures and continue" behavior is gone.
       await expect(
         ops.setAcrossEnvironments(
           "database",
@@ -128,7 +146,7 @@ describe("BulkOps", () => {
           client,
           "/repo",
         ),
-      ).rejects.toThrow(/Failed to set key.*1 environment/);
+      ).rejects.toThrow("Access denied");
     });
   });
 
@@ -169,7 +187,7 @@ describe("BulkOps", () => {
       expect(client.encrypt).toHaveBeenCalledTimes(2);
     });
 
-    it("should throw with details when some environments fail", async () => {
+    it("propagates the underlying error so the transaction can roll back", async () => {
       const client = {
         decrypt: jest.fn().mockRejectedValue(new Error("Decrypt failed")),
         encrypt: jest.fn(),
@@ -177,7 +195,7 @@ describe("BulkOps", () => {
 
       await expect(
         ops.deleteAcrossEnvironments("database", "KEY", testManifest(), client, "/repo"),
-      ).rejects.toThrow(/Failed to delete key.*3 environment/);
+      ).rejects.toThrow("Decrypt failed");
     });
   });
 
@@ -220,7 +238,7 @@ describe("BulkOps", () => {
         exists: true,
       };
 
-      await ops.copyValue("SECRET", from, to, client, testManifest());
+      await ops.copyValue("SECRET", from, to, client, testManifest(), "/repo");
 
       expect(client.encrypt).toHaveBeenCalledWith(
         "/repo/database/staging.enc.yaml",
@@ -255,9 +273,9 @@ describe("BulkOps", () => {
         exists: true,
       };
 
-      await expect(ops.copyValue("MISSING", from, to, client, testManifest())).rejects.toThrow(
-        /does not exist/,
-      );
+      await expect(
+        ops.copyValue("MISSING", from, to, client, testManifest(), "/repo"),
+      ).rejects.toThrow(/does not exist/);
     });
   });
 });

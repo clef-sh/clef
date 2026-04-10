@@ -6,6 +6,9 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 
 jest.mock("fs");
+// write-file-atomic and @clef-sh/core source mapping are wired up in
+// packages/ui/jest.config.js — needed because the built core dist inlines
+// write-file-atomic, which would defeat any local jest.mock() here.
 
 const mockServiceIdCreate = jest.fn().mockResolvedValue({
   identity: {
@@ -39,6 +42,19 @@ jest.mock("@clef-sh/core", () => {
     })),
     BackendMigrator: jest.fn().mockImplementation(() => ({
       migrate: mockMigrate,
+    })),
+    // TransactionManager wraps every mutation in a real RecipientManager,
+    // BulkOps, ImportRunner, etc. Stub it so tests don't try to acquire
+    // git locks or run preflight against a mocked filesystem.
+    TransactionManager: jest.fn().mockImplementation(() => ({
+      run: jest
+        .fn()
+        .mockImplementation(
+          async (_repoRoot: string, opts: { mutate: () => Promise<void>; paths: string[] }) => {
+            await opts.mutate();
+            return { sha: null, paths: opts.paths, startedDirty: false };
+          },
+        ),
     })),
     getPendingKeys: jest.fn().mockResolvedValue([]),
     markResolved: jest.fn().mockResolvedValue(undefined),

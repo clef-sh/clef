@@ -6,6 +6,26 @@ import { SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 
 jest.mock("fs");
+// Stub TransactionManager so the test doesn't try to acquire lock files,
+// run git preflight, or commit. The mutate callback runs inline; real
+// transaction semantics live in transaction-manager.test.ts.
+jest.mock("@clef-sh/core", () => {
+  const actual = jest.requireActual("@clef-sh/core");
+  return {
+    ...actual,
+    GitIntegration: jest.fn().mockImplementation(() => ({})),
+    TransactionManager: jest.fn().mockImplementation(() => ({
+      run: jest
+        .fn()
+        .mockImplementation(
+          async (_repoRoot: string, opts: { mutate: () => Promise<void>; paths: string[] }) => {
+            await opts.mutate();
+            return { sha: null, paths: opts.paths, startedDirty: false };
+          },
+        ),
+    })),
+  };
+});
 jest.mock("../clipboard", () => ({
   copyToClipboard: jest.fn().mockReturnValue(true),
   maskedPlaceholder: jest.fn().mockReturnValue("\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"),

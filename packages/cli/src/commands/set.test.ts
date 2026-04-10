@@ -18,6 +18,17 @@ jest.mock("@clef-sh/core", () => {
     markPendingWithRetry: jest.fn().mockResolvedValue(undefined),
     markResolved: jest.fn().mockResolvedValue(undefined),
     generateRandomValue: jest.fn().mockReturnValue("a".repeat(64)),
+    GitIntegration: jest.fn().mockImplementation(() => ({})),
+    TransactionManager: jest.fn().mockImplementation(() => ({
+      run: jest
+        .fn()
+        .mockImplementation(
+          async (_repoRoot: string, opts: { mutate: () => Promise<void>; paths: string[] }) => {
+            await opts.mutate();
+            return { sha: null, paths: opts.paths, startedDirty: false };
+          },
+        ),
+    })),
   };
 });
 jest.mock("../output/formatter", () => ({

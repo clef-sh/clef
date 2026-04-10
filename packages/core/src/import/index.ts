@@ -2,6 +2,7 @@ import * as path from "path";
 import { ClefManifest } from "../types";
 import { EncryptionBackend } from "../types";
 import { parse, ImportFormat } from "./parsers";
+import { TransactionManager } from "../tx";
 export type { ImportFormat, ParsedImport } from "./parsers";
 
 export interface ImportOptions {
@@ -24,14 +25,24 @@ export interface ImportResult {
 /**
  * Imports secrets from `.env`, JSON, or YAML files into encrypted matrix cells.
  *
+ * Real (non-dry-run) imports run inside a single TransactionManager commit:
+ * one encrypt of the merged value set, one commit, all-or-nothing rollback
+ * via `git reset --hard`. The previous per-key encrypt-then-continue
+ * behavior is gone — partial imports were a footgun and N file rewrites for
+ * N keys was wasteful.
+ *
  * @example
  * ```ts
- * const runner = new ImportRunner(sopsClient);
- * const result = await runner.import("app/staging", null, envContent, manifest, repoRoot, { format: "dotenv" });
+ * const tx = new TransactionManager(new GitIntegration(runner));
+ * const importer = new ImportRunner(sopsClient, tx);
+ * const result = await importer.import("app/staging", null, envContent, manifest, repoRoot, { format: "dotenv" });
  * ```
  */
 export class ImportRunner {
-  constructor(private readonly sopsClient: EncryptionBackend) {}
+  constructor(
+    private readonly sopsClient: EncryptionBackend,
+    private readonly tx: TransactionManager,
+  ) {}
 
   /**
    * Parse a source file and import its key/value pairs into a target `namespace/environment` cell.
@@ -102,28 +113,32 @@ export class ImportRunner {
       return { imported, skipped, failed, warnings, dryRun: true };
     }
 
-    // Real import
+    // Real import — merge all candidates into one in-memory dict, then write
+    // the file once inside a transaction.
     const decrypted = await this.sopsClient.decrypt(filePath);
-    let currentValues: Record<string, string> = { ...decrypted.values };
-    const existingKeys = new Set(Object.keys(decrypted.values));
+    const newValues: Record<string, string> = { ...decrypted.values };
 
     for (const [key, value] of candidates) {
-      if (existingKeys.has(key) && !options.overwrite) {
+      if (key in decrypted.values && !options.overwrite) {
         skipped.push(key);
         continue;
       }
-
-      try {
-        const newValues = { ...currentValues, [key]: value };
-        await this.sopsClient.encrypt(filePath, newValues, manifest, env);
-        currentValues = newValues;
-        imported.push(key);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Encryption failed";
-        failed.push({ key, error: message });
-        // Do NOT update currentValues, do NOT rollback previous encrypts. Continue with rest.
-      }
+      newValues[key] = value;
+      imported.push(key);
     }
+
+    if (imported.length === 0) {
+      // Nothing to write — skip the transaction entirely.
+      return { imported, skipped, failed, warnings, dryRun: false };
+    }
+
+    await this.tx.run(repoRoot, {
+      description: `clef import ${target}: ${imported.length} key(s)`,
+      paths: [path.relative(repoRoot, filePath)],
+      mutate: async () => {
+        await this.sopsClient.encrypt(filePath, newValues, manifest, env);
+      },
+    });
 
     return { imported, skipped, failed, warnings, dryRun: false };
   }

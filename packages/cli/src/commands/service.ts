@@ -1,11 +1,13 @@
 import * as path from "path";
 import { Command } from "commander";
 import {
+  EncryptionBackend,
+  GitIntegration,
   ManifestParser,
   SubprocessRunner,
   MatrixManager,
   ServiceIdentityManager,
-  PartialRotationError,
+  TransactionManager,
   keyPreview,
   isKmsEnvelope,
   VALID_KMS_PROVIDERS,
@@ -16,6 +18,16 @@ import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
 import { copyToClipboard, maskedPlaceholder } from "../clipboard";
+
+/** Build a ServiceIdentityManager with a TransactionManager wired up. */
+function makeServiceIdManager(
+  sopsClient: EncryptionBackend,
+  matrixManager: MatrixManager,
+  runner: SubprocessRunner,
+): ServiceIdentityManager {
+  const tx = new TransactionManager(new GitIntegration(runner));
+  return new ServiceIdentityManager(sopsClient, matrixManager, tx);
+}
 
 export function registerServiceCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   const serviceCmd = program
@@ -69,7 +81,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
 
           const matrixManager = new MatrixManager();
           const sopsClient = await createSopsClient(repoRoot, deps.runner);
-          const manager = new ServiceIdentityManager(sopsClient, matrixManager);
+          const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
 
           formatter.print(`${sym("working")}  Creating service identity '${name}'...`);
 
@@ -130,10 +142,6 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
               );
             }
           }
-
-          formatter.hint(
-            `git add clef.yaml && git commit -m "feat: add service identity '${name}'"`,
-          );
         } catch (err) {
           handleCommandError(err);
         }
@@ -152,7 +160,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
 
         const matrixManager = new MatrixManager();
         const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const manager = new ServiceIdentityManager(sopsClient, matrixManager);
+        const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
 
         const identities = manager.list(manifest);
 
@@ -195,7 +203,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
 
         const matrixManager = new MatrixManager();
         const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const manager = new ServiceIdentityManager(sopsClient, matrixManager);
+        const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
 
         const identity = manager.get(manifest, name);
         if (!identity) {
@@ -240,7 +248,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
 
         const matrixManager = new MatrixManager();
         const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const manager = new ServiceIdentityManager(sopsClient, matrixManager);
+        const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
 
         const issues = await manager.validate(manifest, repoRoot);
 
@@ -312,7 +320,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
 
         const matrixManager = new MatrixManager();
         const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const manager = new ServiceIdentityManager(sopsClient, matrixManager);
+        const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
 
         formatter.print(`${sym("working")}  Updating service identity '${name}'...`);
 
@@ -334,10 +342,6 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         for (const [envName, kmsConfig] of Object.entries(kmsEnvConfigs)) {
           formatter.print(`  ${envName}: switched to KMS envelope (${kmsConfig.provider})`);
         }
-
-        formatter.hint(
-          `git add clef.yaml && git commit -m "chore: update service identity '${name}'"`,
-        );
       } catch (err) {
         handleCommandError(err);
       }
@@ -371,7 +375,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
 
         const matrixManager = new MatrixManager();
         const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const manager = new ServiceIdentityManager(sopsClient, matrixManager);
+        const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
 
         formatter.print(`${sym("working")}  Deleting service identity '${name}'...`);
 
@@ -382,9 +386,6 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           return;
         }
         formatter.success(`Service identity '${name}' deleted.`);
-        formatter.hint(
-          `git add clef.yaml && git commit -m "chore: delete service identity '${name}'"`,
-        );
       } catch (err) {
         handleCommandError(err);
       }
@@ -403,7 +404,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
 
         const matrixManager = new MatrixManager();
         const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const manager = new ServiceIdentityManager(sopsClient, matrixManager);
+        const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
 
         // Check for protected environments
         const identity = manager.get(manifest, name);
@@ -465,45 +466,7 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           }
         }
         for (const k of Object.keys(newKeys)) newKeys[k] = "";
-
-        formatter.hint(
-          `git add clef.yaml && git commit -m "chore: rotate service identity '${name}'"`,
-        );
       } catch (err) {
-        if (err instanceof PartialRotationError) {
-          formatter.error(err.message);
-          const partialEntries = Object.entries(err.rotatedKeys);
-          const partialBlock = partialEntries.map(([env, key]) => `${env}: ${key}`).join("\n");
-
-          let partialCopied = false;
-          try {
-            partialCopied = copyToClipboard(partialBlock);
-          } catch {
-            // Clipboard failed — fall through to print keys to stderr
-          }
-
-          if (partialCopied) {
-            formatter.warn(
-              "Partial rotation succeeded. Rotated keys copied to clipboard — store them NOW.\n",
-            );
-            for (const [envName] of partialEntries) {
-              formatter.print(`  ${envName}: ${maskedPlaceholder()}`);
-            }
-          } else {
-            formatter.warn(
-              "Partial rotation succeeded. New private keys below — store them NOW.\n",
-            );
-            for (const [envName, privateKey] of partialEntries) {
-              formatter.print(`  ${envName}:`);
-              formatter.print(`    ${privateKey}\n`);
-            }
-          }
-          for (const k of Object.keys(err.rotatedKeys)) {
-            (err.rotatedKeys as Record<string, string>)[k] = "";
-          }
-          process.exit(1);
-          return;
-        }
         handleCommandError(err);
       }
     });

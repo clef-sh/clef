@@ -36,6 +36,22 @@ const mockManifestParse = jest.fn().mockReturnValue({
   file_pattern: "{namespace}/{environment}.enc.yaml",
 });
 
+// TransactionManager is replaced with a stub that just runs the mutate
+// callback and returns a fake commit SHA. Real transaction semantics
+// (locking, preflight, rollback) live in transaction-manager.test.ts.
+const mockTxRun = jest
+  .fn()
+  .mockImplementation(
+    async (_repoRoot: string, opts: { mutate: () => Promise<void>; paths: string[] }) => {
+      await opts.mutate();
+      return {
+        sha: "abc1234abc1234abc1234abc1234abc1234abcd",
+        paths: opts.paths,
+        startedDirty: false,
+      };
+    },
+  );
+
 jest.mock("@clef-sh/core", () => {
   const actual = jest.requireActual("@clef-sh/core");
   return {
@@ -48,6 +64,8 @@ jest.mock("@clef-sh/core", () => {
       scaffoldCell: mockScaffoldCell,
     })),
     SopsClient: jest.fn().mockImplementation(() => ({})),
+    GitIntegration: jest.fn().mockImplementation(() => ({})),
+    TransactionManager: jest.fn().mockImplementation(() => ({ run: mockTxRun })),
   };
 });
 
@@ -107,8 +125,18 @@ describe("clef update", () => {
 
   it("should scaffold missing cells and report count", async () => {
     mockResolveMatrix.mockReturnValue([
-      { namespace: "database", environment: "dev", exists: false },
-      { namespace: "database", environment: "staging", exists: false },
+      {
+        namespace: "database",
+        environment: "dev",
+        filePath: "/repo/database/dev.enc.yaml",
+        exists: false,
+      },
+      {
+        namespace: "database",
+        environment: "staging",
+        filePath: "/repo/database/staging.enc.yaml",
+        exists: false,
+      },
     ]);
     const program = makeProgram(goodRunner());
 
@@ -118,6 +146,36 @@ describe("clef update", () => {
     expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Scaffolded 2"));
   });
 
+  it("wraps the scaffold loop in a single transaction", async () => {
+    mockResolveMatrix.mockReturnValue([
+      {
+        namespace: "database",
+        environment: "dev",
+        filePath: "/repo/database/dev.enc.yaml",
+        exists: false,
+      },
+      {
+        namespace: "database",
+        environment: "staging",
+        filePath: "/repo/database/staging.enc.yaml",
+        exists: false,
+      },
+    ]);
+    const program = makeProgram(goodRunner());
+
+    await program.parseAsync(["node", "clef", "--dir", "/repo", "update"]);
+
+    expect(mockTxRun).toHaveBeenCalledTimes(1);
+    const [repoRoot, opts] = mockTxRun.mock.calls[0] as [
+      string,
+      { description: string; paths: string[] },
+    ];
+    expect(repoRoot).toBe("/repo");
+    expect(opts.description).toContain("scaffold 2 matrix cells");
+    // Paths must be repo-relative for git add / git clean
+    expect(opts.paths).toEqual(["database/dev.enc.yaml", "database/staging.enc.yaml"]);
+  });
+
   it("should output JSON with --json flag", async () => {
     const { isJsonMode } = jest.requireMock("../output/formatter") as {
       isJsonMode: jest.Mock;
@@ -125,17 +183,28 @@ describe("clef update", () => {
     isJsonMode.mockReturnValue(true);
 
     mockResolveMatrix.mockReturnValue([
-      { namespace: "database", environment: "dev", exists: false },
-      { namespace: "database", environment: "staging", exists: false },
+      {
+        namespace: "database",
+        environment: "dev",
+        filePath: "/repo/database/dev.enc.yaml",
+        exists: false,
+      },
+      {
+        namespace: "database",
+        environment: "staging",
+        filePath: "/repo/database/staging.enc.yaml",
+        exists: false,
+      },
     ]);
     const program = makeProgram(goodRunner());
 
-    await program.parseAsync(["node", "clef", "update"]);
+    await program.parseAsync(["node", "clef", "--dir", "/repo", "update"]);
 
     expect(mockFormatter.json).toHaveBeenCalled();
     const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
     expect(data.scaffolded).toBe(2);
-    expect(data.failed).toBe(0);
+    expect(data.sha).toMatch(/^[a-f0-9]+$/);
+    expect(data.paths).toEqual(["database/dev.enc.yaml", "database/staging.enc.yaml"]);
 
     isJsonMode.mockReturnValue(false);
   });
@@ -152,17 +221,36 @@ describe("clef update", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
-  it("should warn when a cell cannot be scaffolded", async () => {
+  it("rolls back the whole transaction when any cell fails", async () => {
     mockResolveMatrix.mockReturnValue([
-      { namespace: "database", environment: "dev", exists: false },
+      {
+        namespace: "database",
+        environment: "dev",
+        filePath: "/repo/database/dev.enc.yaml",
+        exists: false,
+      },
+      {
+        namespace: "database",
+        environment: "staging",
+        filePath: "/repo/database/staging.enc.yaml",
+        exists: false,
+      },
     ]);
-    mockScaffoldCell.mockRejectedValue(new Error("sops failed"));
+    // Stub tx.run to surface the mutate error like the real TransactionManager
+    // would (after rolling back).
+    mockTxRun.mockImplementationOnce(
+      async (_repoRoot: string, opts: { mutate: () => Promise<void> }) => {
+        await opts.mutate();
+      },
+    );
+    mockScaffoldCell.mockRejectedValueOnce(new Error("sops failed"));
     const program = makeProgram(goodRunner());
 
     await program.parseAsync(["node", "clef", "update"]);
 
-    expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("sops failed"));
-    // No success message since none scaffolded
+    expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("sops failed"));
+    expect(mockExit).toHaveBeenCalledWith(1);
+    // No success message — rollback means nothing was scaffolded
     expect(mockFormatter.success).not.toHaveBeenCalledWith(expect.stringContaining("Scaffolded"));
   });
 

@@ -2,9 +2,11 @@ import * as path from "path";
 import { Command } from "commander";
 import {
   BulkOps,
+  GitIntegration,
   ManifestParser,
   MatrixManager,
   SubprocessRunner,
+  TransactionManager,
   generateRandomValue,
   markPendingWithRetry,
   markResolved,
@@ -102,7 +104,8 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                 );
               }
 
-              const bulkOps = new BulkOps();
+              const tx = new TransactionManager(new GitIntegration(deps.runner));
+              const bulkOps = new BulkOps(tx);
               await bulkOps.setAcrossEnvironments(
                 namespace,
                 key,

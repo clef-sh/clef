@@ -2,10 +2,12 @@ import * as path from "path";
 import { Command } from "commander";
 import {
   BulkOps,
+  GitIntegration,
   ManifestParser,
   MatrixManager,
   markResolved,
   SubprocessRunner,
+  TransactionManager,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
@@ -60,7 +62,8 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
               return;
             }
 
-            const bulkOps = new BulkOps();
+            const tx = new TransactionManager(new GitIntegration(deps.runner));
+            const bulkOps = new BulkOps(tx);
             await bulkOps.deleteAcrossEnvironments(namespace, key, manifest, sopsClient, repoRoot);
             if (isJsonMode()) {
               formatter.json({

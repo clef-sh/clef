@@ -3,9 +3,24 @@ import * as YAML from "yaml";
 import writeFileAtomic from "write-file-atomic";
 import { BackendMigrator, MigrationTarget } from "./backend";
 import { ClefManifest, EncryptionBackend, SopsMetadata } from "../types";
+import { TransactionManager } from "../tx";
 
 jest.mock("fs");
 // write-file-atomic is auto-mocked via core's jest.config moduleNameMapper.
+
+/** Stub TransactionManager that just runs the mutate callback inline. */
+function makeStubTx(): TransactionManager {
+  return {
+    run: jest
+      .fn()
+      .mockImplementation(
+        async (_repoRoot: string, opts: { mutate: () => Promise<void>; paths: string[] }) => {
+          await opts.mutate();
+          return { sha: null, paths: opts.paths, startedDirty: false };
+        },
+      ),
+  } as unknown as TransactionManager;
+}
 
 const mockReadFileSync = fs.readFileSync as jest.MockedFunction<typeof fs.readFileSync>;
 const mockWriteFileSync = fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>;
@@ -101,7 +116,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never);
+    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.rolledBack).toBe(false);
@@ -126,7 +141,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never);
+    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, {
       target: awsTarget,
       environment: "production",
@@ -162,7 +177,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks(makeManifestYaml(manifest));
 
-    const migrator = new BackendMigrator(enc, mm as never);
+    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
     const result = await migrator.migrate(manifest, repoRoot, { target: awsTarget });
 
     expect(result.rolledBack).toBe(false);
@@ -175,7 +190,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never);
+    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.migratedFiles).toHaveLength(0);
@@ -189,7 +204,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never);
+    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, {
       target: awsTarget,
       dryRun: true,
@@ -213,21 +228,14 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never);
+    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.rolledBack).toBe(true);
     expect(result.error).toContain("Decryption failed");
     expect(result.migratedFiles).toHaveLength(0);
-
-    // Per-cell rollback restores the backed-up encrypted file via plain
-    // fs.writeFileSync — that mock is only ever called from the rollback
-    // path, so a single call is proof the rollback ran.
-    expect(mockWriteFileSync).toHaveBeenCalledWith(
-      expect.stringContaining("staging.enc.yaml"),
-      "encrypted: content",
-      "utf-8",
-    );
+    // Migration runs inside TransactionManager.run; the actual git-based
+    // rollback semantics are exercised in transaction-manager.test.ts.
   });
 
   it("should rollback all changes on encrypt failure", async () => {
@@ -237,7 +245,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never);
+    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.rolledBack).toBe(true);
@@ -259,7 +267,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never);
+    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.rolledBack).toBe(false);
@@ -272,7 +280,7 @@ describe("BackendMigrator", () => {
     const enc = makeEncryption();
     const mm = makeMatrixManager();
 
-    const migrator = new BackendMigrator(enc, mm as never);
+    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
     await expect(
       migrator.migrate(baseManifest, repoRoot, { target: awsTarget, environment: "nonexistent" }),
     ).rejects.toThrow("Environment 'nonexistent' not found");
@@ -283,7 +291,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager([]);
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never);
+    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.migratedFiles).toHaveLength(0);
@@ -302,7 +310,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks(makeManifestYaml(manifestWithRecipients));
 
-    const migrator = new BackendMigrator(enc, mm as never);
+    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
     const result = await migrator.migrate(manifestWithRecipients, repoRoot, { target: awsTarget });
 
     expect(result.warnings.some((w) => w.includes("age recipients"))).toBe(true);
@@ -313,7 +321,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never);
+    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, {
       target: awsTarget,
       skipVerify: true,

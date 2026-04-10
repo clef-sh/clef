@@ -4,6 +4,7 @@ import writeFileAtomic from "write-file-atomic";
 import { ServiceIdentityManager } from "./manager";
 import { ClefManifest, EncryptionBackend, ServiceIdentityDefinition, SopsMetadata } from "../types";
 import { MatrixManager } from "../matrix/manager";
+import { TransactionManager } from "../tx";
 
 jest.mock("fs");
 jest.mock("../age/keygen");
@@ -47,6 +48,23 @@ function mockEncryption(): jest.Mocked<EncryptionBackend> {
   };
 }
 
+/**
+ * Stub TransactionManager that just runs the mutate callback inline. The
+ * real transaction-manager.test.ts covers locking, preflight, and rollback.
+ */
+function makeStubTx(): TransactionManager {
+  return {
+    run: jest
+      .fn()
+      .mockImplementation(
+        async (_repoRoot: string, opts: { mutate: () => Promise<void>; paths: string[] }) => {
+          await opts.mutate();
+          return { sha: null, paths: opts.paths, startedDirty: false };
+        },
+      ),
+  } as unknown as TransactionManager;
+}
+
 describe("ServiceIdentityManager", () => {
   let encryption: jest.Mocked<EncryptionBackend>;
   let matrixManager: MatrixManager;
@@ -56,7 +74,7 @@ describe("ServiceIdentityManager", () => {
     jest.clearAllMocks();
     encryption = mockEncryption();
     matrixManager = new MatrixManager();
-    manager = new ServiceIdentityManager(encryption, matrixManager);
+    manager = new ServiceIdentityManager(encryption, matrixManager, makeStubTx());
 
     let callCount = 0;
     generateAgeIdentity.mockImplementation(async () => {

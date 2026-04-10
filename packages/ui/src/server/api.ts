@@ -29,6 +29,7 @@ import {
   ImportRunner,
   RecipientManager,
   ServiceIdentityManager,
+  TransactionManager,
   validateAgePublicKey,
   VALID_KMS_PROVIDERS,
   BackendMigrator,
@@ -119,11 +120,12 @@ export function createApiRouter(deps: ApiDeps): Router {
   const schemaValidator = new SchemaValidator();
   const lintRunner = new LintRunner(matrix, schemaValidator, sops);
   const git = new GitIntegration(deps.runner);
+  const tx = new TransactionManager(git);
   const scanRunner = new ScanRunner(deps.runner);
-  const recipientManager = new RecipientManager(sops, matrix);
-  const serviceIdManager = new ServiceIdentityManager(sops, matrix);
-  const backendMigrator = new BackendMigrator(sops, matrix);
-  const bulkOps = new BulkOps();
+  const recipientManager = new RecipientManager(sops, matrix, tx);
+  const serviceIdManager = new ServiceIdentityManager(sops, matrix, tx);
+  const backendMigrator = new BackendMigrator(sops, matrix, tx);
+  const bulkOps = new BulkOps(tx);
 
   // In-session scan cache
   let lastScanResult: ScanResult | null = null;
@@ -473,7 +475,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
-      await bulkOps.copyValue(key, fromCell, toCell, sops, manifest);
+      await bulkOps.copyValue(key, fromCell, toCell, sops, manifest, deps.repoRoot);
       res.json({ success: true, key, from: `${fromNs}/${fromEnv}`, to: `${toNs}/${toEnv}` });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to copy value";
@@ -748,7 +750,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
-      const importRunner = new ImportRunner(sops);
+      const importRunner = new ImportRunner(sops, tx);
       const result = await importRunner.import(target, null, content, manifest, deps.repoRoot, {
         format,
         dryRun: true,
@@ -814,7 +816,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
-      const importRunner = new ImportRunner(sops);
+      const importRunner = new ImportRunner(sops, tx);
       const result = await importRunner.import(target, null, content, manifest, deps.repoRoot, {
         format,
         keys,
