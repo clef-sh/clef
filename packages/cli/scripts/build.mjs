@@ -50,6 +50,7 @@ const BASE_CONFIG = {
   // bundles it natively; the CJS build intercepts it with the plugin below.
   alias: {
     "@clef-sh/core": resolve(repoRoot, "packages/core/src/index.ts"),
+    "@clef-sh/runtime": resolve(repoRoot, "packages/runtime/src/index.ts"),
     "@clef-sh/cloud": resolve(repoRoot, "packages/cloud/src/index.ts"),
     "@clef-sh/cloud/cli": resolve(repoRoot, "packages/cloud/src/cli.ts"),
     "@clef-sh/ui": resolve(repoRoot, "packages/ui/src/server/index.ts"),

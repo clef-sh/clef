@@ -10,13 +10,28 @@ export interface TestRepo {
   cleanup: () => void;
 }
 
+export interface ScaffoldOptions {
+  /** Include a service identity in the manifest (for serve/pack tests). */
+  includeServiceIdentity?: boolean;
+}
+
 /**
  * Scaffold a minimal Clef test repo with a manifest and an encrypted file.
  */
-export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
+export function scaffoldTestRepo(keys: AgeKeyPair, options?: ScaffoldOptions): TestRepo {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-repo-"));
 
-  const manifest = {
+  // Generate a throwaway public key for the service identity. The serve
+  // command synthesizes its own ephemeral key and overwrites this anyway —
+  // it just needs to be a valid age recipient string in the manifest.
+  let siRecipient: string | undefined;
+  if (options?.includeServiceIdentity) {
+    const helperPath = path.resolve(__dirname, "age-keygen-helper.mjs");
+    const result = execFileSync(process.execPath, [helperPath], { encoding: "utf-8" });
+    siRecipient = (JSON.parse(result) as { publicKey: string }).publicKey;
+  }
+
+  const manifest: Record<string, unknown> = {
     version: 1,
     environments: [
       { name: "dev", description: "Development" },
@@ -26,6 +41,20 @@ export function scaffoldTestRepo(keys: AgeKeyPair): TestRepo {
     sops: { default_backend: "age", age: { recipients: [keys.publicKey] } },
     file_pattern: "{namespace}/{environment}.enc.yaml",
   };
+
+  if (siRecipient) {
+    manifest.service_identities = [
+      {
+        name: "web-app",
+        description: "Web application service identity",
+        namespaces: ["payments"],
+        environments: {
+          dev: { recipient: siRecipient },
+          production: { recipient: siRecipient },
+        },
+      },
+    ];
+  }
 
   // Write manifest
   fs.writeFileSync(path.join(dir, "clef.yaml"), YAML.stringify(manifest));

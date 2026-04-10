@@ -6,6 +6,18 @@ import { SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 
 jest.mock("fs");
+
+// Mock generateAgeIdentity from @clef-sh/core
+jest.mock("@clef-sh/core", () => {
+  const actual = jest.requireActual("@clef-sh/core");
+  return {
+    ...actual,
+    generateAgeIdentity: jest.fn().mockResolvedValue({
+      privateKey: "AGE-SECRET-KEY-1EPHEMERALTESTKEYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      publicKey: "age1ephemeraltestkeyaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    }),
+  };
+});
 jest.mock("../output/formatter", () => ({
   formatter: {
     json: jest.fn(),
