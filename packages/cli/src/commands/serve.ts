@@ -7,13 +7,42 @@ import {
   MatrixManager,
   ArtifactPacker,
   MemoryPackOutput,
-  isKmsEnvelope,
+  generateAgeIdentity,
 } from "@clef-sh/core";
-import type { KmsProvider } from "@clef-sh/core";
+import type { ClefManifest } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
-import { createSopsClient, resolveAgePrivateKey } from "../age-credential";
+import { createSopsClient } from "../age-credential";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
+
+/**
+ * Build a synthetic manifest where the target SI's environment uses an
+ * ephemeral age recipient. This lets the local serve process decrypt the
+ * packed artifact without needing the production SI's private key (or KMS
+ * access for the SI envelope). The user's existing creds are still used to
+ * decrypt the source matrix files.
+ */
+function synthesizeDevManifest(
+  manifest: ClefManifest,
+  identityName: string,
+  envName: string,
+  ephemeralPublicKey: string,
+): ClefManifest {
+  return {
+    ...manifest,
+    service_identities: manifest.service_identities?.map((si) =>
+      si.name === identityName
+        ? {
+            ...si,
+            environments: {
+              ...si.environments,
+              [envName]: { recipient: ephemeralPublicKey },
+            },
+          }
+        : si,
+    ),
+  };
+}
 
 export function registerServeCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -76,24 +105,31 @@ export function registerServeCommand(program: Command, deps: { runner: Subproces
 
         formatter.print(`${sym("working")}  Packing '${opts.identity}/${opts.env}'...`);
 
+        // Generate an ephemeral age keypair for this serve session.
+        // The local artifact envelope is encrypted to this key so the user
+        // doesn't need the production SI's private key (or KMS access for
+        // the SI envelope). The ephemeral key never touches disk.
+        const ephemeral = await generateAgeIdentity();
+
+        // Synthesize a manifest where the target SI's environment uses the
+        // ephemeral recipient. The user's sopsClient still decrypts the
+        // source matrix files using their normal creds (age or KMS).
+        const devManifest = synthesizeDevManifest(
+          manifest,
+          opts.identity,
+          opts.env,
+          ephemeral.publicKey,
+        );
+
         // Pack in memory
         const sopsClient = await createSopsClient(repoRoot, deps.runner);
         const matrixManager = new MatrixManager();
 
-        let kmsProvider: KmsProvider | undefined;
-        const envConfig = si.environments[opts.env];
-        if (envConfig && isKmsEnvelope(envConfig)) {
-          const { createKmsProvider } = await import("@clef-sh/runtime");
-          kmsProvider = await createKmsProvider(envConfig.kms.provider, {
-            region: envConfig.kms.region,
-          });
-        }
-
         const memOutput = new MemoryPackOutput();
-        const packer = new ArtifactPacker(sopsClient, matrixManager, kmsProvider);
+        const packer = new ArtifactPacker(sopsClient, matrixManager);
         const result = await packer.pack(
           { identity: opts.identity, environment: opts.env, output: memOutput },
-          manifest,
+          devManifest,
           repoRoot,
         );
 
@@ -103,10 +139,9 @@ export function registerServeCommand(program: Command, deps: { runner: Subproces
           return;
         }
 
-        // Decrypt the artifact
+        // Decrypt the artifact with the ephemeral private key
         const { ArtifactDecryptor } = await import("@clef-sh/runtime");
-        const privateKey = await resolveAgePrivateKey(repoRoot, deps.runner);
-        const decryptor = new ArtifactDecryptor({ privateKey: privateKey ?? undefined });
+        const decryptor = new ArtifactDecryptor({ privateKey: ephemeral.privateKey });
         const decrypted = await decryptor.decrypt(memOutput.artifact);
 
         // Load into cache
@@ -118,6 +153,13 @@ export function registerServeCommand(program: Command, deps: { runner: Subproces
         const token = randomBytes(32).toString("hex");
         const { startAgentServer } = await import("@clef-sh/agent");
         const server = await startAgentServer({ port, token, cache });
+
+        formatter.warn(
+          "DEVELOPMENT ONLY\n" +
+            "  This server packs secrets locally with an ephemeral age key.\n" +
+            "  Do NOT use this in production. For production, deploy the Clef\n" +
+            "  agent with the service identity's actual private key or KMS access.",
+        );
 
         formatter.success(`Serving ${result.keyCount} secrets for '${opts.identity}/${opts.env}'`);
         formatter.print(`\n  URL:      ${server.url}/v1/secrets`);
@@ -135,6 +177,8 @@ export function registerServeCommand(program: Command, deps: { runner: Subproces
           const shutdown = async () => {
             formatter.print(`\n${sym("working")}  Stopping server...`);
             cache.wipe();
+            // Wipe ephemeral private key from memory
+            ephemeral.privateKey = "";
             await server.stop();
             resolve();
           };
