@@ -54,32 +54,72 @@ describe("GitIntegration", () => {
   });
 
   describe("commit", () => {
-    it("should call git commit and return hash", async () => {
-      const runner = mockRunner(async () => ({
-        stdout: "[main abc1234] feat: add secrets\n 1 file changed, 1 insertion(+)",
-        stderr: "",
-        exitCode: 0,
-      }));
+    it("should call git commit and return the full SHA via rev-parse HEAD", async () => {
+      // commit() now calls git commit then git rev-parse HEAD to get the full SHA
+      const runner = mockRunner(async (command, args) => {
+        if (args[0] === "commit") {
+          return {
+            stdout: "[main abc1234] feat: add secrets\n 1 file changed, 1 insertion(+)",
+            stderr: "",
+            exitCode: 0,
+          };
+        }
+        if (args[0] === "rev-parse" && args[1] === "HEAD") {
+          return {
+            stdout: "abc1234567890abcdef1234567890abcdef123456\n",
+            stderr: "",
+            exitCode: 0,
+          };
+        }
+        return { stdout: "", stderr: "", exitCode: 0 };
+      });
       const git = new GitIntegration(runner);
 
       const hash = await git.commit("feat: add secrets", "/repo");
 
-      expect(hash).toBe("abc1234");
-      expect(runner.run).toHaveBeenCalledWith("git", ["commit", "-m", "feat: add secrets"], {
-        cwd: "/repo",
-      });
+      expect(hash).toBe("abc1234567890abcdef1234567890abcdef123456");
+      expect(runner.run).toHaveBeenCalledWith(
+        "git",
+        ["commit", "-m", "feat: add secrets"],
+        expect.objectContaining({ cwd: "/repo" }),
+      );
     });
 
-    it("should return empty string when commit output has no hash", async () => {
-      const runner = mockRunner(async () => ({
-        stdout: "Some unusual commit output",
-        stderr: "",
-        exitCode: 0,
-      }));
+    it("should pass --no-verify when noVerify is true", async () => {
+      const runner = mockRunner(async (command, args) => {
+        if (args[0] === "commit") {
+          return { stdout: "", stderr: "", exitCode: 0 };
+        }
+        return { stdout: "abc1234567890abcdef\n", stderr: "", exitCode: 0 };
+      });
       const git = new GitIntegration(runner);
 
-      const hash = await git.commit("test", "/repo");
-      expect(hash).toBe("");
+      await git.commit("test", "/repo", { noVerify: true });
+
+      expect(runner.run).toHaveBeenCalledWith(
+        "git",
+        ["commit", "-m", "test", "--no-verify"],
+        expect.any(Object),
+      );
+    });
+
+    it("should pass env vars to the commit subprocess", async () => {
+      const runner = mockRunner(async (command, args) => {
+        if (args[0] === "commit") return { stdout: "", stderr: "", exitCode: 0 };
+        return { stdout: "abc1234\n", stderr: "", exitCode: 0 };
+      });
+      const git = new GitIntegration(runner);
+
+      await git.commit("test", "/repo", { env: { CLEF_IN_TRANSACTION: "1" } });
+
+      expect(runner.run).toHaveBeenCalledWith(
+        "git",
+        ["commit", "-m", "test"],
+        expect.objectContaining({
+          cwd: "/repo",
+          env: { CLEF_IN_TRANSACTION: "1" },
+        }),
+      );
     });
 
     it("should throw GitOperationError on failure", async () => {
@@ -281,6 +321,248 @@ describe("GitIntegration", () => {
       const git = new GitIntegration(runner);
 
       await expect(git.installPreCommitHook("/repo")).rejects.toThrow(GitOperationError);
+    });
+  });
+
+  describe("getHead", () => {
+    it("should return the trimmed HEAD SHA", async () => {
+      const runner = mockRunner(async () => ({
+        stdout: "abc1234567890abcdef1234567890abcdef123456\n",
+        stderr: "",
+        exitCode: 0,
+      }));
+      const git = new GitIntegration(runner);
+
+      const sha = await git.getHead("/repo");
+
+      expect(sha).toBe("abc1234567890abcdef1234567890abcdef123456");
+      expect(runner.run).toHaveBeenCalledWith("git", ["rev-parse", "HEAD"], { cwd: "/repo" });
+    });
+
+    it("should throw on failure", async () => {
+      const runner = mockRunner(async () => ({
+        stdout: "",
+        stderr: "fatal: ambiguous argument 'HEAD'",
+        exitCode: 128,
+      }));
+      const git = new GitIntegration(runner);
+
+      await expect(git.getHead("/repo")).rejects.toThrow(GitOperationError);
+    });
+  });
+
+  describe("resetHard", () => {
+    it("should call git reset --hard with the SHA", async () => {
+      const runner = mockRunner();
+      const git = new GitIntegration(runner);
+
+      await git.resetHard("/repo", "abc1234");
+
+      expect(runner.run).toHaveBeenCalledWith("git", ["reset", "--hard", "abc1234"], {
+        cwd: "/repo",
+      });
+    });
+
+    it("should throw on failure", async () => {
+      const runner = mockRunner(async () => ({
+        stdout: "",
+        stderr: "fatal: not a git repository",
+        exitCode: 128,
+      }));
+      const git = new GitIntegration(runner);
+
+      await expect(git.resetHard("/repo", "abc1234")).rejects.toThrow(GitOperationError);
+    });
+  });
+
+  describe("cleanFiles", () => {
+    it("should call git clean -fd with the paths", async () => {
+      const runner = mockRunner();
+      const git = new GitIntegration(runner);
+
+      await git.cleanFiles("/repo", ["a.enc.yaml", "b.enc.yaml"]);
+
+      expect(runner.run).toHaveBeenCalledWith(
+        "git",
+        ["clean", "-fd", "--", "a.enc.yaml", "b.enc.yaml"],
+        { cwd: "/repo" },
+      );
+    });
+
+    it("should do nothing for empty path list", async () => {
+      const runner = mockRunner();
+      const git = new GitIntegration(runner);
+
+      await git.cleanFiles("/repo", []);
+
+      expect(runner.run).not.toHaveBeenCalled();
+    });
+
+    it("should throw on failure", async () => {
+      const runner = mockRunner(async () => ({
+        stdout: "",
+        stderr: "fatal: error",
+        exitCode: 1,
+      }));
+      const git = new GitIntegration(runner);
+
+      await expect(git.cleanFiles("/repo", ["a.yaml"])).rejects.toThrow(GitOperationError);
+    });
+  });
+
+  describe("isDirty", () => {
+    it("should return false when diff-index exits 0 (clean)", async () => {
+      const runner = mockRunner(async () => ({ stdout: "", stderr: "", exitCode: 0 }));
+      const git = new GitIntegration(runner);
+
+      expect(await git.isDirty("/repo")).toBe(false);
+    });
+
+    it("should return true when diff-index exits 1 (dirty)", async () => {
+      const runner = mockRunner(async () => ({ stdout: "", stderr: "", exitCode: 1 }));
+      const git = new GitIntegration(runner);
+
+      expect(await git.isDirty("/repo")).toBe(true);
+    });
+
+    it("should throw on other exit codes", async () => {
+      const runner = mockRunner(async () => ({
+        stdout: "",
+        stderr: "fatal: not a repo",
+        exitCode: 128,
+      }));
+      const git = new GitIntegration(runner);
+
+      await expect(git.isDirty("/repo")).rejects.toThrow(GitOperationError);
+    });
+  });
+
+  describe("isRepo", () => {
+    it("should return true when rev-parse --git-dir succeeds", async () => {
+      const runner = mockRunner(async () => ({ stdout: ".git\n", stderr: "", exitCode: 0 }));
+      const git = new GitIntegration(runner);
+
+      expect(await git.isRepo("/repo")).toBe(true);
+    });
+
+    it("should return false when rev-parse --git-dir fails", async () => {
+      const runner = mockRunner(async () => ({
+        stdout: "",
+        stderr: "fatal: not a git repository",
+        exitCode: 128,
+      }));
+      const git = new GitIntegration(runner);
+
+      expect(await git.isRepo("/repo")).toBe(false);
+    });
+  });
+
+  describe("isMidOperation", () => {
+    // These tests check fs.existsSync directly. We mock fs to control file presence.
+    const realFs = jest.requireActual("fs") as typeof import("fs");
+    let existsSyncSpy: jest.SpyInstance;
+
+    afterEach(() => {
+      existsSyncSpy?.mockRestore();
+    });
+
+    it("should detect mid-merge", async () => {
+      existsSyncSpy = jest
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        .spyOn(require("fs"), "existsSync")
+        .mockImplementation((p: unknown) => String(p).endsWith("MERGE_HEAD"));
+      const git = new GitIntegration(mockRunner());
+
+      const result = await git.isMidOperation("/repo");
+      expect(result).toEqual({ midOp: true, kind: "merge" });
+    });
+
+    it("should detect mid-rebase (rebase-merge)", async () => {
+      existsSyncSpy = jest
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        .spyOn(require("fs"), "existsSync")
+        .mockImplementation((p: unknown) => String(p).endsWith("rebase-merge"));
+      const git = new GitIntegration(mockRunner());
+
+      const result = await git.isMidOperation("/repo");
+      expect(result).toEqual({ midOp: true, kind: "rebase" });
+    });
+
+    it("should detect mid-cherry-pick", async () => {
+      existsSyncSpy = jest
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        .spyOn(require("fs"), "existsSync")
+        .mockImplementation((p: unknown) => String(p).endsWith("CHERRY_PICK_HEAD"));
+      const git = new GitIntegration(mockRunner());
+
+      const result = await git.isMidOperation("/repo");
+      expect(result).toEqual({ midOp: true, kind: "cherry-pick" });
+    });
+
+    it("should detect mid-revert", async () => {
+      existsSyncSpy = jest
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        .spyOn(require("fs"), "existsSync")
+        .mockImplementation((p: unknown) => String(p).endsWith("REVERT_HEAD"));
+      const git = new GitIntegration(mockRunner());
+
+      const result = await git.isMidOperation("/repo");
+      expect(result).toEqual({ midOp: true, kind: "revert" });
+    });
+
+    it("should return midOp: false when no operation files exist", async () => {
+      existsSyncSpy = jest
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        .spyOn(require("fs"), "existsSync")
+        .mockReturnValue(false);
+      const git = new GitIntegration(mockRunner());
+
+      const result = await git.isMidOperation("/repo");
+      expect(result).toEqual({ midOp: false });
+    });
+
+    // realFs is referenced in the file's lifetime to satisfy lint
+    expect(realFs).toBeDefined();
+  });
+
+  describe("getAuthorIdentity", () => {
+    it("should return the configured name and email", async () => {
+      const runner = mockRunner(async (command, args) => {
+        if (args[2] === "user.name") return { stdout: "Alice\n", stderr: "", exitCode: 0 };
+        if (args[2] === "user.email")
+          return { stdout: "alice@example.com\n", stderr: "", exitCode: 0 };
+        return { stdout: "", stderr: "", exitCode: 1 };
+      });
+      const git = new GitIntegration(runner);
+
+      const identity = await git.getAuthorIdentity("/repo");
+
+      expect(identity).toEqual({ name: "Alice", email: "alice@example.com" });
+    });
+
+    it("should return null when name is missing", async () => {
+      const runner = mockRunner(async (command, args) => {
+        if (args[2] === "user.name") return { stdout: "", stderr: "", exitCode: 1 };
+        if (args[2] === "user.email")
+          return { stdout: "alice@example.com\n", stderr: "", exitCode: 0 };
+        return { stdout: "", stderr: "", exitCode: 0 };
+      });
+      const git = new GitIntegration(runner);
+
+      const identity = await git.getAuthorIdentity("/repo");
+      expect(identity).toBeNull();
+    });
+
+    it("should return null when email is missing", async () => {
+      const runner = mockRunner(async (command, args) => {
+        if (args[2] === "user.name") return { stdout: "Alice\n", stderr: "", exitCode: 0 };
+        if (args[2] === "user.email") return { stdout: "", stderr: "", exitCode: 1 };
+        return { stdout: "", stderr: "", exitCode: 0 };
+      });
+      const git = new GitIntegration(runner);
+
+      const identity = await git.getAuthorIdentity("/repo");
+      expect(identity).toBeNull();
     });
   });
 });
