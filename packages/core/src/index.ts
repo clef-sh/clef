@@ -1,6 +1,6 @@
 export * from "./types";
 export { ManifestParser, CLEF_MANIFEST_FILENAME } from "./manifest/parser";
-export { readManifestYaml, writeManifestYaml } from "./manifest/io";
+export { readManifestYaml, writeManifestYaml, writeManifestYamlRaw } from "./manifest/io";
 export {
   ScanRunner,
   shannonEntropy,

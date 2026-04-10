@@ -335,11 +335,13 @@ describe("RecipientManager", () => {
         "Rollback completed: manifest and re-encrypted files have been restored.",
       );
 
-      // Verify manifest was restored
-      const manifestWriteCalls = mockWriteFileSync.mock.calls.filter((call) =>
-        (call[0] as string).endsWith("clef.yaml"),
-      );
-      // Last write to clef.yaml should be the rollback
+      // Verify manifest was restored. Atomic writes go through a temp file
+      // (.clef.yaml.tmp.{pid}.{ts}) so filter for any clef.yaml-related write.
+      const manifestWriteCalls = mockWriteFileSync.mock.calls.filter((call) => {
+        const p = call[0] as string;
+        return p.endsWith("clef.yaml") || p.includes("clef.yaml.tmp.");
+      });
+      // Last write should be the rollback (with the original raw manifest contents)
       const lastManifestWrite = manifestWriteCalls[manifestWriteCalls.length - 1];
       expect(lastManifestWrite[1]).toBe(originalManifest);
 
@@ -493,10 +495,12 @@ describe("RecipientManager", () => {
         "Re-encryption removes future access, not past access. Rotate secret values to complete revocation.",
       );
 
-      // Verify manifest was restored
-      const manifestWriteCalls = mockWriteFileSync.mock.calls.filter((call) =>
-        (call[0] as string).endsWith("clef.yaml"),
-      );
+      // Verify manifest was restored. Atomic writes go through a temp file
+      // so filter for any clef.yaml-related write.
+      const manifestWriteCalls = mockWriteFileSync.mock.calls.filter((call) => {
+        const p = call[0] as string;
+        return p.endsWith("clef.yaml") || p.includes("clef.yaml.tmp.");
+      });
       const lastManifestWrite = manifestWriteCalls[manifestWriteCalls.length - 1];
       expect(lastManifestWrite[1]).toBe(originalManifest);
 

@@ -4,7 +4,7 @@ import { ClefManifest, EncryptionBackend } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { validateAgePublicKey, keyPreview } from "./validator";
 import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
-import { readManifestYaml, writeManifestYaml } from "../manifest/io";
+import { readManifestYaml, writeManifestYaml, writeManifestYamlRaw } from "../manifest/io";
 
 export interface Recipient {
   key: string;
@@ -218,7 +218,7 @@ export class RecipientManager {
         failedFiles.push(cell.filePath);
 
         // Rollback: restore manifest
-        fs.writeFileSync(manifestPath, manifestBackup, "utf-8");
+        writeManifestYamlRaw(repoRoot, manifestBackup);
 
         // Rollback: restore previously re-encrypted files
         for (const reEncryptedFile of reEncryptedFiles) {
@@ -331,7 +331,7 @@ export class RecipientManager {
         failedFiles.push(cell.filePath);
 
         // Rollback: restore manifest
-        fs.writeFileSync(manifestPath, manifestBackup, "utf-8");
+        writeManifestYamlRaw(repoRoot, manifestBackup);
 
         // Rollback: restore previously re-encrypted files
         for (const reEncryptedFile of reEncryptedFiles) {

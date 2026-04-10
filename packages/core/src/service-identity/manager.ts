@@ -1,7 +1,3 @@
-import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
-import * as YAML from "yaml";
 import {
   ClefManifest,
   EncryptionBackend,
@@ -13,7 +9,7 @@ import {
 } from "../types";
 import { generateAgeIdentity } from "../age/keygen";
 import { MatrixManager } from "../matrix/manager";
-import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
+import { readManifestYaml, writeManifestYaml } from "../manifest/io";
 
 /**
  * Thrown when key rotation partially completes before a failure.
@@ -107,9 +103,7 @@ export class ServiceIdentityManager {
     await this.registerRecipients(definition, manifest, repoRoot);
 
     // Update manifest on disk
-    const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
-    const raw = fs.readFileSync(manifestPath, "utf-8");
-    const doc = YAML.parse(raw) as Record<string, unknown>;
+    const doc = readManifestYaml(repoRoot);
 
     if (!Array.isArray(doc.service_identities)) {
       doc.service_identities = [];
@@ -120,17 +114,7 @@ export class ServiceIdentityManager {
       namespaces,
       environments,
     });
-    const tmpCreate = path.join(os.tmpdir(), `clef-manifest-${process.pid}-${Date.now()}.tmp`);
-    try {
-      fs.writeFileSync(tmpCreate, YAML.stringify(doc), "utf-8");
-      fs.renameSync(tmpCreate, manifestPath);
-    } finally {
-      try {
-        fs.unlinkSync(tmpCreate);
-      } catch {
-        // Already renamed or never written — ignore
-      }
-    }
+    writeManifestYaml(repoRoot, doc);
 
     return { identity: definition, privateKeys };
   }
@@ -175,26 +159,14 @@ export class ServiceIdentityManager {
     }
 
     // Remove from manifest on disk
-    const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
-    const raw = fs.readFileSync(manifestPath, "utf-8");
-    const doc = YAML.parse(raw) as Record<string, unknown>;
+    const doc = readManifestYaml(repoRoot);
     const identities = doc.service_identities as Record<string, unknown>[];
     if (Array.isArray(identities)) {
       doc.service_identities = identities.filter(
         (si) => (si as Record<string, unknown>).name !== name,
       );
     }
-    const tmp = path.join(os.tmpdir(), `clef-manifest-${process.pid}-${Date.now()}.tmp`);
-    try {
-      fs.writeFileSync(tmp, YAML.stringify(doc), "utf-8");
-      fs.renameSync(tmp, manifestPath);
-    } finally {
-      try {
-        fs.unlinkSync(tmp);
-      } catch {
-        // Already renamed or never written — ignore
-      }
-    }
+    writeManifestYaml(repoRoot, doc);
   }
 
   /**
@@ -213,9 +185,7 @@ export class ServiceIdentityManager {
       throw new Error(`Service identity '${name}' not found.`);
     }
 
-    const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
-    const raw = fs.readFileSync(manifestPath, "utf-8");
-    const doc = YAML.parse(raw) as Record<string, unknown>;
+    const doc = readManifestYaml(repoRoot);
     const identities = doc.service_identities as Record<string, unknown>[];
     const siDoc = identities.find((si) => (si as Record<string, unknown>).name === name) as Record<
       string,
@@ -252,17 +222,7 @@ export class ServiceIdentityManager {
     }
 
     // Write updated manifest
-    const tmp = path.join(os.tmpdir(), `clef-manifest-${process.pid}-${Date.now()}.tmp`);
-    try {
-      fs.writeFileSync(tmp, YAML.stringify(doc), "utf-8");
-      fs.renameSync(tmp, manifestPath);
-    } finally {
-      try {
-        fs.unlinkSync(tmp);
-      } catch {
-        // Already renamed or never written — ignore
-      }
-    }
+    writeManifestYaml(repoRoot, doc);
 
     return { privateKeys };
   }
@@ -315,9 +275,7 @@ export class ServiceIdentityManager {
       throw new Error(`Service identity '${name}' not found.`);
     }
 
-    const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
-    const raw = fs.readFileSync(manifestPath, "utf-8");
-    const doc = YAML.parse(raw) as Record<string, unknown>;
+    const doc = readManifestYaml(repoRoot);
     const identities = doc.service_identities as Record<string, unknown>[];
     const siDoc = identities.find((si) => (si as Record<string, unknown>).name === name) as Record<
       string,
@@ -387,17 +345,7 @@ export class ServiceIdentityManager {
       throw err;
     }
 
-    const tmpRotate = path.join(os.tmpdir(), `clef-manifest-${process.pid}-${Date.now()}.tmp`);
-    try {
-      fs.writeFileSync(tmpRotate, YAML.stringify(doc), "utf-8");
-      fs.renameSync(tmpRotate, manifestPath);
-    } finally {
-      try {
-        fs.unlinkSync(tmpRotate);
-      } catch {
-        // Already renamed or never written — ignore
-      }
-    }
+    writeManifestYaml(repoRoot, doc);
     return newPrivateKeys;
   }
 

@@ -108,9 +108,13 @@ describe("BackendMigrator", () => {
     expect(enc.decrypt).toHaveBeenCalledTimes(4);
     expect(enc.encrypt).toHaveBeenCalledTimes(2);
 
-    // Verify manifest was updated
+    // Verify manifest was updated. Atomic writes go through a temp file
+    // (.clef.yaml.tmp.{pid}.{ts}) which then gets renamed to clef.yaml.
     const writeCalls = mockWriteFileSync.mock.calls;
-    const manifestWrite = writeCalls.find((c) => String(c[0]).endsWith("clef.yaml"));
+    const manifestWrite = writeCalls.find((c) => {
+      const p = String(c[0]);
+      return p.endsWith("clef.yaml") || p.includes("clef.yaml.tmp.");
+    });
     expect(manifestWrite).toBeDefined();
     const written = YAML.parse(manifestWrite![1] as string) as ClefManifest;
     expect(written.sops.default_backend).toBe("awskms");
@@ -135,10 +139,11 @@ describe("BackendMigrator", () => {
     expect(enc.decrypt).toHaveBeenCalledTimes(2);
     expect(enc.encrypt).toHaveBeenCalledTimes(1);
 
-    // Verify per-env override in manifest
-    const manifestWrite = mockWriteFileSync.mock.calls.find((c) =>
-      String(c[0]).endsWith("clef.yaml"),
-    );
+    // Verify per-env override in manifest (atomic write goes through temp file)
+    const manifestWrite = mockWriteFileSync.mock.calls.find((c) => {
+      const p = String(c[0]);
+      return p.endsWith("clef.yaml") || p.includes("clef.yaml.tmp.");
+    });
     const written = YAML.parse(manifestWrite![1] as string);
     const prodEnv = written.environments.find((e: { name: string }) => e.name === "production");
     expect(prodEnv.sops.backend).toBe("awskms");
