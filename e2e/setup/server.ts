@@ -130,3 +130,122 @@ export async function startClefUI(repoDir: string, ageKeyFilePath: string): Prom
     timeout.unref();
   });
 }
+
+export interface ServeInfo {
+  /** Base URL, e.g. http://127.0.0.1:49321 */
+  url: string;
+  /** Bearer token for /v1/secrets and /v1/keys */
+  token: string;
+  /** Stop the server */
+  stop: () => Promise<void>;
+}
+
+/**
+ * Spawn `clef serve` and wait for it to print its bearer token.
+ *
+ * Same SEA vs node mode toggle as `startClefUI`.
+ */
+export async function startClefServe(
+  repoDir: string,
+  ageKeyFilePath: string,
+  identity: string,
+  env: string,
+): Promise<ServeInfo> {
+  const mode = (process.env.CLEF_E2E_MODE ?? "sea") as "sea" | "node";
+
+  let command: string;
+  let args: string[];
+
+  if (mode === "node") {
+    if (!fs.existsSync(NODE_ENTRY)) {
+      throw new Error(
+        `CLI entry not found at ${NODE_ENTRY}.\n` +
+          `Build first: npm run build -w packages/core && npm run build -w packages/ui && npm run build -w packages/cli`,
+      );
+    }
+    command = process.execPath;
+    args = [NODE_ENTRY, "--dir", repoDir, "serve", "--identity", identity, "--env", env, "--port"];
+  } else {
+    const bin = process.platform === "win32" ? SEA_BINARY + ".exe" : SEA_BINARY;
+    if (!fs.existsSync(bin)) {
+      throw new Error(
+        `SEA binary not found at ${bin}.\n` + `Build it first: npm run build:sea -w packages/cli`,
+      );
+    }
+    command = bin;
+    args = ["--dir", repoDir, "serve", "--identity", identity, "--env", env, "--port"];
+  }
+
+  const port = await findFreePort();
+  args.push(String(port));
+
+  return new Promise<ServeInfo>((resolve, reject) => {
+    const proc = spawn(command, args, {
+      cwd: repoDir,
+      env: {
+        ...process.env,
+        SOPS_AGE_KEY_FILE: ageKeyFilePath,
+        CI: "1",
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    let settled = false;
+    let stdoutBuf = "";
+    let stderrBuf = "";
+
+    const tryResolve = (text: string): void => {
+      // serve.ts prints "Token:    <hex>" — capture the hex token.
+      const match = text.match(/Token:\s+([0-9a-f]{64})/);
+      if (match && !settled) {
+        settled = true;
+        resolve({
+          url: `http://127.0.0.1:${port}`,
+          token: match[1],
+          stop: () =>
+            new Promise<void>((res) => {
+              proc.kill("SIGTERM");
+              proc.once("exit", () => res());
+            }),
+        });
+      }
+    };
+
+    proc.stdout!.on("data", (chunk: Buffer) => {
+      stdoutBuf += chunk.toString();
+      tryResolve(stdoutBuf);
+    });
+
+    proc.stderr!.on("data", (chunk: Buffer) => {
+      stderrBuf += chunk.toString();
+    });
+
+    proc.on("error", (err) => {
+      if (!settled) {
+        settled = true;
+        reject(err);
+      }
+    });
+
+    proc.on("exit", (code) => {
+      if (!settled) {
+        settled = true;
+        reject(
+          new Error(
+            `clef serve exited prematurely with code ${code ?? "unknown"}\n` +
+              `stdout: ${stdoutBuf}\nstderr: ${stderrBuf}`,
+          ),
+        );
+      }
+    });
+
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        proc.kill();
+        reject(new Error("clef serve did not print its token within 30 seconds"));
+      }
+    }, 30_000);
+    timeout.unref();
+  });
+}
