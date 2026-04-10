@@ -10,10 +10,7 @@ import { setKeychainKey } from "../keychain";
 
 jest.mock("fs");
 jest.mock("readline");
-jest.mock("write-file-atomic", () => ({
-  __esModule: true,
-  default: { sync: jest.fn() },
-}));
+// write-file-atomic is auto-mocked via CLI's jest.config moduleNameMapper.
 jest.mock("../keychain", () => ({
   setKeychainKey: jest.fn().mockResolvedValue(false),
 }));

@@ -6,7 +6,7 @@ import { readManifestYaml, writeManifestYaml, writeManifestYamlRaw } from "./io"
 import { CLEF_MANIFEST_FILENAME } from "./parser";
 
 jest.mock("fs");
-jest.mock("write-file-atomic");
+// write-file-atomic is auto-mocked via core's jest.config moduleNameMapper.
 
 const mockFs = fs as jest.Mocked<typeof fs>;
 const mockWriteFileAtomic = writeFileAtomic as jest.Mocked<typeof writeFileAtomic>;

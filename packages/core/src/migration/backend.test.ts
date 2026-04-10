@@ -5,10 +5,7 @@ import { BackendMigrator, MigrationTarget } from "./backend";
 import { ClefManifest, EncryptionBackend, SopsMetadata } from "../types";
 
 jest.mock("fs");
-jest.mock("write-file-atomic", () => ({
-  __esModule: true,
-  default: { sync: jest.fn() },
-}));
+// write-file-atomic is auto-mocked via core's jest.config moduleNameMapper.
 
 const mockReadFileSync = fs.readFileSync as jest.MockedFunction<typeof fs.readFileSync>;
 const mockWriteFileSync = fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>;
@@ -223,12 +220,14 @@ describe("BackendMigrator", () => {
     expect(result.error).toContain("Decryption failed");
     expect(result.migratedFiles).toHaveLength(0);
 
-    // Verify rollback writes happened. The manifest is restored via
-    // write-file-atomic; the per-cell file backups are restored via
-    // direct fs.writeFileSync. Either signals that rollback ran.
-    const totalWrites =
-      mockWriteFileSync.mock.calls.length + mockWriteFileAtomicSync.mock.calls.length;
-    expect(totalWrites).toBeGreaterThan(0);
+    // Per-cell rollback restores the backed-up encrypted file via plain
+    // fs.writeFileSync — that mock is only ever called from the rollback
+    // path, so a single call is proof the rollback ran.
+    expect(mockWriteFileSync).toHaveBeenCalledWith(
+      expect.stringContaining("staging.enc.yaml"),
+      "encrypted: content",
+      "utf-8",
+    );
   });
 
   it("should rollback all changes on encrypt failure", async () => {

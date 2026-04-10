@@ -5,6 +5,7 @@ module.exports = {
   testMatch: ["<rootDir>/src/**/*.test.ts"],
   moduleNameMapper: {
     "^age-encryption$": "<rootDir>/src/__mocks__/age-encryption.ts",
+    "^write-file-atomic$": "<rootDir>/src/__mocks__/write-file-atomic.ts",
   },
   collectCoverageFrom: [
     "<rootDir>/src/**/*.ts",

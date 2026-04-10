@@ -7,12 +7,9 @@ import { MatrixManager } from "../matrix/manager";
 
 jest.mock("fs");
 jest.mock("../age/keygen");
-jest.mock("write-file-atomic", () => ({
-  __esModule: true,
-  default: { sync: jest.fn() },
-}));
+// write-file-atomic is auto-mocked via core's jest.config moduleNameMapper.
 
-const mockFs = fs as jest.Mocked<typeof fs> & { renameSync: jest.Mock };
+const mockFs = fs as jest.Mocked<typeof fs>;
 const mockWriteFileAtomicSync = writeFileAtomic.sync as jest.Mock;
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest mock

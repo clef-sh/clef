@@ -5,10 +5,7 @@ import { RecipientManager } from "./index";
 import { ClefManifest, EncryptionBackend } from "../types";
 
 jest.mock("fs");
-jest.mock("write-file-atomic", () => ({
-  __esModule: true,
-  default: { sync: jest.fn() },
-}));
+// write-file-atomic is auto-mocked via core's jest.config moduleNameMapper.
 
 const mockReadFileSync = fs.readFileSync as jest.MockedFunction<typeof fs.readFileSync>;
 const mockWriteFileSync = fs.writeFileSync as jest.MockedFunction<typeof fs.writeFileSync>;

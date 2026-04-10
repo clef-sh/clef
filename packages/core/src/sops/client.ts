@@ -260,14 +260,14 @@ export class SopsClient implements EncryptionBackend {
       );
     }
 
-    // Write the encrypted output atomically: write-file-atomic uses temp file
-    // + rename so a Ctrl+C / crash mid-write never leaves a torn file on disk.
-    // Handles Windows EPERM retries internally and registers signal-exit
-    // cleanup handlers to remove orphan temp files on SIGINT/SIGTERM.
+    // Atomic write: a torn file from Ctrl+C / OOM mid-write would be undecryptable.
     try {
-      writeFileAtomic.sync(filePath, result.stdout);
-    } catch {
-      throw new SopsEncryptionError(`Failed to write encrypted data to '${filePath}'.`, filePath);
+      await writeFileAtomic(filePath, result.stdout);
+    } catch (err) {
+      throw new SopsEncryptionError(
+        `Failed to write encrypted data to '${filePath}': ${(err as Error).message}`,
+        filePath,
+      );
     }
   }
 
