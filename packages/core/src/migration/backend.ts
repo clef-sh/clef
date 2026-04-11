@@ -46,7 +46,14 @@ export interface MigrationProgressEvent {
 
 // ── Key-field mapping ───────────────────────────────────────────────────────
 
-const BACKEND_KEY_FIELDS: Record<BackendType, keyof EnvironmentSopsOverride | undefined> = {
+/**
+ * Maps a SOPS backend to the manifest field that holds its key identifier.
+ * `undefined` for backends that don't take a key (age, cloud).
+ *
+ * Exported so other backend-aware commands (clef reset, etc.) can
+ * honour the same field layout without duplicating the mapping.
+ */
+export const BACKEND_KEY_FIELDS: Record<BackendType, keyof EnvironmentSopsOverride | undefined> = {
   age: undefined,
   awskms: "aws_kms_arn",
   gcpkms: "gcp_kms_resource_id",
@@ -58,6 +65,23 @@ const BACKEND_KEY_FIELDS: Record<BackendType, keyof EnvironmentSopsOverride | un
 const ALL_KEY_FIELDS = Object.values(BACKEND_KEY_FIELDS).filter(
   (v): v is keyof EnvironmentSopsOverride => v !== undefined,
 );
+
+/**
+ * Build a per-environment SOPS override block.
+ * Shared by BackendMigrator and ResetManager so the key-field mapping
+ * lives in one place.
+ */
+export function buildSopsOverride(
+  backend: BackendType,
+  key: string | undefined,
+): EnvironmentSopsOverride {
+  const override: EnvironmentSopsOverride = { backend };
+  const keyField = BACKEND_KEY_FIELDS[backend];
+  if (keyField && key) {
+    (override as unknown as Record<string, unknown>)[keyField] = key;
+  }
+  return override;
+}
 
 function metadataMatchesTarget(meta: SopsMetadata, target: MigrationTarget): boolean {
   if (meta.backend !== target.backend) return false;
@@ -288,11 +312,7 @@ export class BackendMigrator {
         (e) => (e as { name: string }).name === environment,
       ) as Record<string, unknown>;
 
-      const sopsOverride: Record<string, unknown> = { backend: target.backend };
-      if (keyField && target.key) {
-        sopsOverride[keyField] = target.key;
-      }
-      envDoc.sops = sopsOverride;
+      envDoc.sops = buildSopsOverride(target.backend, target.key);
     } else {
       // Global default
       const sops = doc.sops as Record<string, unknown>;

@@ -1189,3 +1189,167 @@ test.describe("clef env remove → ManifestScreen: delete + protected refusal fl
     await expect(page.getByTestId("environment-row-production")).toBeVisible();
   });
 });
+
+// ── clef reset → ResetScreen: destructive recovery flow ─────────────────────
+//
+// Reset is the disaster-recovery command — it abandons existing encrypted
+// contents and re-scaffolds fresh placeholders. These tests must run AFTER
+// every other test in the file because they permanently empty cells under
+// the `payments` namespace.
+//
+// The non-mutating UI gate tests run first; the actual destructive resets
+// come last and progressively widen scope (cell → namespace).
+
+test.describe("clef reset → ResetScreen: destructive recovery flow", () => {
+  test("[positive] Reset nav item opens the reset view", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-reset").click();
+    await expect(page.getByText("clef reset")).toBeVisible();
+  });
+
+  test("[positive] all three scope kinds are present", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-reset").click();
+    await expect(page.getByTestId("reset-scope-env")).toBeVisible();
+    await expect(page.getByTestId("reset-scope-namespace")).toBeVisible();
+    await expect(page.getByTestId("reset-scope-cell")).toBeVisible();
+  });
+
+  test("[positive] env scope is the default and shows the env dropdown", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-reset").click();
+    await expect(page.getByTestId("reset-env-select")).toBeVisible();
+    await expect(page.getByTestId("reset-namespace-select")).not.toBeVisible();
+    await expect(page.getByTestId("reset-cell-namespace-select")).not.toBeVisible();
+  });
+
+  test("[positive] switching to cell scope shows two dropdowns", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-reset").click();
+    await page.getByTestId("reset-scope-cell").click();
+    await expect(page.getByTestId("reset-cell-namespace-select")).toBeVisible();
+    await expect(page.getByTestId("reset-cell-env-select")).toBeVisible();
+  });
+
+  test("[positive] backend disclosure reveals the picker when checked", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-reset").click();
+    await expect(page.getByTestId("reset-backend-radio-age")).not.toBeVisible();
+    await page.getByTestId("reset-switch-backend").click();
+    await expect(page.getByTestId("reset-backend-radio-age")).toBeVisible();
+    await expect(page.getByTestId("reset-backend-radio-awskms")).toBeVisible();
+  });
+
+  test("[negative] Reset button is disabled by default", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-reset").click();
+    await expect(page.getByTestId("reset-submit")).toBeDisabled();
+  });
+
+  test("[negative] Reset button stays disabled when typed confirm does not match", async ({
+    page,
+  }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-reset").click();
+    await page.getByTestId("reset-confirm-input").fill("env wrong");
+    await expect(page.getByTestId("reset-submit")).toBeDisabled();
+  });
+
+  test("[positive] Reset button enables when typed confirm matches the scope label", async ({
+    page,
+  }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-reset").click();
+    // env scope defaults to the first env (dev), so the label is "env dev"
+    await page.getByTestId("reset-confirm-input").fill("env dev");
+    await expect(page.getByTestId("reset-submit")).toBeEnabled();
+  });
+
+  test("[positive] resetting payments/dev clears the cell's keys", async ({ page, request }) => {
+    await page.goto(server.url);
+    const api = serverApi(server.url);
+
+    // Sanity: payments/dev currently has STRIPE_KEY before we reset it
+    const before = await request.get(`${api.base}/api/namespace/payments/dev`, {
+      headers: api.headers,
+    });
+    const beforeBody = (await before.json()) as { values: Record<string, string> };
+    expect(Object.keys(beforeBody.values)).toContain("STRIPE_KEY");
+
+    await page.getByTestId("nav-reset").click();
+    await page.getByTestId("reset-scope-cell").click();
+    // Both selects already default to the first option (payments / dev)
+    await page.getByTestId("reset-confirm-input").fill("payments/dev");
+    await page.getByTestId("reset-submit").click();
+
+    await expect(page.getByTestId("reset-done")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("1 cell scaffolded")).toBeVisible();
+
+    // After reset, the cell decrypts to an empty value map
+    const after = await request.get(`${api.base}/api/namespace/payments/dev`, {
+      headers: api.headers,
+    });
+    const afterBody = (await after.json()) as { values: Record<string, string> };
+    expect(Object.keys(afterBody.values)).toHaveLength(0);
+  });
+
+  test("[positive] View in Matrix navigates back to the matrix view", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-reset").click();
+    // Reset payments/dev again — already empty so this is a no-op clear
+    await page.getByTestId("reset-scope-cell").click();
+    await page.getByTestId("reset-confirm-input").fill("payments/dev");
+    await page.getByTestId("reset-submit").click();
+    await expect(page.getByTestId("reset-done")).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("reset-view-matrix").click();
+    await expect(page.getByText("Secret Matrix")).toBeVisible();
+  });
+
+  test("[positive] resetting the payments namespace clears every env including production", async ({
+    page,
+    request,
+  }) => {
+    await page.goto(server.url);
+    const api = serverApi(server.url);
+
+    // Sanity: payments/production still has STRIPE_KEY (cell-scope test only
+    // touched dev). Production is protected in the manifest — reset must
+    // proceed anyway because reset is recovery and intentionally has no
+    // protected gate (matches the CLI behavior).
+    const before = await request.get(`${api.base}/api/namespace/payments/production`, {
+      headers: api.headers,
+    });
+    const beforeBody = (await before.json()) as { values: Record<string, string> };
+    expect(Object.keys(beforeBody.values)).toContain("STRIPE_KEY");
+
+    await page.getByTestId("nav-reset").click();
+    await page.getByTestId("reset-scope-namespace").click();
+    await page.getByTestId("reset-confirm-input").fill("namespace payments");
+    await page.getByTestId("reset-submit").click();
+
+    await expect(page.getByTestId("reset-done")).toBeVisible({ timeout: 15_000 });
+    // Both payments/dev and payments/production scaffolded
+    await expect(page.getByText("2 cells scaffolded")).toBeVisible();
+
+    const after = await request.get(`${api.base}/api/namespace/payments/production`, {
+      headers: api.headers,
+    });
+    const afterBody = (await after.json()) as { values: Record<string, string> };
+    expect(Object.keys(afterBody.values)).toHaveLength(0);
+  });
+
+  test("[negative] resetting an unknown env via API surfaces a 404", async ({ request }) => {
+    // Direct API exercise for the server-side scope validation guard. The UI
+    // never sends an unknown scope (dropdowns are populated from the manifest)
+    // but a direct API caller can — the server must reject cleanly.
+    const api = serverApi(server.url);
+    const res = await request.post(`${api.base}/api/reset`, {
+      headers: { ...api.headers, "Content-Type": "application/json" },
+      data: { scope: { kind: "env", name: "nonexistent-env" } },
+    });
+    expect(res.status()).toBe(404);
+    const body = (await res.json()) as { code: string; error: string };
+    expect(body.code).toBe("NOT_FOUND");
+    expect(body.error).toContain("not found");
+  });
+});

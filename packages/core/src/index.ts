@@ -109,6 +109,8 @@ export type {
   MigrationResult,
   MigrationProgressEvent,
 } from "./migration/backend";
+export { ResetManager, describeScope, validateResetScope } from "./reset/manager";
+export type { ResetScope, ResetOptions, ResetResult } from "./reset/manager";
 export {
   spawnKeyservice,
   resolveKeyservicePath,

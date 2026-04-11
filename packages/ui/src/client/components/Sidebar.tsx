@@ -12,6 +12,7 @@ export type ViewName =
   | "recipients"
   | "identities"
   | "backend"
+  | "reset"
   | "history"
   | "manifest";
 
@@ -166,6 +167,12 @@ export function Sidebar({
           label="Backend"
           active={activeView === "backend"}
           onClick={() => setView("backend")}
+        />
+        <NavItem
+          icon={"\u2421"}
+          label="Reset"
+          active={activeView === "reset"}
+          onClick={() => setView("reset")}
         />
         <NavItem
           icon={"\u2630"}

@@ -34,9 +34,11 @@ import {
   validateAgePublicKey,
   VALID_KMS_PROVIDERS,
   BackendMigrator,
+  ResetManager,
   resolveBackendConfig,
+  validateResetScope,
 } from "@clef-sh/core";
-import type { ImportFormat, MigrationProgressEvent } from "@clef-sh/core";
+import type { BackendType, ImportFormat, MigrationProgressEvent, ResetScope } from "@clef-sh/core";
 
 export interface ApiDeps {
   runner: SubprocessRunner;
@@ -126,6 +128,7 @@ export function createApiRouter(deps: ApiDeps): Router {
   const recipientManager = new RecipientManager(sops, matrix, tx);
   const serviceIdManager = new ServiceIdentityManager(sops, matrix, tx);
   const backendMigrator = new BackendMigrator(sops, matrix, tx);
+  const resetManager = new ResetManager(matrix, sops, schemaValidator, tx);
   const bulkOps = new BulkOps(tx);
   const structureManager = new StructureManager(matrix, sops, tx);
 
@@ -1347,6 +1350,64 @@ export function createApiRouter(deps: ApiDeps): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Migration failed";
       res.status(500).json({ error: message, code: "MIGRATION_ERROR" });
+    }
+  });
+
+  // ── Destructive Reset ───────────────────────────────────────────────
+  //
+  // Disaster-recovery endpoint. Abandons the current encrypted contents of
+  // a scope (env / namespace / cell) and re-scaffolds fresh placeholders,
+  // optionally switching to a new SOPS backend in the same transaction.
+  // The UI gates this with a typed-confirmation modal — there is no
+  // server-side `confirmed` field because every other destructive endpoint
+  // (DELETE namespaces, DELETE environments) follows the same pattern of
+  // letting the UI carry the confirmation responsibility.
+
+  router.post("/reset", async (req: Request, res: Response) => {
+    try {
+      const { scope, backend, key, keys } = req.body as {
+        scope?: ResetScope;
+        backend?: BackendType;
+        key?: string;
+        keys?: string[];
+      };
+
+      if (!scope || typeof scope !== "object" || !("kind" in scope)) {
+        res.status(400).json({
+          error: "Reset requires a scope. Provide { kind: 'env'|'namespace'|'cell', ... }.",
+          code: "BAD_REQUEST",
+        });
+        return;
+      }
+
+      const manifest = loadManifest();
+
+      // Surface a clean 4xx for unknown scope before any destructive work.
+      // ResetManager re-validates internally as defence in depth.
+      try {
+        validateResetScope(scope, manifest);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Invalid reset scope";
+        res.status(404).json({ error: message, code: "NOT_FOUND" });
+        return;
+      }
+
+      const result = await resetManager.reset(
+        { scope, backend, key, keys },
+        manifest,
+        deps.repoRoot,
+      );
+      res.json({ success: true, result });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Reset failed";
+      // Validation-style errors that ResetManager throws after the scope
+      // check passes — bad backend/key combination, scope matches zero
+      // cells. Map these to 400 so the UI can render them as user errors
+      // rather than server errors.
+      const isUserError = /requires a key|does not take a key|matches zero cells/.test(message);
+      const status = isUserError ? 400 : 500;
+      const code = isUserError ? "BAD_REQUEST" : "RESET_ERROR";
+      res.status(status).json({ error: message, code });
     }
   });
 

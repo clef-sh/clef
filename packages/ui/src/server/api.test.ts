@@ -28,6 +28,13 @@ const mockMigrate = jest.fn().mockResolvedValue({
   warnings: [],
 });
 
+const mockResetReset = jest.fn().mockResolvedValue({
+  scaffoldedCells: ["/repo/database/dev.enc.yaml"],
+  pendingKeysByCell: {},
+  backendChanged: false,
+  affectedEnvironments: ["dev"],
+});
+
 // StructureManager method stubs — default to success. Tests override per-case
 // for error scenarios.
 const mockAddNamespace = jest.fn().mockResolvedValue(undefined);
@@ -59,6 +66,9 @@ jest.mock("@clef-sh/core", () => {
     })),
     BackendMigrator: jest.fn().mockImplementation(() => ({
       migrate: mockMigrate,
+    })),
+    ResetManager: jest.fn().mockImplementation(() => ({
+      reset: mockResetReset,
     })),
     // TransactionManager wraps every mutation in a real RecipientManager,
     // BulkOps, ImportRunner, etc. Stub it so tests don't try to acquire
@@ -1968,6 +1978,166 @@ describe("API routes", () => {
       const app = createApp();
       const res = await request(app).delete("/api/environments/dev");
       expect(res.status).toBe(412);
+    });
+  });
+
+  describe("POST /api/reset", () => {
+    it("resets an env scope and returns the result", async () => {
+      mockResetReset.mockResolvedValueOnce({
+        scaffoldedCells: ["/repo/database/dev.enc.yaml"],
+        pendingKeysByCell: {},
+        backendChanged: false,
+        affectedEnvironments: ["dev"],
+      });
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/reset")
+        .send({ scope: { kind: "env", name: "dev" } });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.result.scaffoldedCells).toHaveLength(1);
+      expect(res.body.result.affectedEnvironments).toEqual(["dev"]);
+      expect(mockResetReset).toHaveBeenCalledWith(
+        expect.objectContaining({ scope: { kind: "env", name: "dev" } }),
+        expect.any(Object),
+        "/repo",
+      );
+    });
+
+    it("resets a namespace scope", async () => {
+      mockResetReset.mockResolvedValueOnce({
+        scaffoldedCells: ["/repo/database/dev.enc.yaml", "/repo/database/production.enc.yaml"],
+        pendingKeysByCell: {},
+        backendChanged: false,
+        affectedEnvironments: ["dev", "production"],
+      });
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/reset")
+        .send({ scope: { kind: "namespace", name: "database" } });
+
+      expect(res.status).toBe(200);
+      expect(res.body.result.scaffoldedCells).toHaveLength(2);
+    });
+
+    it("resets a cell scope", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/reset")
+        .send({ scope: { kind: "cell", namespace: "database", environment: "dev" } });
+
+      expect(res.status).toBe(200);
+      expect(mockResetReset).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scope: { kind: "cell", namespace: "database", environment: "dev" },
+        }),
+        expect.any(Object),
+        "/repo",
+      );
+    });
+
+    it("passes optional backend + key + keys through to ResetManager", async () => {
+      const app = createApp();
+      await request(app)
+        .post("/api/reset")
+        .send({
+          scope: { kind: "env", name: "dev" },
+          backend: "awskms",
+          key: "arn:aws:kms:us-east-1:123:key/new",
+          keys: ["DB_URL", "DB_PASSWORD"],
+        });
+
+      expect(mockResetReset).toHaveBeenCalledWith(
+        expect.objectContaining({
+          backend: "awskms",
+          key: "arn:aws:kms:us-east-1:123:key/new",
+          keys: ["DB_URL", "DB_PASSWORD"],
+        }),
+        expect.any(Object),
+        "/repo",
+      );
+    });
+
+    it("returns 400 when scope is missing", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/reset").send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+      expect(mockResetReset).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 when scope is malformed", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/reset").send({ scope: "env" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+      expect(mockResetReset).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when scope references an unknown environment", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/reset")
+        .send({ scope: { kind: "env", name: "nonexistent" } });
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe("NOT_FOUND");
+      expect(res.body.error).toContain("Environment 'nonexistent' not found");
+      expect(mockResetReset).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when scope references an unknown namespace", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/reset")
+        .send({ scope: { kind: "namespace", name: "nope" } });
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe("NOT_FOUND");
+      expect(mockResetReset).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 when ResetManager throws a user-error message", async () => {
+      mockResetReset.mockRejectedValueOnce(
+        new Error("Backend 'awskms' requires a key. Pass --key <keyId>."),
+      );
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/reset")
+        .send({ scope: { kind: "env", name: "dev" }, backend: "awskms" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+      expect(res.body.error).toContain("requires a key");
+    });
+
+    it("returns 400 when scope matches zero cells", async () => {
+      mockResetReset.mockRejectedValueOnce(
+        new Error("Reset scope env dev matches zero cells. Check the scope name."),
+      );
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/reset")
+        .send({ scope: { kind: "env", name: "dev" } });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+      expect(res.body.error).toContain("matches zero cells");
+    });
+
+    it("returns 500 with RESET_ERROR on unexpected failure", async () => {
+      mockResetReset.mockRejectedValueOnce(new Error("git lock contention"));
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/reset")
+        .send({ scope: { kind: "env", name: "dev" } });
+
+      expect(res.status).toBe(500);
+      expect(res.body.code).toBe("RESET_ERROR");
+      expect(res.body.error).toContain("git lock contention");
     });
   });
 });

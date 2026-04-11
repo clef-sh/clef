@@ -55,7 +55,7 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
                 ? ` including protected environments: ${protectedEnvs.join(", ")}`
                 : "";
             const confirmed = await formatter.confirm(
-              `This will delete '${key}' from ${manifest.environments.length} environments (${envNames})${protectedNote}.\nType the key name to confirm:`,
+              `This will delete '${key}' from ${manifest.environments.length} environments (${envNames})${protectedNote}. Proceed?`,
             );
             if (!confirmed) {
               formatter.info("Aborted.");
