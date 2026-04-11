@@ -244,9 +244,41 @@ jobs:
           echo "ui_version=${UI_VER}"            >> "$GITHUB_OUTPUT"
           echo "client_version=${CLIENT_VER}"    >> "$GITHUB_OUTPUT"
 
+      # Beta: pre-create the git tag at HEAD_SHA and push it. We need a
+      # real git tag (not just a release object) because build-sea checks
+      # the tag out via actions/checkout. `gh release create --draft`
+      # does NOT push the underlying tag — draft releases hold the tag
+      # internally and only push it when the release is published. So we
+      # create and push the tag ourselves first, then the next step
+      # creates a draft release that simply attaches to the existing tag.
+      #
+      # Idempotent: skip if the tag already exists locally or remotely.
+      - name: Create git tag (beta)
+        if: env.BRANCH == 'staging'
+        run: |
+          CLI_VER="${{ steps.ver.outputs.cli_version }}"
+          TAG="v${CLI_VER}"
+
+          if git rev-parse --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists locally — skipping"
+            exit 0
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists on remote — fetching"
+            git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" || true
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG" "$HEAD_SHA"
+          git push origin "$TAG"
+          echo "Created and pushed tag: $TAG → $HEAD_SHA"
+
       # Beta: create the draft pre-release BEFORE build/test so SEA can be
       # dispatched immediately. The draft is invisible to users until
-      # publish-beta-npm flips it.
+      # publish-beta-npm flips it. The tag was already created and pushed
+      # by the previous step, so we don't need --target.
       # Idempotent — if the draft already exists from a previous run attempt,
       # leave it alone.
       - name: Create GitHub pre-release (beta)
@@ -260,7 +292,6 @@ jobs:
             exit 0
           fi
           gh release create "v${CLI_VER}" \
-            --target "$HEAD_SHA" \
             --draft \
             --prerelease \
             --title "v${CLI_VER} (beta)" \

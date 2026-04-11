@@ -169,12 +169,44 @@ jobs:
             git push origin "$TAG" 2>/dev/null || echo "::warning::Could not push tag $TAG (may already exist)"
           done
 
+      # ── Create umbrella git tag ──────────────────────────────────────────
+      #
+      # We need a real git tag (not just a release object) because build-sea
+      # checks the tag out via actions/checkout. `gh release create --draft`
+      # does NOT push the underlying tag — draft releases hold the tag
+      # internally and only push it when the release is published. So we
+      # create and push the tag ourselves first, then the next step creates
+      # a draft release that simply attaches to the existing tag.
+      #
+      # Idempotent: skip if the tag already exists locally or remotely.
+
+      - name: Create umbrella git tag
+        run: |
+          CLI_VER="${{ steps.versions.outputs.cli_version }}"
+          TAG="v${CLI_VER}"
+
+          if git rev-parse --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists locally — skipping"
+            exit 0
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists on remote — fetching"
+            git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" || true
+            exit 0
+          fi
+
+          # main HEAD at this point is the stamped commit we just pushed.
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "Created and pushed umbrella tag: $TAG"
+
       # ── Create DRAFT umbrella release ───────────────────────────────────
       #
       # The release starts as a draft so build-sea can attach bins before
       # anything is publicly visible. The "Flip draft to published" step at
       # the end of this job does the public reveal AFTER bins are confirmed
-      # built and npm publish has succeeded.
+      # built and npm publish has succeeded. The umbrella tag was already
+      # created and pushed by the previous step.
 
       - name: Create draft umbrella GitHub release
         env:
