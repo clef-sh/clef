@@ -94,12 +94,6 @@ jobs:
           stamp_stable packages/ui        ui
           stamp_stable packages/client   client
 
-      - name: Build all packages
-        run: npm run build
-
-      - name: Run tests
-        run: npm test
-
       # ── Verify CLI was bumped (early gate) ───────────────────────────────
       #
       # CLI is the canonical version anchor for the umbrella release. If
@@ -233,19 +227,22 @@ jobs:
             --draft
           echo "Created draft umbrella release: $TAG"
 
-      # ── Build SEA bins and attach to draft ──────────────────────────────
+      # ── Dispatch SEA bins (background) ──────────────────────────────────
       #
-      # Done BEFORE npm publish so that a SEA failure does not pollute npm.
-      # Same dispatch+poll rationale as publish-prerelease: events fired by
-      # GITHUB_TOKEN can't trigger downstream workflows, so we explicitly
-      # dispatch build-sea (workflow_dispatch is exempt) and poll for it.
+      # Done BEFORE build/test so the SEA build runs in parallel with this
+      # job's own build and test work. The "Wait for SEA build" step
+      # further down blocks until the dispatched run finishes — by which
+      # time it may already be done.
+      #
+      # We dispatch + poll because GITHUB_TOKEN can't fire `release:
+      # published` downstream — workflow_dispatch is one of the two events
+      # exempt from that restriction.
       #
       # Idempotent: short-circuit if every expected SEA bin is already on
-      # the umbrella release (whether draft or published), so a re-run
-      # after a transient failure further down the workflow doesn't waste
-      # 20 minutes rebuilding unchanged binaries.
+      # the umbrella release. Avoids 20-min rebuilds on re-runs.
 
-      - name: Dispatch & wait for SEA binary build
+      - name: Dispatch SEA build (background)
+        id: dispatch_sea
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -262,29 +259,45 @@ jobs:
           for asset in "${EXPECTED_ASSETS[@]}"; do
             if ! echo "$ASSETS" | grep -qx "$asset"; then
               ALL_PRESENT=false
-              echo "Missing asset: $asset"
               break
             fi
           done
           if [ "$ALL_PRESENT" = "true" ]; then
             echo "All ${#EXPECTED_ASSETS[@]} SEA bins already attached to $TAG — skipping dispatch"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
+          # Capture the latest build-sea run ID before dispatching so the
+          # later "Wait for SEA build" step can identify the run we triggered.
           BEFORE=$(gh run list \
             --repo "$GITHUB_REPOSITORY" \
             --workflow build-sea.yml \
             --limit 1 \
             --json databaseId \
             --jq '.[0].databaseId // 0')
-          echo "Latest build-sea run before dispatch: $BEFORE"
+          echo "before=$BEFORE" >> "$GITHUB_OUTPUT"
 
           gh workflow run build-sea.yml \
             --repo "$GITHUB_REPOSITORY" \
             --ref main \
             -f tag="$TAG"
-          echo "Dispatched build-sea for tag $TAG"
+          echo "Dispatched build-sea for tag $TAG (running in background)"
 
+      - name: Build all packages
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+      - name: Wait for SEA build
+        if: steps.dispatch_sea.outputs.skipped != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BEFORE="${{ steps.dispatch_sea.outputs.before }}"
+
+          # Find the run ID we just dispatched (any new run with ID > BEFORE).
           NEW_RUN_ID=""
           for i in $(seq 1 30); do
             CURRENT=$(gh run list \
