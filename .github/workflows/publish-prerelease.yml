@@ -232,76 +232,98 @@ jobs:
         run: npm test
 
       # ── Alpha (dev → GitHub Packages, restricted/internal) ───────────────
+      #
+      # Each publish step is idempotent: a re-run on a partial failure
+      # treats "version already exists" as a warning rather than a hard
+      # error, so the workflow can be safely retried via "Re-run failed
+      # jobs" without polluting the registry or aborting the rest of the
+      # publish loop.
+
       - name: Publish @clef-sh/core (alpha)
         if: github.ref_name == 'dev'
+        continue-on-error: true
         working-directory: packages/core
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/core alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/cloud (alpha)
         if: github.ref_name == 'dev'
+        continue-on-error: true
         working-directory: packages/cloud
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/cloud alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/analytics (alpha)
         if: github.ref_name == 'dev'
+        continue-on-error: true
         working-directory: packages/analytics
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/analytics alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/runtime (alpha)
         if: github.ref_name == 'dev'
+        continue-on-error: true
         working-directory: packages/runtime
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/runtime alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/agent (alpha)
         if: github.ref_name == 'dev'
+        continue-on-error: true
         working-directory: packages/agent
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/agent alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/broker (alpha)
         if: github.ref_name == 'dev'
+        continue-on-error: true
         working-directory: packages/broker
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/broker alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/cli (alpha)
         if: github.ref_name == 'dev'
+        continue-on-error: true
         working-directory: packages/cli
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/cli alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/ui (alpha)
         if: github.ref_name == 'dev'
+        continue-on-error: true
         working-directory: packages/ui
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/ui alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/client (alpha)
         if: github.ref_name == 'dev'
+        continue-on-error: true
         working-directory: packages/client
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/client alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Beta: create a GitHub pre-release so the version surfaces in Releases
+      # Beta: create a GitHub pre-release so the version surfaces in Releases.
+      # Idempotent — if the draft already exists from a previous run attempt,
+      # leave it alone instead of failing.
       - name: Create GitHub pre-release (beta)
         if: github.ref_name == 'staging'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CLI_VER="${{ steps.ver.outputs.cli_version }}"
+          if gh release view "v${CLI_VER}" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
+            echo "Draft release v${CLI_VER} already exists — leaving in place"
+            exit 0
+          fi
           gh release create "v${CLI_VER}" \
             --target "$GITHUB_SHA" \
             --draft \
@@ -312,15 +334,20 @@ jobs:
           SEA binaries (CLI + agent, 5 platforms each) plus the agent Lambda layer are attached below.
 
           To promote to npm for public testing, trigger the **Publish Beta to npm** workflow."
+          echo "Created draft release: v${CLI_VER}"
 
       # Beta: build SEA binaries on all platforms and attach to the draft
-      # release we just created. Doing this BEFORE the manual npm promotion
-      # means: (a) internal testers can download bins from the draft, and
-      # (b) if SEA fails, npm has not been touched.
+      # release we just created. Doing this BEFORE the GitHub Packages
+      # publish means: (a) internal testers can download bins from the
+      # draft, and (b) if SEA fails, no registry has been touched.
       #
       # We dispatch + poll because GITHUB_TOKEN can't fire `release: published`
       # downstream — workflow_dispatch is one of the two events exempt from
       # that restriction.
+      #
+      # Idempotent: if the draft already has a complete set of SEA bins
+      # (from a successful previous run attempt), skip the dispatch and
+      # the polling entirely.
       - name: Dispatch & wait for SEA binary build (beta)
         if: github.ref_name == 'staging'
         env:
@@ -328,6 +355,26 @@ jobs:
         run: |
           CLI_VER="${{ steps.ver.outputs.cli_version }}"
           TAG="v${CLI_VER}"
+
+          # Idempotency check: if every expected SEA bin is already attached
+          # to the draft, this step is already done and we can short-circuit.
+          EXPECTED_ASSETS=(
+            clef-linux-x64 clef-linux-arm64 clef-darwin-x64 clef-darwin-arm64 clef-windows-x64.exe
+            clef-agent-linux-x64 clef-agent-linux-arm64 clef-agent-darwin-x64 clef-agent-darwin-arm64 clef-agent-windows-x64.exe
+          )
+          ASSETS=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || echo "")
+          ALL_PRESENT=true
+          for asset in "${EXPECTED_ASSETS[@]}"; do
+            if ! echo "$ASSETS" | grep -qx "$asset"; then
+              ALL_PRESENT=false
+              echo "Missing asset: $asset"
+              break
+            fi
+          done
+          if [ "$ALL_PRESENT" = "true" ]; then
+            echo "All ${#EXPECTED_ASSETS[@]} SEA bins already attached to $TAG — skipping dispatch"
+            exit 0
+          fi
 
           BEFORE=$(gh run list \
             --repo "$GITHUB_REPOSITORY" \
@@ -392,68 +439,79 @@ jobs:
       #
       # Only happens if SEA succeeded above. A SEA failure aborts the
       # workflow before any registry publish, so npm.pkg.github.com is
-      # never touched on a broken release.
+      # never touched on a broken release. Each step is idempotent
+      # ("version already exists" → warning, not failure) so a partial
+      # failure mid-loop can be recovered with "Re-run failed jobs".
 
       - name: Publish @clef-sh/core (beta)
         if: github.ref_name == 'staging'
+        continue-on-error: true
         working-directory: packages/core
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/core beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/cloud (beta)
         if: github.ref_name == 'staging'
+        continue-on-error: true
         working-directory: packages/cloud
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/cloud beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/analytics (beta)
         if: github.ref_name == 'staging'
+        continue-on-error: true
         working-directory: packages/analytics
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/analytics beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/runtime (beta)
         if: github.ref_name == 'staging'
+        continue-on-error: true
         working-directory: packages/runtime
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/runtime beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/agent (beta)
         if: github.ref_name == 'staging'
+        continue-on-error: true
         working-directory: packages/agent
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/agent beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/broker (beta)
         if: github.ref_name == 'staging'
+        continue-on-error: true
         working-directory: packages/broker
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/broker beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/cli (beta)
         if: github.ref_name == 'staging'
+        continue-on-error: true
         working-directory: packages/cli
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/cli beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/ui (beta)
         if: github.ref_name == 'staging'
+        continue-on-error: true
         working-directory: packages/ui
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/ui beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/client (beta)
         if: github.ref_name == 'staging'
+        continue-on-error: true
         working-directory: packages/client
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/client beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

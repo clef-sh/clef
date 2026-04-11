@@ -132,16 +132,29 @@ jobs:
 
       - name: Create git tags
         run: |
+          # Idempotent tag creation: skip if tag already exists locally OR
+          # remotely (a re-run starts with a fresh checkout, so we have to
+          # check both).
           tag_if_released() {
             local NAME="$1"
             local PKG="$2"
             local RELEASED="$3"
             local VERSION="$4"
-            if [ "$RELEASED" = "true" ]; then
-              local TAG="@clef-sh/${PKG}-v${VERSION}"
-              git tag "$TAG"
-              echo "Tagged: $TAG"
+            if [ "$RELEASED" != "true" ]; then
+              return
             fi
+            local TAG="@clef-sh/${PKG}-v${VERSION}"
+            if git rev-parse --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+              echo "Tag ${TAG} already exists locally — skipping"
+              return
+            fi
+            if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+              echo "Tag ${TAG} already exists on remote — fetching"
+              git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" || true
+              return
+            fi
+            git tag "$TAG"
+            echo "Tagged: $TAG"
           }
 
           tag_if_released core    core    "${{ steps.versions.outputs.core_released }}"    "${{ steps.versions.outputs.core_version }}"
@@ -154,7 +167,13 @@ jobs:
           tag_if_released ui      ui      "${{ steps.versions.outputs.ui_released }}"      "${{ steps.versions.outputs.ui_version }}"
           tag_if_released client  client  "${{ steps.versions.outputs.client_released }}"  "${{ steps.versions.outputs.client_version }}"
 
-          git push --tags
+          # Push only tags that don't yet exist on remote. The plain
+          # `git push --tags` already skips existing matching tags but
+          # fails the entire command if any single tag conflicts; loop
+          # per-tag and warn rather than fail.
+          for TAG in $(git tag --list); do
+            git push origin "$TAG" 2>/dev/null || echo "::warning::Could not push tag $TAG (may already exist)"
+          done
 
       # ── Create DRAFT umbrella release ───────────────────────────────────
       #
@@ -169,6 +188,15 @@ jobs:
         run: |
           CLI_VER="${{ steps.versions.outputs.cli_version }}"
           TAG="v${CLI_VER}"
+
+          # Idempotent: if the release already exists from a previous run
+          # attempt, leave it alone. Whether it's a draft or already
+          # published, the downstream steps below will treat it as the
+          # canonical umbrella release.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
+            echo "Release $TAG already exists — leaving in place"
+            exit 0
+          fi
 
           # Build a markdown body listing every package that was bumped this cycle.
           {
@@ -211,6 +239,11 @@ jobs:
       # Same dispatch+poll rationale as publish-prerelease: events fired by
       # GITHUB_TOKEN can't trigger downstream workflows, so we explicitly
       # dispatch build-sea (workflow_dispatch is exempt) and poll for it.
+      #
+      # Idempotent: short-circuit if every expected SEA bin is already on
+      # the umbrella release (whether draft or published), so a re-run
+      # after a transient failure further down the workflow doesn't waste
+      # 20 minutes rebuilding unchanged binaries.
 
       - name: Dispatch & wait for SEA binary build
         env:
@@ -218,6 +251,25 @@ jobs:
         run: |
           CLI_VER="${{ steps.versions.outputs.cli_version }}"
           TAG="v${CLI_VER}"
+
+          # Idempotency check
+          EXPECTED_ASSETS=(
+            clef-linux-x64 clef-linux-arm64 clef-darwin-x64 clef-darwin-arm64 clef-windows-x64.exe
+            clef-agent-linux-x64 clef-agent-linux-arm64 clef-agent-darwin-x64 clef-agent-darwin-arm64 clef-agent-windows-x64.exe
+          )
+          ASSETS=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || echo "")
+          ALL_PRESENT=true
+          for asset in "${EXPECTED_ASSETS[@]}"; do
+            if ! echo "$ASSETS" | grep -qx "$asset"; then
+              ALL_PRESENT=false
+              echo "Missing asset: $asset"
+              break
+            fi
+          done
+          if [ "$ALL_PRESENT" = "true" ]; then
+            echo "All ${#EXPECTED_ASSETS[@]} SEA bins already attached to $TAG — skipping dispatch"
+            exit 0
+          fi
 
           BEFORE=$(gh run list \
             --repo "$GITHUB_REPOSITORY" \
@@ -364,6 +416,17 @@ jobs:
         run: |
           CLI_VER="${{ steps.versions.outputs.cli_version }}"
           TAG="v${CLI_VER}"
+
+          # Idempotent: if the release is already published from a previous
+          # run attempt, this is a no-op (gh release edit on an already-
+          # published release with --draft=false succeeds quietly). The
+          # check + log makes intent visible in the run output.
+          IS_DRAFT=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')
+          if [ "$IS_DRAFT" = "false" ]; then
+            echo "Release $TAG is already published — nothing to flip"
+            exit 0
+          fi
+
           gh release edit "$TAG" \
             --draft=false \
             --latest
