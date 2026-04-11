@@ -15,9 +15,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write # tag the promoted commit
+  contents: write # tag the promoted commit + edit the existing draft release
   id-token: write # provenance attestations
-  actions: write # dispatch build-sea via gh workflow run + poll for completion
 
 jobs:
   promote:
@@ -132,99 +131,30 @@ jobs:
           git tag "npm-beta/v${CLI_VER}" -m "Promoted beta to npm"
           git push origin "npm-beta/v${CLI_VER}"
 
-      - name: Update GitHub pre-release notes
+      - name: Flip draft beta release to published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CLI_VER="${{ steps.ver.outputs.cli }}"
-          if gh release view "v${CLI_VER}" &>/dev/null; then
-            gh release edit "v${CLI_VER}" \
-              --draft=false \
-              --prerelease \
-              --notes "Beta release. Published to npm.
+          if ! gh release view "v${CLI_VER}" &>/dev/null; then
+            echo "::error::Draft beta release v${CLI_VER} not found. Was publish-prerelease run on staging?"
+            exit 1
+          fi
+          # SEA bins were attached to the draft during the staging push, so
+          # flipping the draft is the only step needed to make the release
+          # publicly visible. Notes are updated to mention the npm install
+          # path; the assets are preserved.
+          gh release edit "v${CLI_VER}" \
+            --draft=false \
+            --prerelease \
+            --notes "Beta release. Published to npm.
 
           \`\`\`
           npm install @clef-sh/cli@beta
-          \`\`\`"
-          fi
+          \`\`\`
 
-      # Trigger the SEA binary build for the beta release and wait for it
-      # to finish. We can't rely on `release: published` to trigger build-sea
-      # because the draft flip above used GITHUB_TOKEN, and events fired by
-      # GITHUB_TOKEN do not start downstream workflows. workflow_dispatch is
-      # one of the two exceptions to that rule, so we dispatch explicitly and
-      # poll for completion.
-      - name: Dispatch & wait for SEA binary build
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          CLI_VER="${{ steps.ver.outputs.cli }}"
-          TAG="v${CLI_VER}"
-
-          # Watermark: note the latest build-sea run ID before dispatching so
-          # we can identify the run we just triggered.
-          BEFORE=$(gh run list \
-            --repo "$GITHUB_REPOSITORY" \
-            --workflow build-sea.yml \
-            --limit 1 \
-            --json databaseId \
-            --jq '.[0].databaseId // 0')
-          echo "Latest build-sea run before dispatch: $BEFORE"
-
-          # Dispatch
-          gh workflow run build-sea.yml \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref staging \
-            -f tag="$TAG"
-          echo "Dispatched build-sea for tag $TAG"
-
-          # Wait for the new run to appear (max 2.5 minutes)
-          NEW_RUN_ID=""
-          for i in $(seq 1 30); do
-            CURRENT=$(gh run list \
-              --repo "$GITHUB_REPOSITORY" \
-              --workflow build-sea.yml \
-              --limit 1 \
-              --json databaseId \
-              --jq '.[0].databaseId // 0')
-            if [ "$CURRENT" -gt "$BEFORE" ]; then
-              NEW_RUN_ID="$CURRENT"
-              break
-            fi
-            sleep 5
-          done
-          if [ -z "$NEW_RUN_ID" ]; then
-            echo "::error::build-sea run did not appear within 2.5 minutes"
-            exit 1
-          fi
-          echo "Tracking build-sea run: $NEW_RUN_ID"
-          echo "URL: https://github.com/$GITHUB_REPOSITORY/actions/runs/$NEW_RUN_ID"
-
-          # Poll for completion (max 60 minutes — SEA bins on 10 platforms
-          # plus the docker image take a while)
-          for i in $(seq 1 180); do
-            STATUS=$(gh run view "$NEW_RUN_ID" \
-              --repo "$GITHUB_REPOSITORY" \
-              --json status,conclusion \
-              --jq '.status')
-            CONCLUSION=$(gh run view "$NEW_RUN_ID" \
-              --repo "$GITHUB_REPOSITORY" \
-              --json status,conclusion \
-              --jq '.conclusion // "pending"')
-
-            if [ "$CONCLUSION" = "success" ]; then
-              echo "build-sea succeeded ✓"
-              exit 0
-            elif [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "cancelled" ]; then
-              echo "::error::build-sea $CONCLUSION — see https://github.com/$GITHUB_REPOSITORY/actions/runs/$NEW_RUN_ID"
-              exit 1
-            fi
-
-            echo "build-sea status=$STATUS conclusion=$CONCLUSION (attempt $i/180)"
-            sleep 20
-          done
-          echo "::error::Timed out waiting for build-sea after 60 minutes"
-          exit 1
+          CLI and agent SEA binaries (linux/darwin/windows × x64/arm64) plus the agent Lambda layer are attached below."
+          echo "Published beta release: v${CLI_VER}"
 
       - name: Publish summary
         run: |

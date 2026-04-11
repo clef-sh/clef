@@ -100,7 +100,188 @@ jobs:
       - name: Run tests
         run: npm test
 
+      # ── Verify CLI was bumped (early gate) ───────────────────────────────
+      #
+      # CLI is the canonical version anchor for the umbrella release. If
+      # cli_released is false (cli wasn't bumped this cycle), fail BEFORE
+      # touching git or any registry.
+
+      - name: Verify CLI was bumped
+        if: steps.versions.outputs.cli_released != 'true'
+        run: |
+          echo "::error::@clef-sh/cli was not bumped in this release cycle."
+          echo "::error::The umbrella release uses the CLI version as its tag."
+          echo "::error::Either bump cli on staging before merging, or run release.yml manually with a fresh staging promotion."
+          exit 1
+
+      # ── Commit version stamps + per-package tags ────────────────────────
+
+      - name: Commit stable versions
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Stage only package.json files that changed
+          git add packages/*/package.json
+          if git diff --cached --quiet; then
+            echo "No version changes to commit"
+            exit 0
+          fi
+          git commit -m "chore(release): stamp stable versions [skip ci]"
+          git push
+
+      - name: Create git tags
+        run: |
+          tag_if_released() {
+            local NAME="$1"
+            local PKG="$2"
+            local RELEASED="$3"
+            local VERSION="$4"
+            if [ "$RELEASED" = "true" ]; then
+              local TAG="@clef-sh/${PKG}-v${VERSION}"
+              git tag "$TAG"
+              echo "Tagged: $TAG"
+            fi
+          }
+
+          tag_if_released core    core    "${{ steps.versions.outputs.core_released }}"    "${{ steps.versions.outputs.core_version }}"
+          tag_if_released cloud     cloud     "${{ steps.versions.outputs.cloud_released }}"     "${{ steps.versions.outputs.cloud_version }}"
+          tag_if_released analytics analytics "${{ steps.versions.outputs.analytics_released }}" "${{ steps.versions.outputs.analytics_version }}"
+          tag_if_released runtime   runtime   "${{ steps.versions.outputs.runtime_released }}"   "${{ steps.versions.outputs.runtime_version }}"
+          tag_if_released broker  broker  "${{ steps.versions.outputs.broker_released }}"  "${{ steps.versions.outputs.broker_version }}"
+          tag_if_released agent   agent   "${{ steps.versions.outputs.agent_released }}"   "${{ steps.versions.outputs.agent_version }}"
+          tag_if_released cli     cli     "${{ steps.versions.outputs.cli_released }}"     "${{ steps.versions.outputs.cli_version }}"
+          tag_if_released ui      ui      "${{ steps.versions.outputs.ui_released }}"      "${{ steps.versions.outputs.ui_version }}"
+          tag_if_released client  client  "${{ steps.versions.outputs.client_released }}"  "${{ steps.versions.outputs.client_version }}"
+
+          git push --tags
+
+      # ── Create DRAFT umbrella release ───────────────────────────────────
+      #
+      # The release starts as a draft so build-sea can attach bins before
+      # anything is publicly visible. The "Flip draft to published" step at
+      # the end of this job does the public reveal AFTER bins are confirmed
+      # built and npm publish has succeeded.
+
+      - name: Create draft umbrella GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CLI_VER="${{ steps.versions.outputs.cli_version }}"
+          TAG="v${CLI_VER}"
+
+          # Build a markdown body listing every package that was bumped this cycle.
+          {
+            echo "## Packages"
+            echo ""
+            echo "| Package | Version |"
+            echo "|---|---|"
+            add_row() {
+              local PKG="$1"
+              local RELEASED="$2"
+              local VERSION="$3"
+              if [ "$RELEASED" = "true" ]; then
+                echo "| \`@clef-sh/${PKG}\` | \`${VERSION}\` |"
+              fi
+            }
+            add_row core      "${{ steps.versions.outputs.core_released }}"      "${{ steps.versions.outputs.core_version }}"
+            add_row cloud     "${{ steps.versions.outputs.cloud_released }}"     "${{ steps.versions.outputs.cloud_version }}"
+            add_row analytics "${{ steps.versions.outputs.analytics_released }}" "${{ steps.versions.outputs.analytics_version }}"
+            add_row runtime   "${{ steps.versions.outputs.runtime_released }}"   "${{ steps.versions.outputs.runtime_version }}"
+            add_row broker    "${{ steps.versions.outputs.broker_released }}"    "${{ steps.versions.outputs.broker_version }}"
+            add_row agent     "${{ steps.versions.outputs.agent_released }}"     "${{ steps.versions.outputs.agent_version }}"
+            add_row cli       "${{ steps.versions.outputs.cli_released }}"       "${{ steps.versions.outputs.cli_version }}"
+            add_row ui        "${{ steps.versions.outputs.ui_released }}"        "${{ steps.versions.outputs.ui_version }}"
+            add_row client    "${{ steps.versions.outputs.client_released }}"    "${{ steps.versions.outputs.client_version }}"
+            echo ""
+            echo "Install: \`npm install -g @clef-sh/cli\`"
+            echo ""
+            echo "CLI and agent SEA binaries (linux/darwin/windows × x64/arm64) plus the agent Lambda layer are attached below."
+          } > /tmp/release-notes.md
+
+          gh release create "$TAG" \
+            --title "v${CLI_VER}" \
+            --notes-file /tmp/release-notes.md \
+            --draft
+          echo "Created draft umbrella release: $TAG"
+
+      # ── Build SEA bins and attach to draft ──────────────────────────────
+      #
+      # Done BEFORE npm publish so that a SEA failure does not pollute npm.
+      # Same dispatch+poll rationale as publish-prerelease: events fired by
+      # GITHUB_TOKEN can't trigger downstream workflows, so we explicitly
+      # dispatch build-sea (workflow_dispatch is exempt) and poll for it.
+
+      - name: Dispatch & wait for SEA binary build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CLI_VER="${{ steps.versions.outputs.cli_version }}"
+          TAG="v${CLI_VER}"
+
+          BEFORE=$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow build-sea.yml \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId // 0')
+          echo "Latest build-sea run before dispatch: $BEFORE"
+
+          gh workflow run build-sea.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f tag="$TAG"
+          echo "Dispatched build-sea for tag $TAG"
+
+          NEW_RUN_ID=""
+          for i in $(seq 1 30); do
+            CURRENT=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow build-sea.yml \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // 0')
+            if [ "$CURRENT" -gt "$BEFORE" ]; then
+              NEW_RUN_ID="$CURRENT"
+              break
+            fi
+            sleep 5
+          done
+          if [ -z "$NEW_RUN_ID" ]; then
+            echo "::error::build-sea run did not appear within 2.5 minutes"
+            exit 1
+          fi
+          echo "Tracking build-sea run: $NEW_RUN_ID"
+          echo "URL: https://github.com/$GITHUB_REPOSITORY/actions/runs/$NEW_RUN_ID"
+
+          for i in $(seq 1 180); do
+            STATUS=$(gh run view "$NEW_RUN_ID" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json status,conclusion \
+              --jq '.status')
+            CONCLUSION=$(gh run view "$NEW_RUN_ID" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json status,conclusion \
+              --jq '.conclusion // "pending"')
+
+            if [ "$CONCLUSION" = "success" ]; then
+              echo "build-sea succeeded ✓"
+              exit 0
+            elif [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "cancelled" ]; then
+              echo "::error::build-sea $CONCLUSION — see https://github.com/$GITHUB_REPOSITORY/actions/runs/$NEW_RUN_ID"
+              exit 1
+            fi
+
+            echo "build-sea status=$STATUS conclusion=$CONCLUSION (attempt $i/180)"
+            sleep 20
+          done
+          echo "::error::Timed out waiting for build-sea after 60 minutes"
+          exit 1
+
       # ── Publish to npm (public packages with provenance) ────────────────
+      #
+      # Runs AFTER bins are attached to the draft so that any SEA failure
+      # has already aborted the workflow with no npm side effects.
 
       - name: Publish @clef-sh/core
         if: steps.versions.outputs.core_released == 'true'
@@ -170,171 +351,20 @@ jobs:
         working-directory: packages/client
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/client publish failed (may already exist)"
 
-      # ── Commit version stamps and tag ───────────────────────────────────
-
-      - name: Commit stable versions
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # Stage only package.json files that changed
-          git add packages/*/package.json
-          if git diff --cached --quiet; then
-            echo "No version changes to commit"
-            exit 0
-          fi
-          git commit -m "chore(release): stamp stable versions [skip ci]"
-          git push
-
-      - name: Create git tags
-        run: |
-          tag_if_released() {
-            local NAME="$1"
-            local PKG="$2"
-            local RELEASED="$3"
-            local VERSION="$4"
-            if [ "$RELEASED" = "true" ]; then
-              local TAG="@clef-sh/${PKG}-v${VERSION}"
-              git tag "$TAG"
-              echo "Tagged: $TAG"
-            fi
-          }
-
-          tag_if_released core    core    "${{ steps.versions.outputs.core_released }}"    "${{ steps.versions.outputs.core_version }}"
-          tag_if_released cloud     cloud     "${{ steps.versions.outputs.cloud_released }}"     "${{ steps.versions.outputs.cloud_version }}"
-          tag_if_released analytics analytics "${{ steps.versions.outputs.analytics_released }}" "${{ steps.versions.outputs.analytics_version }}"
-          tag_if_released runtime   runtime   "${{ steps.versions.outputs.runtime_released }}"   "${{ steps.versions.outputs.runtime_version }}"
-          tag_if_released broker  broker  "${{ steps.versions.outputs.broker_released }}"  "${{ steps.versions.outputs.broker_version }}"
-          tag_if_released agent   agent   "${{ steps.versions.outputs.agent_released }}"   "${{ steps.versions.outputs.agent_version }}"
-          tag_if_released cli     cli     "${{ steps.versions.outputs.cli_released }}"     "${{ steps.versions.outputs.cli_version }}"
-          tag_if_released ui      ui      "${{ steps.versions.outputs.ui_released }}"      "${{ steps.versions.outputs.ui_version }}"
-          tag_if_released client  client  "${{ steps.versions.outputs.client_released }}"  "${{ steps.versions.outputs.client_version }}"
-
-          git push --tags
-
-      # ── Umbrella GitHub Release ─────────────────────────────────────────
+      # ── Flip draft to published ─────────────────────────────────────────
       #
-      # CLI is the canonical version anchor for the umbrella release. If
-      # cli_released is false (cli wasn't bumped this cycle), the umbrella
-      # release would have no meaningful version, so fail loudly with a
-      # diagnostic instead of trying to create v<empty>.
+      # Final irreversible step: the umbrella release becomes publicly
+      # visible. By this point: bins are attached, npm packages are live,
+      # git tags are pushed. Flipping the draft is the moment users can
+      # discover the release on the Releases page.
 
-      - name: Verify CLI was bumped
-        if: steps.versions.outputs.cli_released != 'true'
-        run: |
-          echo "::error::@clef-sh/cli was not bumped in this release cycle."
-          echo "::error::The umbrella release uses the CLI version as its tag."
-          echo "::error::Either bump cli on staging before merging, or run release.yml manually with a fresh staging promotion."
-          exit 1
-
-      - name: Create umbrella GitHub release
+      - name: Flip draft umbrella release to published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CLI_VER="${{ steps.versions.outputs.cli_version }}"
           TAG="v${CLI_VER}"
-
-          # Build a markdown body listing every package that was bumped this cycle.
-          {
-            echo "## Packages"
-            echo ""
-            echo "| Package | Version |"
-            echo "|---|---|"
-            add_row() {
-              local PKG="$1"
-              local RELEASED="$2"
-              local VERSION="$3"
-              if [ "$RELEASED" = "true" ]; then
-                echo "| \`@clef-sh/${PKG}\` | \`${VERSION}\` |"
-              fi
-            }
-            add_row core      "${{ steps.versions.outputs.core_released }}"      "${{ steps.versions.outputs.core_version }}"
-            add_row cloud     "${{ steps.versions.outputs.cloud_released }}"     "${{ steps.versions.outputs.cloud_version }}"
-            add_row analytics "${{ steps.versions.outputs.analytics_released }}" "${{ steps.versions.outputs.analytics_version }}"
-            add_row runtime   "${{ steps.versions.outputs.runtime_released }}"   "${{ steps.versions.outputs.runtime_version }}"
-            add_row broker    "${{ steps.versions.outputs.broker_released }}"    "${{ steps.versions.outputs.broker_version }}"
-            add_row agent     "${{ steps.versions.outputs.agent_released }}"     "${{ steps.versions.outputs.agent_version }}"
-            add_row cli       "${{ steps.versions.outputs.cli_released }}"       "${{ steps.versions.outputs.cli_version }}"
-            add_row ui        "${{ steps.versions.outputs.ui_released }}"        "${{ steps.versions.outputs.ui_version }}"
-            add_row client    "${{ steps.versions.outputs.client_released }}"    "${{ steps.versions.outputs.client_version }}"
-            echo ""
-            echo "Install: \`npm install -g @clef-sh/cli\`"
-            echo ""
-            echo "CLI and agent SEA binaries (linux/darwin/windows × x64/arm64) plus the agent Lambda layer are attached below."
-          } > /tmp/release-notes.md
-
-          gh release create "$TAG" \
-            --title "v${CLI_VER}" \
-            --notes-file /tmp/release-notes.md \
+          gh release edit "$TAG" \
+            --draft=false \
             --latest
-          echo "Created umbrella release: $TAG"
-
-      # Trigger the SEA binary build for the umbrella release and wait for
-      # it to finish. Same rationale as publish-beta-npm: events fired by
-      # GITHUB_TOKEN can't trigger downstream workflows, so we dispatch via
-      # workflow_dispatch (which is exempt) and poll for completion.
-      - name: Dispatch & wait for SEA binary build
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          CLI_VER="${{ steps.versions.outputs.cli_version }}"
-          TAG="v${CLI_VER}"
-
-          BEFORE=$(gh run list \
-            --repo "$GITHUB_REPOSITORY" \
-            --workflow build-sea.yml \
-            --limit 1 \
-            --json databaseId \
-            --jq '.[0].databaseId // 0')
-          echo "Latest build-sea run before dispatch: $BEFORE"
-
-          gh workflow run build-sea.yml \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref main \
-            -f tag="$TAG"
-          echo "Dispatched build-sea for tag $TAG"
-
-          NEW_RUN_ID=""
-          for i in $(seq 1 30); do
-            CURRENT=$(gh run list \
-              --repo "$GITHUB_REPOSITORY" \
-              --workflow build-sea.yml \
-              --limit 1 \
-              --json databaseId \
-              --jq '.[0].databaseId // 0')
-            if [ "$CURRENT" -gt "$BEFORE" ]; then
-              NEW_RUN_ID="$CURRENT"
-              break
-            fi
-            sleep 5
-          done
-          if [ -z "$NEW_RUN_ID" ]; then
-            echo "::error::build-sea run did not appear within 2.5 minutes"
-            exit 1
-          fi
-          echo "Tracking build-sea run: $NEW_RUN_ID"
-          echo "URL: https://github.com/$GITHUB_REPOSITORY/actions/runs/$NEW_RUN_ID"
-
-          for i in $(seq 1 180); do
-            STATUS=$(gh run view "$NEW_RUN_ID" \
-              --repo "$GITHUB_REPOSITORY" \
-              --json status,conclusion \
-              --jq '.status')
-            CONCLUSION=$(gh run view "$NEW_RUN_ID" \
-              --repo "$GITHUB_REPOSITORY" \
-              --json status,conclusion \
-              --jq '.conclusion // "pending"')
-
-            if [ "$CONCLUSION" = "success" ]; then
-              echo "build-sea succeeded ✓"
-              exit 0
-            elif [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "cancelled" ]; then
-              echo "::error::build-sea $CONCLUSION — see https://github.com/$GITHUB_REPOSITORY/actions/runs/$NEW_RUN_ID"
-              exit 1
-            fi
-
-            echo "build-sea status=$STATUS conclusion=$CONCLUSION (attempt $i/180)"
-            sleep 20
-          done
-          echo "::error::Timed out waiting for build-sea after 60 minutes"
-          exit 1
+          echo "Published umbrella release: $TAG"
