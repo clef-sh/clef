@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/cloud",
-  "version": "0.1.21-beta.97",
+  "version": "0.1.21-beta.98",
   "description": "Clef Cloud integration — managed KMS, device-flow auth, artifact hosting",
   "repository": {
     "type": "git",
