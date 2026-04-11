@@ -881,7 +881,7 @@ Check — Inertness on an unconfigured install:
 - A fresh CLI install with no `~/.clef/cloud-credentials.*`
   and no `clef cloud init` must make ZERO outbound HTTP
   requests on any command except the explicit `clef cloud
-  login` and `clef cloud init` commands
+login` and `clef cloud init` commands
 - No top-level `import` or `require` in `packages/cli` or
   `packages/core` may execute cloud HTTP clients at load
   time — all cloud code must be lazy-loaded behind an
@@ -1826,7 +1826,7 @@ Read:
 Check:
 
 - `clef namespace add <name>` and `clef namespace remove
-  <name>` both mutate the manifest atomically via
+<name>` both mutate the manifest atomically via
   `TransactionManager` — a failure partway through must
   roll back the manifest to its pre-mutation state
 - `clef env add <name>` / `clef env remove <name>` /

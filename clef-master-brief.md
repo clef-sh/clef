@@ -227,20 +227,20 @@ keys:
 
 ## 4. Non-Functional Requirements
 
-| ID         | Requirement                                                                                           |
-| ---------- | ----------------------------------------------------------------------------------------------------- |
-| **NFR-01** | No mandatory server — runs entirely local                                                             |
-| **NFR-02** | No database — git repo is the only persistence layer                                                  |
-| **NFR-03** | Open source (MIT)                                                                                     |
-| **NFR-04** | SOPS binary is bundled per-platform; system `sops` on PATH is an accepted fallback                    |
-| **NFR-05** | Works on macOS (arm64, x64), Linux (arm64, x64), and Windows (x64)                                    |
-| **NFR-06** | Plaintext values must never be written to disk at any point                                           |
-| **NFR-07** | All file I/O piped through SOPS — no custom crypto                                                    |
-| **NFR-08** | Startup time under 2s for repos with up to 100 encrypted files                                        |
-| **NFR-09** | Local web UI binds `127.0.0.1` only, enforced via host-header validation                              |
-| **NFR-10** | Local web UI requires a per-session bearer token (256-bit) on every `/api` route                      |
-| **NFR-11** | Cloud integration ships with the CLI but must make no outbound network call until the user opts in   |
-| **NFR-12** | CLI distributes as a Single Executable Application (SEA) with the sops binary bundled into the blob  |
+| ID         | Requirement                                                                                         |
+| ---------- | --------------------------------------------------------------------------------------------------- |
+| **NFR-01** | No mandatory server — runs entirely local                                                           |
+| **NFR-02** | No database — git repo is the only persistence layer                                                |
+| **NFR-03** | Open source (MIT)                                                                                   |
+| **NFR-04** | SOPS binary is bundled per-platform; system `sops` on PATH is an accepted fallback                  |
+| **NFR-05** | Works on macOS (arm64, x64), Linux (arm64, x64), and Windows (x64)                                  |
+| **NFR-06** | Plaintext values must never be written to disk at any point                                         |
+| **NFR-07** | All file I/O piped through SOPS — no custom crypto                                                  |
+| **NFR-08** | Startup time under 2s for repos with up to 100 encrypted files                                      |
+| **NFR-09** | Local web UI binds `127.0.0.1` only, enforced via host-header validation                            |
+| **NFR-10** | Local web UI requires a per-session bearer token (256-bit) on every `/api` route                    |
+| **NFR-11** | Cloud integration ships with the CLI but must make no outbound network call until the user opts in  |
+| **NFR-12** | CLI distributes as a Single Executable Application (SEA) with the sops binary bundled into the blob |
 
 ---
 
@@ -304,17 +304,17 @@ platform-specific packages that each ship a bundled `sops` binary.
 
 ### 5.2 Packages
 
-| Package             | Role                                                                                              |
-| ------------------- | ------------------------------------------------------------------------------------------------- |
-| `@clef-sh/core`     | The heart of the system. All domain logic; depends on `yaml` and `age-encryption` only.          |
-| `@clef-sh/cli`      | Commander.js CLI. Thin wrapper over core. Ships as a SEA with the sops binary bundled in.         |
-| `@clef-sh/ui`       | React + Vite client and Express server for the local web UI. Served by `clef ui`.                |
-| `@clef-sh/runtime`  | Lightweight engine for consuming packed artifacts at runtime. No sops, no git.                    |
-| `@clef-sh/agent`    | Standalone HTTP sidecar daemon wrapping the runtime. Supports Lambda extension mode.             |
-| `@clef-sh/broker`   | Harness for dynamic credential brokers (e.g. STS assume-role at fetch time).                      |
-| `@clef-sh/cloud`    | Opt-in Clef Cloud integration: device-flow auth, keyservice spawner, cloud pack/report clients.  |
-| `@clef-sh/client`   | Public SDK for application code. Wraps `/v1/secrets`, falls back to env vars.                     |
-| `@clef-sh/analytics`| Opt-out PostHog telemetry. Used by CLI only.                                                      |
+| Package              | Role                                                                                            |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| `@clef-sh/core`      | The heart of the system. All domain logic; depends on `yaml` and `age-encryption` only.         |
+| `@clef-sh/cli`       | Commander.js CLI. Thin wrapper over core. Ships as a SEA with the sops binary bundled in.       |
+| `@clef-sh/ui`        | React + Vite client and Express server for the local web UI. Served by `clef ui`.               |
+| `@clef-sh/runtime`   | Lightweight engine for consuming packed artifacts at runtime. No sops, no git.                  |
+| `@clef-sh/agent`     | Standalone HTTP sidecar daemon wrapping the runtime. Supports Lambda extension mode.            |
+| `@clef-sh/broker`    | Harness for dynamic credential brokers (e.g. STS assume-role at fetch time).                    |
+| `@clef-sh/cloud`     | Opt-in Clef Cloud integration: device-flow auth, keyservice spawner, cloud pack/report clients. |
+| `@clef-sh/client`    | Public SDK for application code. Wraps `/v1/secrets`, falls back to env vars.                   |
+| `@clef-sh/analytics` | Opt-out PostHog telemetry. Used by CLI only.                                                    |
 
 Platform binaries live under `platforms/` as separate packages
 (`@clef-sh/sops-{platform}-{arch}`, versioned by sops version), and are pulled
@@ -335,33 +335,33 @@ SEA blob, depending on how the CLI was built.
 
 **Core Library** — authoritative domain logic, organised by submodule:
 
-| Module              | Responsibility                                                                  |
-| ------------------- | ------------------------------------------------------------------------------- |
-| `manifest/`         | Parse, validate, and mutate `clef.yaml`                                         |
-| `matrix/`           | Resolve namespace × environment cells and scaffold missing files                |
-| `structure/`        | Add, remove, rename namespaces and environments in the manifest                 |
-| `schema/`           | Validate decrypted content against per-namespace schemas                        |
-| `diff/`             | Cross-environment key comparison                                                |
-| `lint/`             | Whole-repo health check: matrix completeness, schema, SOPS integrity            |
-| `sops/`             | Subprocess wrapper over `sops`; stdin/stdout only, plus the resolver cache      |
-| `git/`              | Commit, log, diff, status, pre-commit hook management                           |
-| `recipients/`       | age/PGP recipient and key management                                            |
-| `pending/`          | Metadata tracking for in-progress rotations and multi-step operations           |
-| `tx/`               | Transaction manager: preflight checks and rollback for multi-file writes        |
-| `bulk/`             | Bulk cross-environment operations, wrapped by `tx`                              |
-| `scanner/`          | Entropy-based secret scanner with ignore patterns                               |
-| `drift/`            | Detects divergence between the live matrix and a known-good snapshot            |
-| `report/`           | Emits audit/compliance reports; hosts the cloud report client                   |
-| `service-identity/` | Named service identities and per-environment access grants                      |
-| `artifact/`         | Pack, sign (Ed25519 / KMS), and verify runtime artifacts                        |
-| `kms/`              | Provider abstractions for aws, gcp, azure, cloud                                |
-| `cloud/`            | keyservice spawning, device-flow auth, cloud pack/report clients                |
-| `migration/`        | Backend migration (e.g. age → AWS KMS) across the whole repo                    |
-| `merge/`            | Git merge driver for SOPS files                                                 |
-| `import/`           | Import `.env`, JSON, YAML into the matrix                                       |
-| `age/`              | Age key generation and key-file formatting                                      |
-| `dependencies/`     | Checks for required external binaries (sops, git, age)                          |
-| `consumption/`      | Tracks secret consumption / access patterns                                     |
+| Module              | Responsibility                                                             |
+| ------------------- | -------------------------------------------------------------------------- |
+| `manifest/`         | Parse, validate, and mutate `clef.yaml`                                    |
+| `matrix/`           | Resolve namespace × environment cells and scaffold missing files           |
+| `structure/`        | Add, remove, rename namespaces and environments in the manifest            |
+| `schema/`           | Validate decrypted content against per-namespace schemas                   |
+| `diff/`             | Cross-environment key comparison                                           |
+| `lint/`             | Whole-repo health check: matrix completeness, schema, SOPS integrity       |
+| `sops/`             | Subprocess wrapper over `sops`; stdin/stdout only, plus the resolver cache |
+| `git/`              | Commit, log, diff, status, pre-commit hook management                      |
+| `recipients/`       | age/PGP recipient and key management                                       |
+| `pending/`          | Metadata tracking for in-progress rotations and multi-step operations      |
+| `tx/`               | Transaction manager: preflight checks and rollback for multi-file writes   |
+| `bulk/`             | Bulk cross-environment operations, wrapped by `tx`                         |
+| `scanner/`          | Entropy-based secret scanner with ignore patterns                          |
+| `drift/`            | Detects divergence between the live matrix and a known-good snapshot       |
+| `report/`           | Emits audit/compliance reports; hosts the cloud report client              |
+| `service-identity/` | Named service identities and per-environment access grants                 |
+| `artifact/`         | Pack, sign (Ed25519 / KMS), and verify runtime artifacts                   |
+| `kms/`              | Provider abstractions for aws, gcp, azure, cloud                           |
+| `cloud/`            | keyservice spawning, device-flow auth, cloud pack/report clients           |
+| `migration/`        | Backend migration (e.g. age → AWS KMS) across the whole repo               |
+| `merge/`            | Git merge driver for SOPS files                                            |
+| `import/`           | Import `.env`, JSON, YAML into the matrix                                  |
+| `age/`              | Age key generation and key-file formatting                                 |
+| `dependencies/`     | Checks for required external binaries (sops, git, age)                     |
+| `consumption/`      | Tracks secret consumption / access patterns                                |
 
 **SOPS Layer** — a thin subprocess wrapper. Decrypted values exist only in
 memory; the `SopsClient.encrypt` path pipes plaintext over stdin (or a named
@@ -494,52 +494,52 @@ clef cloud status                                  # Auth and integration status
 
 All ten original MVP items are implemented and shipping in the `0.1.x` beta.
 
-| #   | Feature                                       | Status        |
-| --- | --------------------------------------------- | ------------- |
-| 1   | Manifest parsing + file matrix scaffold       | ✅ Shipped    |
-| 2   | CLI: get / set / delete (single file)         | ✅ Shipped    |
-| 3   | CLI: diff (two environments)                  | ✅ Shipped    |
-| 4   | CLI: lint (missing keys, matrix completeness) | ✅ Shipped    |
-| 5   | Pre-commit hook installer                     | ✅ Shipped    |
-| 6   | Local Web UI: matrix browser + edit           | ✅ Shipped    |
-| 7   | Schema validation                             | ✅ Shipped    |
-| 8   | Bulk cross-environment set                    | ✅ Shipped    |
-| 9   | Key rotation helper                           | ✅ Shipped    |
-| 10  | Git log view in UI                            | ✅ Shipped    |
+| #   | Feature                                       | Status     |
+| --- | --------------------------------------------- | ---------- |
+| 1   | Manifest parsing + file matrix scaffold       | ✅ Shipped |
+| 2   | CLI: get / set / delete (single file)         | ✅ Shipped |
+| 3   | CLI: diff (two environments)                  | ✅ Shipped |
+| 4   | CLI: lint (missing keys, matrix completeness) | ✅ Shipped |
+| 5   | Pre-commit hook installer                     | ✅ Shipped |
+| 6   | Local Web UI: matrix browser + edit           | ✅ Shipped |
+| 7   | Schema validation                             | ✅ Shipped |
+| 8   | Bulk cross-environment set                    | ✅ Shipped |
+| 9   | Key rotation helper                           | ✅ Shipped |
+| 10  | Git log view in UI                            | ✅ Shipped |
 
 ### Post-MVP scope (also shipped or in-flight)
 
-| Area                     | Feature                                                                          |
-| ------------------------ | -------------------------------------------------------------------------------- |
-| Runtime consumption      | `@clef-sh/runtime`, `@clef-sh/agent` (sidecar + Lambda), `clef exec`, `clef serve` |
-| Artifact pipeline        | `clef pack` with Ed25519 / KMS signatures; runtime verification                  |
-| Service identities       | `clef service` commands and UI screen                                            |
-| Scanner                  | Entropy-based `clef scan` with ignore patterns                                   |
-| Drift and reports        | `clef drift`, `clef report`                                                      |
-| Import / export          | `.env`, JSON, YAML both directions                                               |
-| Backend migration        | `clef migrate-backend` for whole-repo rotation across backends                   |
-| Git merge driver         | `clef merge-driver install`                                                      |
-| Clef Cloud               | Managed KMS via keyservice, device-flow login, cloud pack/report                 |
-| Broker harness           | `@clef-sh/broker` for dynamic credential exchange at fetch time                  |
-| Client SDK               | `@clef-sh/client` with env-var fallback                                          |
-| Telemetry                | Opt-out PostHog analytics via `@clef-sh/analytics`                               |
+| Area                | Feature                                                                            |
+| ------------------- | ---------------------------------------------------------------------------------- |
+| Runtime consumption | `@clef-sh/runtime`, `@clef-sh/agent` (sidecar + Lambda), `clef exec`, `clef serve` |
+| Artifact pipeline   | `clef pack` with Ed25519 / KMS signatures; runtime verification                    |
+| Service identities  | `clef service` commands and UI screen                                              |
+| Scanner             | Entropy-based `clef scan` with ignore patterns                                     |
+| Drift and reports   | `clef drift`, `clef report`                                                        |
+| Import / export     | `.env`, JSON, YAML both directions                                                 |
+| Backend migration   | `clef migrate-backend` for whole-repo rotation across backends                     |
+| Git merge driver    | `clef merge-driver install`                                                        |
+| Clef Cloud          | Managed KMS via keyservice, device-flow login, cloud pack/report                   |
+| Broker harness      | `@clef-sh/broker` for dynamic credential exchange at fetch time                    |
+| Client SDK          | `@clef-sh/client` with env-var fallback                                            |
+| Telemetry           | Opt-out PostHog analytics via `@clef-sh/analytics`                                 |
 
 ---
 
 ## 8. Key Technical Decisions
 
-| Decision                   | Choice                              | Rationale                                                                                           |
-| -------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Implementation language    | TypeScript + Node.js                | Shared types across CLI, UI, runtime, SDK; React ecosystem for the UI; SEA for single-binary dist.  |
-| Monorepo tooling           | npm workspaces                      | Stdlib tooling; no extra orchestrator; fast enough at nine packages.                                |
-| UI framework               | React + Vite + Express              | Vite dev server proxies `/api` to port 7777; Express serves the built client in production.        |
-| SOPS interaction           | Subprocess (sops binary)            | Avoid re-implementing crypto; SOPS binary is the trust anchor. Bundled per-platform; PATH fallback. |
-| Local UI transport         | `127.0.0.1:7777` + bearer token     | Host-header validation + 256-bit per-session token on every `/api` route.                           |
-| Binary distribution        | Node 20 SEA with sops in the blob   | Single executable, no install step, installer script verifies checksums.                            |
-| Config format              | YAML                                | Consistent with SOPS conventions.                                                                   |
-| Encryption backend default | age                                 | Zero-infra, modern, simpler than PGP.                                                               |
-| Cloud KMS transport        | Spawned `keyservice` binary         | SOPS gRPC protocol; keyservice proxies AWS / GCP / Azure KMS. Lazy-loaded, opt-in only.             |
-| Testing                    | Jest (unit), Playwright (e2e)       | Jest is the ecosystem default; Playwright drives real browsers against the built SEA binary.       |
+| Decision                   | Choice                            | Rationale                                                                                           |
+| -------------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Implementation language    | TypeScript + Node.js              | Shared types across CLI, UI, runtime, SDK; React ecosystem for the UI; SEA for single-binary dist.  |
+| Monorepo tooling           | npm workspaces                    | Stdlib tooling; no extra orchestrator; fast enough at nine packages.                                |
+| UI framework               | React + Vite + Express            | Vite dev server proxies `/api` to port 7777; Express serves the built client in production.         |
+| SOPS interaction           | Subprocess (sops binary)          | Avoid re-implementing crypto; SOPS binary is the trust anchor. Bundled per-platform; PATH fallback. |
+| Local UI transport         | `127.0.0.1:7777` + bearer token   | Host-header validation + 256-bit per-session token on every `/api` route.                           |
+| Binary distribution        | Node 20 SEA with sops in the blob | Single executable, no install step, installer script verifies checksums.                            |
+| Config format              | YAML                              | Consistent with SOPS conventions.                                                                   |
+| Encryption backend default | age                               | Zero-infra, modern, simpler than PGP.                                                               |
+| Cloud KMS transport        | Spawned `keyservice` binary       | SOPS gRPC protocol; keyservice proxies AWS / GCP / Azure KMS. Lazy-loaded, opt-in only.             |
+| Testing                    | Jest (unit), Playwright (e2e)     | Jest is the ecosystem default; Playwright drives real browsers against the built SEA binary.        |
 
 ---
 
@@ -672,15 +672,15 @@ Open Lint (red badge on sidebar) → filter by Error → click file reference, j
 The UI has grown past the four-screen mockup as new core capabilities landed.
 Every screen below lives in `packages/ui/src/client/screens/`:
 
-| Screen                   | Purpose                                                                   |
-| ------------------------ | ------------------------------------------------------------------------- |
-| `ManifestScreen`         | Visual editor for `clef.yaml` — namespaces, environments, file patterns. |
-| `GitLogView`             | Per-file commit history panel.                                            |
-| `ScanScreen`             | Results from the entropy scanner, with ignore controls.                   |
-| `RecipientsScreen`       | age/KMS recipient and key management.                                     |
-| `BackendScreen`          | SOPS backend configuration and migration.                                 |
-| `ServiceIdentitiesScreen`| Service identities and per-environment access grants.                    |
-| `ImportScreen`           | Guided import of `.env`, JSON, or YAML into the matrix.                   |
+| Screen                    | Purpose                                                                  |
+| ------------------------- | ------------------------------------------------------------------------ |
+| `ManifestScreen`          | Visual editor for `clef.yaml` — namespaces, environments, file patterns. |
+| `GitLogView`              | Per-file commit history panel.                                           |
+| `ScanScreen`              | Results from the entropy scanner, with ignore controls.                  |
+| `RecipientsScreen`        | age/KMS recipient and key management.                                    |
+| `BackendScreen`           | SOPS backend configuration and migration.                                |
+| `ServiceIdentitiesScreen` | Service identities and per-environment access grants.                    |
+| `ImportScreen`            | Guided import of `.env`, JSON, or YAML into the matrix.                  |
 
 ### What Is Still Not In The UI
 
@@ -708,11 +708,11 @@ argv they would have run.
 
 ### Test Tiers
 
-| Tier         | Location                                          | Runtime dependencies              |
-| ------------ | ------------------------------------------------- | --------------------------------- |
-| Unit         | `packages/*/src/**/*.test.ts(x)`                  | None. All I/O mocked.             |
-| Integration  | `integration/`                                    | Real sops + age + git on PATH.    |
-| End-to-end   | `e2e/` (Playwright)                               | Built CLI SEA binary + Chromium.  |
+| Tier        | Location                         | Runtime dependencies             |
+| ----------- | -------------------------------- | -------------------------------- |
+| Unit        | `packages/*/src/**/*.test.ts(x)` | None. All I/O mocked.            |
+| Integration | `integration/`                   | Real sops + age + git on PATH.   |
+| End-to-end  | `e2e/` (Playwright)              | Built CLI SEA binary + Chromium. |
 
 ### Coverage Requirements
 
