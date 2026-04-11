@@ -50,7 +50,16 @@ export function MatrixView({ setView, setNs, manifest, matrixStatuses }: MatrixV
         actions={
           <>
             <Button onClick={() => setView("lint")}>Lint All</Button>
-            <Button variant="primary">+ Namespace</Button>
+            <Button onClick={() => setView("manifest")} data-testid="matrix-add-environment-btn">
+              + Environment
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => setView("manifest")}
+              data-testid="matrix-add-namespace-btn"
+            >
+              + Namespace
+            </Button>
           </>
         }
       />

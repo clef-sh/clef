@@ -28,6 +28,15 @@ const mockMigrate = jest.fn().mockResolvedValue({
   warnings: [],
 });
 
+// StructureManager method stubs — default to success. Tests override per-case
+// for error scenarios.
+const mockAddNamespace = jest.fn().mockResolvedValue(undefined);
+const mockEditNamespace = jest.fn().mockResolvedValue(undefined);
+const mockRemoveNamespace = jest.fn().mockResolvedValue(undefined);
+const mockAddEnvironment = jest.fn().mockResolvedValue(undefined);
+const mockEditEnvironment = jest.fn().mockResolvedValue(undefined);
+const mockRemoveEnvironment = jest.fn().mockResolvedValue(undefined);
+
 // Mock the pending metadata functions and ServiceIdentityManager from core
 jest.mock("@clef-sh/core", () => {
   const actual = jest.requireActual("@clef-sh/core");
@@ -39,6 +48,14 @@ jest.mock("@clef-sh/core", () => {
       delete: jest.fn().mockResolvedValue(undefined),
       updateEnvironments: jest.fn().mockResolvedValue(undefined),
       validate: jest.fn().mockReturnValue([]),
+    })),
+    StructureManager: jest.fn().mockImplementation(() => ({
+      addNamespace: mockAddNamespace,
+      editNamespace: mockEditNamespace,
+      removeNamespace: mockRemoveNamespace,
+      addEnvironment: mockAddEnvironment,
+      editEnvironment: mockEditEnvironment,
+      removeEnvironment: mockRemoveEnvironment,
     })),
     BackendMigrator: jest.fn().mockImplementation(() => ({
       migrate: mockMigrate,
@@ -1772,6 +1789,238 @@ describe("API routes", () => {
       expect(res.status).toBe(500);
       expect(res.body.code).toBe("MIGRATION_ERROR");
       expect(res.body.error).toContain("KMS connection timeout");
+    });
+  });
+
+  // ── Manifest structure: namespaces ──────────────────────────────────────
+
+  describe("POST /api/namespaces", () => {
+    it("creates a namespace and returns 201", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/namespaces")
+        .send({ name: "billing", description: "Billing secrets" });
+
+      expect(res.status).toBe(201);
+      expect(res.body.name).toBe("billing");
+      expect(mockAddNamespace).toHaveBeenCalledWith(
+        "billing",
+        expect.objectContaining({ description: "Billing secrets" }),
+        expect.any(Object),
+        expect.any(String),
+      );
+    });
+
+    it("returns 400 when name is missing", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/namespaces").send({});
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+    });
+
+    it("returns 409 on duplicate namespace name", async () => {
+      mockAddNamespace.mockRejectedValueOnce(new Error("Namespace 'billing' already exists."));
+      const app = createApp();
+      const res = await request(app).post("/api/namespaces").send({ name: "billing" });
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("CONFLICT");
+    });
+
+    it("returns 400 on invalid identifier", async () => {
+      mockAddNamespace.mockRejectedValueOnce(new Error("Invalid namespace name 'has spaces'."));
+      const app = createApp();
+      const res = await request(app).post("/api/namespaces").send({ name: "has spaces" });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+    });
+  });
+
+  describe("PATCH /api/namespaces/:name", () => {
+    it("renames a namespace", async () => {
+      const app = createApp();
+      const res = await request(app).patch("/api/namespaces/database").send({ rename: "billing" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe("billing");
+      expect(res.body.previousName).toBe("database");
+      expect(mockEditNamespace).toHaveBeenCalledWith(
+        "database",
+        expect.objectContaining({ rename: "billing" }),
+        expect.any(Object),
+        expect.any(String),
+      );
+    });
+
+    it("updates a description without renaming", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .patch("/api/namespaces/database")
+        .send({ description: "Updated" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.previousName).toBeUndefined();
+    });
+
+    it("returns 400 when no edit fields are provided", async () => {
+      const app = createApp();
+      const res = await request(app).patch("/api/namespaces/database").send({});
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+    });
+
+    it("returns 404 when the namespace doesn't exist", async () => {
+      mockEditNamespace.mockRejectedValueOnce(new Error("Namespace 'nonexistent' not found."));
+      const app = createApp();
+      const res = await request(app)
+        .patch("/api/namespaces/nonexistent")
+        .send({ description: "x" });
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe("NOT_FOUND");
+    });
+
+    it("returns 409 when the rename target already exists", async () => {
+      mockEditNamespace.mockRejectedValueOnce(new Error("Namespace 'billing' already exists."));
+      const app = createApp();
+      const res = await request(app).patch("/api/namespaces/database").send({ rename: "billing" });
+      expect(res.status).toBe(409);
+    });
+  });
+
+  describe("DELETE /api/namespaces/:name", () => {
+    it("removes a namespace", async () => {
+      const app = createApp();
+      const res = await request(app).delete("/api/namespaces/database");
+
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(mockRemoveNamespace).toHaveBeenCalledWith(
+        "database",
+        expect.any(Object),
+        expect.any(String),
+      );
+    });
+
+    it("returns 412 when removing would orphan a service identity", async () => {
+      mockRemoveNamespace.mockRejectedValueOnce(
+        new Error(
+          "Cannot remove namespace 'database': it is the only scope of service identity 'web-app'.",
+        ),
+      );
+      const app = createApp();
+      const res = await request(app).delete("/api/namespaces/database");
+      expect(res.status).toBe(412);
+      expect(res.body.code).toBe("PRECONDITION_FAILED");
+    });
+
+    it("returns 412 when removing the last namespace", async () => {
+      mockRemoveNamespace.mockRejectedValueOnce(
+        new Error("Cannot remove the last namespace from the manifest."),
+      );
+      const app = createApp();
+      const res = await request(app).delete("/api/namespaces/database");
+      expect(res.status).toBe(412);
+    });
+  });
+
+  // ── Manifest structure: environments ────────────────────────────────────
+
+  describe("POST /api/environments", () => {
+    it("creates an environment and returns 201", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/environments")
+        .send({ name: "staging", description: "Staging" });
+
+      expect(res.status).toBe(201);
+      expect(res.body.name).toBe("staging");
+      expect(res.body.protected).toBe(false);
+      expect(mockAddEnvironment).toHaveBeenCalledWith(
+        "staging",
+        expect.objectContaining({ description: "Staging" }),
+        expect.any(Object),
+        expect.any(String),
+      );
+    });
+
+    it("creates a protected environment when protected:true", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/environments")
+        .send({ name: "canary", protected: true });
+
+      expect(res.status).toBe(201);
+      expect(res.body.protected).toBe(true);
+    });
+
+    it("returns 400 when name is missing", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/environments").send({});
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 409 on duplicate env name", async () => {
+      mockAddEnvironment.mockRejectedValueOnce(new Error("Environment 'staging' already exists."));
+      const app = createApp();
+      const res = await request(app).post("/api/environments").send({ name: "staging" });
+      expect(res.status).toBe(409);
+    });
+  });
+
+  describe("PATCH /api/environments/:name", () => {
+    it("renames an environment", async () => {
+      const app = createApp();
+      const res = await request(app).patch("/api/environments/dev").send({ rename: "development" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe("development");
+      expect(res.body.previousName).toBe("dev");
+    });
+
+    it("toggles protected via PATCH", async () => {
+      const app = createApp();
+      const res = await request(app).patch("/api/environments/dev").send({ protected: true });
+
+      expect(res.status).toBe(200);
+      expect(mockEditEnvironment).toHaveBeenCalledWith(
+        "dev",
+        expect.objectContaining({ protected: true }),
+        expect.any(Object),
+        expect.any(String),
+      );
+    });
+
+    it("returns 400 when no edit fields are provided", async () => {
+      const app = createApp();
+      const res = await request(app).patch("/api/environments/dev").send({});
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe("DELETE /api/environments/:name", () => {
+    it("removes an environment", async () => {
+      const app = createApp();
+      const res = await request(app).delete("/api/environments/dev");
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+    });
+
+    it("returns 412 when the environment is protected", async () => {
+      mockRemoveEnvironment.mockRejectedValueOnce(
+        new Error("Environment 'production' is protected. Cannot remove a protected environment."),
+      );
+      const app = createApp();
+      const res = await request(app).delete("/api/environments/production");
+      expect(res.status).toBe(412);
+      expect(res.body.error).toContain("protected");
+    });
+
+    it("returns 412 when removing the last environment", async () => {
+      mockRemoveEnvironment.mockRejectedValueOnce(
+        new Error("Cannot remove the last environment from the manifest."),
+      );
+      const app = createApp();
+      const res = await request(app).delete("/api/environments/dev");
+      expect(res.status).toBe(412);
     });
   });
 });

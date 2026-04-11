@@ -983,3 +983,205 @@ test.describe("clef migrate-backend → BackendScreen", () => {
     });
   });
 });
+
+// ── clef namespace add → ManifestScreen: create namespace flow ───────────────
+//
+// These tests share state across the describe block — `e2e-add-ns` is created
+// in the [positive] case and verified later. Subsequent tests assume the
+// scaffold from earlier ones (positive-then-negative chain).
+
+test.describe("clef namespace add → ManifestScreen: create namespace flow", () => {
+  test("[positive] add modal opens from + Namespace button on Manifest screen", async ({
+    page,
+  }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-manifest").click();
+    // The screen TopBar shows "Manifest" — wait for the add button which is
+    // unique to the Manifest screen (avoids the Sidebar nav-manifest collision)
+    await expect(page.getByTestId("add-namespace-btn")).toBeVisible();
+    await page.getByTestId("add-namespace-btn").click();
+    await expect(page.getByTestId("namespace-name-input")).toBeVisible();
+  });
+
+  test("[positive] submitting creates the namespace and adds a row to the list", async ({
+    page,
+  }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-manifest").click();
+    await page.getByTestId("add-namespace-btn").click();
+    await page.getByTestId("namespace-name-input").fill("e2e-add-ns");
+    await page.getByTestId("namespace-description-input").fill("Created by e2e test");
+    await page.getByTestId("namespace-add-submit").click();
+    // Modal closes; new row appears in the list
+    await expect(page.getByTestId("namespace-row-e2e-add-ns")).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("[negative] duplicate name disables submit and shows local error", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-manifest").click();
+    await page.getByTestId("add-namespace-btn").click();
+    await page.getByTestId("namespace-name-input").fill("payments");
+    await expect(page.getByText(/already exists/)).toBeVisible();
+    await expect(page.getByTestId("namespace-add-submit")).toBeDisabled();
+  });
+
+  test("[negative] invalid identifier disables submit", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-manifest").click();
+    await page.getByTestId("add-namespace-btn").click();
+    await page.getByTestId("namespace-name-input").fill("has spaces");
+    await expect(page.getByText(/letters, numbers/)).toBeVisible();
+    await expect(page.getByTestId("namespace-add-submit")).toBeDisabled();
+  });
+});
+
+// ── clef namespace edit → ManifestScreen: rename + edit flow ─────────────────
+
+test.describe("clef namespace edit → ManifestScreen: edit + rename flow", () => {
+  test("[positive] rename moves the namespace and the new row appears", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-manifest").click();
+    // Edit the e2e-add-ns created earlier
+    await page.getByTestId("namespace-row-e2e-add-ns-edit").click();
+    await page.getByTestId("namespace-rename-input").fill("e2e-renamed-ns");
+    await page.getByTestId("namespace-edit-submit").click();
+    // Modal closes; old row gone, new row visible
+    await expect(page.getByTestId("namespace-row-e2e-renamed-ns")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("namespace-row-e2e-add-ns")).toHaveCount(0);
+  });
+
+  test("[negative] rename to an existing name disables submit", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-manifest").click();
+    await page.getByTestId("namespace-row-e2e-renamed-ns-edit").click();
+    await page.getByTestId("namespace-rename-input").fill("payments");
+    await expect(page.getByText(/already exists/)).toBeVisible();
+    await expect(page.getByTestId("namespace-edit-submit")).toBeDisabled();
+  });
+});
+
+// ── clef namespace remove → ManifestScreen: delete flow ──────────────────────
+
+test.describe("clef namespace remove → ManifestScreen: delete flow", () => {
+  test("[positive] confirm modal requires typing the name to enable submit", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-manifest").click();
+    await page.getByTestId("namespace-row-e2e-renamed-ns-delete").click();
+    // Submit disabled until name typed
+    await expect(page.getByTestId("namespace-remove-submit")).toBeDisabled();
+    await page.getByTestId("namespace-remove-confirm-input").fill("e2e-renamed-ns");
+    await expect(page.getByTestId("namespace-remove-submit")).toBeEnabled();
+  });
+
+  test("[positive] submitting deletes the namespace and removes its row", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-manifest").click();
+    await page.getByTestId("namespace-row-e2e-renamed-ns-delete").click();
+    await page.getByTestId("namespace-remove-confirm-input").fill("e2e-renamed-ns");
+    await page.getByTestId("namespace-remove-submit").click();
+    // Row should be gone
+    await expect(page.getByTestId("namespace-row-e2e-renamed-ns")).toHaveCount(0, {
+      timeout: 10_000,
+    });
+  });
+});
+
+// ── clef env add → ManifestScreen: create env flow ───────────────────────────
+
+test.describe("clef env add → ManifestScreen: create environment flow", () => {
+  test("[positive] add modal opens from + Environment button", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-manifest").click();
+    await page.getByTestId("add-environment-btn").click();
+    await expect(page.getByTestId("environment-name-input")).toBeVisible();
+  });
+
+  test("[positive] submitting creates the environment with the protected flag", async ({
+    page,
+  }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-manifest").click();
+    await page.getByTestId("add-environment-btn").click();
+    await page.getByTestId("environment-name-input").fill("e2e-add-env");
+    await page.getByTestId("environment-protected-checkbox").click();
+    await page.getByTestId("environment-add-submit").click();
+    await expect(page.getByTestId("environment-row-e2e-add-env")).toBeVisible({ timeout: 10_000 });
+    // Protected badge visible
+    await expect(page.getByTestId("environment-row-e2e-add-env")).toContainText("protected");
+  });
+
+  test("[negative] duplicate env name disables submit", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-manifest").click();
+    await page.getByTestId("add-environment-btn").click();
+    await page.getByTestId("environment-name-input").fill("dev");
+    await expect(page.getByText(/already exists/)).toBeVisible();
+    await expect(page.getByTestId("environment-add-submit")).toBeDisabled();
+  });
+});
+
+// ── clef env edit → ManifestScreen: rename + protect toggle flow ─────────────
+
+test.describe("clef env edit → ManifestScreen: edit + rename + protect flow", () => {
+  test("[positive] unprotect toggle removes the protected badge", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-manifest").click();
+    // Open edit on e2e-add-env (which was created protected above)
+    await page.getByTestId("environment-row-e2e-add-env-edit").click();
+    // Uncheck protected
+    await page.getByTestId("environment-protected-checkbox").click();
+    await page.getByTestId("environment-edit-submit").click();
+    // Wait for modal to close and badge to be gone
+    await expect(page.getByTestId("environment-row-e2e-add-env")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("environment-row-e2e-add-env")).not.toContainText("protected");
+  });
+
+  test("[positive] rename moves the env and the new row appears", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-manifest").click();
+    await page.getByTestId("environment-row-e2e-add-env-edit").click();
+    await page.getByTestId("environment-rename-input").fill("e2e-renamed-env");
+    await page.getByTestId("environment-edit-submit").click();
+    await expect(page.getByTestId("environment-row-e2e-renamed-env")).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId("environment-row-e2e-add-env")).toHaveCount(0);
+  });
+});
+
+// ── clef env remove → ManifestScreen: delete + protected refusal flow ────────
+
+test.describe("clef env remove → ManifestScreen: delete + protected refusal flow", () => {
+  test("[positive] removing an unprotected env removes its row", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-manifest").click();
+    // Delete the e2e-renamed-env (was unprotected by the previous test)
+    await page.getByTestId("environment-row-e2e-renamed-env-delete").click();
+    await page.getByTestId("environment-remove-confirm-input").fill("e2e-renamed-env");
+    await page.getByTestId("environment-remove-submit").click();
+    await expect(page.getByTestId("environment-row-e2e-renamed-env")).toHaveCount(0, {
+      timeout: 10_000,
+    });
+  });
+
+  test("[negative] attempting to remove the protected production env shows server error", async ({
+    page,
+  }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-manifest").click();
+    // production is protected in scaffoldTestRepo. The remove modal warns
+    // upfront, but we can still try — server should refuse with 412.
+    await page.getByTestId("environment-row-production-delete").click();
+    // The modal warns about protected status BEFORE we type the name
+    await expect(page.getByText(/protected environment/)).toBeVisible();
+    // Type production and submit anyway
+    await page.getByTestId("environment-remove-confirm-input").fill("production");
+    await page.getByTestId("environment-remove-submit").click();
+    // Server returns 412; the modal should surface the error and stay open
+    await expect(page.getByTestId("manifest-modal-error")).toContainText("protected", {
+      timeout: 10_000,
+    });
+    // Row should still be there
+    await expect(page.getByTestId("environment-row-production")).toBeVisible();
+  });
+});

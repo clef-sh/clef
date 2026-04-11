@@ -99,6 +99,11 @@ export class StructureManager {
       }
     }
 
+    // The manifest parser requires a non-empty description string. If the
+    // caller didn't provide one, fall back to the namespace name itself —
+    // it's better than placeholder text and the user can edit it later.
+    const description = opts.description?.trim() || name;
+
     // Build the in-memory manifest with the new namespace appended so the
     // scaffolding sees it. (Backend resolution doesn't depend on namespace,
     // but it's the principled thing to do.)
@@ -108,7 +113,7 @@ export class StructureManager {
         ...manifest.namespaces,
         {
           name,
-          description: opts.description ?? "",
+          description,
           ...(opts.schema ? { schema: opts.schema } : {}),
         },
       ],
@@ -138,7 +143,7 @@ export class StructureManager {
         const namespaces = doc.namespaces as Array<Record<string, unknown>>;
         const entry: Record<string, unknown> = {
           name,
-          description: opts.description ?? "",
+          description,
         };
         if (opts.schema) entry.schema = opts.schema;
         namespaces.push(entry);
@@ -183,13 +188,17 @@ export class StructureManager {
       }
     }
 
+    // The parser requires a non-empty description string. Fall back to the
+    // env name if none provided — better than placeholder text, editable later.
+    const description = opts.description?.trim() || name;
+
     const updatedManifest: ClefManifest = {
       ...manifest,
       environments: [
         ...manifest.environments,
         {
           name,
-          description: opts.description ?? "",
+          description,
           ...(opts.protected ? { protected: true } : {}),
         },
       ],
@@ -219,7 +228,7 @@ export class StructureManager {
         const environments = doc.environments as Array<Record<string, unknown>>;
         const entry: Record<string, unknown> = {
           name,
-          description: opts.description ?? "",
+          description,
         };
         if (opts.protected) entry.protected = true;
         environments.push(entry);
