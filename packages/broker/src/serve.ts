@@ -4,6 +4,27 @@ import { createHandler } from "./handler";
 import { resolveConfig } from "./config";
 
 /**
+ * Decide whether a bind host is a strict loopback address.
+ *
+ * Only `127.0.0.0/8` and `::1` count. `"localhost"` and the unspecified
+ * addresses (`0.0.0.0`, `::`) do NOT count — `localhost` may resolve to a
+ * dual-stack address, and the unspecified addresses listen on every
+ * interface (which is the exact thing we want to warn about).
+ */
+function isLoopbackHost(host: string): boolean {
+  if (host === "::1") return true;
+  if (/^127\.\d+\.\d+\.\d+$/.test(host)) return true;
+  return false;
+}
+
+/**
+ * URL-safe host formatting — IPv6 literals must be bracketed.
+ */
+function formatHostForUrl(host: string): string {
+  return host.includes(":") ? `[${host}]` : host;
+}
+
+/**
  * Start a broker HTTP server that serves Clef artifact envelopes.
  *
  * This is a convenience wrapper around `createHandler()` for long-running
@@ -50,8 +71,18 @@ export async function serve(
       server.listen(port, host, () => {
         const addr = server.address();
         const boundPort = typeof addr === "object" && addr ? addr.port : port;
-        const url = `http://127.0.0.1:${boundPort}`;
-        onLog("info", `Broker serving at ${url}`, { port: boundPort });
+        const url = `http://${formatHostForUrl(host)}:${boundPort}`;
+        onLog("info", `Broker serving at ${url}`, { host, port: boundPort });
+        if (!isLoopbackHost(host)) {
+          onLog(
+            "warn",
+            `Broker bound to non-loopback host "${host}" — the credential-issuing ` +
+              `endpoint is reachable from every interface this address resolves to. ` +
+              `Set CLEF_BROKER_HOST=127.0.0.1 (or restrict network access at the ` +
+              `container/firewall level) unless this exposure is intentional.`,
+            { host, port: boundPort },
+          );
+        }
         resolve({
           url,
           stop: async () => {

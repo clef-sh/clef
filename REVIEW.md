@@ -98,9 +98,11 @@ Read:
 - `packages/cli/src/commands/exec.ts`
 - `packages/cli/src/commands/merge-driver.ts`
 - `packages/cli/src/commands/service.ts`
-- `packages/cli/src/commands/bundle.ts`
+- `packages/cli/src/commands/pack.ts`
+- `packages/cli/src/commands/export.ts`
+- `packages/cli/src/commands/import.ts`
 - `packages/core/src/service-identity/manager.ts`
-- `packages/core/src/bundle/generator.ts`
+- `packages/core/src/artifact/packer.ts`
 - `packages/ui/src/server/api.ts`
 
 Check:
@@ -121,9 +123,11 @@ Check:
 - `clef service create` and `clef service rotate` print
   private keys to stdout intentionally — confirm error paths
   during key generation do not leak partial key material
-- `clef bundle` error paths do not include decrypted values
-  from the secrets being bundled — only key names and
+- `clef pack` error paths do not include decrypted values
+  from the secrets being packed — only key names and
   encrypted content references are safe to log
+- `clef import` error paths do not echo the imported values
+  back to the user — even when the format parse fails
 
 ### 1.4 `clef exec` security
 
@@ -305,53 +309,7 @@ Check — Recipient registration security:
 - Recipient removal during rotation only removes the identity's
   own old key — not other recipients
 
-### 1.10 Bundle generation — plaintext handling
-
-Read in full:
-
-- `packages/core/src/bundle/generator.ts`
-- `packages/core/src/bundle/runtime.ts`
-- `packages/cli/src/commands/bundle.ts`
-
-Check — Plaintext never touches disk:
-
-- `BundleGenerator.generate()` decrypts scoped SOPS files into
-  an in-memory key/value map — confirm no temp files are
-  created during decryption
-- The merged plaintext JSON blob is age-encrypted in memory
-  before being written to the output file — the output `.mjs`
-  or `.cjs` file must contain only the armored age ciphertext,
-  never plaintext values
-- If age encryption fails, the error message does not include
-  any plaintext values from the decrypted secrets
-- The plaintext map is not logged, not written to any debug
-  output, and not included in any error object
-
-Check — Bundle output security:
-
-- The generated module embeds age-encrypted ciphertext and key
-  names only — no plaintext values
-- The `KEYS` array exported by the bundle contains key names
-  (which are not secret) — confirm no values are in this array
-- The `--output` path is validated — confirm it does not write
-  to locations inside the git worktree without warning (bundles
-  should never be committed). Check if a `.gitignore` warning
-  is emitted
-- Multi-namespace bundles prefix keys with `namespace/` — a
-  namespace collision (e.g. key `foo` in two namespaces)
-  must not silently overwrite
-
-Check — Runtime module security:
-
-- The `keyProvider` function is called at most once (cold start)
-  — confirm the private key is not stored after decryption,
-  only the decrypted values map is cached
-- Concurrent cold-start calls are deduplicated — not called
-  multiple times in parallel
-- The runtime does not import `fs`, `child_process`, or any
-  Node module that could write to disk — only `age-encryption`
-
-### 1.11 Bundled sops binary — supply chain and resolution
+### 1.10 Bundled sops binary — supply chain and resolution
 
 Read in full:
 
@@ -443,7 +401,7 @@ Check — `CLEF_SOPS_PATH` validation:
   spaces, confirm the path is passed to `execFile` (which
   does not interpret shell syntax) — not to `exec`
 
-### 1.12 Licence compliance — age-encryption author attribution
+### 1.11 Licence compliance — age-encryption author attribution
 
 The `age-encryption` npm package is BSD 3-Clause licensed.
 The licence does not require author attribution in
@@ -473,7 +431,7 @@ Check:
   not reference the author — describe the library by its
   package name only
 
-### 1.13 Agent server — binding and authentication
+### 1.12 Agent server — binding and authentication
 
 Read:
 
@@ -495,7 +453,7 @@ Check:
 - Missing token returns 401; wrong token returns 401; correct
   token returns 200
 
-### 1.14 Runtime — plaintext never touches disk
+### 1.13 Runtime — plaintext never touches disk
 
 Read:
 
@@ -514,7 +472,7 @@ Check:
 - When `verifyKey` is configured, signature verification
   occurs after the integrity check and before decryption —
   a failed signature must prevent decryption entirely, not
-  just log a warning. See section 1.18 for full signing
+  just log a warning. See section 1.17 for full signing
   audit
 - On decryption failure the error message does not contain any
   artifact contents — only a generic failure indication
@@ -563,7 +521,7 @@ Check — KMS envelope encryption (AES-256-GCM):
   two paths are fully separate (KMS path must NOT call
   `AgeDecryptor`, age path must NOT call `createDecipheriv`)
 
-### 1.15 Runtime — VCS token and credential handling
+### 1.14 Runtime — VCS token and credential handling
 
 Read:
 
@@ -586,7 +544,7 @@ Check:
 - No credential material appears in `ArtifactSource.describe()`
   output (used for logging)
 
-### 1.16 Agent — Lambda Extension key handling
+### 1.15 Agent — Lambda Extension key handling
 
 Read:
 
@@ -603,7 +561,7 @@ Check:
 - SHUTDOWN event is handled — in-flight requests are drained
   before the process exits
 
-### 1.17 Pack command — plaintext handling
+### 1.16 Pack command — plaintext handling
 
 Read:
 
@@ -664,7 +622,7 @@ Check — KMS envelope path (AES-256-GCM):
   from `@clef-sh/runtime` only when the identity uses KMS —
   confirm the import is conditional, not top-level
 
-### 1.17b Broker envelope — independent KMS encryption path
+### 1.16b Broker envelope — independent KMS encryption path
 
 Read:
 
@@ -697,7 +655,7 @@ Check:
   the original plaintext values
 - Plaintext secret values do NOT appear in the output JSON
 
-### 1.18 Artifact signing — provenance and verification
+### 1.17 Artifact signing — provenance and verification
 
 Read in full:
 
@@ -877,7 +835,7 @@ Check — What signing does NOT protect against:
   with arbitrary content. Signing does not substitute for
   KMS envelope protection of the ciphertext
 
-### 1.19 Install script — download integrity
+### 1.18 Install script — download integrity
 
 Read:
 
@@ -897,6 +855,135 @@ Check:
   when the script exits on error — no leftover files
 - Downloaded content is never interpreted as shell code —
   only written to files and executed after chmod
+
+### 1.19 Clef Cloud — opt-in invariants
+
+Read in full:
+
+- `packages/cloud/src/index.ts`
+- `packages/cloud/src/cli.ts`
+- `packages/cloud/src/commands/cloud.ts`
+- `packages/cloud/src/keyservice.ts`
+- `packages/cloud/src/resolver.ts`
+- `packages/cloud/src/device-flow.ts`
+- `packages/cloud/src/credentials.ts`
+- `packages/cloud/src/token-refresh.ts`
+- `packages/cloud/src/pack-client.ts`
+- `packages/cloud/src/report-client.ts`
+
+Clef Cloud ships in every CLI release but must be fully
+inert until the user explicitly opts in (`clef cloud init`
+/ `clef cloud login`). Any outbound network call from a
+CLI that has never been opted in is a Critical issue.
+
+Check — Inertness on an unconfigured install:
+
+- A fresh CLI install with no `~/.clef/cloud-credentials.*`
+  and no `clef cloud init` must make ZERO outbound HTTP
+  requests on any command except the explicit `clef cloud
+  login` and `clef cloud init` commands
+- No top-level `import` or `require` in `packages/cli` or
+  `packages/core` may execute cloud HTTP clients at load
+  time — all cloud code must be lazy-loaded behind an
+  `isCloudConfigured()` check
+- `keyservice` binary must NOT be spawned unless the
+  manifest declares a `kms.provider: cloud` or the user
+  explicitly runs a cloud command. A stray spawn on every
+  CLI invocation is a Critical issue
+
+Check — Device-flow login:
+
+- Device-flow requests (`/oauth/device/code`, `/oauth/token`)
+  use HTTPS only — no HTTP fallback
+- The device code is displayed on stdout; the verification
+  URL is shown in full. No code is auto-copied or auto-opened
+  in a browser without user confirmation
+- The refresh token and access token are written to
+  `~/.clef/cloud-credentials.*` with mode `0600` — any
+  mode more permissive than owner-only is a High issue
+- Token refresh (`token-refresh.ts`) happens on 401 and
+  retries the original request exactly once — no infinite
+  retry loop
+- Logout (`clef cloud logout` if present) deletes the
+  credentials file and revokes the refresh token via API
+
+Check — Keyservice binary handling:
+
+- `keyservice` is resolved from the platform-specific
+  `@clef-sh/keyservice-{platform}-{arch}` optional
+  dependency package, not from PATH and not from a user-
+  writable location
+- The resolver validates the resolved path is inside a
+  `node_modules` directory (same invariant as sops
+  resolver — see section 1.10)
+- `keyservice` spawn uses `execFile` with explicit argv —
+  never `exec` or `shell: true`
+- The gRPC socket path passed to keyservice is a process-
+  local temp path that is cleaned up on exit (unix socket
+  or named pipe)
+- Keyservice stdout/stderr are captured and scrubbed before
+  being surfaced to the user — no KMS key material, no
+  Cloud access token should leak through
+
+Check — Cloud KMS provider:
+
+- When `kms.provider: cloud` is resolved in
+  `packages/core/src/kms/`, the wrap/unwrap operations
+  proxy through keyservice — not directly to AWS/GCP/Azure
+  SDKs
+- A failure to authenticate with Cloud must NOT fall back
+  to unauthenticated SOPS operations — it must throw
+- The Cloud KMS path must never write decrypted values to
+  disk — same plaintext-never-touches-disk invariant as
+  the local sops client
+
+### 1.20 Broker package — dynamic credential exchange
+
+Read:
+
+- `packages/broker/src/config.ts`
+- `packages/broker/src/validate.ts`
+- `packages/broker/src/handler.ts`
+- `packages/broker/src/serve.ts`
+- `packages/broker/src/envelope.ts` (already covered by 1.16b)
+
+Check:
+
+- Broker configuration is loaded from YAML and validated
+  against a strict schema — unknown fields are rejected,
+  not silently ignored
+- Broker handlers never log the broker's long-term
+  credentials (e.g. IAM access keys, service account JSON)
+  — only the short-lived output and the exchange metadata
+  are safe to log
+- `serve.ts` binds to a local socket or `127.0.0.1` only —
+  never `0.0.0.0`
+- The broker harness is not loaded or referenced from the
+  CLI or core packages on a command that does not explicitly
+  use it — same inertness principle as Clef Cloud
+
+### 1.21 Client SDK — token handling
+
+Read:
+
+- `packages/client/src/clef-client.ts`
+- `packages/client/src/auth.ts`
+- `packages/client/src/http.ts`
+- `packages/client/src/cloud-kms-provider.ts`
+
+Check:
+
+- The SDK falls back to environment variables when the
+  remote secret fetch fails — documented behaviour, so
+  confirm the fallback is behind an explicit option and
+  emits telemetry
+- Access tokens are sent only in `Authorization: Bearer`
+  headers — never in URL query parameters
+- Token refresh (if implemented) retries at most once per
+  request and does not loop on a 401
+- The SDK's `/kms` subpath does not embed any provider
+  credentials in the SDK bundle — all credential material
+  comes from the runtime environment
 
 ---
 
@@ -1054,7 +1141,9 @@ registration.
 
 Check:
 
-- `--dir` flag exists on every command (all 19)
+- `--dir` flag exists on every repo-scoped command (all 29
+  listed in section 3.2, excluding `install` and `update`
+  which operate on the CLI binary itself)
 - It correctly overrides the auto-detected repo root in
   every command
 - Tests cover `--dir` on at least three commands
@@ -1165,37 +1254,7 @@ Check — Protected environment interaction:
 - `clef service rotate` on a protected environment — does it
   require confirmation?
 
-### 2.11 Bundle generation correctness
-
-Read:
-
-- `packages/core/src/bundle/generator.ts`
-- `packages/core/src/bundle/runtime.ts`
-- `packages/cli/src/commands/bundle.ts`
-
-Check:
-
-- `clef bundle <identity> <environment>` with a nonexistent
-  identity produces a clear error
-- `clef bundle <identity> <environment>` with a nonexistent
-  environment produces a clear error
-- The bundle encrypts to the identity's public key for the
-  specified environment — not the developer's key, not a
-  hardcoded key
-- Single-namespace identities produce flat key names (e.g.
-  `DATABASE_URL`); multi-namespace identities produce prefixed
-  keys (e.g. `api/STRIPE_KEY`) — confirm the logic is based
-  on `identity.namespaces.length`
-- `--format esm` produces valid ES module syntax with
-  `export` statements
-- `--format cjs` produces valid CommonJS syntax with
-  `module.exports`
-- The `--output` flag is required — omitting it produces a
-  clear error, not output to stdout (which would expose
-  encrypted content in terminal history)
-- Exit codes: 0 on success, 1 on error
-
-### 2.12 `clef update` correctness
+### 2.11 `clef update` correctness
 
 Read:
 
@@ -1218,7 +1277,7 @@ Check:
 - Command is idempotent — running twice produces no changes
   on second run
 
-### 2.13 Drift command correctness
+### 2.12 Drift command correctness
 
 Read:
 
@@ -1240,7 +1299,7 @@ Check:
 - Reports both missing keys and extra keys per namespace and
   per environment
 
-### 2.14 Pack/artifact command correctness
+### 2.13 Pack/artifact command correctness
 
 Read:
 
@@ -1296,7 +1355,7 @@ Check — Signing correctness:
   when verified with the matching public key (round-trip
   test exists)
 
-### 2.15 Runtime — ClefRuntime correctness
+### 2.14 Runtime — ClefRuntime correctness
 
 Read:
 
@@ -1342,7 +1401,7 @@ Check:
 - Age-only artifact without a private key configured throws
   a clear error at decrypt time — not a null dereference
 
-### 2.16 Agent standalone correctness
+### 2.15 Agent standalone correctness
 
 Read:
 
@@ -1380,8 +1439,8 @@ Check:
 
 ### 3.1 Functional requirements cross-reference
 
-Read `clef-master-brief.md` sections 3.1 through 3.7.
-Cross-reference every requirement FR-01 through FR-32
+Read `clef-master-brief.md` sections 3.1 through 3.11.
+Cross-reference every requirement FR-01 through FR-54
 against the implementation.
 
 For each requirement state: Implemented / Partial /
@@ -1396,11 +1455,22 @@ find packages/cli/src/commands -name "*.ts" \
   -not -name "*.test.ts" | sort
 ```
 
-Expect 18 command files: init, get, set, delete, diff,
-lint, rotate, hooks, exec, export, import, doctor, update,
-scan, recipients, ui, merge-driver, service, pack, drift,
-report, bundle. Note: `agent` is NOT a CLI command — the
-agent is a standalone package (`@clef-sh/agent`).
+Expect 29 command files: `compare`, `delete`, `diff`,
+`doctor`, `drift`, `env`, `exec`, `export`, `get`, `hooks`,
+`import`, `init`, `install`, `lint`, `merge-driver`,
+`migrate-backend`, `namespace`, `pack`, `recipients`,
+`report`, `revoke`, `rotate`, `scan`, `search`, `serve`,
+`service`, `set`, `ui`, `update`. Plus the Cloud subcommand
+group contributed by `@clef-sh/cloud` (`clef cloud login`,
+`clef cloud init`, `clef cloud status`) which is registered
+by `packages/cloud/src/commands/cloud.ts`, not by a file
+under `packages/cli/src/commands/`.
+
+Note: `agent` is NOT a CLI command — the agent is a
+standalone package (`@clef-sh/agent`) published as a
+separate binary. `bundle` was removed and replaced by
+`pack` (see section 1.16 / 2.13). If either surfaces in
+the command list, that is a High issue.
 
 Check every command has:
 
@@ -1476,28 +1546,31 @@ Check:
   solution, setup, and security invariants
 - `docs/cli/hooks.md` documents merge driver installation
 
-### 3.7 Service identity and bundle completeness
+### 3.7 Service identity and pack completeness
 
 Check — CLI registration:
 
 - `clef service` command is registered in
   `packages/cli/src/index.ts` with subcommands: `create`,
-  `list`, `show`, `rotate`, `validate`
-- `clef bundle` command is registered in
+  `list`, `show`, `rotate`, `validate`, `add-env`
+- `clef pack` command is registered in
   `packages/cli/src/index.ts`
-- Both commands have co-located `.test.ts` files with
+- `clef revoke` command is registered in
+  `packages/cli/src/index.ts`
+- All three commands have co-located `.test.ts` files with
   meaningful assertions
-- Both commands support `--dir` flag
+- All three commands support `--dir` flag
 
 Check — Core exports:
 
 - `ServiceIdentityManager` is exported from
   `packages/core/src/index.ts`
-- `BundleGenerator` and `generateRuntimeModule` are exported
+- `ArtifactPacker` and related signing helpers are exported
   from `packages/core/src/index.ts`
 - All related types are exported: `ServiceIdentityDefinition`,
   `ServiceIdentityEnvironmentConfig`,
-  `ServiceIdentityDriftIssue`, `BundleConfig`, `BundleResult`
+  `ServiceIdentityDriftIssue`, `ArtifactEnvelope`,
+  `ArtifactPackResult`
 - KMS types are exported from core: `KmsProvider`,
   `KmsWrapResult`, `KmsProviderType`
 - `KmsConfig`, `isKmsEnvelope` are exported from core types
@@ -1531,20 +1604,24 @@ Check — Documentation:
 
 - `docs/guide/service-identities.md` exists with:
   - Concept explanation (what, why, when to use)
-  - Complete workflow (create → store → bundle → deploy)
+  - Complete workflow (create → store → pack → deploy)
   - Key provider examples for AWS, GCP, Vault
   - Multi-namespace key prefixing explained
   - Rotation and recovery procedures
 - `docs/cli/service.md` documents all subcommands and flags
-- `docs/cli/bundle.md` documents all flags and output formats
-- `docs/guide/ci-cd.md` includes bundle generation in CI
-  pipeline examples
+- `docs/cli/pack.md` documents all flags and artifact format
+- `docs/cli/revoke.md` documents the revocation workflow
+- `docs/guide/ci-cd.md` includes pack/artifact generation in
+  CI pipeline examples
 
 Check — `.gitignore`:
 
-- Generated bundle files (`*.secrets.mjs`, `*.secrets.cjs`,
-  or whatever the conventional output name) are mentioned
-  in documentation as files to add to `.gitignore`
+- Generated artifacts (the `--output` target of `clef pack`
+  and any user-configured artifact directory) are mentioned
+  in documentation as files to add to `.gitignore`. Packed
+  artifacts are encrypted, but committing them to the repo
+  alongside `.clef/packed/` is a deliberate choice — the
+  docs should explain both workflows
 
 ### 3.8 Bundled sops completeness
 
@@ -1735,6 +1812,91 @@ Check:
 - PATH check warns the user if the install directory is not
   on their `$PATH`
 
+### 3.15 Structure commands — `namespace` and `env`
+
+Read:
+
+- `packages/cli/src/commands/namespace.ts`
+- `packages/cli/src/commands/env.ts`
+- `packages/core/src/structure/` (add/remove namespace/env)
+- `packages/core/src/tx/` (transaction manager used by
+  structure mutations — see CLAUDE.md memory note about
+  `TransactionManager`)
+
+Check:
+
+- `clef namespace add <name>` and `clef namespace remove
+  <name>` both mutate the manifest atomically via
+  `TransactionManager` — a failure partway through must
+  roll back the manifest to its pre-mutation state
+- `clef env add <name>` / `clef env remove <name>` /
+  `clef env edit <name>` behave the same way
+- Removing a namespace also deletes the matching
+  `{namespace}/{environment}.enc.yaml` files on success —
+  but only after the manifest write succeeds
+- Removing an environment also deletes files across every
+  namespace for that environment
+- Rollback test: a mock filesystem error mid-operation
+  leaves the repo in the original state (manifest and
+  files both unchanged)
+- The transaction wrapper is exercised by unit tests —
+  not just relied upon via integration
+
+### 3.16 Cloud and SaaS surface completeness
+
+Check:
+
+- `packages/cloud/` is listed in root `package.json`
+  workspaces
+- `@clef-sh/cloud` is declared as an optional dependency
+  of `@clef-sh/cli` — NOT a direct dependency. The OSS
+  CLI must still build and run if cloud is absent
+- `clef cloud` subcommand group is registered via
+  `packages/cloud/src/cli.ts` and only loaded lazily when
+  the user invokes a `clef cloud *` command
+- `packages/cloud/src/index.ts` exports a `registerCli`
+  function, not a module that executes HTTP clients on
+  import
+- `@clef-sh/keyservice-{platform}-{arch}` optional
+  dependencies exist for all five platforms and their
+  versions are pinned in `packages/cloud/package.json`
+- `docs/cloud/` exists with at least `overview.md`,
+  `login.md`, and `init.md` pages
+- The README describes Clef Cloud as opt-in and links to
+  the cloud docs — but does not mislead readers into
+  thinking it is required
+
+### 3.17 Client SDK completeness
+
+Check:
+
+- `packages/client/` builds as a zero-dependency module
+  (production dependencies empty; peer-deps allowed)
+- Main entry exports: `ClefClient`, `createClient`,
+  `ClefClientConfig`
+- `/kms` subpath exports a KMS provider interface
+  compatible with `@clef-sh/runtime`'s `KmsProvider` type
+- The SDK is published separately to npm and its version
+  moves independently from the CLI
+- `docs/runtime/client.md` exists covering install,
+  usage, env-var fallback, and telemetry
+
+### 3.18 Analytics opt-out
+
+Check:
+
+- `@clef-sh/analytics` is an optional dependency of the
+  CLI, not a direct one
+- Telemetry is opt-out via `CLEF_TELEMETRY=0` (or similar)
+  and via a config flag in `~/.clef/config.yaml`
+- No telemetry event contains decrypted values, secret
+  names, manifest content, or file paths that could leak
+  project structure. Only command names and exit codes
+  are permitted in events
+- First-run prompt exists notifying the user that
+  anonymous telemetry is enabled and explaining how to
+  opt out
+
 ---
 
 ## 4. Test Quality Audit
@@ -1820,16 +1982,19 @@ Check:
   integration — setting the env var changes the command
   passed to `runner.run()`
 
-### 4.5 Service identity and bundle test coverage
+### 4.5 Service identity test coverage
 
 Read:
 
 - `packages/core/src/service-identity/manager.test.ts`
   (if it exists)
 - `packages/cli/src/commands/service.test.ts`
-- `packages/core/src/bundle/generator.test.ts`
-  (if it exists)
-- `packages/cli/src/commands/bundle.test.ts`
+- `packages/core/src/artifact/packer.test.ts`
+- `packages/cli/src/commands/pack.test.ts`
+
+(Pack/artifact test coverage is covered in detail by
+section 4.9. This section focuses on the service identity
+side of the relationship.)
 
 Check — Service identity tests:
 
@@ -1864,29 +2029,18 @@ Check — KMS envelope tests:
 - A test asserts KMS-backed environments are skipped during
   `rotateKey()`
 
-Check — Bundle tests:
-
-- A test asserts the generated module contains age-encrypted
-  ciphertext — not plaintext values
-- A test asserts the `KEYS` array contains only key names
-- A test asserts single-namespace bundles use flat key names
-- A test asserts multi-namespace bundles use prefixed key
-  names (`namespace/key`)
-- A test asserts `--format esm` produces valid ES module
-  syntax
-- A test asserts `--format cjs` produces valid CommonJS syntax
-- A test asserts bundle generation fails cleanly when the
-  identity does not exist
-- A test asserts bundle generation fails cleanly when the
-  environment does not exist
-
 Check — Security-critical:
 
-- A test asserts that if decryption fails during bundle
-  generation, no partial plaintext is written to the output
-  file
-- A test asserts the runtime module's `keyProvider` is called
-  at most once (memoization)
+- A test asserts that if decryption fails during identity
+  setup (reading existing recipients), no partial state
+  is written to `clef.yaml`
+- A test asserts `clef service add-env` atomically adds a
+  new environment to an existing identity without touching
+  the other environments' keys
+- A test asserts `clef revoke <identity>` rotates all
+  scoped files and removes the revoked recipient before
+  any file is re-encrypted with the new recipient — the
+  old recipient must not appear in any post-revoke file
 
 ### 4.6 Merge driver test coverage
 
@@ -2246,9 +2400,9 @@ Check:
 - The security model covers both age-only and KMS envelope
   artifacts — what each contains, trust boundaries
 
-### 5.8 Service and bundle CLI reference accuracy
+### 5.8 Service and pack CLI reference accuracy
 
-Read `docs/cli/service.md` and `docs/cli/bundle.md`.
+Read `docs/cli/service.md` and `docs/cli/pack.md`.
 
 For each:
 
@@ -2260,6 +2414,9 @@ For each:
 - Verify example commands match the actual CLI registration
 - Verify `--kms-env` format documented (`env=provider:keyId`)
   matches the parsing logic in `service.ts`
+- Verify that `docs/cli/bundle.md` does NOT exist — the
+  bundle command was replaced by pack. A stale bundle page
+  is a Low issue (redirect or delete)
 
 Flag any inaccuracy as Low (High if the example would cause
 key material exposure or data loss).
