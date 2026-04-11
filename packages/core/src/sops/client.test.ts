@@ -16,6 +16,7 @@ import {
   SubprocessResult,
   SubprocessRunner,
 } from "../types";
+import writeFileAtomic from "write-file-atomic";
 
 jest.mock("fs", () => ({
   readFileSync: jest.fn(),
@@ -25,6 +26,8 @@ jest.mock("fs", () => ({
 jest.mock("net", () => ({
   createServer: jest.fn(),
 }));
+
+// write-file-atomic is auto-mocked via core's jest.config moduleNameMapper.
 
 jest.mock("./resolver", () => ({
   resolveSopsPath: jest.fn().mockReturnValue({ path: "sops", source: "system" }),
@@ -41,6 +44,7 @@ jest.mock("../age/keygen", () => ({
 
 const mockReadFileSync = fs.readFileSync as jest.Mock;
 const mockWriteFileSync = fs.writeFileSync as jest.Mock;
+const mockWriteFileAtomic = writeFileAtomic as unknown as jest.Mock;
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- require() needed to access jest mock after jest.mock()
 const { deriveAgePublicKey: mockDeriveAgePublicKey } = require("../age/keygen") as {
@@ -90,6 +94,8 @@ describe("SopsClient", () => {
   beforeEach(() => {
     mockReadFileSync.mockReturnValue(sopsMetadataYaml);
     mockWriteFileSync.mockReturnValue(undefined);
+    mockWriteFileAtomic.mockReset();
+    mockWriteFileAtomic.mockResolvedValue(undefined);
     mockDeriveAgePublicKey.mockReset();
   });
 
@@ -281,7 +287,10 @@ sops:
       const YAML = await import("yaml");
       const parsed = YAML.parse(stdinContent);
       expect(parsed).toEqual({ KEY: "value" });
-      expect(mockWriteFileSync).toHaveBeenCalledWith("database/dev.enc.yaml", "encrypted-content");
+      expect(mockWriteFileAtomic).toHaveBeenCalledWith(
+        "database/dev.enc.yaml",
+        "encrypted-content",
+      );
     });
 
     it("passes /dev/stdin as the input file argument on Unix", async () => {
@@ -499,9 +508,7 @@ sops:
         return { stdout: "", stderr: "", exitCode: 1 };
       });
 
-      mockWriteFileSync.mockImplementation(() => {
-        throw new Error("Permission denied");
-      });
+      mockWriteFileAtomic.mockRejectedValueOnce(new Error("Permission denied"));
 
       const client = new SopsClient({ run: runFn });
       await expect(

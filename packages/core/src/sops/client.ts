@@ -13,6 +13,7 @@
 import * as fs from "fs";
 import * as net from "net";
 import { randomBytes } from "crypto";
+import writeFileAtomic from "write-file-atomic";
 import * as YAML from "yaml";
 import {
   BackendType,
@@ -259,11 +260,14 @@ export class SopsClient implements EncryptionBackend {
       );
     }
 
-    // Write the encrypted output to the file (using fs directly — tee is not available on Windows)
+    // Atomic write: a torn file from Ctrl+C / OOM mid-write would be undecryptable.
     try {
-      fs.writeFileSync(filePath, result.stdout);
-    } catch {
-      throw new SopsEncryptionError(`Failed to write encrypted data to '${filePath}'.`, filePath);
+      await writeFileAtomic(filePath, result.stdout);
+    } catch (err) {
+      throw new SopsEncryptionError(
+        `Failed to write encrypted data to '${filePath}': ${(err as Error).message}`,
+        filePath,
+      );
     }
   }
 

@@ -23,6 +23,8 @@ jobs:
     name: Promote staging to npm
     runs-on: ubuntu-latest
     environment: staging
+    outputs:
+      cli_version: ${{ steps.ver.outputs.cli }}
 
     steps:
       - uses: actions/checkout@v6
@@ -163,3 +165,13 @@ jobs:
           echo "| \`@clef-sh/client\` | \`${{ steps.ver.outputs.client }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Install: \`npm install @clef-sh/cli@beta\`" >> "$GITHUB_STEP_SUMMARY"
+
+  build-bins:
+    name: Build & Attach SEA Binaries
+    needs: promote
+    uses: ./.github/workflows/build-sea.yml
+    with:
+      tag: v${{ needs.promote.outputs.cli_version }}
+    permissions:
+      contents: write
+      packages: write

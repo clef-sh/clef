@@ -19,6 +19,7 @@ import {
   formatAgeKeyFile,
   generateRandomValue,
   markPending,
+  writeManifestYaml,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
@@ -410,7 +411,7 @@ async function handleFullSetup(
     manifest.sops.age = { recipients: [publicKey] };
   }
   const manifestDoc = YAML.parse(YAML.stringify(manifest)) as Record<string, unknown>;
-  fs.writeFileSync(manifestPath, YAML.stringify(manifestDoc), "utf-8");
+  writeManifestYaml(repoRoot, manifestDoc);
   formatter.success("Created clef.yaml");
 
   // Scaffold the matrix — manifest now has recipients so SOPS gets --age flag

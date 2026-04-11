@@ -6,6 +6,26 @@ import { SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 
 jest.mock("fs");
+// Stub TransactionManager so the test doesn't try to acquire lock files,
+// run git preflight, or commit. The mutate callback runs inline; real
+// transaction semantics live in transaction-manager.test.ts.
+jest.mock("@clef-sh/core", () => {
+  const actual = jest.requireActual("@clef-sh/core");
+  return {
+    ...actual,
+    GitIntegration: jest.fn().mockImplementation(() => ({})),
+    TransactionManager: jest.fn().mockImplementation(() => ({
+      run: jest
+        .fn()
+        .mockImplementation(
+          async (_repoRoot: string, opts: { mutate: () => Promise<void>; paths: string[] }) => {
+            await opts.mutate();
+            return { sha: null, paths: opts.paths, startedDirty: false };
+          },
+        ),
+    })),
+  };
+});
 jest.mock("../clipboard", () => ({
   copyToClipboard: jest.fn().mockReturnValue(true),
   maskedPlaceholder: jest.fn().mockReturnValue("\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"),
@@ -461,6 +481,128 @@ describe("clef service", () => {
 
       expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("not found"));
       expect(mockExit).toHaveBeenCalledWith(1);
+    });
+  });
+
+  describe("add-env", () => {
+    /**
+     * Manifest with an SI that's missing a config for `staging` — exactly
+     * the gap `clef service add-env` fills.
+     */
+    const manifestMissingEnv = {
+      ...manifestWithIdentity,
+      environments: [
+        { name: "dev", description: "Dev" },
+        { name: "staging", description: "Staging" },
+      ],
+      service_identities: [
+        {
+          name: "existing-svc",
+          description: "Existing service",
+          namespaces: ["api"],
+          environments: {
+            // Only dev — staging is missing on purpose
+            dev: { recipient: VALID_KEY_DEV },
+          },
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(manifestMissingEnv));
+    });
+
+    it("adds an env with a generated age key by default and prints the new key", async () => {
+      const program = makeProgram(makeRunner());
+
+      await program.parseAsync(["node", "clef", "service", "add-env", "existing-svc", "staging"]);
+
+      expect(mockFormatter.success).toHaveBeenCalledWith(
+        expect.stringContaining("Added 'staging' to service identity 'existing-svc'"),
+      );
+      // Either copied to clipboard or printed; both paths warn the user
+      expect(mockFormatter.warn).toHaveBeenCalledWith(expect.stringContaining("Store it"));
+      // mockExit was not called with 1
+      expect(mockExit).not.toHaveBeenCalledWith(1);
+    });
+
+    it("supports --kms with a provider:keyId mapping", async () => {
+      const program = makeProgram(makeRunner());
+
+      await program.parseAsync([
+        "node",
+        "clef",
+        "service",
+        "add-env",
+        "existing-svc",
+        "staging",
+        "--kms",
+        "aws:arn:aws:kms:us-east-1:123:key/abc",
+      ]);
+
+      expect(mockFormatter.success).toHaveBeenCalledWith(
+        expect.stringContaining("Added 'staging' to service identity 'existing-svc'"),
+      );
+      // Should NOT print/copy a private key — KMS path returns undefined
+      expect(mockFormatter.warn).not.toHaveBeenCalledWith(expect.stringContaining("Store it"));
+    });
+
+    it("errors with exit 2 on malformed --kms format", async () => {
+      const program = makeProgram(makeRunner());
+
+      await program.parseAsync([
+        "node",
+        "clef",
+        "service",
+        "add-env",
+        "existing-svc",
+        "staging",
+        "--kms",
+        "noColonHere",
+      ]);
+
+      expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("Invalid --kms"));
+      expect(mockExit).toHaveBeenCalledWith(2);
+    });
+
+    it("errors with exit 2 on unknown KMS provider", async () => {
+      const program = makeProgram(makeRunner());
+
+      await program.parseAsync([
+        "node",
+        "clef",
+        "service",
+        "add-env",
+        "existing-svc",
+        "staging",
+        "--kms",
+        "made-up-provider:keyid",
+      ]);
+
+      expect(mockFormatter.error).toHaveBeenCalledWith(
+        expect.stringContaining("Invalid KMS provider"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(2);
+    });
+
+    it("outputs JSON with --json flag", async () => {
+      const { isJsonMode } = jest.requireMock("../output/formatter") as {
+        isJsonMode: jest.Mock;
+      };
+      isJsonMode.mockReturnValue(true);
+
+      const program = makeProgram(makeRunner());
+
+      await program.parseAsync(["node", "clef", "service", "add-env", "existing-svc", "staging"]);
+
+      expect(mockFormatter.json).toHaveBeenCalled();
+      const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+      expect(data.action).toBe("env-added");
+      expect(data.identity).toBe("existing-svc");
+      expect(data.environment).toBe("staging");
+      expect(data.backend).toBe("age");
+
+      isJsonMode.mockReturnValue(false);
     });
   });
 });

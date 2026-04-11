@@ -1,11 +1,9 @@
-import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
-import * as YAML from "yaml";
 import {
   ClefManifest,
   EncryptionBackend,
   KmsConfig,
+  MatrixCell,
   ServiceIdentityDefinition,
   ServiceIdentityDriftIssue,
   ServiceIdentityEnvironmentConfig,
@@ -14,27 +12,21 @@ import {
 import { generateAgeIdentity } from "../age/keygen";
 import { MatrixManager } from "../matrix/manager";
 import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
-
-/**
- * Thrown when key rotation partially completes before a failure.
- * Contains the private keys for environments that were successfully rotated.
- */
-export class PartialRotationError extends Error {
-  constructor(
-    message: string,
-    public readonly rotatedKeys: Record<string, string>,
-  ) {
-    super(message);
-    this.name = "PartialRotationError";
-  }
-}
+import { readManifestYaml, writeManifestYaml } from "../manifest/io";
+import { TransactionManager } from "../tx";
 
 /**
  * Manages service identities: creation, listing, key rotation, and drift validation.
  *
+ * Mutating methods (create, delete, addNamespacesToScope, etc.) wrap their
+ * work in a TransactionManager so a failure rolls back ALL of the cell-file
+ * + manifest writes via `git reset --hard` rather than leaving the matrix in
+ * a partial state.
+ *
  * @example
  * ```ts
- * const manager = new ServiceIdentityManager(sopsClient, matrixManager);
+ * const tx = new TransactionManager(new GitIntegration(runner));
+ * const manager = new ServiceIdentityManager(sopsClient, matrixManager, tx);
  * const result = await manager.create("api-gw", ["api"], "API gateway", manifest, repoRoot);
  * ```
  */
@@ -42,7 +34,16 @@ export class ServiceIdentityManager {
   constructor(
     private readonly encryption: EncryptionBackend,
     private readonly matrixManager: MatrixManager,
+    private readonly tx: TransactionManager,
   ) {}
+
+  /**
+   * Compute repo-relative paths for a set of cells plus the manifest. Used
+   * to seed TransactionManager.run's `paths` argument.
+   */
+  private txPaths(repoRoot: string, cells: MatrixCell[]): string[] {
+    return [...cells.map((c) => path.relative(repoRoot, c.filePath)), CLEF_MANIFEST_FILENAME];
+  }
 
   /**
    * Create a new service identity with per-environment age key pairs or KMS envelope config.
@@ -77,7 +78,9 @@ export class ServiceIdentityManager {
       }
     }
 
-    // Generate per-environment config
+    // Generate per-environment config (key generation is read-only — happens
+    // outside the transaction so we can return private keys regardless of
+    // git state).
     const environments: Record<string, ServiceIdentityEnvironmentConfig> = {};
     const privateKeys: Record<string, string> = {};
 
@@ -101,36 +104,34 @@ export class ServiceIdentityManager {
       environments,
     };
 
-    // Register public keys as SOPS recipients on scoped files BEFORE writing
-    // the manifest, so a registration failure doesn't leave orphaned state.
-    // (Only for age-only environments — KMS envs have no recipient to register.)
-    await this.registerRecipients(definition, manifest, repoRoot);
+    // Touched cells: every existing cell in (this SI's namespaces × all envs).
+    // The manifest is also touched. We pre-compute paths so the transaction
+    // can stage them and roll them back atomically on failure.
+    const cells = this.matrixManager
+      .resolveMatrix(manifest, repoRoot)
+      .filter((c) => c.exists && namespaces.includes(c.namespace));
 
-    // Update manifest on disk
-    const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
-    const raw = fs.readFileSync(manifestPath, "utf-8");
-    const doc = YAML.parse(raw) as Record<string, unknown>;
+    await this.tx.run(repoRoot, {
+      description: `clef service create ${name}`,
+      paths: this.txPaths(repoRoot, cells),
+      mutate: async () => {
+        // Register public keys as SOPS recipients on scoped files BEFORE
+        // writing the manifest. (KMS envs have no recipient to register.)
+        await this.registerRecipients(definition, manifest, repoRoot);
 
-    if (!Array.isArray(doc.service_identities)) {
-      doc.service_identities = [];
-    }
-    (doc.service_identities as unknown[]).push({
-      name,
-      description,
-      namespaces,
-      environments,
+        const doc = readManifestYaml(repoRoot);
+        if (!Array.isArray(doc.service_identities)) {
+          doc.service_identities = [];
+        }
+        (doc.service_identities as unknown[]).push({
+          name,
+          description,
+          namespaces,
+          environments,
+        });
+        writeManifestYaml(repoRoot, doc);
+      },
     });
-    const tmpCreate = path.join(os.tmpdir(), `clef-manifest-${process.pid}-${Date.now()}.tmp`);
-    try {
-      fs.writeFileSync(tmpCreate, YAML.stringify(doc), "utf-8");
-      fs.renameSync(tmpCreate, manifestPath);
-    } finally {
-      try {
-        fs.unlinkSync(tmpCreate);
-      } catch {
-        // Already renamed or never written — ignore
-      }
-    }
 
     return { identity: definition, privateKeys };
   }
@@ -159,42 +160,36 @@ export class ServiceIdentityManager {
       throw new Error(`Service identity '${name}' not found.`);
     }
 
-    // Remove age recipients from scoped files
-    const cells = this.matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
-    for (const cell of cells) {
-      if (!identity.namespaces.includes(cell.namespace)) continue;
-      const envConfig = identity.environments[cell.environment];
-      if (!envConfig?.recipient) continue;
-      if (isKmsEnvelope(envConfig)) continue;
+    const scopedCells = this.matrixManager
+      .resolveMatrix(manifest, repoRoot)
+      .filter((c) => c.exists && identity.namespaces.includes(c.namespace));
 
-      try {
-        await this.encryption.removeRecipient(cell.filePath, envConfig.recipient);
-      } catch {
-        // May not be a current recipient
-      }
-    }
+    await this.tx.run(repoRoot, {
+      description: `clef service delete ${name}`,
+      paths: this.txPaths(repoRoot, scopedCells),
+      mutate: async () => {
+        for (const cell of scopedCells) {
+          const envConfig = identity.environments[cell.environment];
+          if (!envConfig?.recipient) continue;
+          if (isKmsEnvelope(envConfig)) continue;
 
-    // Remove from manifest on disk
-    const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
-    const raw = fs.readFileSync(manifestPath, "utf-8");
-    const doc = YAML.parse(raw) as Record<string, unknown>;
-    const identities = doc.service_identities as Record<string, unknown>[];
-    if (Array.isArray(identities)) {
-      doc.service_identities = identities.filter(
-        (si) => (si as Record<string, unknown>).name !== name,
-      );
-    }
-    const tmp = path.join(os.tmpdir(), `clef-manifest-${process.pid}-${Date.now()}.tmp`);
-    try {
-      fs.writeFileSync(tmp, YAML.stringify(doc), "utf-8");
-      fs.renameSync(tmp, manifestPath);
-    } finally {
-      try {
-        fs.unlinkSync(tmp);
-      } catch {
-        // Already renamed or never written — ignore
-      }
-    }
+          try {
+            await this.encryption.removeRecipient(cell.filePath, envConfig.recipient);
+          } catch {
+            // May not be a current recipient
+          }
+        }
+
+        const doc = readManifestYaml(repoRoot);
+        const identities = doc.service_identities as Record<string, unknown>[];
+        if (Array.isArray(identities)) {
+          doc.service_identities = identities.filter(
+            (si) => (si as Record<string, unknown>).name !== name,
+          );
+        }
+        writeManifestYaml(repoRoot, doc);
+      },
+    });
   }
 
   /**
@@ -213,58 +208,57 @@ export class ServiceIdentityManager {
       throw new Error(`Service identity '${name}' not found.`);
     }
 
-    const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
-    const raw = fs.readFileSync(manifestPath, "utf-8");
-    const doc = YAML.parse(raw) as Record<string, unknown>;
-    const identities = doc.service_identities as Record<string, unknown>[];
-    const siDoc = identities.find((si) => (si as Record<string, unknown>).name === name) as Record<
-      string,
-      unknown
-    >;
-    const envs = siDoc.environments as Record<string, Record<string, unknown>>;
-
-    const cells = this.matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
-    const privateKeys: Record<string, string> = {};
-
-    for (const [envName, kmsConfig] of Object.entries(kmsEnvConfigs)) {
-      const oldConfig = identity.environments[envName];
-      if (!oldConfig) {
+    // Validate every requested env exists on the identity before opening the
+    // transaction — preflight failures should not commit anything.
+    for (const envName of Object.keys(kmsEnvConfigs)) {
+      if (!identity.environments[envName]) {
         throw new Error(`Environment '${envName}' not found on identity '${name}'.`);
       }
+    }
 
-      // If switching from age → KMS, remove the old age recipient from scoped files
-      if (oldConfig.recipient) {
-        const scopedCells = cells.filter(
-          (c) => identity.namespaces.includes(c.namespace) && c.environment === envName,
-        );
-        for (const cell of scopedCells) {
-          try {
-            await this.encryption.removeRecipient(cell.filePath, oldConfig.recipient);
-          } catch {
-            // May not be a current recipient
+    const targetEnvNames = new Set(Object.keys(kmsEnvConfigs));
+    const cells = this.matrixManager
+      .resolveMatrix(manifest, repoRoot)
+      .filter(
+        (c) =>
+          c.exists &&
+          identity.namespaces.includes(c.namespace) &&
+          targetEnvNames.has(c.environment),
+      );
+
+    await this.tx.run(repoRoot, {
+      description: `clef service update ${name}: switch ${[...targetEnvNames].join(",")} to KMS`,
+      paths: this.txPaths(repoRoot, cells),
+      mutate: async () => {
+        const doc = readManifestYaml(repoRoot);
+        const identities = doc.service_identities as Record<string, unknown>[];
+        const siDoc = identities.find(
+          (si) => (si as Record<string, unknown>).name === name,
+        ) as Record<string, unknown>;
+        const envs = siDoc.environments as Record<string, Record<string, unknown>>;
+
+        for (const [envName, kmsConfig] of Object.entries(kmsEnvConfigs)) {
+          const oldConfig = identity.environments[envName];
+          // If switching age → KMS, strip the old recipient from scoped files
+          if (oldConfig?.recipient && !isKmsEnvelope(oldConfig)) {
+            const scopedCells = cells.filter((c) => c.environment === envName);
+            for (const cell of scopedCells) {
+              try {
+                await this.encryption.removeRecipient(cell.filePath, oldConfig.recipient);
+              } catch {
+                // May not be a current recipient
+              }
+            }
           }
+          envs[envName] = { kms: kmsConfig };
+          identity.environments[envName] = { kms: kmsConfig };
         }
-      }
 
-      // Update manifest entry to KMS
-      envs[envName] = { kms: kmsConfig };
-      identity.environments[envName] = { kms: kmsConfig };
-    }
+        writeManifestYaml(repoRoot, doc);
+      },
+    });
 
-    // Write updated manifest
-    const tmp = path.join(os.tmpdir(), `clef-manifest-${process.pid}-${Date.now()}.tmp`);
-    try {
-      fs.writeFileSync(tmp, YAML.stringify(doc), "utf-8");
-      fs.renameSync(tmp, manifestPath);
-    } finally {
-      try {
-        fs.unlinkSync(tmp);
-      } catch {
-        // Already renamed or never written — ignore
-      }
-    }
-
-    return { privateKeys };
+    return { privateKeys: {} };
   }
 
   /**
@@ -301,8 +295,263 @@ export class ServiceIdentityManager {
   }
 
   /**
+   * Expand a service identity's namespace scope. Registers the SI's existing
+   * per-env recipient on every matrix cell in the new namespace × env
+   * combinations. KMS-backed environments are skipped (no recipient to
+   * register).
+   *
+   * Idempotent: namespaces already in scope are silently skipped. Refuses if
+   * any requested namespace does not exist in the manifest.
+   */
+  async addNamespacesToScope(
+    name: string,
+    namespacesToAdd: string[],
+    manifest: ClefManifest,
+    repoRoot: string,
+  ): Promise<{ added: string[]; affectedFiles: string[] }> {
+    const identity = this.get(manifest, name);
+    if (!identity) {
+      throw new Error(`Service identity '${name}' not found.`);
+    }
+
+    // Validate every namespace exists in the manifest
+    const manifestNamespaceNames = new Set(manifest.namespaces.map((n) => n.name));
+    const unknown = namespacesToAdd.filter((n) => !manifestNamespaceNames.has(n));
+    if (unknown.length > 0) {
+      throw new Error(
+        `Namespace(s) not found in manifest: ${unknown.join(", ")}. ` +
+          `Available: ${manifest.namespaces.map((n) => n.name).join(", ")}`,
+      );
+    }
+
+    // Filter out namespaces already in scope (idempotent no-op)
+    const existingScope = new Set(identity.namespaces);
+    const toAdd = namespacesToAdd.filter((n) => !existingScope.has(n));
+    if (toAdd.length === 0) {
+      return { added: [], affectedFiles: [] };
+    }
+
+    // Affected cells: every existing cell in (newly-scoped namespaces × all envs)
+    const cells = this.matrixManager
+      .resolveMatrix(manifest, repoRoot)
+      .filter((c) => c.exists && toAdd.includes(c.namespace));
+    const affectedFiles: string[] = [];
+
+    await this.tx.run(repoRoot, {
+      description: `clef service update ${name}: add namespaces ${toAdd.join(",")}`,
+      paths: this.txPaths(repoRoot, cells),
+      mutate: async () => {
+        for (const cell of cells) {
+          const envConfig = identity.environments[cell.environment];
+          if (!envConfig) continue;
+          if (isKmsEnvelope(envConfig)) continue;
+          if (!envConfig.recipient) continue;
+
+          try {
+            await this.encryption.addRecipient(cell.filePath, envConfig.recipient);
+            affectedFiles.push(cell.filePath);
+          } catch (err) {
+            // SOPS may exit non-zero for duplicate recipients — safe to ignore
+            const message = err instanceof Error ? err.message : String(err);
+            if (!message.includes("already")) {
+              throw err;
+            }
+          }
+        }
+
+        const doc = readManifestYaml(repoRoot);
+        const identities = doc.service_identities as Record<string, unknown>[];
+        const siDoc = identities.find(
+          (si) => (si as Record<string, unknown>).name === name,
+        ) as Record<string, unknown>;
+        siDoc.namespaces = [...identity.namespaces, ...toAdd];
+        writeManifestYaml(repoRoot, doc);
+      },
+    });
+
+    return { added: toAdd, affectedFiles };
+  }
+
+  /**
+   * Shrink a service identity's namespace scope. De-registers the SI's
+   * per-env recipient from every matrix cell in the removed namespace × env
+   * combinations. KMS-backed environments are skipped (no recipient to remove).
+   *
+   * Refuses if removing would leave the SI with zero namespaces — point the
+   * caller at `clef service delete` for that case. Refuses if any requested
+   * namespace is not currently in the SI's scope.
+   */
+  async removeNamespacesFromScope(
+    name: string,
+    namespacesToRemove: string[],
+    manifest: ClefManifest,
+    repoRoot: string,
+  ): Promise<{ removed: string[]; affectedFiles: string[] }> {
+    const identity = this.get(manifest, name);
+    if (!identity) {
+      throw new Error(`Service identity '${name}' not found.`);
+    }
+
+    // Validate every namespace is currently in scope
+    const currentScope = new Set(identity.namespaces);
+    const notInScope = namespacesToRemove.filter((n) => !currentScope.has(n));
+    if (notInScope.length > 0) {
+      throw new Error(
+        `Namespace(s) not in scope of '${name}': ${notInScope.join(", ")}. ` +
+          `Current scope: ${identity.namespaces.join(", ")}`,
+      );
+    }
+
+    // Refuse if it would leave zero namespaces
+    const remaining = identity.namespaces.filter((n) => !namespacesToRemove.includes(n));
+    if (remaining.length === 0) {
+      throw new Error(
+        `Cannot remove the last namespace from service identity '${name}'. ` +
+          `Use \`clef service delete ${name}\` to delete the identity instead.`,
+      );
+    }
+
+    // Affected cells: every existing cell in (removed namespaces × all envs)
+    const cells = this.matrixManager
+      .resolveMatrix(manifest, repoRoot)
+      .filter((c) => c.exists && namespacesToRemove.includes(c.namespace));
+    const affectedFiles: string[] = [];
+
+    await this.tx.run(repoRoot, {
+      description: `clef service update ${name}: remove namespaces ${namespacesToRemove.join(",")}`,
+      paths: this.txPaths(repoRoot, cells),
+      mutate: async () => {
+        for (const cell of cells) {
+          const envConfig = identity.environments[cell.environment];
+          if (!envConfig) continue;
+          if (isKmsEnvelope(envConfig)) continue;
+          if (!envConfig.recipient) continue;
+
+          try {
+            await this.encryption.removeRecipient(cell.filePath, envConfig.recipient);
+            affectedFiles.push(cell.filePath);
+          } catch {
+            // May not be a current recipient — safe to skip
+          }
+        }
+
+        const doc = readManifestYaml(repoRoot);
+        const identities = doc.service_identities as Record<string, unknown>[];
+        const siDoc = identities.find(
+          (si) => (si as Record<string, unknown>).name === name,
+        ) as Record<string, unknown>;
+        siDoc.namespaces = remaining;
+        writeManifestYaml(repoRoot, doc);
+      },
+    });
+
+    return { removed: namespacesToRemove, affectedFiles };
+  }
+
+  /**
+   * Extend a service identity to cover an additional environment. Generates a
+   * fresh age key for the new env (or uses the supplied KMS config), registers
+   * the new recipient on every cell in the SI's scoped namespaces × this env,
+   * and adds the env entry to the SI's `environments{}` map in the manifest.
+   *
+   * Used as the explicit follow-up to `clef env add`. The env-add command
+   * deliberately doesn't cascade to existing SIs — `clef lint` reports the
+   * gap as a `missing_environment` issue and the user runs this method (via
+   * `clef service add-env <si> <env>`) once per SI to fill it in,
+   * choosing the backend deliberately at that moment.
+   *
+   * Refuses if the SI doesn't exist, the env doesn't exist in the manifest,
+   * or the env is already configured on the SI.
+   *
+   * @returns The new private key (for age) or `undefined` (for KMS), keyed
+   *   by env name. The caller is responsible for storing it securely.
+   */
+  async addEnvironmentToScope(
+    name: string,
+    envName: string,
+    manifest: ClefManifest,
+    repoRoot: string,
+    kmsConfig?: KmsConfig,
+  ): Promise<{ privateKey: string | undefined }> {
+    const identity = this.get(manifest, name);
+    if (!identity) {
+      throw new Error(`Service identity '${name}' not found.`);
+    }
+    if (!manifest.environments.some((e) => e.name === envName)) {
+      throw new Error(
+        `Environment '${envName}' not found in manifest. ` +
+          `Available: ${manifest.environments.map((e) => e.name).join(", ")}`,
+      );
+    }
+    if (identity.environments[envName]) {
+      throw new Error(
+        `Service identity '${name}' already has a config for environment '${envName}'. ` +
+          `Use 'clef service update --kms-env ${envName}=<provider>:<keyId>' to switch backends.`,
+      );
+    }
+
+    // Generate the new env config outside the transaction so the caller gets
+    // the private key back even if the git commit fails (the key is material
+    // the user needs to install regardless).
+    let envConfig: ServiceIdentityEnvironmentConfig;
+    let privateKey: string | undefined;
+    if (kmsConfig) {
+      envConfig = { kms: kmsConfig };
+    } else {
+      const newIdentity = await generateAgeIdentity();
+      envConfig = { recipient: newIdentity.publicKey };
+      privateKey = newIdentity.privateKey;
+    }
+
+    // Affected cells: every existing cell in (SI's scoped namespaces × this env)
+    const cells = this.matrixManager
+      .resolveMatrix(manifest, repoRoot)
+      .filter(
+        (c) => c.exists && identity.namespaces.includes(c.namespace) && c.environment === envName,
+      );
+
+    await this.tx.run(repoRoot, {
+      description: `clef service add-env ${name} ${envName}`,
+      paths: this.txPaths(repoRoot, cells),
+      mutate: async () => {
+        // For age envs, register the new recipient on every scoped cell.
+        // KMS envs have no recipient on the cells — the cells are encrypted
+        // to the KMS-managed envelope key.
+        if (!isKmsEnvelope(envConfig) && envConfig.recipient) {
+          for (const cell of cells) {
+            try {
+              await this.encryption.addRecipient(cell.filePath, envConfig.recipient);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              if (!message.includes("already")) {
+                throw err;
+              }
+            }
+          }
+        }
+
+        const doc = readManifestYaml(repoRoot);
+        const identities = doc.service_identities as Record<string, unknown>[];
+        const siDoc = identities.find(
+          (si) => (si as Record<string, unknown>).name === name,
+        ) as Record<string, unknown>;
+        const envs = siDoc.environments as Record<string, unknown>;
+        envs[envName] = envConfig;
+        writeManifestYaml(repoRoot, doc);
+      },
+    });
+
+    return { privateKey };
+  }
+
+  /**
    * Rotate the age key for a service identity (all envs or a specific env).
    * Returns the new private keys.
+   *
+   * The whole rotation runs inside a single transaction: any cell-write
+   * failure rolls back ALL recipient swaps and the manifest update via
+   * `git reset --hard` to the pre-rotation state. The previous in-method
+   * `PartialRotationError` rollback dance is no longer needed.
    */
   async rotateKey(
     name: string,
@@ -315,89 +564,80 @@ export class ServiceIdentityManager {
       throw new Error(`Service identity '${name}' not found.`);
     }
 
-    const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
-    const raw = fs.readFileSync(manifestPath, "utf-8");
-    const doc = YAML.parse(raw) as Record<string, unknown>;
-    const identities = doc.service_identities as Record<string, unknown>[];
-    const siDoc = identities.find((si) => (si as Record<string, unknown>).name === name) as Record<
-      string,
-      unknown
-    >;
-    const envs = siDoc.environments as Record<string, Record<string, string>>;
-
-    const newPrivateKeys: Record<string, string> = {};
     const envsToRotate = environment ? [environment] : Object.keys(identity.environments);
 
-    const cells = this.matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
+    // Validate envs exist on the identity before opening the transaction.
+    for (const envName of envsToRotate) {
+      const envConfig = identity.environments[envName];
+      if (!envConfig) {
+        throw new Error(`Environment '${envName}' not found on identity '${name}'.`);
+      }
+    }
 
-    try {
-      for (const envName of envsToRotate) {
-        const envConfig = identity.environments[envName];
-        if (!envConfig) {
-          throw new Error(`Environment '${envName}' not found on identity '${name}'.`);
-        }
-        // KMS-backed environments don't have age keys to rotate
-        if (isKmsEnvelope(envConfig)) continue;
-        const oldRecipient = envConfig.recipient;
-        if (!oldRecipient) {
-          throw new Error(`Environment '${envName}' not found on identity '${name}'.`);
-        }
+    // Pre-generate all new keys outside the transaction so the caller gets
+    // them even if the git commit step itself fails (the keys are already
+    // material that the user will need to install regardless).
+    const newPrivateKeys: Record<string, string> = {};
+    const newPublicKeys: Record<string, string> = {};
+    for (const envName of envsToRotate) {
+      const envConfig = identity.environments[envName];
+      if (isKmsEnvelope(envConfig)) continue;
+      if (!envConfig.recipient) continue;
+      const newIdentity = await generateAgeIdentity();
+      newPrivateKeys[envName] = newIdentity.privateKey;
+      newPublicKeys[envName] = newIdentity.publicKey;
+    }
 
-        const newIdentity = await generateAgeIdentity();
-        newPrivateKeys[envName] = newIdentity.privateKey;
+    const targetEnvNames = new Set(Object.keys(newPublicKeys));
+    if (targetEnvNames.size === 0) {
+      // Nothing to rotate (all targeted envs are KMS-backed or have no recipient).
+      return newPrivateKeys;
+    }
 
-        // Update manifest
-        envs[envName] = { recipient: newIdentity.publicKey };
+    const cells = this.matrixManager
+      .resolveMatrix(manifest, repoRoot)
+      .filter(
+        (c) =>
+          c.exists &&
+          identity.namespaces.includes(c.namespace) &&
+          targetEnvNames.has(c.environment),
+      );
 
-        // Swap recipients on scoped files
-        const scopedCells = cells.filter(
-          (c) => identity.namespaces.includes(c.namespace) && c.environment === envName,
-        );
-        for (const cell of scopedCells) {
-          try {
-            await this.encryption.removeRecipient(cell.filePath, oldRecipient);
-          } catch {
-            // May not be a current recipient
-          }
-          try {
-            await this.encryption.addRecipient(cell.filePath, newIdentity.publicKey);
-          } catch (addErr) {
-            // Attempt rollback: re-add old recipient
+    await this.tx.run(repoRoot, {
+      description: `clef service rotate ${name}${environment ? `:${environment}` : ""}`,
+      paths: this.txPaths(repoRoot, cells),
+      mutate: async () => {
+        const doc = readManifestYaml(repoRoot);
+        const identities = doc.service_identities as Record<string, unknown>[];
+        const siDoc = identities.find(
+          (si) => (si as Record<string, unknown>).name === name,
+        ) as Record<string, unknown>;
+        const envs = siDoc.environments as Record<string, Record<string, string>>;
+
+        for (const envName of targetEnvNames) {
+          const oldRecipient = identity.environments[envName].recipient!;
+          const newPublicKey = newPublicKeys[envName];
+
+          envs[envName] = { recipient: newPublicKey };
+
+          const scopedCells = cells.filter((c) => c.environment === envName);
+          for (const cell of scopedCells) {
             try {
-              await this.encryption.addRecipient(cell.filePath, oldRecipient);
+              await this.encryption.removeRecipient(cell.filePath, oldRecipient);
             } catch {
-              throw new Error(
-                `Failed to add new recipient to ${cell.namespace}/${cell.environment} and rollback also failed. ` +
-                  `File may be in an inconsistent state. ` +
-                  `Old key: ${oldRecipient.slice(0, 12)}..., New key: ${newIdentity.publicKey.slice(0, 12)}...`,
-              );
+              // May not be a current recipient — safe to skip
             }
-            throw addErr;
+            // No try/catch around add: failure here triggers full transaction
+            // rollback (git reset --hard), which is safer than the old manual
+            // re-add dance.
+            await this.encryption.addRecipient(cell.filePath, newPublicKey);
           }
         }
-      }
-    } catch (err) {
-      if (Object.keys(newPrivateKeys).length > 0) {
-        const partialErr = new PartialRotationError(
-          `Rotation failed after rotating ${Object.keys(newPrivateKeys).join(", ")}: ${(err as Error).message}`,
-          newPrivateKeys,
-        );
-        throw partialErr;
-      }
-      throw err;
-    }
 
-    const tmpRotate = path.join(os.tmpdir(), `clef-manifest-${process.pid}-${Date.now()}.tmp`);
-    try {
-      fs.writeFileSync(tmpRotate, YAML.stringify(doc), "utf-8");
-      fs.renameSync(tmpRotate, manifestPath);
-    } finally {
-      try {
-        fs.unlinkSync(tmpRotate);
-      } catch {
-        // Already renamed or never written — ignore
-      }
-    }
+        writeManifestYaml(repoRoot, doc);
+      },
+    });
+
     return newPrivateKeys;
   }
 
@@ -434,7 +674,8 @@ export class ServiceIdentityManager {
             identity: si.name,
             environment: envName,
             type: "missing_environment",
-            message: `Service identity '${si.name}' is missing environment '${envName}'. Manually add an age key pair for this environment in clef.yaml.`,
+            message: `Service identity '${si.name}' has no config for environment '${envName}'.`,
+            fixCommand: `clef service add-env ${si.name} ${envName}`,
           });
         }
       }

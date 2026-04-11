@@ -29,12 +29,16 @@ import {
   ImportRunner,
   RecipientManager,
   ServiceIdentityManager,
+  StructureManager,
+  TransactionManager,
   validateAgePublicKey,
   VALID_KMS_PROVIDERS,
   BackendMigrator,
+  ResetManager,
   resolveBackendConfig,
+  validateResetScope,
 } from "@clef-sh/core";
-import type { ImportFormat, MigrationProgressEvent } from "@clef-sh/core";
+import type { BackendType, ImportFormat, MigrationProgressEvent, ResetScope } from "@clef-sh/core";
 
 export interface ApiDeps {
   runner: SubprocessRunner;
@@ -119,11 +123,14 @@ export function createApiRouter(deps: ApiDeps): Router {
   const schemaValidator = new SchemaValidator();
   const lintRunner = new LintRunner(matrix, schemaValidator, sops);
   const git = new GitIntegration(deps.runner);
+  const tx = new TransactionManager(git);
   const scanRunner = new ScanRunner(deps.runner);
-  const recipientManager = new RecipientManager(sops, matrix);
-  const serviceIdManager = new ServiceIdentityManager(sops, matrix);
-  const backendMigrator = new BackendMigrator(sops, matrix);
-  const bulkOps = new BulkOps();
+  const recipientManager = new RecipientManager(sops, matrix, tx);
+  const serviceIdManager = new ServiceIdentityManager(sops, matrix, tx);
+  const backendMigrator = new BackendMigrator(sops, matrix, tx);
+  const resetManager = new ResetManager(matrix, sops, schemaValidator, tx);
+  const bulkOps = new BulkOps(tx);
+  const structureManager = new StructureManager(matrix, sops, tx);
 
   // In-session scan cache
   let lastScanResult: ScanResult | null = null;
@@ -223,11 +230,20 @@ export function createApiRouter(deps: ApiDeps): Router {
       try {
         const manifest = loadManifest();
         const { ns, env, key } = req.params;
-        const { value, random, confirmed } = req.body as {
+        const {
+          value,
+          random,
+          confirmed,
+          commit: commitFlag,
+        } = req.body as {
           value?: string;
           random?: boolean;
           confirmed?: boolean;
+          commit?: boolean;
         };
+        // Auto-commit by default. The edit-multiple-rows-then-batch-commit
+        // flow in NamespaceEditor.handleSave passes commit:false to defer.
+        const shouldCommit = commitFlag !== false;
 
         if (!random && (value === undefined || value === null)) {
           res.status(400).json({
@@ -257,86 +273,70 @@ export function createApiRouter(deps: ApiDeps): Router {
           return;
         }
 
-        const filePath = `${deps.repoRoot}/${manifest.file_pattern.replace("{namespace}", ns).replace("{environment}", env)}`;
+        const relCellPath = manifest.file_pattern
+          .replace("{namespace}", ns)
+          .replace("{environment}", env);
+        const filePath = `${deps.repoRoot}/${relCellPath}`;
         const decrypted = await sops.decrypt(filePath);
 
-        if (random) {
-          // Generate random value server-side and mark as pending
-          const randomValue = generateRandomValue();
-          const previousValue = decrypted.values[key];
-          decrypted.values[key] = randomValue;
-          await sops.encrypt(filePath, decrypted.values, manifest, env);
-
-          try {
+        // Inside the mutate callback we do the actual encrypt + metadata
+        // update. When auto-commit is enabled this runs inside tx.run; when
+        // disabled (batched edit flow) it runs directly.
+        let response: Record<string, unknown> = { success: true, key };
+        const doWork = async (): Promise<void> => {
+          if (random) {
+            decrypted.values[key] = generateRandomValue();
+            await sops.encrypt(filePath, decrypted.values, manifest, env);
+            // Metadata update failure used to trigger an in-method rollback
+            // here. Inside tx.run, that rollback comes for free via git
+            // reset, so we just let the throw propagate.
             await markPendingWithRetry(filePath, [key], "clef ui");
-          } catch {
-            // Both retry attempts failed — roll back the encrypt
-            try {
-              if (previousValue !== undefined) {
-                decrypted.values[key] = previousValue;
-              } else {
-                delete decrypted.values[key];
-              }
-              await sops.encrypt(filePath, decrypted.values, manifest, env);
-            } catch {
-              // Rollback also failed — return 500 with context
-              return res.status(500).json({
-                error: "Partial failure",
-                message:
-                  "Value was encrypted but pending state could not be recorded. " +
-                  "Rollback also failed. The key may have a random placeholder value. " +
-                  "Check the file manually.",
-                code: "PARTIAL_FAILURE",
-              });
-            }
-            return res.status(500).json({
-              error: "Pending state could not be recorded",
-              message: "The operation was rolled back. No changes were made.",
-              code: "PENDING_FAILURE",
-            });
-          }
+            response = { success: true, key, pending: true };
+          } else {
+            decrypted.values[key] = String(value);
+            await sops.encrypt(filePath, decrypted.values, manifest, env);
 
-          res.json({ success: true, key, pending: true });
-        } else {
-          decrypted.values[key] = String(value);
-          await sops.encrypt(filePath, decrypted.values, manifest, env);
-
-          // Validate against schema if defined (B1)
-          const nsDef = manifest.namespaces.find((n) => n.name === ns);
-          if (nsDef?.schema) {
-            try {
-              const schema = schemaValidator.loadSchema(path.join(deps.repoRoot, nsDef.schema));
-              const result = schemaValidator.validate({ [key]: String(value) }, schema);
-              const violations = [...result.errors, ...result.warnings];
-              if (violations.length > 0) {
-                // Resolve pending state if the key was pending
-                try {
-                  await markResolved(filePath, [key]);
-                } catch {
-                  // Metadata update failed — non-fatal
+            // Validate against schema if defined
+            const nsDef = manifest.namespaces.find((n) => n.name === ns);
+            if (nsDef?.schema) {
+              try {
+                const schema = schemaValidator.loadSchema(path.join(deps.repoRoot, nsDef.schema));
+                const result = schemaValidator.validate({ [key]: String(value) }, schema);
+                const violations = [...result.errors, ...result.warnings];
+                if (violations.length > 0) {
+                  response = {
+                    success: true,
+                    key,
+                    warnings: violations.map((v) => v.message),
+                  };
                 }
-                return res.json({
-                  success: true,
-                  key,
-                  warnings: violations.map((v) => v.message),
-                });
+              } catch {
+                // Schema load failed — skip validation, not fatal
               }
+            }
+            // Resolve pending state if the key was pending
+            try {
+              await markResolved(filePath, [key]);
             } catch {
-              // Schema load failed — skip validation, not fatal
+              // Metadata update failed — non-fatal
             }
           }
+        };
 
-          // Resolve pending state if the key was pending
-          try {
-            await markResolved(filePath, [key]);
-          } catch {
-            // Metadata update failed — non-fatal
-          }
-
-          res.json({ success: true, key });
+        if (shouldCommit) {
+          await tx.run(deps.repoRoot, {
+            description: `clef ui: set ${ns}/${env}/${key}`,
+            paths: [relCellPath, relCellPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
+            mutate: doWork,
+          });
+        } else {
+          await doWork();
         }
-      } catch {
-        res.status(500).json({ error: "Failed to set value", code: "SET_ERROR" });
+
+        res.json(response);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to set value";
+        res.status(500).json({ error: message, code: "SET_ERROR" });
       }
     },
   );
@@ -349,7 +349,11 @@ export function createApiRouter(deps: ApiDeps): Router {
       try {
         const manifest = loadManifest();
         const { ns, env, key } = req.params;
-        const { confirmed } = (req.body ?? {}) as { confirmed?: boolean };
+        const { confirmed, commit: commitFlag } = (req.body ?? {}) as {
+          confirmed?: boolean;
+          commit?: boolean;
+        };
+        const shouldCommit = commitFlag !== false;
 
         const nsExists = manifest.namespaces.some((n) => n.name === ns);
         const envExists = manifest.environments.some((e) => e.name === env);
@@ -371,7 +375,10 @@ export function createApiRouter(deps: ApiDeps): Router {
           return;
         }
 
-        const filePath = `${deps.repoRoot}/${manifest.file_pattern.replace("{namespace}", ns).replace("{environment}", env)}`;
+        const relCellPath = manifest.file_pattern
+          .replace("{namespace}", ns)
+          .replace("{environment}", env);
+        const filePath = `${deps.repoRoot}/${relCellPath}`;
         const decrypted = await sops.decrypt(filePath);
 
         if (!(key in decrypted.values)) {
@@ -382,19 +389,30 @@ export function createApiRouter(deps: ApiDeps): Router {
           return;
         }
 
-        delete decrypted.values[key];
-        await sops.encrypt(filePath, decrypted.values, manifest, env);
+        const doWork = async (): Promise<void> => {
+          delete decrypted.values[key];
+          await sops.encrypt(filePath, decrypted.values, manifest, env);
+          try {
+            await markResolved(filePath, [key]);
+          } catch {
+            // Best effort — orphaned metadata is annoying but not dangerous
+          }
+        };
 
-        // Clean up pending metadata if it exists
-        try {
-          await markResolved(filePath, [key]);
-        } catch {
-          // Best effort — orphaned metadata is annoying but not dangerous
+        if (shouldCommit) {
+          await tx.run(deps.repoRoot, {
+            description: `clef ui: delete ${ns}/${env}/${key}`,
+            paths: [relCellPath, relCellPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
+            mutate: doWork,
+          });
+        } else {
+          await doWork();
         }
 
         res.json({ success: true, key });
-      } catch {
-        res.status(500).json({ error: "Failed to delete key", code: "DELETE_ERROR" });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to delete key";
+        res.status(500).json({ error: message, code: "DELETE_ERROR" });
       }
     },
   );
@@ -473,7 +491,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
-      await bulkOps.copyValue(key, fromCell, toCell, sops, manifest);
+      await bulkOps.copyValue(key, fromCell, toCell, sops, manifest, deps.repoRoot);
       res.json({ success: true, key, from: `${fromNs}/${fromEnv}`, to: `${toNs}/${toEnv}` });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to copy value";
@@ -748,7 +766,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
-      const importRunner = new ImportRunner(sops);
+      const importRunner = new ImportRunner(sops, tx);
       const result = await importRunner.import(target, null, content, manifest, deps.repoRoot, {
         format,
         dryRun: true,
@@ -814,7 +832,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
-      const importRunner = new ImportRunner(sops);
+      const importRunner = new ImportRunner(sops, tx);
       const result = await importRunner.import(target, null, content, manifest, deps.repoRoot, {
         format,
         keys,
@@ -1062,6 +1080,182 @@ export function createApiRouter(deps: ApiDeps): Router {
     }
   });
 
+  // ── Manifest Structure (namespaces + environments) ─────────────────
+  //
+  // Each endpoint maps to a StructureManager method. Errors from the manager
+  // are mapped to HTTP status codes:
+  //   400 — invalid input (missing/wrong-type body field, invalid identifier)
+  //   404 — name not found in the manifest
+  //   409 — name collision (entity already exists, or rename target taken)
+  //   412 — refusal precondition (protected env, last namespace/env, orphaned SI)
+  //   500 — anything else (filesystem, sops, transaction failure)
+
+  /**
+   * Map a thrown error from StructureManager to an HTTP status. The manager
+   * throws plain `Error` instances with descriptive messages — we sniff the
+   * message text to pick the right status. Brittle but contained: every
+   * sniff matches a string the manager itself produces.
+   */
+  function structureErrorStatus(err: unknown): { status: number; code: string } {
+    const message = err instanceof Error ? err.message : "";
+    if (/not found/.test(message)) return { status: 404, code: "NOT_FOUND" };
+    if (/already exists/.test(message)) return { status: 409, code: "CONFLICT" };
+    if (/Invalid (namespace|environment) name/.test(message))
+      return { status: 400, code: "BAD_REQUEST" };
+    if (/is protected|last (namespace|environment)|only scope/.test(message))
+      return { status: 412, code: "PRECONDITION_FAILED" };
+    return { status: 500, code: "STRUCTURE_ERROR" };
+  }
+
+  // POST /api/namespaces — add a new namespace and scaffold cells
+  router.post("/namespaces", async (req: Request, res: Response) => {
+    try {
+      const { name, description, schema } = req.body as {
+        name?: string;
+        description?: string;
+        schema?: string;
+      };
+      if (!name || typeof name !== "string") {
+        res.status(400).json({ error: "name is required.", code: "BAD_REQUEST" });
+        return;
+      }
+      const manifest = loadManifest();
+      await structureManager.addNamespace(name, { description, schema }, manifest, deps.repoRoot);
+      res.status(201).json({ name, description: description ?? "", schema });
+    } catch (err) {
+      const { status, code } = structureErrorStatus(err);
+      const message = err instanceof Error ? err.message : "Failed to add namespace";
+      res.status(status).json({ error: message, code });
+    }
+  });
+
+  // PATCH /api/namespaces/:name — edit description, schema, or rename
+  router.patch("/namespaces/:name", async (req: Request, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      const { rename, description, schema } = req.body as {
+        rename?: string;
+        description?: string;
+        schema?: string;
+      };
+      if (rename === undefined && description === undefined && schema === undefined) {
+        res.status(400).json({
+          error: "At least one of rename, description, or schema is required.",
+          code: "BAD_REQUEST",
+        });
+        return;
+      }
+      const manifest = loadManifest();
+      await structureManager.editNamespace(
+        name,
+        { rename, description, schema },
+        manifest,
+        deps.repoRoot,
+      );
+      res.json({ name: rename ?? name, previousName: rename ? name : undefined });
+    } catch (err) {
+      const { status, code } = structureErrorStatus(err);
+      const message = err instanceof Error ? err.message : "Failed to edit namespace";
+      res.status(status).json({ error: message, code });
+    }
+  });
+
+  // DELETE /api/namespaces/:name — remove namespace and cascade through SIs
+  router.delete("/namespaces/:name", async (req: Request, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      const manifest = loadManifest();
+      await structureManager.removeNamespace(name, manifest, deps.repoRoot);
+      res.json({ ok: true });
+    } catch (err) {
+      const { status, code } = structureErrorStatus(err);
+      const message = err instanceof Error ? err.message : "Failed to remove namespace";
+      res.status(status).json({ error: message, code });
+    }
+  });
+
+  // POST /api/environments — add a new environment and scaffold cells
+  router.post("/environments", async (req: Request, res: Response) => {
+    try {
+      const {
+        name,
+        description,
+        protected: isProtected,
+      } = req.body as {
+        name?: string;
+        description?: string;
+        protected?: boolean;
+      };
+      if (!name || typeof name !== "string") {
+        res.status(400).json({ error: "name is required.", code: "BAD_REQUEST" });
+        return;
+      }
+      const manifest = loadManifest();
+      await structureManager.addEnvironment(
+        name,
+        { description, protected: isProtected },
+        manifest,
+        deps.repoRoot,
+      );
+      res
+        .status(201)
+        .json({ name, description: description ?? "", protected: isProtected ?? false });
+    } catch (err) {
+      const { status, code } = structureErrorStatus(err);
+      const message = err instanceof Error ? err.message : "Failed to add environment";
+      res.status(status).json({ error: message, code });
+    }
+  });
+
+  // PATCH /api/environments/:name — edit description, protected, or rename
+  router.patch("/environments/:name", async (req: Request, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      const {
+        rename,
+        description,
+        protected: isProtected,
+      } = req.body as {
+        rename?: string;
+        description?: string;
+        protected?: boolean;
+      };
+      if (rename === undefined && description === undefined && isProtected === undefined) {
+        res.status(400).json({
+          error: "At least one of rename, description, or protected is required.",
+          code: "BAD_REQUEST",
+        });
+        return;
+      }
+      const manifest = loadManifest();
+      await structureManager.editEnvironment(
+        name,
+        { rename, description, protected: isProtected },
+        manifest,
+        deps.repoRoot,
+      );
+      res.json({ name: rename ?? name, previousName: rename ? name : undefined });
+    } catch (err) {
+      const { status, code } = structureErrorStatus(err);
+      const message = err instanceof Error ? err.message : "Failed to edit environment";
+      res.status(status).json({ error: message, code });
+    }
+  });
+
+  // DELETE /api/environments/:name — remove env and cascade through SIs
+  router.delete("/environments/:name", async (req: Request, res: Response) => {
+    try {
+      const name = req.params.name as string;
+      const manifest = loadManifest();
+      await structureManager.removeEnvironment(name, manifest, deps.repoRoot);
+      res.json({ ok: true });
+    } catch (err) {
+      const { status, code } = structureErrorStatus(err);
+      const message = err instanceof Error ? err.message : "Failed to remove environment";
+      res.status(status).json({ error: message, code });
+    }
+  });
+
   // ── Backend Migration ──────────────────────────────────────────────
 
   router.get("/backend-config", (_req: Request, res: Response) => {
@@ -1156,6 +1350,64 @@ export function createApiRouter(deps: ApiDeps): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Migration failed";
       res.status(500).json({ error: message, code: "MIGRATION_ERROR" });
+    }
+  });
+
+  // ── Destructive Reset ───────────────────────────────────────────────
+  //
+  // Disaster-recovery endpoint. Abandons the current encrypted contents of
+  // a scope (env / namespace / cell) and re-scaffolds fresh placeholders,
+  // optionally switching to a new SOPS backend in the same transaction.
+  // The UI gates this with a typed-confirmation modal — there is no
+  // server-side `confirmed` field because every other destructive endpoint
+  // (DELETE namespaces, DELETE environments) follows the same pattern of
+  // letting the UI carry the confirmation responsibility.
+
+  router.post("/reset", async (req: Request, res: Response) => {
+    try {
+      const { scope, backend, key, keys } = req.body as {
+        scope?: ResetScope;
+        backend?: BackendType;
+        key?: string;
+        keys?: string[];
+      };
+
+      if (!scope || typeof scope !== "object" || !("kind" in scope)) {
+        res.status(400).json({
+          error: "Reset requires a scope. Provide { kind: 'env'|'namespace'|'cell', ... }.",
+          code: "BAD_REQUEST",
+        });
+        return;
+      }
+
+      const manifest = loadManifest();
+
+      // Surface a clean 4xx for unknown scope before any destructive work.
+      // ResetManager re-validates internally as defence in depth.
+      try {
+        validateResetScope(scope, manifest);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Invalid reset scope";
+        res.status(404).json({ error: message, code: "NOT_FOUND" });
+        return;
+      }
+
+      const result = await resetManager.reset(
+        { scope, backend, key, keys },
+        manifest,
+        deps.repoRoot,
+      );
+      res.json({ success: true, result });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Reset failed";
+      // Validation-style errors that ResetManager throws after the scope
+      // check passes — bad backend/key combination, scope matches zero
+      // cells. Map these to 400 so the UI can render them as user errors
+      // rather than server errors.
+      const isUserError = /requires a key|does not take a key|matches zero cells/.test(message);
+      const status = isUserError ? 400 : 500;
+      const code = isUserError ? "BAD_REQUEST" : "RESET_ERROR";
+      res.status(status).json({ error: message, code });
     }
   });
 

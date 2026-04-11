@@ -100,16 +100,15 @@ export function scaffoldTestRepo(keys: AgeKeyPair, serviceIdentityKeys?: AgeKeyP
   );
 
   // Init a git repo so the UI's git-status and git-log endpoints don't error.
-  const gitEnv = {
-    ...process.env,
-    GIT_AUTHOR_NAME: "Test",
-    GIT_AUTHOR_EMAIL: "test@test.com",
-    GIT_COMMITTER_NAME: "Test",
-    GIT_COMMITTER_EMAIL: "test@test.com",
-  };
+  // Set user.name/user.email on the repo itself so TransactionManager's
+  // preflight author-identity check finds them in CI (where there is no
+  // global git config). Locally this is a no-op since the developer's global
+  // config already provides these.
   execFileSync("git", ["init"], { cwd: dir, stdio: "pipe" });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: dir, stdio: "pipe" });
+  execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: dir, stdio: "pipe" });
   execFileSync("git", ["add", "."], { cwd: dir, stdio: "pipe" });
-  execFileSync("git", ["commit", "-m", "initial"], { cwd: dir, stdio: "pipe", env: gitEnv });
+  execFileSync("git", ["commit", "-m", "initial"], { cwd: dir, stdio: "pipe" });
 
   return {
     dir,

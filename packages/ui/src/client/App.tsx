@@ -8,9 +8,11 @@ import { DiffView } from "./screens/DiffView";
 import { LintView } from "./screens/LintView";
 import { ScanScreen } from "./screens/ScanScreen";
 import { ImportScreen } from "./screens/ImportScreen";
+import { ManifestScreen } from "./screens/ManifestScreen";
 import { RecipientsScreen } from "./screens/RecipientsScreen";
 import { ServiceIdentitiesScreen } from "./screens/ServiceIdentitiesScreen";
 import { BackendScreen } from "./screens/BackendScreen";
+import { ResetScreen } from "./screens/ResetScreen";
 import { GitLogView } from "./screens/GitLogView";
 import type { ClefManifest, MatrixStatus, GitStatus, LintResult } from "@clef-sh/core";
 
@@ -197,8 +199,14 @@ export default function App() {
         {view === "backend" && (
           <BackendScreen manifest={manifest} setView={setView} reloadManifest={loadManifest} />
         )}
+        {view === "reset" && (
+          <ResetScreen manifest={manifest} setView={setView} reloadManifest={loadManifest} />
+        )}
         {view === "cloud" && null}
         {view === "history" && <GitLogView manifest={manifest} />}
+        {view === "manifest" && (
+          <ManifestScreen manifest={manifest} reloadManifest={loadManifest} />
+        )}
       </div>
     </div>
   );

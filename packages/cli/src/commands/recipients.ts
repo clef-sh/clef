@@ -2,10 +2,13 @@ import * as path from "path";
 import * as readline from "readline";
 import { Command } from "commander";
 import {
+  EncryptionBackend,
+  GitIntegration,
   ManifestParser,
   MatrixManager,
   SubprocessRunner,
   RecipientManager,
+  TransactionManager,
   validateAgePublicKey,
   keyPreview,
   deriveAgePublicKey,
@@ -20,6 +23,16 @@ import type { ClefManifest } from "@clef-sh/core";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient, resolveAgePrivateKey } from "../age-credential";
+
+/** Build a RecipientManager with a TransactionManager wired up. */
+function makeRecipientManager(
+  sopsClient: EncryptionBackend,
+  matrixManager: MatrixManager,
+  runner: SubprocessRunner,
+): RecipientManager {
+  const tx = new TransactionManager(new GitIntegration(runner));
+  return new RecipientManager(sopsClient, matrixManager, tx);
+}
 
 export function waitForEnter(message: string): Promise<void> {
   if (isJsonMode()) return Promise.resolve();
@@ -68,7 +81,7 @@ export function registerRecipientsCommand(
 
         const matrixManager = new MatrixManager();
         const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const recipientManager = new RecipientManager(sopsClient, matrixManager);
+        const recipientManager = makeRecipientManager(sopsClient, matrixManager, deps.runner);
 
         const recipients = await recipientManager.list(manifest, repoRoot, opts.environment);
 
@@ -183,7 +196,7 @@ export function registerRecipientsCommand(
 
         const matrixManager = new MatrixManager();
         const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const recipientManager = new RecipientManager(sopsClient, matrixManager);
+        const recipientManager = makeRecipientManager(sopsClient, matrixManager, deps.runner);
 
         // Verify recipient exists
         const existing = await recipientManager.list(manifest, repoRoot, opts.environment);
@@ -346,7 +359,7 @@ export function registerRecipientsCommand(
         // Check if already a recipient
         const matrixManager = new MatrixManager();
         const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const recipientManager = new RecipientManager(sopsClient, matrixManager);
+        const recipientManager = makeRecipientManager(sopsClient, matrixManager, deps.runner);
         const existing = await recipientManager.list(manifest, repoRoot, opts.environment);
         if (existing.some((r) => r.key === publicKey)) {
           formatter.info("You are already a recipient.");
@@ -526,7 +539,7 @@ async function executeRecipientAdd(
 
   const matrixManager = new MatrixManager();
   const sopsClient = await createSopsClient(repoRoot, deps.runner);
-  const recipientManager = new RecipientManager(sopsClient, matrixManager);
+  const recipientManager = makeRecipientManager(sopsClient, matrixManager, deps.runner);
 
   // Check for duplicate
   const existing = await recipientManager.list(manifest, repoRoot, environment);

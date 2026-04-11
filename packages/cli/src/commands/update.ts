@@ -1,7 +1,14 @@
 import * as fs from "fs";
 import * as path from "path";
 import { Command } from "commander";
-import { ManifestParser, MatrixManager, SopsClient, SubprocessRunner } from "@clef-sh/core";
+import {
+  GitIntegration,
+  ManifestParser,
+  MatrixManager,
+  SopsClient,
+  SubprocessRunner,
+  TransactionManager,
+} from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { resolveAgeCredential, prepareSopsClientArgs } from "../age-credential";
@@ -14,7 +21,7 @@ export function registerUpdateCommand(program: Command, deps: { runner: Subproce
         "Run after adding environments or namespaces to clef.yaml.\n\n" +
         "Exit codes:\n" +
         "  0  All cells up to date or newly scaffolded\n" +
-        "  1  Error reading manifest or scaffolding files",
+        "  1  Error reading manifest, preflight failure, or scaffolding files",
     )
     .action(async () => {
       try {
@@ -45,36 +52,38 @@ export function registerUpdateCommand(program: Command, deps: { runner: Subproce
           return;
         }
 
-        let scaffoldedCount = 0;
-        let failedCount = 0;
-        for (const cell of missing) {
-          try {
-            await matrixManager.scaffoldCell(cell, sopsClient, manifest);
-            scaffoldedCount++;
-          } catch (err) {
-            failedCount++;
-            formatter.warn(
-              `Could not scaffold ${cell.namespace}/${cell.environment}: ${(err as Error).message}`,
-            );
-          }
-        }
+        // Paths are repo-relative because TransactionManager passes them to
+        // `git add` / `git clean -f`, both of which want repo-relative paths.
+        const paths = missing.map((c) => path.relative(repoRoot, c.filePath));
+        const description =
+          missing.length === 1
+            ? `clef update: scaffold ${missing[0].namespace}/${missing[0].environment}`
+            : `clef update: scaffold ${missing.length} matrix cells`;
+
+        const tx = new TransactionManager(new GitIntegration(deps.runner));
+        const result = await tx.run(repoRoot, {
+          description,
+          paths,
+          mutate: async () => {
+            for (const cell of missing) {
+              await matrixManager.scaffoldCell(cell, sopsClient, manifest);
+            }
+          },
+        });
 
         if (isJsonMode()) {
-          formatter.json({ scaffolded: scaffoldedCount, failed: failedCount });
-          process.exit(failedCount > 0 ? 1 : 0);
+          formatter.json({
+            scaffolded: missing.length,
+            sha: result.sha,
+            paths: result.paths,
+          });
           return;
         }
 
-        if (scaffoldedCount > 0) {
-          formatter.success(`Scaffolded ${scaffoldedCount} encrypted file(s)`);
+        formatter.success(`Scaffolded ${missing.length} encrypted file(s)`);
+        if (result.sha) {
+          formatter.print(`  Committed as ${result.sha.slice(0, 7)}`);
         }
-
-        if (failedCount === 0) {
-          return;
-        }
-
-        formatter.error(`${failedCount} cell(s) could not be scaffolded.`);
-        process.exit(1);
       } catch (err) {
         handleCommandError(err);
       }

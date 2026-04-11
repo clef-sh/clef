@@ -12,7 +12,9 @@ export type ViewName =
   | "recipients"
   | "identities"
   | "backend"
-  | "history";
+  | "reset"
+  | "history"
+  | "manifest";
 
 interface SidebarProps {
   activeView: ViewName;
@@ -165,6 +167,18 @@ export function Sidebar({
           label="Backend"
           active={activeView === "backend"}
           onClick={() => setView("backend")}
+        />
+        <NavItem
+          icon={"\u2421"}
+          label="Reset"
+          active={activeView === "reset"}
+          onClick={() => setView("reset")}
+        />
+        <NavItem
+          icon={"\u2630"}
+          label="Manifest"
+          active={activeView === "manifest"}
+          onClick={() => setView("manifest")}
         />
         <NavItem
           icon={"\u23F1"}
