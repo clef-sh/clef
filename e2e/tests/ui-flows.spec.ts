@@ -630,10 +630,14 @@ test.describe("git history → GitLogView: commit log per encrypted file", () =>
     await page.goto(server.url);
     await page.getByTestId("nav-history").click();
     await expect(page.getByText("Commit log per encrypted file")).toBeVisible();
-    await expect(page.getByText("Hash")).toBeVisible();
-    await expect(page.getByText("Date")).toBeVisible();
-    await expect(page.getByText("Author")).toBeVisible();
-    await expect(page.getByText("Message")).toBeVisible();
+    // Use role + exact name for column headers — substring text matching
+    // collides with cell content (e.g. "Date" matches "update" via the
+    // case-insensitive substring rule once the log contains commits with
+    // "update" in their messages).
+    await expect(page.getByRole("columnheader", { name: "Hash" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Date" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Author" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Message" })).toBeVisible();
   });
 
   test("[positive] initial commit from test repo setup appears in the log", async ({ page }) => {

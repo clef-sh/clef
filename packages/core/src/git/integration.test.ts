@@ -252,6 +252,28 @@ describe("GitIntegration", () => {
       expect(status.unstaged).toContain("both.yaml");
     });
 
+    it("preserves the leading space when X is empty (worktree-only changes)", async () => {
+      // Regression test: a previous version of the parser called
+      // .trim() on the whole stdout, which stripped the leading space
+      // from the first line when the first file was worktree-only
+      // (X=" ", Y="M"). That shifted the columns by one and the
+      // first file was misclassified as staged AND its filename was
+      // missing the leading char.
+      const runner = mockRunner(async () => ({
+        stdout: " M payments/dev.enc.yaml\n?? payments/dev.clef-meta.yaml\n",
+        stderr: "",
+        exitCode: 0,
+      }));
+      const git = new GitIntegration(runner);
+
+      const status = await git.getStatus("/repo");
+
+      // The cell file is unstaged (worktree-only), with filename intact
+      expect(status.unstaged).toEqual(["payments/dev.enc.yaml"]);
+      expect(status.staged).toEqual([]);
+      expect(status.untracked).toEqual(["payments/dev.clef-meta.yaml"]);
+    });
+
     it("should return empty arrays for clean repo", async () => {
       const runner = mockRunner(async () => ({
         stdout: "",

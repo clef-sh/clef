@@ -301,7 +301,7 @@ describe("API routes", () => {
       expect(res.body.value).toBeUndefined();
     });
 
-    it("should rollback and return 500 when markPendingWithRetry fails after encrypt succeeds", async () => {
+    it("propagates markPendingWithRetry failures so the transaction can roll back", async () => {
       (markPendingWithRetry as jest.Mock).mockRejectedValueOnce(new Error("disk full"));
 
       const runner = makeRunner();
@@ -309,68 +309,15 @@ describe("API routes", () => {
       const res = await request(app)
         .put("/api/namespace/database/dev/NEW_KEY")
         .send({ random: true });
+
+      // The PUT runs inside tx.run by default. When markPendingWithRetry
+      // throws, the error bubbles up out of mutate; the transaction handles
+      // the file rollback via git reset. The endpoint surfaces the
+      // underlying error message — the old in-method rollback dance with
+      // PENDING_FAILURE/PARTIAL_FAILURE codes is gone.
       expect(res.status).toBe(500);
-      expect(res.body.error).toBe("Pending state could not be recorded");
-      expect(res.body.message).toContain("rolled back");
-      // Verify sops.encrypt was called twice (once for set, once for rollback)
-      const runCalls = (runner.run as jest.Mock).mock.calls;
-      const encryptCalls = runCalls.filter(
-        (c: [string, string[], Record<string, unknown>?]) =>
-          c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
-      );
-      expect(encryptCalls.length).toBeGreaterThanOrEqual(2);
-
-      // Verify the rollback encrypt does NOT contain the new key
-      const rollbackCall = encryptCalls[1];
-      const rollbackStdin = (rollbackCall[2] as { stdin?: string })?.stdin ?? "";
-      expect(rollbackStdin).not.toContain("NEW_KEY");
-      // Verify original values are preserved
-      const parsed = YAML.parse(rollbackStdin);
-      expect(parsed).toEqual({ DB_HOST: "localhost", DB_PORT: "5432" });
-    });
-
-    it("should return 500 with partial failure when both pending and rollback fail", async () => {
-      (markPendingWithRetry as jest.Mock).mockRejectedValueOnce(new Error("disk full"));
-
-      const runner = makeRunner({
-        "sops encrypt": { stdout: "", stderr: "encrypt failed", exitCode: 1 },
-      });
-      // Override so first encrypt succeeds, second fails (rollback)
-      let encryptCallCount = 0;
-      (runner.run as jest.Mock).mockImplementation(async (cmd: string, args: string[]) => {
-        if (cmd === "sops" && args[0] === "decrypt") {
-          return {
-            stdout: YAML.stringify({ DB_HOST: "localhost", DB_PORT: "5432" }),
-            stderr: "",
-            exitCode: 0,
-          };
-        }
-        if (cmd === "sops" && args.includes("encrypt")) {
-          encryptCallCount++;
-          if (encryptCallCount === 1) {
-            return { stdout: "encrypted", stderr: "", exitCode: 0 };
-          }
-          return { stdout: "", stderr: "encrypt failed", exitCode: 1 };
-        }
-        if (cmd === "sops" && args[0] === "--version") {
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
-        }
-        if (cmd === "sops" && args[0] === "filestatus") {
-          return { stdout: "", stderr: "", exitCode: 1 };
-        }
-        if (cmd === "cat") {
-          return { stdout: sopsFileContent, stderr: "", exitCode: 0 };
-        }
-        return { stdout: "", stderr: "", exitCode: 0 };
-      });
-
-      const app = createApp(runner);
-      const res = await request(app)
-        .put("/api/namespace/database/dev/NEW_KEY")
-        .send({ random: true });
-      expect(res.status).toBe(500);
-      expect(res.body.error).toBe("Partial failure");
-      expect(res.body.code).toBe("PARTIAL_FAILURE");
+      expect(res.body.error).toContain("disk full");
+      expect(res.body.code).toBe("SET_ERROR");
     });
 
     it("should return 500 on encrypt error", async () => {

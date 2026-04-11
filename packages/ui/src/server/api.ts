@@ -227,11 +227,20 @@ export function createApiRouter(deps: ApiDeps): Router {
       try {
         const manifest = loadManifest();
         const { ns, env, key } = req.params;
-        const { value, random, confirmed } = req.body as {
+        const {
+          value,
+          random,
+          confirmed,
+          commit: commitFlag,
+        } = req.body as {
           value?: string;
           random?: boolean;
           confirmed?: boolean;
+          commit?: boolean;
         };
+        // Auto-commit by default. The edit-multiple-rows-then-batch-commit
+        // flow in NamespaceEditor.handleSave passes commit:false to defer.
+        const shouldCommit = commitFlag !== false;
 
         if (!random && (value === undefined || value === null)) {
           res.status(400).json({
@@ -261,86 +270,70 @@ export function createApiRouter(deps: ApiDeps): Router {
           return;
         }
 
-        const filePath = `${deps.repoRoot}/${manifest.file_pattern.replace("{namespace}", ns).replace("{environment}", env)}`;
+        const relCellPath = manifest.file_pattern
+          .replace("{namespace}", ns)
+          .replace("{environment}", env);
+        const filePath = `${deps.repoRoot}/${relCellPath}`;
         const decrypted = await sops.decrypt(filePath);
 
-        if (random) {
-          // Generate random value server-side and mark as pending
-          const randomValue = generateRandomValue();
-          const previousValue = decrypted.values[key];
-          decrypted.values[key] = randomValue;
-          await sops.encrypt(filePath, decrypted.values, manifest, env);
-
-          try {
+        // Inside the mutate callback we do the actual encrypt + metadata
+        // update. When auto-commit is enabled this runs inside tx.run; when
+        // disabled (batched edit flow) it runs directly.
+        let response: Record<string, unknown> = { success: true, key };
+        const doWork = async (): Promise<void> => {
+          if (random) {
+            decrypted.values[key] = generateRandomValue();
+            await sops.encrypt(filePath, decrypted.values, manifest, env);
+            // Metadata update failure used to trigger an in-method rollback
+            // here. Inside tx.run, that rollback comes for free via git
+            // reset, so we just let the throw propagate.
             await markPendingWithRetry(filePath, [key], "clef ui");
-          } catch {
-            // Both retry attempts failed — roll back the encrypt
-            try {
-              if (previousValue !== undefined) {
-                decrypted.values[key] = previousValue;
-              } else {
-                delete decrypted.values[key];
-              }
-              await sops.encrypt(filePath, decrypted.values, manifest, env);
-            } catch {
-              // Rollback also failed — return 500 with context
-              return res.status(500).json({
-                error: "Partial failure",
-                message:
-                  "Value was encrypted but pending state could not be recorded. " +
-                  "Rollback also failed. The key may have a random placeholder value. " +
-                  "Check the file manually.",
-                code: "PARTIAL_FAILURE",
-              });
-            }
-            return res.status(500).json({
-              error: "Pending state could not be recorded",
-              message: "The operation was rolled back. No changes were made.",
-              code: "PENDING_FAILURE",
-            });
-          }
+            response = { success: true, key, pending: true };
+          } else {
+            decrypted.values[key] = String(value);
+            await sops.encrypt(filePath, decrypted.values, manifest, env);
 
-          res.json({ success: true, key, pending: true });
-        } else {
-          decrypted.values[key] = String(value);
-          await sops.encrypt(filePath, decrypted.values, manifest, env);
-
-          // Validate against schema if defined (B1)
-          const nsDef = manifest.namespaces.find((n) => n.name === ns);
-          if (nsDef?.schema) {
-            try {
-              const schema = schemaValidator.loadSchema(path.join(deps.repoRoot, nsDef.schema));
-              const result = schemaValidator.validate({ [key]: String(value) }, schema);
-              const violations = [...result.errors, ...result.warnings];
-              if (violations.length > 0) {
-                // Resolve pending state if the key was pending
-                try {
-                  await markResolved(filePath, [key]);
-                } catch {
-                  // Metadata update failed — non-fatal
+            // Validate against schema if defined
+            const nsDef = manifest.namespaces.find((n) => n.name === ns);
+            if (nsDef?.schema) {
+              try {
+                const schema = schemaValidator.loadSchema(path.join(deps.repoRoot, nsDef.schema));
+                const result = schemaValidator.validate({ [key]: String(value) }, schema);
+                const violations = [...result.errors, ...result.warnings];
+                if (violations.length > 0) {
+                  response = {
+                    success: true,
+                    key,
+                    warnings: violations.map((v) => v.message),
+                  };
                 }
-                return res.json({
-                  success: true,
-                  key,
-                  warnings: violations.map((v) => v.message),
-                });
+              } catch {
+                // Schema load failed — skip validation, not fatal
               }
+            }
+            // Resolve pending state if the key was pending
+            try {
+              await markResolved(filePath, [key]);
             } catch {
-              // Schema load failed — skip validation, not fatal
+              // Metadata update failed — non-fatal
             }
           }
+        };
 
-          // Resolve pending state if the key was pending
-          try {
-            await markResolved(filePath, [key]);
-          } catch {
-            // Metadata update failed — non-fatal
-          }
-
-          res.json({ success: true, key });
+        if (shouldCommit) {
+          await tx.run(deps.repoRoot, {
+            description: `clef ui: set ${ns}/${env}/${key}`,
+            paths: [relCellPath, relCellPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
+            mutate: doWork,
+          });
+        } else {
+          await doWork();
         }
-      } catch {
-        res.status(500).json({ error: "Failed to set value", code: "SET_ERROR" });
+
+        res.json(response);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to set value";
+        res.status(500).json({ error: message, code: "SET_ERROR" });
       }
     },
   );
@@ -353,7 +346,11 @@ export function createApiRouter(deps: ApiDeps): Router {
       try {
         const manifest = loadManifest();
         const { ns, env, key } = req.params;
-        const { confirmed } = (req.body ?? {}) as { confirmed?: boolean };
+        const { confirmed, commit: commitFlag } = (req.body ?? {}) as {
+          confirmed?: boolean;
+          commit?: boolean;
+        };
+        const shouldCommit = commitFlag !== false;
 
         const nsExists = manifest.namespaces.some((n) => n.name === ns);
         const envExists = manifest.environments.some((e) => e.name === env);
@@ -375,7 +372,10 @@ export function createApiRouter(deps: ApiDeps): Router {
           return;
         }
 
-        const filePath = `${deps.repoRoot}/${manifest.file_pattern.replace("{namespace}", ns).replace("{environment}", env)}`;
+        const relCellPath = manifest.file_pattern
+          .replace("{namespace}", ns)
+          .replace("{environment}", env);
+        const filePath = `${deps.repoRoot}/${relCellPath}`;
         const decrypted = await sops.decrypt(filePath);
 
         if (!(key in decrypted.values)) {
@@ -386,19 +386,30 @@ export function createApiRouter(deps: ApiDeps): Router {
           return;
         }
 
-        delete decrypted.values[key];
-        await sops.encrypt(filePath, decrypted.values, manifest, env);
+        const doWork = async (): Promise<void> => {
+          delete decrypted.values[key];
+          await sops.encrypt(filePath, decrypted.values, manifest, env);
+          try {
+            await markResolved(filePath, [key]);
+          } catch {
+            // Best effort — orphaned metadata is annoying but not dangerous
+          }
+        };
 
-        // Clean up pending metadata if it exists
-        try {
-          await markResolved(filePath, [key]);
-        } catch {
-          // Best effort — orphaned metadata is annoying but not dangerous
+        if (shouldCommit) {
+          await tx.run(deps.repoRoot, {
+            description: `clef ui: delete ${ns}/${env}/${key}`,
+            paths: [relCellPath, relCellPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
+            mutate: doWork,
+          });
+        } else {
+          await doWork();
         }
 
         res.json({ success: true, key });
-      } catch {
-        res.status(500).json({ error: "Failed to delete key", code: "DELETE_ERROR" });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to delete key";
+        res.status(500).json({ error: message, code: "DELETE_ERROR" });
       }
     },
   );

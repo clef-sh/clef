@@ -332,11 +332,22 @@ export class GitIntegration {
     const unstaged: string[] = [];
     const untracked: string[] = [];
 
-    if (!result.stdout.trim()) {
+    if (!result.stdout) {
       return { staged, unstaged, untracked };
     }
 
-    for (const line of result.stdout.trim().split("\n")) {
+    // Porcelain v1 format: `XY filename`. The status code XY is exactly
+    // 2 chars (X=index, Y=worktree); either may be a space when no change
+    // applies on that side. The filename starts at column 3 (after XY +
+    // separator space).
+    //
+    // Critical: do NOT call .trim() on the whole stdout — that strips the
+    // leading space when X is empty, shifting the line by one and corrupting
+    // both the status read and the filename parse. Split first, drop empty
+    // lines (including the trailing one from the final newline), leave each
+    // line's columns intact.
+    for (const line of result.stdout.split("\n")) {
+      if (line === "") continue;
       const indexStatus = line[0];
       const workTreeStatus = line[1];
       const filePath = line.substring(3);
