@@ -8,7 +8,13 @@ import { formatter } from "../output/formatter";
 jest.mock("fs");
 
 const mockEditEnvironment = jest.fn();
+const mockAddEnvironment = jest.fn();
+const mockRemoveEnvironment = jest.fn();
 const mockManifestParse = jest.fn();
+
+jest.mock("../age-credential", () => ({
+  createSopsClient: jest.fn().mockResolvedValue({}),
+}));
 
 jest.mock("@clef-sh/core", () => {
   const actual = jest.requireActual("@clef-sh/core");
@@ -18,6 +24,8 @@ jest.mock("@clef-sh/core", () => {
     MatrixManager: jest.fn().mockImplementation(() => ({})),
     StructureManager: jest.fn().mockImplementation(() => ({
       editEnvironment: mockEditEnvironment,
+      addEnvironment: mockAddEnvironment,
+      removeEnvironment: mockRemoveEnvironment,
     })),
     GitIntegration: jest.fn().mockImplementation(() => ({})),
     TransactionManager: jest.fn().mockImplementation(() => ({ run: jest.fn() })),
@@ -34,6 +42,7 @@ jest.mock("../output/formatter", () => ({
     print: jest.fn(),
     raw: jest.fn(),
     hint: jest.fn(),
+    confirm: jest.fn().mockResolvedValue(true),
   },
   isJsonMode: jest.fn().mockReturnValue(false),
   setJsonMode: jest.fn(),
@@ -76,6 +85,8 @@ describe("clef env edit", () => {
     mockFs.readFileSync.mockReturnValue(validManifestYaml);
     mockManifestParse.mockReturnValue(YAML.parse(validManifestYaml));
     mockEditEnvironment.mockResolvedValue(undefined);
+    mockAddEnvironment.mockResolvedValue(undefined);
+    mockRemoveEnvironment.mockResolvedValue(undefined);
   });
 
   it("renames an environment and reports success", async () => {
@@ -197,6 +208,146 @@ describe("clef env edit", () => {
 
     expect(mockFormatter.error).toHaveBeenCalledWith(
       expect.stringContaining("Environment 'foo' not found"),
+    );
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
+});
+
+describe("clef env add", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readFileSync.mockReturnValue(validManifestYaml);
+    mockManifestParse.mockReturnValue(YAML.parse(validManifestYaml));
+    mockAddEnvironment.mockResolvedValue(undefined);
+  });
+
+  it("adds a new environment and reports the cell scaffold count", async () => {
+    const program = makeProgram(goodRunner());
+
+    await program.parseAsync(["node", "clef", "env", "add", "staging", "--description", "Staging"]);
+
+    expect(mockAddEnvironment).toHaveBeenCalledWith(
+      "staging",
+      expect.objectContaining({ description: "Staging" }),
+      expect.any(Object),
+      expect.any(String),
+    );
+    expect(mockFormatter.success).toHaveBeenCalledWith(
+      expect.stringContaining("Added environment 'staging'"),
+    );
+  });
+
+  it("forwards --protect", async () => {
+    const program = makeProgram(goodRunner());
+
+    await program.parseAsync(["node", "clef", "env", "add", "canary", "--protect"]);
+
+    expect(mockAddEnvironment).toHaveBeenCalledWith(
+      "canary",
+      expect.objectContaining({ protected: true }),
+      expect.any(Object),
+      expect.any(String),
+    );
+  });
+
+  it("outputs JSON with --json flag including cellsScaffolded", async () => {
+    const { isJsonMode } = jest.requireMock("../output/formatter") as { isJsonMode: jest.Mock };
+    isJsonMode.mockReturnValue(true);
+    const program = makeProgram(goodRunner());
+
+    await program.parseAsync(["node", "clef", "env", "add", "staging"]);
+
+    expect(mockFormatter.json).toHaveBeenCalled();
+    const data = mockFormatter.json.mock.calls[0][0] as Record<string, unknown>;
+    expect(data.action).toBe("added");
+    expect(data.kind).toBe("environment");
+    expect(data.name).toBe("staging");
+    // baseManifest has 1 namespace, so 1 cell scaffolded
+    expect(data.cellsScaffolded).toBe(1);
+
+    isJsonMode.mockReturnValue(false);
+  });
+
+  it("propagates StructureManager errors via handleCommandError", async () => {
+    mockAddEnvironment.mockRejectedValueOnce(new Error("Environment 'staging' already exists"));
+    const program = makeProgram(goodRunner());
+
+    await program.parseAsync(["node", "clef", "env", "add", "staging"]);
+
+    expect(mockFormatter.error).toHaveBeenCalledWith(
+      expect.stringContaining("Environment 'staging' already exists"),
+    );
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
+});
+
+describe("clef env remove", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readFileSync.mockReturnValue(validManifestYaml);
+    mockManifestParse.mockReturnValue(YAML.parse(validManifestYaml));
+    mockRemoveEnvironment.mockResolvedValue(undefined);
+  });
+
+  it("prompts for confirmation by default and removes on yes", async () => {
+    const { formatter: realFormatter } = jest.requireMock("../output/formatter") as {
+      formatter: { confirm: jest.Mock };
+    };
+    realFormatter.confirm.mockResolvedValueOnce(true);
+
+    const program = makeProgram(goodRunner());
+
+    await program.parseAsync(["node", "clef", "env", "remove", "dev"]);
+
+    expect(realFormatter.confirm).toHaveBeenCalled();
+    expect(mockRemoveEnvironment).toHaveBeenCalledWith(
+      "dev",
+      expect.any(Object),
+      expect.any(String),
+    );
+    expect(mockFormatter.success).toHaveBeenCalledWith(
+      expect.stringContaining("Removed environment 'dev'"),
+    );
+  });
+
+  it("aborts when the user declines confirmation", async () => {
+    const { formatter: realFormatter } = jest.requireMock("../output/formatter") as {
+      formatter: { confirm: jest.Mock };
+    };
+    realFormatter.confirm.mockResolvedValueOnce(false);
+
+    const program = makeProgram(goodRunner());
+
+    await program.parseAsync(["node", "clef", "env", "remove", "dev"]);
+
+    expect(mockRemoveEnvironment).not.toHaveBeenCalled();
+    expect(mockFormatter.info).toHaveBeenCalledWith(expect.stringContaining("Aborted"));
+  });
+
+  it("skips the prompt with --yes", async () => {
+    const { formatter: realFormatter } = jest.requireMock("../output/formatter") as {
+      formatter: { confirm: jest.Mock };
+    };
+    const program = makeProgram(goodRunner());
+
+    await program.parseAsync(["node", "clef", "env", "remove", "dev", "--yes"]);
+
+    expect(realFormatter.confirm).not.toHaveBeenCalled();
+    expect(mockRemoveEnvironment).toHaveBeenCalled();
+  });
+
+  it("propagates a protected-env error from StructureManager", async () => {
+    mockRemoveEnvironment.mockRejectedValueOnce(
+      new Error("Environment 'production' is protected. Cannot remove a protected environment."),
+    );
+    const program = makeProgram(goodRunner());
+
+    await program.parseAsync(["node", "clef", "env", "remove", "production", "--yes"]);
+
+    expect(mockFormatter.error).toHaveBeenCalledWith(
+      expect.stringContaining("Environment 'production' is protected"),
     );
     expect(mockExit).toHaveBeenCalledWith(1);
   });

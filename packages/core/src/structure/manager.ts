@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { ClefManifest, MatrixCell } from "../types";
+import { ClefManifest, EncryptionBackend, MatrixCell } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
 import { readManifestYaml, writeManifestYaml } from "../manifest/io";
@@ -24,27 +24,339 @@ export interface EnvironmentEditOptions {
   protected?: boolean;
 }
 
+export interface AddNamespaceOptions {
+  /** Human-readable description for the new namespace. */
+  description?: string;
+  /** Optional schema file path for the new namespace. */
+  schema?: string;
+}
+
+export interface AddEnvironmentOptions {
+  /** Human-readable description for the new environment. */
+  description?: string;
+  /** Mark the new environment as protected from the start. */
+  protected?: boolean;
+}
+
 /**
- * Manages namespace and environment CRUD on the manifest. Phase 1a covers
- * "edit" operations (description, protected flag, rename); Phase 1b will add
- * "add" and "remove".
+ * Manages namespace and environment CRUD on the manifest. Covers add, remove,
+ * and edit operations. Renames cascade through service identity references;
+ * removes refuse if they would orphan an SI (force the user to clean up SIs
+ * first) or break the manifest (last namespace, last environment, protected
+ * environment).
  *
- * Every mutation runs inside TransactionManager so cell-file renames + the
+ * Every mutation runs inside TransactionManager so cell-file ops + the
  * manifest update + SI cascade updates land as one git commit, or roll back
  * via `git reset --hard` on failure.
  *
  * @example
  * ```ts
  * const tx = new TransactionManager(new GitIntegration(runner));
- * const structure = new StructureManager(matrixManager, tx);
- * await structure.editNamespace("payments", { rename: "billing" }, manifest, repoRoot);
+ * const structure = new StructureManager(matrixManager, sopsClient, tx);
+ * await structure.addNamespace("billing", {}, manifest, repoRoot);
  * ```
  */
 export class StructureManager {
   constructor(
     private readonly matrixManager: MatrixManager,
+    private readonly encryption: EncryptionBackend,
     private readonly tx: TransactionManager,
   ) {}
+
+  // ── add ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Add a new namespace to the manifest and scaffold an empty encrypted cell
+   * for every existing environment. Refuses if the name already exists, the
+   * identifier is invalid, or any of the target cell files are already on
+   * disk.
+   */
+  async addNamespace(
+    name: string,
+    opts: AddNamespaceOptions,
+    manifest: ClefManifest,
+    repoRoot: string,
+  ): Promise<void> {
+    if (manifest.namespaces.some((n) => n.name === name)) {
+      throw new Error(`Namespace '${name}' already exists.`);
+    }
+    this.assertValidIdentifier("namespace", name);
+
+    // Compute the cells we'll scaffold (one per existing env). Refuse if any
+    // target file already exists on disk so we never clobber data.
+    const newCellPaths = manifest.environments.map((env) => ({
+      environment: env.name,
+      filePath: path.join(
+        repoRoot,
+        manifest.file_pattern.replace("{namespace}", name).replace("{environment}", env.name),
+      ),
+    }));
+    for (const cell of newCellPaths) {
+      if (fs.existsSync(cell.filePath)) {
+        throw new Error(
+          `Cannot add namespace '${name}': file '${path.relative(repoRoot, cell.filePath)}' already exists.`,
+        );
+      }
+    }
+
+    // Build the in-memory manifest with the new namespace appended so the
+    // scaffolding sees it. (Backend resolution doesn't depend on namespace,
+    // but it's the principled thing to do.)
+    const updatedManifest: ClefManifest = {
+      ...manifest,
+      namespaces: [
+        ...manifest.namespaces,
+        {
+          name,
+          description: opts.description ?? "",
+          ...(opts.schema ? { schema: opts.schema } : {}),
+        },
+      ],
+    };
+
+    await this.tx.run(repoRoot, {
+      description: `clef namespace add ${name}`,
+      paths: [
+        ...newCellPaths.map((c) => path.relative(repoRoot, c.filePath)),
+        CLEF_MANIFEST_FILENAME,
+      ],
+      mutate: async () => {
+        for (const cell of newCellPaths) {
+          await this.matrixManager.scaffoldCell(
+            {
+              namespace: name,
+              environment: cell.environment,
+              filePath: cell.filePath,
+              exists: false,
+            },
+            this.encryption,
+            updatedManifest,
+          );
+        }
+
+        const doc = readManifestYaml(repoRoot);
+        const namespaces = doc.namespaces as Array<Record<string, unknown>>;
+        const entry: Record<string, unknown> = {
+          name,
+          description: opts.description ?? "",
+        };
+        if (opts.schema) entry.schema = opts.schema;
+        namespaces.push(entry);
+        writeManifestYaml(repoRoot, doc);
+      },
+    });
+  }
+
+  /**
+   * Add a new environment to the manifest and scaffold an empty encrypted
+   * cell for every existing namespace. Refuses if the name already exists,
+   * the identifier is invalid, or any of the target cell files are already
+   * on disk.
+   *
+   * Does NOT cascade to service identities — existing SIs will not have a
+   * config for the new env. Lint will surface that gap; users explicitly
+   * close it via `clef service update --add-env` (Phase 1c).
+   */
+  async addEnvironment(
+    name: string,
+    opts: AddEnvironmentOptions,
+    manifest: ClefManifest,
+    repoRoot: string,
+  ): Promise<void> {
+    if (manifest.environments.some((e) => e.name === name)) {
+      throw new Error(`Environment '${name}' already exists.`);
+    }
+    this.assertValidIdentifier("environment", name);
+
+    const newCellPaths = manifest.namespaces.map((ns) => ({
+      namespace: ns.name,
+      filePath: path.join(
+        repoRoot,
+        manifest.file_pattern.replace("{namespace}", ns.name).replace("{environment}", name),
+      ),
+    }));
+    for (const cell of newCellPaths) {
+      if (fs.existsSync(cell.filePath)) {
+        throw new Error(
+          `Cannot add environment '${name}': file '${path.relative(repoRoot, cell.filePath)}' already exists.`,
+        );
+      }
+    }
+
+    const updatedManifest: ClefManifest = {
+      ...manifest,
+      environments: [
+        ...manifest.environments,
+        {
+          name,
+          description: opts.description ?? "",
+          ...(opts.protected ? { protected: true } : {}),
+        },
+      ],
+    };
+
+    await this.tx.run(repoRoot, {
+      description: `clef env add ${name}`,
+      paths: [
+        ...newCellPaths.map((c) => path.relative(repoRoot, c.filePath)),
+        CLEF_MANIFEST_FILENAME,
+      ],
+      mutate: async () => {
+        for (const cell of newCellPaths) {
+          await this.matrixManager.scaffoldCell(
+            {
+              namespace: cell.namespace,
+              environment: name,
+              filePath: cell.filePath,
+              exists: false,
+            },
+            this.encryption,
+            updatedManifest,
+          );
+        }
+
+        const doc = readManifestYaml(repoRoot);
+        const environments = doc.environments as Array<Record<string, unknown>>;
+        const entry: Record<string, unknown> = {
+          name,
+          description: opts.description ?? "",
+        };
+        if (opts.protected) entry.protected = true;
+        environments.push(entry);
+        writeManifestYaml(repoRoot, doc);
+      },
+    });
+  }
+
+  // ── remove ───────────────────────────────────────────────────────────────
+
+  /**
+   * Remove a namespace from the manifest and delete every cell file under
+   * it. Cascades through service identities by removing the namespace from
+   * each SI's `namespaces[]` array. Refuses if removing it would leave any
+   * SI with zero scope (the user must delete those SIs first or add other
+   * namespaces to them) or if it would leave the manifest with zero
+   * namespaces.
+   */
+  async removeNamespace(name: string, manifest: ClefManifest, repoRoot: string): Promise<void> {
+    const ns = manifest.namespaces.find((n) => n.name === name);
+    if (!ns) {
+      throw new Error(
+        `Namespace '${name}' not found. Available: ${manifest.namespaces.map((n) => n.name).join(", ")}`,
+      );
+    }
+    if (manifest.namespaces.length === 1) {
+      throw new Error(
+        `Cannot remove the last namespace from the manifest. The matrix needs at least one namespace.`,
+      );
+    }
+
+    // Refuse if any SI would be left with zero scope. Force the user to
+    // either delete the SI first or expand its scope to other namespaces.
+    const orphanedSis = (manifest.service_identities ?? []).filter(
+      (si) => si.namespaces.length === 1 && si.namespaces[0] === name,
+    );
+    if (orphanedSis.length > 0) {
+      throw new Error(
+        `Cannot remove namespace '${name}': it is the only scope of service identit${orphanedSis.length === 1 ? "y" : "ies"} ${orphanedSis.map((s) => `'${s.name}'`).join(", ")}. ` +
+          `Delete those service identit${orphanedSis.length === 1 ? "y" : "ies"} first, or add other namespaces to their scope.`,
+      );
+    }
+
+    const cellsToDelete = this.matrixManager
+      .resolveMatrix(manifest, repoRoot)
+      .filter((c) => c.exists && c.namespace === name);
+
+    await this.tx.run(repoRoot, {
+      description: `clef namespace remove ${name}`,
+      paths: this.deletePaths(repoRoot, cellsToDelete),
+      mutate: async () => {
+        for (const cell of cellsToDelete) {
+          fs.unlinkSync(cell.filePath);
+          this.unlinkMetaSibling(cell.filePath);
+        }
+
+        const doc = readManifestYaml(repoRoot);
+        const namespaces = doc.namespaces as Array<Record<string, unknown>>;
+        doc.namespaces = namespaces.filter((n) => (n as { name: string }).name !== name);
+
+        // Cascade through service identities — drop the removed namespace
+        // from every SI's namespaces[] array.
+        const sis = doc.service_identities as Array<Record<string, unknown>> | undefined;
+        if (Array.isArray(sis)) {
+          for (const si of sis) {
+            const siNs = si.namespaces as string[] | undefined;
+            if (Array.isArray(siNs)) {
+              si.namespaces = siNs.filter((n) => n !== name);
+            }
+          }
+        }
+        writeManifestYaml(repoRoot, doc);
+      },
+    });
+  }
+
+  /**
+   * Remove an environment from the manifest and delete every cell file for
+   * it across all namespaces. Cascades through service identities by
+   * removing the env entry from each SI's `environments{}` map. Refuses on
+   * protected environments (force the user to `clef env edit --unprotect`
+   * first), if it would leave the manifest with zero environments, or if
+   * the env doesn't exist.
+   */
+  async removeEnvironment(name: string, manifest: ClefManifest, repoRoot: string): Promise<void> {
+    const env = manifest.environments.find((e) => e.name === name);
+    if (!env) {
+      throw new Error(
+        `Environment '${name}' not found. Available: ${manifest.environments.map((e) => e.name).join(", ")}`,
+      );
+    }
+    if (env.protected) {
+      throw new Error(
+        `Environment '${name}' is protected. Cannot remove a protected environment. ` +
+          `Run 'clef env edit ${name} --unprotect' first.`,
+      );
+    }
+    if (manifest.environments.length === 1) {
+      throw new Error(
+        `Cannot remove the last environment from the manifest. The matrix needs at least one environment.`,
+      );
+    }
+
+    const cellsToDelete = this.matrixManager
+      .resolveMatrix(manifest, repoRoot)
+      .filter((c) => c.exists && c.environment === name);
+
+    await this.tx.run(repoRoot, {
+      description: `clef env remove ${name}`,
+      paths: this.deletePaths(repoRoot, cellsToDelete),
+      mutate: async () => {
+        for (const cell of cellsToDelete) {
+          fs.unlinkSync(cell.filePath);
+          this.unlinkMetaSibling(cell.filePath);
+        }
+
+        const doc = readManifestYaml(repoRoot);
+        const environments = doc.environments as Array<Record<string, unknown>>;
+        doc.environments = environments.filter((e) => (e as { name: string }).name !== name);
+
+        // Cascade through service identities — drop the env entry from
+        // every SI's environments{} map.
+        const sis = doc.service_identities as Array<Record<string, unknown>> | undefined;
+        if (Array.isArray(sis)) {
+          for (const si of sis) {
+            const envs = si.environments as Record<string, unknown> | undefined;
+            if (envs && Object.prototype.hasOwnProperty.call(envs, name)) {
+              delete envs[name];
+            }
+          }
+        }
+        writeManifestYaml(repoRoot, doc);
+      },
+    });
+  }
+
+  // ── edit ─────────────────────────────────────────────────────────────────
 
   /**
    * Edit a namespace's manifest entry, optionally renaming the namespace
@@ -249,6 +561,36 @@ export class StructureManager {
         fs.mkdirSync(targetDir, { recursive: true });
       }
       fs.renameSync(pair.from, pair.to);
+    }
+  }
+
+  /**
+   * Compute the repo-relative paths for a remove op. Includes every cell
+   * file being deleted, every existing .clef-meta.yaml sibling, and the
+   * manifest itself.
+   */
+  private deletePaths(repoRoot: string, cells: MatrixCell[]): string[] {
+    const paths = new Set<string>();
+    for (const cell of cells) {
+      paths.add(path.relative(repoRoot, cell.filePath));
+      const meta = cell.filePath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml");
+      if (fs.existsSync(meta)) {
+        paths.add(path.relative(repoRoot, meta));
+      }
+    }
+    paths.add(CLEF_MANIFEST_FILENAME);
+    return [...paths];
+  }
+
+  /**
+   * Delete the .clef-meta.yaml sibling of a cell file if it exists. No-op
+   * otherwise. Used by remove ops to keep pending-state files in sync with
+   * the cells they describe.
+   */
+  private unlinkMetaSibling(cellPath: string): void {
+    const meta = cellPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml");
+    if (fs.existsSync(meta)) {
+      fs.unlinkSync(meta);
     }
   }
 

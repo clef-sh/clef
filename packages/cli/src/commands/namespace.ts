@@ -10,6 +10,18 @@ import {
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
+import { createSopsClient } from "../age-credential";
+
+/** Build a StructureManager wired with sops client + transaction manager. */
+async function makeStructureManager(
+  repoRoot: string,
+  runner: SubprocessRunner,
+): Promise<StructureManager> {
+  const sopsClient = await createSopsClient(repoRoot, runner);
+  const matrixManager = new MatrixManager();
+  const tx = new TransactionManager(new GitIntegration(runner));
+  return new StructureManager(matrixManager, sopsClient, tx);
+}
 
 export function registerNamespaceCommand(
   program: Command,
@@ -48,10 +60,7 @@ export function registerNamespaceCommand(
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-          const matrixManager = new MatrixManager();
-          const tx = new TransactionManager(new GitIntegration(deps.runner));
-          const structure = new StructureManager(matrixManager, tx);
-
+          const structure = await makeStructureManager(repoRoot, deps.runner);
           await structure.editNamespace(name, opts, manifest, repoRoot);
 
           if (isJsonMode()) {
@@ -88,4 +97,88 @@ export function registerNamespaceCommand(
         }
       },
     );
+
+  // --- add ---
+  nsCmd
+    .command("add <name>")
+    .description(
+      "Create a new namespace and scaffold an empty encrypted cell for every " +
+        "existing environment. Refuses if the name already exists or any of the " +
+        "target cell files are already on disk.",
+    )
+    .option("--description <text>", "Human-readable description for the new namespace", "")
+    .option("--schema <path>", "Optional schema file path for the new namespace")
+    .action(async (name: string, opts: { description: string; schema?: string }) => {
+      try {
+        const repoRoot = (program.opts().dir as string) || process.cwd();
+        const parser = new ManifestParser();
+        const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
+
+        const structure = await makeStructureManager(repoRoot, deps.runner);
+        await structure.addNamespace(
+          name,
+          { description: opts.description, schema: opts.schema },
+          manifest,
+          repoRoot,
+        );
+
+        if (isJsonMode()) {
+          formatter.json({
+            action: "added",
+            kind: "namespace",
+            name,
+            cellsScaffolded: manifest.environments.length,
+          });
+          return;
+        }
+
+        formatter.success(
+          `Added namespace '${name}' (${manifest.environments.length} cell${manifest.environments.length === 1 ? "" : "s"} scaffolded)`,
+        );
+      } catch (err) {
+        handleCommandError(err);
+      }
+    });
+
+  // --- remove ---
+  nsCmd
+    .command("remove <name>")
+    .alias("rm")
+    .description(
+      "Delete a namespace, all of its encrypted cell files, and remove it from " +
+        "every service identity that references it. Refuses if removing it would " +
+        "leave any service identity with zero scope (delete those service " +
+        "identities first or expand their scope).",
+    )
+    .option("-y, --yes", "Skip the confirmation prompt")
+    .action(async (name: string, opts: { yes?: boolean }) => {
+      try {
+        const repoRoot = (program.opts().dir as string) || process.cwd();
+        const parser = new ManifestParser();
+        const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
+
+        if (!opts.yes) {
+          const ns = manifest.namespaces.find((n) => n.name === name);
+          const cellCount = ns ? manifest.environments.length : 0;
+          const confirmed = await formatter.confirm(
+            `Delete namespace '${name}' and ${cellCount} encrypted cell${cellCount === 1 ? "" : "s"}? This cannot be undone outside of git history.`,
+          );
+          if (!confirmed) {
+            formatter.info("Aborted.");
+            return;
+          }
+        }
+
+        const structure = await makeStructureManager(repoRoot, deps.runner);
+        await structure.removeNamespace(name, manifest, repoRoot);
+
+        if (isJsonMode()) {
+          formatter.json({ action: "removed", kind: "namespace", name });
+          return;
+        }
+        formatter.success(`Removed namespace '${name}'`);
+      } catch (err) {
+        handleCommandError(err);
+      }
+    });
 }
