@@ -295,70 +295,6 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── Beta (staging → GitHub Packages, public) ─────────────────────────
-      - name: Publish @clef-sh/core (beta)
-        if: github.ref_name == 'staging'
-        working-directory: packages/core
-        run: npm publish --tag beta --access public --no-provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish @clef-sh/cloud (beta)
-        if: github.ref_name == 'staging'
-        working-directory: packages/cloud
-        run: npm publish --tag beta --access public --no-provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish @clef-sh/analytics (beta)
-        if: github.ref_name == 'staging'
-        working-directory: packages/analytics
-        run: npm publish --tag beta --access public --no-provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish @clef-sh/runtime (beta)
-        if: github.ref_name == 'staging'
-        working-directory: packages/runtime
-        run: npm publish --tag beta --access public --no-provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish @clef-sh/agent (beta)
-        if: github.ref_name == 'staging'
-        working-directory: packages/agent
-        run: npm publish --tag beta --access public --no-provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish @clef-sh/broker (beta)
-        if: github.ref_name == 'staging'
-        working-directory: packages/broker
-        run: npm publish --tag beta --access public --no-provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish @clef-sh/cli (beta)
-        if: github.ref_name == 'staging'
-        working-directory: packages/cli
-        run: npm publish --tag beta --access public --no-provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish @clef-sh/ui (beta)
-        if: github.ref_name == 'staging'
-        working-directory: packages/ui
-        run: npm publish --tag beta --access public --no-provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish @clef-sh/client (beta)
-        if: github.ref_name == 'staging'
-        working-directory: packages/client
-        run: npm publish --tag beta --access public --no-provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       # Beta: create a GitHub pre-release so the version surfaces in Releases
       - name: Create GitHub pre-release (beta)
         if: github.ref_name == 'staging'
@@ -451,6 +387,75 @@ jobs:
           done
           echo "::error::Timed out waiting for build-sea after 60 minutes"
           exit 1
+
+      # ── Beta publish to GitHub Packages (AFTER SEA build) ────────────────
+      #
+      # Only happens if SEA succeeded above. A SEA failure aborts the
+      # workflow before any registry publish, so npm.pkg.github.com is
+      # never touched on a broken release.
+
+      - name: Publish @clef-sh/core (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/core
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/cloud (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/cloud
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/analytics (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/analytics
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/runtime (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/runtime
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/agent (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/agent
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/broker (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/broker
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/cli (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/cli
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/ui (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/ui
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish @clef-sh/client (beta)
+        if: github.ref_name == 'staging'
+        working-directory: packages/client
+        run: npm publish --tag beta --access public --no-provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Commit version stamps back to ${{ github.ref_name }}
         run: |
