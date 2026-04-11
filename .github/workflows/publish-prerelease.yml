@@ -1,15 +1,21 @@
 # Prerelease publish workflow
 #
-# Trigger: runs automatically AFTER the CI workflow succeeds on dev or
-# staging. The workflow_run event is the gate — the publish job runs only
-# when CI's conclusion is "success", so there is no in-workflow polling.
-# Manual workflow_dispatch is also supported as a fallback.
-#
 # dev     → alpha packages → GitHub Packages (restricted, internal only)
 # staging → beta packages  → GitHub Packages (public) + GitHub pre-release
 #                            with SEA bins attached to a draft release.
 #                            Manual `Publish Beta to npm` then publishes to
 #                            npm and flips the draft to published.
+#
+# Trigger model:
+#   - `push` to dev/staging → fires immediately. The wait-for-ci job below
+#     polls the CI workflow on the same commit and only allows the publish
+#     job to start once CI succeeds.
+#   - workflow_dispatch is also supported as a manual fallback.
+#
+#   We use push + wait-for-ci instead of workflow_run because workflow_run
+#   only fires when the workflow file is on the default branch (main). For
+#   a workflow that needs to react to CI on dev/staging, the trigger must
+#   be on the same branch the push lands on, which is what `push` gives us.
 #
 # Version scheme: the prerelease base is the *next* semver computed by
 # analyzing commits since the last release tag (breaking → minor,
@@ -28,36 +34,71 @@
 name: Publish Prerelease
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
+  push:
     branches: [dev, staging]
   workflow_dispatch:
 
 permissions:
   contents: write # create GitHub releases on staging + commit version stamps
   packages: write # publish to GitHub Packages
-  actions: write # dispatch build-sea via gh workflow run + poll for completion
+  actions: write # query CI workflow status + dispatch build-sea on staging
 
 concurrency:
-  group: prerelease-${{ github.event.workflow_run.head_branch || github.ref_name }}
+  group: prerelease-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
-  publish:
-    name: Publish ${{ (github.event.workflow_run.head_branch || github.ref_name) == 'dev' && 'Alpha' || 'Beta' }}
+  # Gate: wait for the CI workflow (including the full E2E matrix) to pass
+  # before publishing. This replaces workflow_run which only works when the
+  # workflow file is on the default branch.
+  wait-for-ci:
+    name: Wait for CI
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
-    environment: ${{ (github.event.workflow_run.head_branch || github.ref_name) == 'dev' && 'dev' || 'staging' }}
+    steps:
+      - name: Wait for CI workflow to succeed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Waiting for CI workflow on $GITHUB_SHA ..."
+          for i in $(seq 1 90); do
+            RUN=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow ci.yml \
+              --commit "$GITHUB_SHA" \
+              --json databaseId,conclusion,status \
+              --jq '.[0]')
+
+            STATUS=$(echo "$RUN" | jq -r '.status // "not_found"')
+            CONCLUSION=$(echo "$RUN" | jq -r '.conclusion // "pending"')
+
+            if [ "$CONCLUSION" = "success" ]; then
+              echo "CI passed ✓"
+              exit 0
+            elif [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "cancelled" ]; then
+              echo "::error::CI $CONCLUSION — aborting publish"
+              exit 1
+            fi
+
+            echo "CI status=$STATUS conclusion=$CONCLUSION — waiting (attempt $i/90)..."
+            sleep 20
+          done
+          echo "::error::Timed out waiting for CI after 30 minutes"
+          exit 1
+
+  publish:
+    name: Publish ${{ github.ref_name == 'dev' && 'Alpha' || 'Beta' }}
+    needs: wait-for-ci
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'dev' && 'dev' || 'staging' }}
     env:
-      BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
-      HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      BRANCH: ${{ github.ref_name }}
+      HEAD_SHA: ${{ github.sha }}
 
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.ref_name }}
 
       - uses: actions/setup-node@v6
         with:
