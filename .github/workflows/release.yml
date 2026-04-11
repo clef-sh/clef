@@ -26,6 +26,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  actions: write # dispatch build-sea via gh workflow run + poll for completion
 
 concurrency:
   group: release-main
@@ -39,9 +40,6 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
-    outputs:
-      cli_version: ${{ steps.versions.outputs.cli_version }}
-      cli_released: ${{ steps.versions.outputs.cli_released }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -271,13 +269,72 @@ jobs:
             --latest
           echo "Created umbrella release: $TAG"
 
-  build-bins:
-    name: Build & Attach SEA Binaries
-    needs: release
-    if: needs.release.outputs.cli_released == 'true'
-    uses: ./.github/workflows/build-sea.yml
-    with:
-      tag: v${{ needs.release.outputs.cli_version }}
-    permissions:
-      contents: write
-      packages: write
+      # Trigger the SEA binary build for the umbrella release and wait for
+      # it to finish. Same rationale as publish-beta-npm: events fired by
+      # GITHUB_TOKEN can't trigger downstream workflows, so we dispatch via
+      # workflow_dispatch (which is exempt) and poll for completion.
+      - name: Dispatch & wait for SEA binary build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CLI_VER="${{ steps.versions.outputs.cli_version }}"
+          TAG="v${CLI_VER}"
+
+          BEFORE=$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow build-sea.yml \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId // 0')
+          echo "Latest build-sea run before dispatch: $BEFORE"
+
+          gh workflow run build-sea.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f tag="$TAG"
+          echo "Dispatched build-sea for tag $TAG"
+
+          NEW_RUN_ID=""
+          for i in $(seq 1 30); do
+            CURRENT=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow build-sea.yml \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // 0')
+            if [ "$CURRENT" -gt "$BEFORE" ]; then
+              NEW_RUN_ID="$CURRENT"
+              break
+            fi
+            sleep 5
+          done
+          if [ -z "$NEW_RUN_ID" ]; then
+            echo "::error::build-sea run did not appear within 2.5 minutes"
+            exit 1
+          fi
+          echo "Tracking build-sea run: $NEW_RUN_ID"
+          echo "URL: https://github.com/$GITHUB_REPOSITORY/actions/runs/$NEW_RUN_ID"
+
+          for i in $(seq 1 180); do
+            STATUS=$(gh run view "$NEW_RUN_ID" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json status,conclusion \
+              --jq '.status')
+            CONCLUSION=$(gh run view "$NEW_RUN_ID" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json status,conclusion \
+              --jq '.conclusion // "pending"')
+
+            if [ "$CONCLUSION" = "success" ]; then
+              echo "build-sea succeeded ✓"
+              exit 0
+            elif [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "cancelled" ]; then
+              echo "::error::build-sea $CONCLUSION — see https://github.com/$GITHUB_REPOSITORY/actions/runs/$NEW_RUN_ID"
+              exit 1
+            fi
+
+            echo "build-sea status=$STATUS conclusion=$CONCLUSION (attempt $i/180)"
+            sleep 20
+          done
+          echo "::error::Timed out waiting for build-sea after 60 minutes"
+          exit 1
