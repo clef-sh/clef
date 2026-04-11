@@ -1021,7 +1021,12 @@ describe("ManifestParser", () => {
         expect(() => parser.validate(manifest)).toThrow(/environments/);
       });
 
-      it("should reject service identity missing an environment entry", () => {
+      it("ACCEPTS a service identity that's missing some environment entries", () => {
+        // We deliberately allow this state — `clef env add` adds an env
+        // without cascading to existing SIs. The gap is reported by
+        // `clef lint` and filled by `clef service add-env`. Failing parser
+        // validation here would block every clef command in the
+        // legitimate "env added, SIs not yet updated" state.
         const manifest = {
           ...validManifest(),
           service_identities: [
@@ -1031,13 +1036,12 @@ describe("ManifestParser", () => {
               namespaces: ["database"],
               environments: {
                 dev: { recipient: testRecipient },
-                // staging and production missing
+                // staging and production missing — allowed
               },
             },
           ],
         };
-        expect(() => parser.validate(manifest)).toThrow(ManifestValidationError);
-        expect(() => parser.validate(manifest)).toThrow(/staging/);
+        expect(() => parser.validate(manifest)).not.toThrow();
       });
 
       it("should reject service identity with invalid recipient key", () => {

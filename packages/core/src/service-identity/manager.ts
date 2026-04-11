@@ -449,6 +449,102 @@ export class ServiceIdentityManager {
   }
 
   /**
+   * Extend a service identity to cover an additional environment. Generates a
+   * fresh age key for the new env (or uses the supplied KMS config), registers
+   * the new recipient on every cell in the SI's scoped namespaces × this env,
+   * and adds the env entry to the SI's `environments{}` map in the manifest.
+   *
+   * Used as the explicit follow-up to `clef env add`. The env-add command
+   * deliberately doesn't cascade to existing SIs — `clef lint` reports the
+   * gap as a `missing_environment` issue and the user runs this method (via
+   * `clef service add-env <si> <env>`) once per SI to fill it in,
+   * choosing the backend deliberately at that moment.
+   *
+   * Refuses if the SI doesn't exist, the env doesn't exist in the manifest,
+   * or the env is already configured on the SI.
+   *
+   * @returns The new private key (for age) or `undefined` (for KMS), keyed
+   *   by env name. The caller is responsible for storing it securely.
+   */
+  async addEnvironmentToScope(
+    name: string,
+    envName: string,
+    manifest: ClefManifest,
+    repoRoot: string,
+    kmsConfig?: KmsConfig,
+  ): Promise<{ privateKey: string | undefined }> {
+    const identity = this.get(manifest, name);
+    if (!identity) {
+      throw new Error(`Service identity '${name}' not found.`);
+    }
+    if (!manifest.environments.some((e) => e.name === envName)) {
+      throw new Error(
+        `Environment '${envName}' not found in manifest. ` +
+          `Available: ${manifest.environments.map((e) => e.name).join(", ")}`,
+      );
+    }
+    if (identity.environments[envName]) {
+      throw new Error(
+        `Service identity '${name}' already has a config for environment '${envName}'. ` +
+          `Use 'clef service update --kms-env ${envName}=<provider>:<keyId>' to switch backends.`,
+      );
+    }
+
+    // Generate the new env config outside the transaction so the caller gets
+    // the private key back even if the git commit fails (the key is material
+    // the user needs to install regardless).
+    let envConfig: ServiceIdentityEnvironmentConfig;
+    let privateKey: string | undefined;
+    if (kmsConfig) {
+      envConfig = { kms: kmsConfig };
+    } else {
+      const newIdentity = await generateAgeIdentity();
+      envConfig = { recipient: newIdentity.publicKey };
+      privateKey = newIdentity.privateKey;
+    }
+
+    // Affected cells: every existing cell in (SI's scoped namespaces × this env)
+    const cells = this.matrixManager
+      .resolveMatrix(manifest, repoRoot)
+      .filter(
+        (c) => c.exists && identity.namespaces.includes(c.namespace) && c.environment === envName,
+      );
+
+    await this.tx.run(repoRoot, {
+      description: `clef service add-env ${name} ${envName}`,
+      paths: this.txPaths(repoRoot, cells),
+      mutate: async () => {
+        // For age envs, register the new recipient on every scoped cell.
+        // KMS envs have no recipient on the cells — the cells are encrypted
+        // to the KMS-managed envelope key.
+        if (!isKmsEnvelope(envConfig) && envConfig.recipient) {
+          for (const cell of cells) {
+            try {
+              await this.encryption.addRecipient(cell.filePath, envConfig.recipient);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              if (!message.includes("already")) {
+                throw err;
+              }
+            }
+          }
+        }
+
+        const doc = readManifestYaml(repoRoot);
+        const identities = doc.service_identities as Record<string, unknown>[];
+        const siDoc = identities.find(
+          (si) => (si as Record<string, unknown>).name === name,
+        ) as Record<string, unknown>;
+        const envs = siDoc.environments as Record<string, unknown>;
+        envs[envName] = envConfig;
+        writeManifestYaml(repoRoot, doc);
+      },
+    });
+
+    return { privateKey };
+  }
+
+  /**
    * Rotate the age key for a service identity (all envs or a specific env).
    * Returns the new private keys.
    *
@@ -578,7 +674,8 @@ export class ServiceIdentityManager {
             identity: si.name,
             environment: envName,
             type: "missing_environment",
-            message: `Service identity '${si.name}' is missing environment '${envName}'. Manually add an age key pair for this environment in clef.yaml.`,
+            message: `Service identity '${si.name}' has no config for environment '${envName}'.`,
+            fixCommand: `clef service add-env ${si.name} ${envName}`,
           });
         }
       }

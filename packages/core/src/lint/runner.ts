@@ -288,7 +288,9 @@ export class LintRunner {
             severity: "error",
             category: "service-identity",
             file: "clef.yaml",
-            message: `Service identity '${si.name}' is missing environment '${envName}'. Manually add an age key pair for this environment in clef.yaml.`,
+            message:
+              `Service identity '${si.name}' has no config for environment '${envName}'. ` +
+              `Run: clef service add-env ${si.name} ${envName}`,
           });
         }
       }

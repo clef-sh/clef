@@ -399,7 +399,7 @@ describe("ServiceIdentityManager", () => {
       expect(result).toEqual([]);
     });
 
-    it("should detect missing environment", async () => {
+    it("should detect missing environment and emit a fix command", async () => {
       const si: ServiceIdentityDefinition = {
         name: "svc",
         description: "Service",
@@ -418,6 +418,11 @@ describe("ServiceIdentityManager", () => {
       expect(missingEnvIssues.length).toBe(2);
       expect(missingEnvIssues.map((i) => i.environment)).toContain("staging");
       expect(missingEnvIssues.map((i) => i.environment)).toContain("production");
+
+      // Each issue points at the explicit fix command users can run.
+      const stagingIssue = missingEnvIssues.find((i) => i.environment === "staging")!;
+      expect(stagingIssue.fixCommand).toBe("clef service add-env svc staging");
+      expect(stagingIssue.message).toContain("no config for environment 'staging'");
     });
 
     it("should detect unknown namespace reference", async () => {
@@ -757,6 +762,138 @@ describe("ServiceIdentityManager", () => {
       );
 
       expect(result.removed).toEqual(["database"]);
+    });
+  });
+
+  describe("addEnvironmentToScope", () => {
+    function setupFs(manifest: ClefManifest): void {
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(manifest));
+      mockFs.writeFileSync.mockImplementation(() => {});
+      // Pretend every cell exists
+      mockFs.existsSync.mockReturnValue(true);
+    }
+
+    /**
+     * The SI here is scoped to `database` and has dev + production envs but
+     * NOT staging. We add a new `staging` env entry, generating a fresh
+     * age key and registering its recipient on the existing staging cell
+     * in the SI's scoped namespaces.
+     */
+    function manifestWithMissingEnv(): ClefManifest {
+      return baseManifest({
+        service_identities: [
+          {
+            name: "web-app",
+            description: "Web app",
+            namespaces: ["database"],
+            // Note: only dev + production. staging is in baseManifest.environments
+            // but the SI doesn't have a config for it — that's the gap this method fills.
+            environments: {
+              dev: { recipient: "age1existing-dev" },
+              production: { recipient: "age1existing-prod" },
+            },
+          },
+        ],
+      });
+    }
+
+    it("generates an age key by default and registers its recipient on scoped cells", async () => {
+      const manifest = manifestWithMissingEnv();
+      setupFs(manifest);
+
+      const result = await manager.addEnvironmentToScope("web-app", "staging", manifest, "/repo");
+
+      // The new private key is returned to the caller
+      expect(result.privateKey).toMatch(/^AGE-SECRET-KEY-/);
+
+      // The new recipient was registered on the scoped staging cell only
+      // (database/staging.enc.yaml — api/staging is out of scope)
+      expect(encryption.addRecipient).toHaveBeenCalledTimes(1);
+      expect(encryption.addRecipient).toHaveBeenCalledWith(
+        "/repo/database/staging.enc.yaml",
+        expect.stringMatching(/^age1pubkey/),
+      );
+
+      // Manifest updated with the new staging entry on the SI
+      const writeCall = mockWriteFileAtomicSync.mock.calls.find((c) =>
+        String(c[0]).endsWith("clef.yaml"),
+      );
+      const written = YAML.parse(writeCall![1] as string) as ClefManifest;
+      const si = written.service_identities!.find((s) => s.name === "web-app")!;
+      expect(si.environments).toHaveProperty("staging");
+      expect((si.environments.staging as { recipient: string }).recipient).toMatch(/^age1pubkey/);
+    });
+
+    it("uses the supplied KMS config when provided and skips age key generation", async () => {
+      const manifest = manifestWithMissingEnv();
+      setupFs(manifest);
+
+      const result = await manager.addEnvironmentToScope("web-app", "staging", manifest, "/repo", {
+        provider: "aws",
+        keyId: "arn:aws:kms:us-east-1:123:key/new",
+      });
+
+      // KMS path: no private key returned, no age key generated
+      expect(result.privateKey).toBeUndefined();
+      expect(generateAgeIdentity).not.toHaveBeenCalled();
+      // KMS envs have no recipient on cells — addRecipient not called
+      expect(encryption.addRecipient).not.toHaveBeenCalled();
+
+      const writeCall = mockWriteFileAtomicSync.mock.calls.find((c) =>
+        String(c[0]).endsWith("clef.yaml"),
+      );
+      const written = YAML.parse(writeCall![1] as string) as ClefManifest;
+      const si = written.service_identities!.find((s) => s.name === "web-app")!;
+      expect(si.environments.staging).toEqual({
+        kms: { provider: "aws", keyId: "arn:aws:kms:us-east-1:123:key/new" },
+      });
+    });
+
+    it("throws if the service identity does not exist", async () => {
+      const manifest = manifestWithMissingEnv();
+      setupFs(manifest);
+
+      await expect(
+        manager.addEnvironmentToScope("nonexistent", "staging", manifest, "/repo"),
+      ).rejects.toThrow("Service identity 'nonexistent' not found");
+    });
+
+    it("throws if the env does not exist in the manifest", async () => {
+      const manifest = manifestWithMissingEnv();
+      setupFs(manifest);
+
+      await expect(
+        manager.addEnvironmentToScope("web-app", "nonexistent", manifest, "/repo"),
+      ).rejects.toThrow("Environment 'nonexistent' not found in manifest");
+    });
+
+    it("throws if the env is already configured on the SI", async () => {
+      const manifest = manifestWithMissingEnv();
+      setupFs(manifest);
+
+      await expect(
+        manager.addEnvironmentToScope("web-app", "dev", manifest, "/repo"),
+      ).rejects.toThrow("already has a config for environment 'dev'");
+    });
+
+    it("ignores 'already a recipient' errors from SOPS", async () => {
+      const manifest = manifestWithMissingEnv();
+      setupFs(manifest);
+      encryption.addRecipient.mockRejectedValueOnce(new Error("recipient already in keys"));
+
+      // Should NOT throw
+      const result = await manager.addEnvironmentToScope("web-app", "staging", manifest, "/repo");
+      expect(result.privateKey).toMatch(/^AGE-SECRET-KEY-/);
+    });
+
+    it("re-throws non-duplicate encryption errors", async () => {
+      const manifest = manifestWithMissingEnv();
+      setupFs(manifest);
+      encryption.addRecipient.mockRejectedValueOnce(new Error("KMS access denied"));
+
+      await expect(
+        manager.addEnvironmentToScope("web-app", "staging", manifest, "/repo"),
+      ).rejects.toThrow("KMS access denied");
     });
   });
 });

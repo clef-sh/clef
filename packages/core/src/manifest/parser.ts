@@ -532,15 +532,14 @@ export class ManifestParser {
         const siEnvs = siObj.environments as Record<string, unknown>;
         const parsedEnvs: Record<string, ServiceIdentityEnvironmentConfig> = {};
 
-        // Validate that all declared environments are covered
-        for (const env of environments) {
-          if (!(env.name in siEnvs)) {
-            throw new ManifestValidationError(
-              `Service identity '${siName}' is missing environment '${env.name}'. Service identities must cover all declared environments.`,
-              "service_identities",
-            );
-          }
-        }
+        // Note: we deliberately DO NOT enforce "every declared env must be on
+        // every SI" at parse time. `clef env add` adds an env without
+        // cascading to existing SIs — that gap is reported by `clef lint` /
+        // ServiceIdentityManager.validate as a `missing_environment` issue,
+        // and the user fills it explicitly with `clef service add-env`.
+        // Failing the parse would prevent any clef command from running
+        // against a manifest in the legitimate "env added, SIs not yet
+        // updated" state.
 
         for (const [envName, envVal] of Object.entries(siEnvs)) {
           if (!envNames.has(envName)) {

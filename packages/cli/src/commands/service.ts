@@ -347,6 +347,124 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
       }
     });
 
+  // --- add-env ---
+  serviceCmd
+    .command("add-env <name> <environment>")
+    .description(
+      "Add an environment to an existing service identity. Generates a fresh " +
+        "age key by default and registers its recipient on every cell in the SI's " +
+        "scoped namespaces × this environment. Use --kms <provider:keyId> to back " +
+        "the new env with KMS instead.\n\n" +
+        "This is the explicit follow-up to `clef env add`, which deliberately " +
+        "leaves existing service identities unchanged. Run `clef lint` after " +
+        "`clef env add` to discover which service identities still need to be " +
+        "extended to the new environment.",
+    )
+    .option(
+      "--kms <provider:keyId>",
+      "Use KMS envelope encryption for the new env instead of age (e.g. aws:arn:aws:kms:us-east-1:123:key/abc)",
+    )
+    .action(async (name: string, environment: string, opts: { kms?: string }) => {
+      try {
+        const repoRoot = (program.opts().dir as string) || process.cwd();
+        const parser = new ManifestParser();
+        const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
+
+        // Confirm if the target env is protected — adding an SI to production
+        // is the kind of action that should not happen accidentally.
+        const env = manifest.environments.find((e) => e.name === environment);
+        if (env?.protected) {
+          const confirmed = await formatter.confirm(
+            `'${environment}' is a protected environment. Add service identity '${name}' to it?`,
+          );
+          if (!confirmed) {
+            formatter.error("Aborted.");
+            process.exit(1);
+            return;
+          }
+        }
+
+        let kmsConfig: KmsConfig | undefined;
+        if (opts.kms) {
+          const colonIdx = opts.kms.indexOf(":");
+          if (colonIdx === -1) {
+            formatter.error(
+              `Invalid --kms format: '${opts.kms}'. Expected: provider:keyId (e.g. aws:arn:aws:kms:...)`,
+            );
+            process.exit(2);
+            return;
+          }
+          const provider = opts.kms.slice(0, colonIdx) as KmsProviderType;
+          const keyId = opts.kms.slice(colonIdx + 1);
+          if (!VALID_KMS_PROVIDERS.includes(provider)) {
+            formatter.error(
+              `Invalid KMS provider '${provider}'. Valid: ${VALID_KMS_PROVIDERS.join(", ")}`,
+            );
+            process.exit(2);
+            return;
+          }
+          kmsConfig = { provider, keyId };
+        }
+
+        const matrixManager = new MatrixManager();
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
+        const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
+
+        formatter.print(
+          `${sym("working")}  Adding ${environment} to service identity '${name}'...`,
+        );
+        const result = await manager.addEnvironmentToScope(
+          name,
+          environment,
+          manifest,
+          repoRoot,
+          kmsConfig,
+        );
+
+        if (isJsonMode()) {
+          formatter.json({
+            action: "env-added",
+            identity: name,
+            environment,
+            backend: kmsConfig ? "kms" : "age",
+            ...(result.privateKey ? { privateKey: result.privateKey } : {}),
+          });
+          if (result.privateKey) result.privateKey = "";
+          return;
+        }
+
+        formatter.success(`Added '${environment}' to service identity '${name}'.`);
+
+        if (result.privateKey) {
+          const block = `${environment}: ${result.privateKey}`;
+          let copied = false;
+          try {
+            copied = copyToClipboard(block);
+          } catch {
+            // Clipboard unavailable — fall through to printing
+          }
+
+          if (copied) {
+            formatter.warn(
+              "New private key copied to clipboard. Store it securely — it will not be shown again.\n",
+            );
+            formatter.print(`  ${environment}: ${maskedPlaceholder()}`);
+            formatter.print("");
+          } else {
+            formatter.warn("New private key shown ONCE. Store it securely.\n");
+            formatter.print(`  ${environment}:`);
+            formatter.print(`    ${result.privateKey}\n`);
+          }
+          // Clear the secret from memory so it doesn't linger in the result object
+          result.privateKey = "";
+        } else {
+          formatter.print(`  ${environment}: KMS envelope (${kmsConfig!.provider})`);
+        }
+      } catch (err) {
+        handleCommandError(err);
+      }
+    });
+
   // --- delete ---
   serviceCmd
     .command("delete <name>")
