@@ -2,9 +2,11 @@ import * as path from "path";
 import { Command } from "commander";
 import {
   BulkOps,
+  GitIntegration,
   ManifestParser,
   MatrixManager,
   SubprocessRunner,
+  TransactionManager,
   generateRandomValue,
   markPendingWithRetry,
   markResolved,
@@ -102,7 +104,8 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                 );
               }
 
-              const bulkOps = new BulkOps();
+              const tx = new TransactionManager(new GitIntegration(deps.runner));
+              const bulkOps = new BulkOps(tx);
               await bulkOps.setAcrossEnvironments(
                 namespace,
                 key,
@@ -213,50 +216,42 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
               secretValue = value;
             }
 
-            const filePath = path.join(
-              repoRoot,
-              manifest.file_pattern
-                .replace("{namespace}", namespace)
-                .replace("{environment}", environment),
-            );
+            const relCellPath = manifest.file_pattern
+              .replace("{namespace}", namespace)
+              .replace("{environment}", environment);
+            const filePath = path.join(repoRoot, relCellPath);
 
-            // Note: the CLI set command supports --random for pending placeholders.
-            // The UI API (PUT /api/namespace/:ns/:env/:key) also supports { random: true }
-            // but adds rollback on metadata failure. This asymmetry is intentional:
-            // the CLI warns and continues, while the API must return a consistent state.
-            const decrypted = await sopsClient.decrypt(filePath);
-            decrypted.values[key] = secretValue;
-            await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
+            // Single-cell set wraps both the encrypt and the pending-metadata
+            // write in one transaction. Either both land or both roll back —
+            // no more "encrypted but pending tracking lost" footgun.
+            const tx = new TransactionManager(new GitIntegration(deps.runner));
+            await tx.run(repoRoot, {
+              description: isPendingValue
+                ? `clef set --random ${namespace}/${environment} ${key}`
+                : `clef set ${namespace}/${environment} ${key}`,
+              // Stage both the encrypted cell and its sibling pending-metadata
+              // file. The metadata file may not exist yet, but git add tolerates
+              // that and tx.run rolls back any new metadata file via git clean.
+              paths: [relCellPath, relCellPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
+              mutate: async () => {
+                const decrypted = await sopsClient.decrypt(filePath);
+                decrypted.values[key] = secretValue;
+                await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
 
-            // Update pending metadata
-            if (isPendingValue) {
-              try {
-                await markPendingWithRetry(filePath, [key], "clef set --random");
-              } catch {
-                // Roll back: remove the key and re-encrypt to avoid an orphaned
-                // placeholder with no tracking metadata. Reuse the in-scope
-                // decrypted values to avoid a redundant decrypt subprocess call.
-                try {
-                  delete decrypted.values[key];
-                  await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
-                } catch {
-                  // Rollback failed — warn the user explicitly
-                  formatter.error(
-                    `${key} was encrypted but pending state could not be recorded, and rollback failed.\n` +
-                      "  The encrypted file may contain an untracked random placeholder.\n" +
-                      "  This key MUST be set to a real value before deploying.\n" +
-                      `  Run: clef set ${namespace}/${environment} ${key}`,
-                  );
-                  process.exit(1);
-                  return;
+                if (isPendingValue) {
+                  await markPendingWithRetry(filePath, [key], "clef set --random");
+                } else {
+                  // Normal set resolves any pending state for this key
+                  try {
+                    await markResolved(filePath, [key]);
+                  } catch {
+                    // Non-fatal — file may not have had pending state
+                  }
                 }
-                formatter.error(
-                  `${key}: pending state could not be recorded. The value was rolled back.\n` +
-                    `  Retry: clef set --random ${namespace}/${environment} ${key}`,
-                );
-                process.exit(1);
-                return;
-              }
+              },
+            });
+
+            if (isPendingValue) {
               if (isJsonMode()) {
                 formatter.json({ key, namespace, environment, action: "created", pending: true });
                 return;
@@ -267,23 +262,11 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
               );
               formatter.hint(`clef set ${namespace}/${environment} ${key}`);
             } else {
-              // Normal set resolves any pending state for this key
-              try {
-                await markResolved(filePath, [key]);
-              } catch {
-                formatter.warn(
-                  `${key} was set but pending state could not be cleared.\n` +
-                    "  The value is saved. Run clef lint to check for stale pending markers.",
-                );
-              }
               if (isJsonMode()) {
                 formatter.json({ key, namespace, environment, action: "created", pending: false });
                 return;
               }
               formatter.success(`${key} set in ${namespace}/${environment}`);
-              formatter.hint(
-                `Commit: git add ${manifest.file_pattern.replace("{namespace}", namespace).replace("{environment}", environment)}`,
-              );
             }
           } finally {
             await cleanup();

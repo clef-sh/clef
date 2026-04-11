@@ -1,13 +1,17 @@
 import * as fs from "fs";
 import * as YAML from "yaml";
+import writeFileAtomic from "write-file-atomic";
 import { ServiceIdentityManager } from "./manager";
 import { ClefManifest, EncryptionBackend, ServiceIdentityDefinition, SopsMetadata } from "../types";
 import { MatrixManager } from "../matrix/manager";
+import { TransactionManager } from "../tx";
 
 jest.mock("fs");
 jest.mock("../age/keygen");
+// write-file-atomic is auto-mocked via core's jest.config moduleNameMapper.
 
-const mockFs = fs as jest.Mocked<typeof fs> & { renameSync: jest.Mock };
+const mockFs = fs as jest.Mocked<typeof fs>;
+const mockWriteFileAtomicSync = writeFileAtomic.sync as jest.Mock;
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest mock
 const { generateAgeIdentity } = require("../age/keygen") as {
@@ -44,6 +48,23 @@ function mockEncryption(): jest.Mocked<EncryptionBackend> {
   };
 }
 
+/**
+ * Stub TransactionManager that just runs the mutate callback inline. The
+ * real transaction-manager.test.ts covers locking, preflight, and rollback.
+ */
+function makeStubTx(): TransactionManager {
+  return {
+    run: jest
+      .fn()
+      .mockImplementation(
+        async (_repoRoot: string, opts: { mutate: () => Promise<void>; paths: string[] }) => {
+          await opts.mutate();
+          return { sha: null, paths: opts.paths, startedDirty: false };
+        },
+      ),
+  } as unknown as TransactionManager;
+}
+
 describe("ServiceIdentityManager", () => {
   let encryption: jest.Mocked<EncryptionBackend>;
   let matrixManager: MatrixManager;
@@ -53,7 +74,7 @@ describe("ServiceIdentityManager", () => {
     jest.clearAllMocks();
     encryption = mockEncryption();
     matrixManager = new MatrixManager();
-    manager = new ServiceIdentityManager(encryption, matrixManager);
+    manager = new ServiceIdentityManager(encryption, matrixManager, makeStubTx());
 
     let callCount = 0;
     generateAgeIdentity.mockImplementation(async () => {
@@ -92,7 +113,8 @@ describe("ServiceIdentityManager", () => {
       expect(Object.keys(result.privateKeys)).toHaveLength(3);
       expect(result.privateKeys.dev).toMatch(/^AGE-SECRET-KEY-/);
       expect(result.identity.environments.dev.recipient).toMatch(/^age1pubkey/);
-      expect(mockFs.writeFileSync).toHaveBeenCalled();
+      // Manifest is written via write-file-atomic
+      expect(mockWriteFileAtomicSync).toHaveBeenCalled();
     });
 
     it("should throw if identity name already exists", async () => {
@@ -293,7 +315,8 @@ describe("ServiceIdentityManager", () => {
 
       expect(Object.keys(result)).toHaveLength(3);
       expect(result.dev).toMatch(/^AGE-SECRET-KEY-/);
-      expect(mockFs.writeFileSync).toHaveBeenCalled();
+      // Manifest is written via write-file-atomic
+      expect(mockWriteFileAtomicSync).toHaveBeenCalled();
 
       // Verify old recipients were removed and new ones added
       expect(encryption.removeRecipient).toHaveBeenCalledWith(
@@ -376,7 +399,7 @@ describe("ServiceIdentityManager", () => {
       expect(result).toEqual([]);
     });
 
-    it("should detect missing environment", async () => {
+    it("should detect missing environment and emit a fix command", async () => {
       const si: ServiceIdentityDefinition = {
         name: "svc",
         description: "Service",
@@ -395,6 +418,11 @@ describe("ServiceIdentityManager", () => {
       expect(missingEnvIssues.length).toBe(2);
       expect(missingEnvIssues.map((i) => i.environment)).toContain("staging");
       expect(missingEnvIssues.map((i) => i.environment)).toContain("production");
+
+      // Each issue points at the explicit fix command users can run.
+      const stagingIssue = missingEnvIssues.find((i) => i.environment === "staging")!;
+      expect(stagingIssue.fixCommand).toBe("clef service add-env svc staging");
+      expect(stagingIssue.message).toContain("no config for environment 'staging'");
     });
 
     it("should detect unknown namespace reference", async () => {
@@ -468,6 +496,404 @@ describe("ServiceIdentityManager", () => {
       const issues = await manager.validate(manifest, "/repo");
       const mismatch = issues.filter((i) => i.type === "scope_mismatch");
       expect(mismatch).toHaveLength(1);
+    });
+  });
+
+  describe("addNamespacesToScope", () => {
+    function manifestWithSi(): ClefManifest {
+      return baseManifest({
+        service_identities: [
+          {
+            name: "web-app",
+            description: "Web app",
+            namespaces: ["api"],
+            environments: {
+              dev: { recipient: "age1devkey" },
+              staging: { recipient: "age1stagingkey" },
+              production: { kms: { provider: "aws", keyId: "arn:..." } },
+            },
+          },
+        ],
+      });
+    }
+
+    function setupFs(manifest: ClefManifest): void {
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(manifest));
+      mockFs.writeFileSync.mockImplementation(() => {});
+      // Pretend every cell exists
+      mockFs.existsSync.mockReturnValue(true);
+    }
+
+    it("registers the SI's recipient on cells in newly-scoped namespaces", async () => {
+      const manifest = manifestWithSi();
+      setupFs(manifest);
+
+      const result = await manager.addNamespacesToScope("web-app", ["database"], manifest, "/repo");
+
+      expect(result.added).toEqual(["database"]);
+      // database has 2 age envs (dev, staging) and 1 KMS env (production)
+      expect(encryption.addRecipient).toHaveBeenCalledTimes(2);
+      expect(encryption.addRecipient).toHaveBeenCalledWith(
+        expect.stringContaining("database/dev"),
+        "age1devkey",
+      );
+      expect(encryption.addRecipient).toHaveBeenCalledWith(
+        expect.stringContaining("database/staging"),
+        "age1stagingkey",
+      );
+      // KMS env: no recipient registration
+      expect(encryption.addRecipient).not.toHaveBeenCalledWith(
+        expect.stringContaining("database/production"),
+        expect.anything(),
+      );
+    });
+
+    it("updates the SI's namespaces array in the manifest", async () => {
+      const manifest = manifestWithSi();
+      setupFs(manifest);
+
+      await manager.addNamespacesToScope("web-app", ["database"], manifest, "/repo");
+
+      // Manifest is written via write-file-atomic
+      const writeCall = mockWriteFileAtomicSync.mock.calls.find((c) =>
+        String(c[0]).endsWith("clef.yaml"),
+      );
+      expect(writeCall).toBeDefined();
+      const writtenDoc = YAML.parse(writeCall![1] as string) as ClefManifest;
+      const si = writtenDoc.service_identities!.find((s) => s.name === "web-app")!;
+      expect(si.namespaces).toEqual(["api", "database"]);
+    });
+
+    it("is idempotent — namespaces already in scope are silently skipped", async () => {
+      const manifest = manifestWithSi();
+      setupFs(manifest);
+
+      const result = await manager.addNamespacesToScope("web-app", ["api"], manifest, "/repo");
+
+      expect(result.added).toEqual([]);
+      expect(result.affectedFiles).toEqual([]);
+      expect(encryption.addRecipient).not.toHaveBeenCalled();
+      expect(mockWriteFileAtomicSync).not.toHaveBeenCalled();
+    });
+
+    it("skips already-scoped namespaces but processes new ones in the same call", async () => {
+      const manifest = manifestWithSi();
+      setupFs(manifest);
+
+      const result = await manager.addNamespacesToScope(
+        "web-app",
+        ["api", "database"],
+        manifest,
+        "/repo",
+      );
+
+      expect(result.added).toEqual(["database"]);
+    });
+
+    it("throws if the identity does not exist", async () => {
+      const manifest = manifestWithSi();
+      setupFs(manifest);
+
+      await expect(
+        manager.addNamespacesToScope("nonexistent", ["database"], manifest, "/repo"),
+      ).rejects.toThrow("not found");
+    });
+
+    it("throws if a requested namespace does not exist in the manifest", async () => {
+      const manifest = manifestWithSi();
+      setupFs(manifest);
+
+      await expect(
+        manager.addNamespacesToScope("web-app", ["unknown"], manifest, "/repo"),
+      ).rejects.toThrow("Namespace(s) not found in manifest: unknown");
+    });
+
+    it("ignores 'already a recipient' errors from SOPS", async () => {
+      const manifest = manifestWithSi();
+      setupFs(manifest);
+      // First file errors with "already" — should be swallowed
+      encryption.addRecipient.mockImplementationOnce(async () => {
+        throw new Error("recipient already present");
+      });
+
+      const result = await manager.addNamespacesToScope("web-app", ["database"], manifest, "/repo");
+
+      expect(result.added).toEqual(["database"]);
+      // Both calls happen even though the first errored
+      expect(encryption.addRecipient).toHaveBeenCalledTimes(2);
+    });
+
+    it("re-throws non-duplicate encryption errors", async () => {
+      const manifest = manifestWithSi();
+      setupFs(manifest);
+      encryption.addRecipient.mockImplementationOnce(async () => {
+        throw new Error("permission denied");
+      });
+
+      await expect(
+        manager.addNamespacesToScope("web-app", ["database"], manifest, "/repo"),
+      ).rejects.toThrow("permission denied");
+    });
+  });
+
+  describe("removeNamespacesFromScope", () => {
+    function manifestWithSi(): ClefManifest {
+      return baseManifest({
+        service_identities: [
+          {
+            name: "web-app",
+            description: "Web app",
+            namespaces: ["api", "database"],
+            environments: {
+              dev: { recipient: "age1devkey" },
+              staging: { recipient: "age1stagingkey" },
+              production: { kms: { provider: "aws", keyId: "arn:..." } },
+            },
+          },
+        ],
+      });
+    }
+
+    function setupFs(manifest: ClefManifest): void {
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(manifest));
+      mockFs.writeFileSync.mockImplementation(() => {});
+      mockFs.existsSync.mockReturnValue(true);
+    }
+
+    it("de-registers the SI's recipient from cells in removed namespaces", async () => {
+      const manifest = manifestWithSi();
+      setupFs(manifest);
+
+      const result = await manager.removeNamespacesFromScope(
+        "web-app",
+        ["database"],
+        manifest,
+        "/repo",
+      );
+
+      expect(result.removed).toEqual(["database"]);
+      // database has 2 age envs (dev, staging) and 1 KMS env (production)
+      expect(encryption.removeRecipient).toHaveBeenCalledTimes(2);
+      expect(encryption.removeRecipient).toHaveBeenCalledWith(
+        expect.stringContaining("database/dev"),
+        "age1devkey",
+      );
+      expect(encryption.removeRecipient).toHaveBeenCalledWith(
+        expect.stringContaining("database/staging"),
+        "age1stagingkey",
+      );
+      // KMS env: no recipient removal
+      expect(encryption.removeRecipient).not.toHaveBeenCalledWith(
+        expect.stringContaining("database/production"),
+        expect.anything(),
+      );
+    });
+
+    it("updates the SI's namespaces array in the manifest", async () => {
+      const manifest = manifestWithSi();
+      setupFs(manifest);
+
+      await manager.removeNamespacesFromScope("web-app", ["database"], manifest, "/repo");
+
+      // Manifest is written via write-file-atomic
+      const writeCall = mockWriteFileAtomicSync.mock.calls.find((c) =>
+        String(c[0]).endsWith("clef.yaml"),
+      );
+      expect(writeCall).toBeDefined();
+      const writtenDoc = YAML.parse(writeCall![1] as string) as ClefManifest;
+      const si = writtenDoc.service_identities!.find((s) => s.name === "web-app")!;
+      expect(si.namespaces).toEqual(["api"]);
+    });
+
+    it("throws if the identity does not exist", async () => {
+      const manifest = manifestWithSi();
+      setupFs(manifest);
+
+      await expect(
+        manager.removeNamespacesFromScope("nonexistent", ["api"], manifest, "/repo"),
+      ).rejects.toThrow("not found");
+    });
+
+    it("throws if a requested namespace is not in scope", async () => {
+      const manifest = manifestWithSi();
+      setupFs(manifest);
+
+      await expect(
+        manager.removeNamespacesFromScope("web-app", ["notscoped"], manifest, "/repo"),
+      ).rejects.toThrow("Namespace(s) not in scope of 'web-app': notscoped");
+    });
+
+    it("refuses to remove the last namespace and points at clef service delete", async () => {
+      const manifest = baseManifest({
+        service_identities: [
+          {
+            name: "lonely",
+            description: "Only one ns",
+            namespaces: ["api"],
+            environments: {
+              dev: { recipient: "age1devkey" },
+            },
+          },
+        ],
+      });
+      setupFs(manifest);
+
+      await expect(
+        manager.removeNamespacesFromScope("lonely", ["api"], manifest, "/repo"),
+      ).rejects.toThrow("Cannot remove the last namespace");
+      await expect(
+        manager.removeNamespacesFromScope("lonely", ["api"], manifest, "/repo"),
+      ).rejects.toThrow("clef service delete lonely");
+    });
+
+    it("swallows errors when the recipient is already gone", async () => {
+      const manifest = manifestWithSi();
+      setupFs(manifest);
+      encryption.removeRecipient.mockImplementation(async () => {
+        throw new Error("not a current recipient");
+      });
+
+      // Should NOT throw
+      const result = await manager.removeNamespacesFromScope(
+        "web-app",
+        ["database"],
+        manifest,
+        "/repo",
+      );
+
+      expect(result.removed).toEqual(["database"]);
+    });
+  });
+
+  describe("addEnvironmentToScope", () => {
+    function setupFs(manifest: ClefManifest): void {
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(manifest));
+      mockFs.writeFileSync.mockImplementation(() => {});
+      // Pretend every cell exists
+      mockFs.existsSync.mockReturnValue(true);
+    }
+
+    /**
+     * The SI here is scoped to `database` and has dev + production envs but
+     * NOT staging. We add a new `staging` env entry, generating a fresh
+     * age key and registering its recipient on the existing staging cell
+     * in the SI's scoped namespaces.
+     */
+    function manifestWithMissingEnv(): ClefManifest {
+      return baseManifest({
+        service_identities: [
+          {
+            name: "web-app",
+            description: "Web app",
+            namespaces: ["database"],
+            // Note: only dev + production. staging is in baseManifest.environments
+            // but the SI doesn't have a config for it — that's the gap this method fills.
+            environments: {
+              dev: { recipient: "age1existing-dev" },
+              production: { recipient: "age1existing-prod" },
+            },
+          },
+        ],
+      });
+    }
+
+    it("generates an age key by default and registers its recipient on scoped cells", async () => {
+      const manifest = manifestWithMissingEnv();
+      setupFs(manifest);
+
+      const result = await manager.addEnvironmentToScope("web-app", "staging", manifest, "/repo");
+
+      // The new private key is returned to the caller
+      expect(result.privateKey).toMatch(/^AGE-SECRET-KEY-/);
+
+      // The new recipient was registered on the scoped staging cell only
+      // (database/staging.enc.yaml — api/staging is out of scope)
+      expect(encryption.addRecipient).toHaveBeenCalledTimes(1);
+      expect(encryption.addRecipient).toHaveBeenCalledWith(
+        "/repo/database/staging.enc.yaml",
+        expect.stringMatching(/^age1pubkey/),
+      );
+
+      // Manifest updated with the new staging entry on the SI
+      const writeCall = mockWriteFileAtomicSync.mock.calls.find((c) =>
+        String(c[0]).endsWith("clef.yaml"),
+      );
+      const written = YAML.parse(writeCall![1] as string) as ClefManifest;
+      const si = written.service_identities!.find((s) => s.name === "web-app")!;
+      expect(si.environments).toHaveProperty("staging");
+      expect((si.environments.staging as { recipient: string }).recipient).toMatch(/^age1pubkey/);
+    });
+
+    it("uses the supplied KMS config when provided and skips age key generation", async () => {
+      const manifest = manifestWithMissingEnv();
+      setupFs(manifest);
+
+      const result = await manager.addEnvironmentToScope("web-app", "staging", manifest, "/repo", {
+        provider: "aws",
+        keyId: "arn:aws:kms:us-east-1:123:key/new",
+      });
+
+      // KMS path: no private key returned, no age key generated
+      expect(result.privateKey).toBeUndefined();
+      expect(generateAgeIdentity).not.toHaveBeenCalled();
+      // KMS envs have no recipient on cells — addRecipient not called
+      expect(encryption.addRecipient).not.toHaveBeenCalled();
+
+      const writeCall = mockWriteFileAtomicSync.mock.calls.find((c) =>
+        String(c[0]).endsWith("clef.yaml"),
+      );
+      const written = YAML.parse(writeCall![1] as string) as ClefManifest;
+      const si = written.service_identities!.find((s) => s.name === "web-app")!;
+      expect(si.environments.staging).toEqual({
+        kms: { provider: "aws", keyId: "arn:aws:kms:us-east-1:123:key/new" },
+      });
+    });
+
+    it("throws if the service identity does not exist", async () => {
+      const manifest = manifestWithMissingEnv();
+      setupFs(manifest);
+
+      await expect(
+        manager.addEnvironmentToScope("nonexistent", "staging", manifest, "/repo"),
+      ).rejects.toThrow("Service identity 'nonexistent' not found");
+    });
+
+    it("throws if the env does not exist in the manifest", async () => {
+      const manifest = manifestWithMissingEnv();
+      setupFs(manifest);
+
+      await expect(
+        manager.addEnvironmentToScope("web-app", "nonexistent", manifest, "/repo"),
+      ).rejects.toThrow("Environment 'nonexistent' not found in manifest");
+    });
+
+    it("throws if the env is already configured on the SI", async () => {
+      const manifest = manifestWithMissingEnv();
+      setupFs(manifest);
+
+      await expect(
+        manager.addEnvironmentToScope("web-app", "dev", manifest, "/repo"),
+      ).rejects.toThrow("already has a config for environment 'dev'");
+    });
+
+    it("ignores 'already a recipient' errors from SOPS", async () => {
+      const manifest = manifestWithMissingEnv();
+      setupFs(manifest);
+      encryption.addRecipient.mockRejectedValueOnce(new Error("recipient already in keys"));
+
+      // Should NOT throw
+      const result = await manager.addEnvironmentToScope("web-app", "staging", manifest, "/repo");
+      expect(result.privateKey).toMatch(/^AGE-SECRET-KEY-/);
+    });
+
+    it("re-throws non-duplicate encryption errors", async () => {
+      const manifest = manifestWithMissingEnv();
+      setupFs(manifest);
+      encryption.addRecipient.mockRejectedValueOnce(new Error("KMS access denied"));
+
+      await expect(
+        manager.addEnvironmentToScope("web-app", "staging", manifest, "/repo"),
+      ).rejects.toThrow("KMS access denied");
     });
   });
 });

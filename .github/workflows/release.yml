@@ -1,12 +1,18 @@
-# Release workflow — strips prerelease suffix and publishes to npm.
+# Release workflow — strips prerelease suffix, publishes to npm, creates one
+# umbrella GitHub release, and triggers the SEA binary build.
 #
 # By the time code reaches main (via staging merge), package.json versions are
 # already stamped as e.g. 0.1.8-beta.52. This workflow strips the -beta.N
-# suffix, publishes the stable version to npm, tags the release, and creates
-# a GitHub Release.
+# suffix, publishes the stable versions to npm, creates per-package git tags
+# (still needed by publish-prerelease's next_version function), creates one
+# umbrella GitHub Release at v<cli_version> listing all bumped packages, and
+# calls build-sea.yml as a downstream job to attach the CLI + agent SEA bins.
 #
 # Triggers automatically when the CI workflow passes on main, or manually.
-# Release order: core → runtime → broker → agent → cli → ui.
+#
+# Note on the build-bins downstream call: we use workflow_call rather than
+# relying on the `release: published` event because events fired by
+# GITHUB_TOKEN do not trigger downstream workflows (GitHub recursion guard).
 
 name: Release
 
@@ -33,6 +39,9 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
+    outputs:
+      cli_version: ${{ steps.versions.outputs.cli_version }}
+      cli_released: ${{ steps.versions.outputs.cli_released }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -205,32 +214,70 @@ jobs:
 
           git push --tags
 
-      # ── GitHub Releases ─────────────────────────────────────────────────
+      # ── Umbrella GitHub Release ─────────────────────────────────────────
+      #
+      # CLI is the canonical version anchor for the umbrella release. If
+      # cli_released is false (cli wasn't bumped this cycle), the umbrella
+      # release would have no meaningful version, so fail loudly with a
+      # diagnostic instead of trying to create v<empty>.
 
-      - name: Create GitHub Releases
+      - name: Verify CLI was bumped
+        if: steps.versions.outputs.cli_released != 'true'
+        run: |
+          echo "::error::@clef-sh/cli was not bumped in this release cycle."
+          echo "::error::The umbrella release uses the CLI version as its tag."
+          echo "::error::Either bump cli on staging before merging, or run release.yml manually with a fresh staging promotion."
+          exit 1
+
+      - name: Create umbrella GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          create_release() {
-            local PKG="$1"
-            local RELEASED="$2"
-            local VERSION="$3"
-            if [ "$RELEASED" = "true" ]; then
-              local TAG="@clef-sh/${PKG}-v${VERSION}"
-              gh release create "$TAG" \
-                --title "@clef-sh/${PKG} v${VERSION}" \
-                --generate-notes \
-                --latest
-              echo "Created release: $TAG"
-            fi
-          }
+          CLI_VER="${{ steps.versions.outputs.cli_version }}"
+          TAG="v${CLI_VER}"
 
-          create_release core    "${{ steps.versions.outputs.core_released }}"    "${{ steps.versions.outputs.core_version }}"
-          create_release cloud     "${{ steps.versions.outputs.cloud_released }}"     "${{ steps.versions.outputs.cloud_version }}"
-          create_release analytics "${{ steps.versions.outputs.analytics_released }}" "${{ steps.versions.outputs.analytics_version }}"
-          create_release runtime   "${{ steps.versions.outputs.runtime_released }}"   "${{ steps.versions.outputs.runtime_version }}"
-          create_release broker  "${{ steps.versions.outputs.broker_released }}"  "${{ steps.versions.outputs.broker_version }}"
-          create_release agent   "${{ steps.versions.outputs.agent_released }}"   "${{ steps.versions.outputs.agent_version }}"
-          create_release cli     "${{ steps.versions.outputs.cli_released }}"     "${{ steps.versions.outputs.cli_version }}"
-          create_release ui      "${{ steps.versions.outputs.ui_released }}"      "${{ steps.versions.outputs.ui_version }}"
-          create_release client  "${{ steps.versions.outputs.client_released }}"  "${{ steps.versions.outputs.client_version }}"
+          # Build a markdown body listing every package that was bumped this cycle.
+          {
+            echo "## Packages"
+            echo ""
+            echo "| Package | Version |"
+            echo "|---|---|"
+            add_row() {
+              local PKG="$1"
+              local RELEASED="$2"
+              local VERSION="$3"
+              if [ "$RELEASED" = "true" ]; then
+                echo "| \`@clef-sh/${PKG}\` | \`${VERSION}\` |"
+              fi
+            }
+            add_row core      "${{ steps.versions.outputs.core_released }}"      "${{ steps.versions.outputs.core_version }}"
+            add_row cloud     "${{ steps.versions.outputs.cloud_released }}"     "${{ steps.versions.outputs.cloud_version }}"
+            add_row analytics "${{ steps.versions.outputs.analytics_released }}" "${{ steps.versions.outputs.analytics_version }}"
+            add_row runtime   "${{ steps.versions.outputs.runtime_released }}"   "${{ steps.versions.outputs.runtime_version }}"
+            add_row broker    "${{ steps.versions.outputs.broker_released }}"    "${{ steps.versions.outputs.broker_version }}"
+            add_row agent     "${{ steps.versions.outputs.agent_released }}"     "${{ steps.versions.outputs.agent_version }}"
+            add_row cli       "${{ steps.versions.outputs.cli_released }}"       "${{ steps.versions.outputs.cli_version }}"
+            add_row ui        "${{ steps.versions.outputs.ui_released }}"        "${{ steps.versions.outputs.ui_version }}"
+            add_row client    "${{ steps.versions.outputs.client_released }}"    "${{ steps.versions.outputs.client_version }}"
+            echo ""
+            echo "Install: \`npm install -g @clef-sh/cli\`"
+            echo ""
+            echo "CLI and agent SEA binaries (linux/darwin/windows × x64/arm64) plus the agent Lambda layer are attached below."
+          } > /tmp/release-notes.md
+
+          gh release create "$TAG" \
+            --title "v${CLI_VER}" \
+            --notes-file /tmp/release-notes.md \
+            --latest
+          echo "Created umbrella release: $TAG"
+
+  build-bins:
+    name: Build & Attach SEA Binaries
+    needs: release
+    if: needs.release.outputs.cli_released == 'true'
+    uses: ./.github/workflows/build-sea.yml
+    with:
+      tag: v${{ needs.release.outputs.cli_version }}
+    permissions:
+      contents: write
+      packages: write

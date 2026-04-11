@@ -20,7 +20,7 @@ interface EditorRow {
 interface NamespaceEditorProps {
   ns: string;
   manifest: ClefManifest | null;
-  onCommit: (message: string) => void;
+  onCommit: (message: string) => Promise<void>;
 }
 
 export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps) {
@@ -129,9 +129,15 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
 
   const handleSave = async (confirmed?: boolean) => {
     const dirtyRows = rows.filter((r) => r.edited);
+    // The edit-multiple-rows flow batches: each PUT writes without committing
+    // (commit: false), then a single explicit POST /api/git/commit at the end
+    // wraps all the changes in one commit. The other write paths in this
+    // editor (handleAdd, handleDelete, handleResetToRandom, handleAccept)
+    // omit the commit flag so each one auto-commits — which is what users
+    // want for single-action mutations.
     await Promise.all(
       dirtyRows.map((row) => {
-        const payload: Record<string, unknown> = { value: row.value };
+        const payload: Record<string, unknown> = { value: row.value, commit: false };
         if (confirmed) payload.confirmed = true;
         return apiFetch(`/api/namespace/${ns}/${env}/${row.key}`, {
           method: "PUT",
@@ -141,7 +147,11 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
       }),
     );
     if (commitMessage) {
-      onCommit(commitMessage);
+      // Await the commit so the working tree is clean by the time handleSave
+      // returns. Without this, subsequent transactional operations (here in
+      // the UI or via the CLI) would race against the in-flight commit and
+      // hit the dirty-tree preflight refusal.
+      await onCommit(commitMessage);
     }
     setShowCommitInput(false);
     setCommitMessage("");

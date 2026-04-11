@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { Command } from "commander";
 import {
+  GitIntegration,
   ManifestParser,
   MatrixManager,
   SopsMissingError,
@@ -9,6 +10,7 @@ import {
   SubprocessRunner,
   ImportRunner,
   ImportFormat,
+  TransactionManager,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
@@ -152,7 +154,8 @@ export function registerImportCommand(program: Command, deps: { runner: Subproce
             manifest,
           );
           try {
-            const importRunner = new ImportRunner(sopsClient);
+            const tx = new TransactionManager(new GitIntegration(deps.runner));
+            const importRunner = new ImportRunner(sopsClient, tx);
 
             let result;
             try {

@@ -1,12 +1,14 @@
 import * as path from "path";
 import { Command } from "commander";
 import {
+  GitIntegration,
   ManifestParser,
   MatrixManager,
   SubprocessRunner,
   BackendMigrator,
   MigrationTarget,
   BackendType,
+  TransactionManager,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
@@ -127,7 +129,8 @@ export function registerMigrateBackendCommand(
           manifest,
         );
         const encryptClient = await createSopsClient(repoRoot, deps.runner);
-        const migrator = new BackendMigrator(decryptClient, matrixManager, encryptClient);
+        const tx = new TransactionManager(new GitIntegration(deps.runner));
+        const migrator = new BackendMigrator(decryptClient, matrixManager, tx, encryptClient);
 
         try {
           const result = await migrator.migrate(

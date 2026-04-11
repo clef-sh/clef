@@ -9,6 +9,7 @@ jest.mock("fs", () => ({
   readFileSync: jest.fn(),
   writeFileSync: jest.fn(),
 }));
+// write-file-atomic is auto-mocked via CLI's jest.config moduleNameMapper.
 jest.mock("../output/formatter", () => ({
   formatter: {
     json: jest.fn(),

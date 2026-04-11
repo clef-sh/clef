@@ -29,7 +29,8 @@ export interface BrokerConfig {
  *
  * Optional:
  *   CLEF_BROKER_KMS_REGION, CLEF_BROKER_PORT (default 8080),
- *   CLEF_BROKER_HOST (default "0.0.0.0")
+ *   CLEF_BROKER_HOST (default "127.0.0.1" — override explicitly for container
+ *   deployments that need network exposure)
  *
  * Handler config: all CLEF_BROKER_HANDLER_* vars are collected with the prefix stripped.
  */
@@ -59,7 +60,7 @@ export function resolveConfig(env: Record<string, string | undefined> = process.
     throw new ConfigError(`CLEF_BROKER_PORT must be 1-65535. Got: "${portStr}"`);
   }
 
-  const host = env.CLEF_BROKER_HOST ?? "0.0.0.0";
+  const host = env.CLEF_BROKER_HOST ?? "127.0.0.1";
 
   // Collect handler-specific config from CLEF_BROKER_HANDLER_* env vars
   const handlerConfig: Record<string, string> = {};

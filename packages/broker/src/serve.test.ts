@@ -1,6 +1,6 @@
 import http from "http";
 import { serve } from "./serve";
-import type { BrokerHandler, BrokerServerHandle } from "./types";
+import type { BrokerHandler, BrokerServerHandle, LogFn } from "./types";
 
 jest.mock(
   "age-encryption",
@@ -160,5 +160,48 @@ describe("serve", () => {
     handle = undefined;
 
     expect(revoke).toHaveBeenCalledWith("entity-1", expect.any(Object));
+  });
+
+  describe("bind host logging", () => {
+    function captureLogs(): { logs: Array<[string, string]>; onLog: LogFn } {
+      const logs: Array<[string, string]> = [];
+      const onLog: LogFn = (level, message) => {
+        logs.push([level, message]);
+      };
+      return { logs, onLog };
+    }
+
+    it("logs the served URL with the actual bind host, not a hardcoded 127.0.0.1", async () => {
+      const { logs, onLog } = captureLogs();
+      handle = await serve(mockHandler(), { port: 0, host: "127.0.0.1", onLog });
+
+      const info = logs.find(([level]) => level === "info");
+      expect(info).toBeDefined();
+      expect(info![1]).toMatch(/^Broker serving at http:\/\/127\.0\.0\.1:\d+$/);
+    });
+
+    it("does not warn when bound to 127.0.0.1", async () => {
+      const { logs, onLog } = captureLogs();
+      handle = await serve(mockHandler(), { port: 0, host: "127.0.0.1", onLog });
+
+      expect(logs.some(([level]) => level === "warn")).toBe(false);
+    });
+
+    it("warns when bound to 0.0.0.0", async () => {
+      const { logs, onLog } = captureLogs();
+      handle = await serve(mockHandler(), { port: 0, host: "0.0.0.0", onLog });
+
+      const warn = logs.find(([level]) => level === "warn");
+      expect(warn).toBeDefined();
+      expect(warn![1]).toContain("non-loopback");
+      expect(warn![1]).toContain("0.0.0.0");
+    });
+
+    it("warns when bound to localhost (which may resolve to dual-stack)", async () => {
+      const { logs, onLog } = captureLogs();
+      handle = await serve(mockHandler(), { port: 0, host: "localhost", onLog });
+
+      expect(logs.some(([level]) => level === "warn")).toBe(true);
+    });
   });
 });

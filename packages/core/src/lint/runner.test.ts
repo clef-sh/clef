@@ -491,10 +491,12 @@ describe("LintRunner", () => {
         const result = await runner.run(manifest, "/repo");
 
         const driftIssues = result.issues.filter(
-          (i) => i.category === "service-identity" && i.message.includes("missing environment"),
+          (i) =>
+            i.category === "service-identity" && i.message.includes("no config for environment"),
         );
         expect(driftIssues.length).toBe(1);
         expect(driftIssues[0].message).toContain("production");
+        expect(driftIssues[0].message).toContain("clef service add-env");
       });
 
       it("should detect unknown namespace reference", async () => {

@@ -8,6 +8,7 @@ module.exports = {
     "^@clef-sh/core$": "<rootDir>/../core/src/index.ts",
     "^@clef-sh/ui$": "<rootDir>/src/__mocks__/ui-server.ts",
     "^age-encryption$": "<rootDir>/../core/src/__mocks__/age-encryption.ts",
+    "^write-file-atomic$": "<rootDir>/../core/src/__mocks__/write-file-atomic.ts",
   },
   collectCoverageFrom: [
     "<rootDir>/src/**/*.ts",
