@@ -1,18 +1,28 @@
 # Release workflow — strips prerelease suffix, publishes to npm, creates one
 # umbrella GitHub release, and triggers the SEA binary build.
 #
-# By the time code reaches main (via staging merge), package.json versions are
-# already stamped as e.g. 0.1.8-beta.52. This workflow strips the -beta.N
-# suffix, publishes the stable versions to npm, creates per-package git tags
-# (still needed by publish-prerelease's next_version function), creates one
-# umbrella GitHub Release at v<cli_version> listing all bumped packages, and
-# calls build-sea.yml as a downstream job to attach the CLI + agent SEA bins.
+# Sequential job pipeline (mirrors publish-prerelease.yml):
+#
+#   prepare  →  build-sea-bins  →  publish
+#
+#   1. prepare        Strips -beta.N from every package version, commits
+#                     the stamped versions to main, creates per-package git
+#                     tags + an umbrella git tag, then creates a DRAFT
+#                     umbrella GitHub release attached to the umbrella tag.
+#
+#   2. build-sea-bins Dispatches build-sea.yml against the umbrella tag and
+#                     polls until SEA bins are attached to the draft.
+#
+#   3. publish        Re-checks out main (which now has the stamped versions
+#                     committed by prepare), builds, runs tests, publishes
+#                     9 packages to npm with provenance, then flips the
+#                     draft umbrella release to published.
+#
+# By the time code reaches main (via staging merge), package.json versions
+# are already stamped as e.g. 0.1.8-beta.52. This workflow strips the
+# suffix and ships the stable version.
 #
 # Triggers automatically when the CI workflow passes on main, or manually.
-#
-# Note on the build-bins downstream call: we use workflow_call rather than
-# relying on the `release: published` event because events fired by
-# GITHUB_TOKEN do not trigger downstream workflows (GitHub recursion guard).
 
 name: Release
 
@@ -33,13 +43,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Publish Stable
+  # ── 1. Compute stable versions, tag, draft release ────────────────────
+  prepare:
+    name: Prepare release
     runs-on: ubuntu-latest
     environment: prod
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
+    outputs:
+      cli_version: ${{ steps.versions.outputs.cli_version }}
+      cli_released: ${{ steps.versions.outputs.cli_released }}
+      core_version: ${{ steps.versions.outputs.core_version }}
+      core_released: ${{ steps.versions.outputs.core_released }}
+      cloud_version: ${{ steps.versions.outputs.cloud_version }}
+      cloud_released: ${{ steps.versions.outputs.cloud_released }}
+      analytics_version: ${{ steps.versions.outputs.analytics_version }}
+      analytics_released: ${{ steps.versions.outputs.analytics_released }}
+      runtime_version: ${{ steps.versions.outputs.runtime_version }}
+      runtime_released: ${{ steps.versions.outputs.runtime_released }}
+      agent_version: ${{ steps.versions.outputs.agent_version }}
+      agent_released: ${{ steps.versions.outputs.agent_released }}
+      broker_version: ${{ steps.versions.outputs.broker_version }}
+      broker_released: ${{ steps.versions.outputs.broker_released }}
+      ui_version: ${{ steps.versions.outputs.ui_version }}
+      ui_released: ${{ steps.versions.outputs.ui_released }}
+      client_version: ${{ steps.versions.outputs.client_version }}
+      client_released: ${{ steps.versions.outputs.client_released }}
+
     steps:
       - uses: actions/checkout@v6
         with:
@@ -49,10 +80,6 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
-          registry-url: https://registry.npmjs.org
-
-      - run: npm ci
 
       # Strip prerelease suffix from all packages and stamp stable versions.
       # If a package has no prerelease suffix (already stable), it is skipped.
@@ -92,7 +119,7 @@ jobs:
           stamp_stable packages/agent     agent
           stamp_stable packages/cli       cli
           stamp_stable packages/ui        ui
-          stamp_stable packages/client   client
+          stamp_stable packages/client    client
 
       # ── Verify CLI was bumped (early gate) ───────────────────────────────
       #
@@ -108,8 +135,6 @@ jobs:
           echo "::error::Either bump cli on staging before merging, or run release.yml manually with a fresh staging promotion."
           exit 1
 
-      # ── Commit version stamps + per-package tags ────────────────────────
-
       - name: Commit stable versions
         run: |
           git config user.name "github-actions[bot]"
@@ -124,7 +149,7 @@ jobs:
           git commit -m "chore(release): stamp stable versions [skip ci]"
           git push
 
-      - name: Create git tags
+      - name: Create per-package git tags
         run: |
           # Idempotent tag creation: skip if tag already exists locally OR
           # remotely (a re-run starts with a fresh checkout, so we have to
@@ -151,15 +176,15 @@ jobs:
             echo "Tagged: $TAG"
           }
 
-          tag_if_released core    core    "${{ steps.versions.outputs.core_released }}"    "${{ steps.versions.outputs.core_version }}"
+          tag_if_released core      core      "${{ steps.versions.outputs.core_released }}"      "${{ steps.versions.outputs.core_version }}"
           tag_if_released cloud     cloud     "${{ steps.versions.outputs.cloud_released }}"     "${{ steps.versions.outputs.cloud_version }}"
           tag_if_released analytics analytics "${{ steps.versions.outputs.analytics_released }}" "${{ steps.versions.outputs.analytics_version }}"
           tag_if_released runtime   runtime   "${{ steps.versions.outputs.runtime_released }}"   "${{ steps.versions.outputs.runtime_version }}"
-          tag_if_released broker  broker  "${{ steps.versions.outputs.broker_released }}"  "${{ steps.versions.outputs.broker_version }}"
-          tag_if_released agent   agent   "${{ steps.versions.outputs.agent_released }}"   "${{ steps.versions.outputs.agent_version }}"
-          tag_if_released cli     cli     "${{ steps.versions.outputs.cli_released }}"     "${{ steps.versions.outputs.cli_version }}"
-          tag_if_released ui      ui      "${{ steps.versions.outputs.ui_released }}"      "${{ steps.versions.outputs.ui_version }}"
-          tag_if_released client  client  "${{ steps.versions.outputs.client_released }}"  "${{ steps.versions.outputs.client_version }}"
+          tag_if_released broker    broker    "${{ steps.versions.outputs.broker_released }}"    "${{ steps.versions.outputs.broker_version }}"
+          tag_if_released agent     agent     "${{ steps.versions.outputs.agent_released }}"     "${{ steps.versions.outputs.agent_version }}"
+          tag_if_released cli       cli       "${{ steps.versions.outputs.cli_released }}"       "${{ steps.versions.outputs.cli_version }}"
+          tag_if_released ui        ui        "${{ steps.versions.outputs.ui_released }}"        "${{ steps.versions.outputs.ui_version }}"
+          tag_if_released client    client    "${{ steps.versions.outputs.client_released }}"    "${{ steps.versions.outputs.client_version }}"
 
           # Push only tags that don't yet exist on remote. The plain
           # `git push --tags` already skips existing matching tags but
@@ -169,17 +194,11 @@ jobs:
             git push origin "$TAG" 2>/dev/null || echo "::warning::Could not push tag $TAG (may already exist)"
           done
 
-      # ── Create umbrella git tag ──────────────────────────────────────────
-      #
-      # We need a real git tag (not just a release object) because build-sea
-      # checks the tag out via actions/checkout. `gh release create --draft`
-      # does NOT push the underlying tag — draft releases hold the tag
-      # internally and only push it when the release is published. So we
-      # create and push the tag ourselves first, then the next step creates
-      # a draft release that simply attaches to the existing tag.
-      #
-      # Idempotent: skip if the tag already exists locally or remotely.
-
+      # Pre-create the umbrella git tag at HEAD (= the stamped commit we
+      # just pushed). build-sea checks the tag out via actions/checkout,
+      # and `gh release create --draft` does NOT push the underlying tag,
+      # so we have to push it ourselves.
+      # Idempotent.
       - name: Create umbrella git tag
         run: |
           CLI_VER="${{ steps.versions.outputs.cli_version }}"
@@ -190,24 +209,16 @@ jobs:
             exit 0
           fi
           if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "Tag ${TAG} already exists on remote — fetching"
-            git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" || true
+            echo "Tag ${TAG} already exists on remote — skipping"
             exit 0
           fi
 
-          # main HEAD at this point is the stamped commit we just pushed.
           git tag "$TAG"
           git push origin "$TAG"
           echo "Created and pushed umbrella tag: $TAG"
 
-      # ── Create DRAFT umbrella release ───────────────────────────────────
-      #
-      # The release starts as a draft so build-sea can attach bins before
-      # anything is publicly visible. The "Flip draft to published" step at
-      # the end of this job does the public reveal AFTER bins are confirmed
-      # built and npm publish has succeeded. The umbrella tag was already
-      # created and pushed by the previous step.
-
+      # Create the draft umbrella release attached to the umbrella tag.
+      # Idempotent.
       - name: Create draft umbrella GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -215,10 +226,6 @@ jobs:
           CLI_VER="${{ steps.versions.outputs.cli_version }}"
           TAG="v${CLI_VER}"
 
-          # Idempotent: if the release already exists from a previous run
-          # attempt, leave it alone. Whether it's a draft or already
-          # published, the downstream steps below will treat it as the
-          # canonical umbrella release.
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
             echo "Release $TAG already exists — leaving in place"
             exit 0
@@ -259,29 +266,21 @@ jobs:
             --draft
           echo "Created draft umbrella release: $TAG"
 
-      # ── Dispatch SEA bins (background) ──────────────────────────────────
-      #
-      # Done BEFORE build/test so the SEA build runs in parallel with this
-      # job's own build and test work. The "Wait for SEA build" step
-      # further down blocks until the dispatched run finishes — by which
-      # time it may already be done.
-      #
-      # We dispatch + poll because GITHUB_TOKEN can't fire `release:
-      # published` downstream — workflow_dispatch is one of the two events
-      # exempt from that restriction.
-      #
-      # Idempotent: short-circuit if every expected SEA bin is already on
-      # the umbrella release. Avoids 20-min rebuilds on re-runs.
-
-      - name: Dispatch SEA build (background)
-        id: dispatch_sea
+  # ── 2. Build SEA bins and attach to draft ─────────────────────────────
+  build-sea-bins:
+    name: Build SEA bins
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch & wait for SEA binary build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          CLI_VER="${{ steps.versions.outputs.cli_version }}"
+          CLI_VER="${{ needs.prepare.outputs.cli_version }}"
           TAG="v${CLI_VER}"
 
-          # Idempotency check
+          # Idempotency: if every expected SEA bin is already attached
+          # to the draft, this job is already done.
           EXPECTED_ASSETS=(
             clef-linux-x64 clef-linux-arm64 clef-darwin-x64 clef-darwin-arm64 clef-windows-x64.exe
             clef-agent-linux-x64 clef-agent-linux-arm64 clef-agent-darwin-x64 clef-agent-darwin-arm64 clef-agent-windows-x64.exe
@@ -296,40 +295,26 @@ jobs:
           done
           if [ "$ALL_PRESENT" = "true" ]; then
             echo "All ${#EXPECTED_ASSETS[@]} SEA bins already attached to $TAG — skipping dispatch"
-            echo "skipped=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # Capture the latest build-sea run ID before dispatching so the
-          # later "Wait for SEA build" step can identify the run we triggered.
+          # poll loop can identify the run we just triggered.
           BEFORE=$(gh run list \
             --repo "$GITHUB_REPOSITORY" \
             --workflow build-sea.yml \
             --limit 1 \
             --json databaseId \
             --jq '.[0].databaseId // 0')
-          echo "before=$BEFORE" >> "$GITHUB_OUTPUT"
+          echo "Latest build-sea run before dispatch: $BEFORE"
 
           gh workflow run build-sea.yml \
             --repo "$GITHUB_REPOSITORY" \
             --ref main \
             -f tag="$TAG"
-          echo "Dispatched build-sea for tag $TAG (running in background)"
+          echo "Dispatched build-sea for tag $TAG"
 
-      - name: Build all packages
-        run: npm run build
-
-      - name: Run tests
-        run: npm test
-
-      - name: Wait for SEA build
-        if: steps.dispatch_sea.outputs.skipped != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          BEFORE="${{ steps.dispatch_sea.outputs.before }}"
-
-          # Find the run ID we just dispatched (any new run with ID > BEFORE).
+          # Find the dispatched run.
           NEW_RUN_ID=""
           for i in $(seq 1 30); do
             CURRENT=$(gh run list \
@@ -351,6 +336,7 @@ jobs:
           echo "Tracking build-sea run: $NEW_RUN_ID"
           echo "URL: https://github.com/$GITHUB_REPOSITORY/actions/runs/$NEW_RUN_ID"
 
+          # Poll until terminal status (max 60 minutes).
           for i in $(seq 1 180); do
             STATUS=$(gh run view "$NEW_RUN_ID" \
               --repo "$GITHUB_REPOSITORY" \
@@ -375,13 +361,37 @@ jobs:
           echo "::error::Timed out waiting for build-sea after 60 minutes"
           exit 1
 
+  # ── 3. Publish to npm and flip draft ──────────────────────────────────
+  publish:
+    name: Publish Stable
+    needs: [prepare, build-sea-bins]
+    runs-on: ubuntu-latest
+    environment: prod
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - name: Build all packages
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
       # ── Publish to npm (public packages with provenance) ────────────────
-      #
-      # Runs AFTER bins are attached to the draft so that any SEA failure
-      # has already aborted the workflow with no npm side effects.
 
       - name: Publish @clef-sh/core
-        if: steps.versions.outputs.core_released == 'true'
+        if: needs.prepare.outputs.core_released == 'true'
         continue-on-error: true
         working-directory: packages/core
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/core publish failed (may already exist)"
@@ -389,7 +399,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/cloud
-        if: steps.versions.outputs.cloud_released == 'true'
+        if: needs.prepare.outputs.cloud_released == 'true'
         continue-on-error: true
         working-directory: packages/cloud
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/cloud publish failed (may already exist)"
@@ -397,7 +407,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/analytics
-        if: steps.versions.outputs.analytics_released == 'true'
+        if: needs.prepare.outputs.analytics_released == 'true'
         continue-on-error: true
         working-directory: packages/analytics
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/analytics publish failed (may already exist)"
@@ -405,7 +415,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/runtime
-        if: steps.versions.outputs.runtime_released == 'true'
+        if: needs.prepare.outputs.runtime_released == 'true'
         continue-on-error: true
         working-directory: packages/runtime
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/runtime publish failed (may already exist)"
@@ -413,7 +423,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/broker
-        if: steps.versions.outputs.broker_released == 'true'
+        if: needs.prepare.outputs.broker_released == 'true'
         continue-on-error: true
         working-directory: packages/broker
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/broker publish failed (may already exist)"
@@ -421,7 +431,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/agent
-        if: steps.versions.outputs.agent_released == 'true'
+        if: needs.prepare.outputs.agent_released == 'true'
         continue-on-error: true
         working-directory: packages/agent
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/agent publish failed (may already exist)"
@@ -429,7 +439,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/cli
-        if: steps.versions.outputs.cli_released == 'true'
+        if: needs.prepare.outputs.cli_released == 'true'
         continue-on-error: true
         working-directory: packages/cli
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/cli publish failed (may already exist)"
@@ -437,13 +447,13 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/ui
-        if: steps.versions.outputs.ui_released == 'true'
+        if: needs.prepare.outputs.ui_released == 'true'
         continue-on-error: true
         working-directory: packages/ui
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/ui publish failed (may already exist)"
 
       - name: Publish @clef-sh/client
-        if: steps.versions.outputs.client_released == 'true'
+        if: needs.prepare.outputs.client_released == 'true'
         continue-on-error: true
         working-directory: packages/client
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/client publish failed (may already exist)"
@@ -452,20 +462,17 @@ jobs:
       #
       # Final irreversible step: the umbrella release becomes publicly
       # visible. By this point: bins are attached, npm packages are live,
-      # git tags are pushed. Flipping the draft is the moment users can
-      # discover the release on the Releases page.
+      # git tags are pushed.
 
       - name: Flip draft umbrella release to published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          CLI_VER="${{ steps.versions.outputs.cli_version }}"
+          CLI_VER="${{ needs.prepare.outputs.cli_version }}"
           TAG="v${CLI_VER}"
 
           # Idempotent: if the release is already published from a previous
-          # run attempt, this is a no-op (gh release edit on an already-
-          # published release with --draft=false succeeds quietly). The
-          # check + log makes intent visible in the run output.
+          # run attempt, this is a no-op.
           IS_DRAFT=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')
           if [ "$IS_DRAFT" = "false" ]; then
             echo "Release $TAG is already published — nothing to flip"
