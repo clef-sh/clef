@@ -2,21 +2,18 @@
 #
 # Sequential job pipeline:
 #
-#   wait-for-ci  →  prepare  →  build-sea-bins  →  publish
+#   prepare  →  build-sea-bins  →  publish
 #
-#   1. wait-for-ci    Polls the CI workflow for the same commit. Gates the
-#                     entire pipeline on test/lint/integration success.
-#
-#   2. prepare        Computes the next version for every package, creates
-#                     a git tag at HEAD_SHA, and creates a draft GitHub
-#                     pre-release attached to that tag (staging only).
+#   1. prepare        Computes the next version for every package, creates
+#                     a git tag at the SHA CI tested, and creates a draft
+#                     GitHub pre-release attached to that tag (staging only).
 #                     Outputs the computed versions for downstream jobs.
 #
-#   3. build-sea-bins Dispatches build-sea.yml against the new tag and
+#   2. build-sea-bins Dispatches build-sea.yml against the new tag and
 #                     polls until SEA bins are attached to the draft.
 #                     Skipped for dev/alpha (no SEA bins for alpha).
 #
-#   4. publish        Re-stamps package.json files, builds, runs tests,
+#   3. publish        Re-stamps package.json files, builds, runs tests,
 #                     publishes 9 packages to GitHub Packages, commits
 #                     the version stamps back to the branch.
 #
@@ -27,71 +24,36 @@
 #                            npm and flips the draft to published.
 #
 # Trigger model:
-#   - `push` to dev/staging fires the workflow immediately. The wait-for-ci
-#     job polls the CI workflow on the same commit and only allows the
-#     pipeline to continue once CI succeeds.
-#   - workflow_dispatch is supported as a manual fallback.
-#
-#   We use push + wait-for-ci instead of workflow_run because workflow_run
-#   only fires when the workflow file is on the default branch (main).
+#   - workflow_run on CI completion for dev/staging. Fires automatically
+#     once CI is green; no in-workflow polling needed. Because workflow_run
+#     only fires when the workflow file is on the default branch, this
+#     file MUST be on main for the trigger to work.
+#   - workflow_dispatch as a manual fallback.
 
 name: Publish Prerelease
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [dev, staging]
   workflow_dispatch:
 
 permissions:
   contents: write # tag + create GitHub releases on staging + commit version stamps
   packages: write # publish to GitHub Packages
-  actions: write # query CI workflow status + dispatch build-sea on staging
+  actions: write # dispatch build-sea via gh workflow run + poll for completion
 
 concurrency:
-  group: prerelease-${{ github.ref_name }}
+  group: prerelease-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
-  # ── 1. Gate ────────────────────────────────────────────────────────────
-  wait-for-ci:
-    name: Wait for CI
-    runs-on: ubuntu-latest
-    steps:
-      - name: Wait for CI workflow to succeed
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          echo "Waiting for CI workflow on $GITHUB_SHA ..."
-          for i in $(seq 1 90); do
-            RUN=$(gh run list \
-              --repo "$GITHUB_REPOSITORY" \
-              --workflow ci.yml \
-              --commit "$GITHUB_SHA" \
-              --json databaseId,conclusion,status \
-              --jq '.[0]')
-
-            STATUS=$(echo "$RUN" | jq -r '.status // "not_found"')
-            CONCLUSION=$(echo "$RUN" | jq -r '.conclusion // "pending"')
-
-            if [ "$CONCLUSION" = "success" ]; then
-              echo "CI passed ✓"
-              exit 0
-            elif [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "cancelled" ]; then
-              echo "::error::CI $CONCLUSION — aborting publish"
-              exit 1
-            fi
-
-            echo "CI status=$STATUS conclusion=$CONCLUSION — waiting (attempt $i/90)..."
-            sleep 20
-          done
-          echo "::error::Timed out waiting for CI after 30 minutes"
-          exit 1
-
-  # ── 2. Compute versions, create tag + draft release ───────────────────
+  # ── 1. Compute versions, create tag + draft release ───────────────────
   prepare:
     name: Prepare release
-    needs: wait-for-ci
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     outputs:
       dist_tag: ${{ steps.ver.outputs.dist_tag }}
       prerelease: ${{ steps.ver.outputs.prerelease }}
@@ -105,14 +67,14 @@ jobs:
       ui_version: ${{ steps.ver.outputs.ui_version }}
       client_version: ${{ steps.ver.outputs.client_version }}
     env:
-      BRANCH: ${{ github.ref_name }}
-      HEAD_SHA: ${{ github.sha }}
+      BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - uses: actions/setup-node@v6
         with:
@@ -284,11 +246,11 @@ jobs:
           To promote to npm for public testing, trigger the **Publish Beta to npm** workflow."
           echo "Created draft release: v${CLI_VER}"
 
-  # ── 3. Build SEA bins (staging only) ──────────────────────────────────
+  # ── 2. Build SEA bins (staging only) ──────────────────────────────────
   build-sea-bins:
     name: Build SEA bins
     needs: prepare
-    if: github.ref_name == 'staging'
+    if: (github.event.workflow_run.head_branch || github.ref_name) == 'staging'
     runs-on: ubuntu-latest
     steps:
       - name: Dispatch & wait for SEA binary build
@@ -380,9 +342,9 @@ jobs:
           echo "::error::Timed out waiting for build-sea after 60 minutes"
           exit 1
 
-  # ── 4. Publish packages ───────────────────────────────────────────────
+  # ── 3. Publish packages ───────────────────────────────────────────────
   publish:
-    name: Publish ${{ github.ref_name == 'dev' && 'Alpha' || 'Beta' }}
+    name: Publish ${{ (github.event.workflow_run.head_branch || github.ref_name) == 'dev' && 'Alpha' || 'Beta' }}
     needs: [prepare, build-sea-bins]
     # Run if prepare succeeded and build-sea-bins either succeeded or was
     # skipped (skipped happens for dev/alpha because of the staging-only if).
@@ -391,15 +353,15 @@ jobs:
       needs.prepare.result == 'success' &&
       (needs.build-sea-bins.result == 'success' || needs.build-sea-bins.result == 'skipped')
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'dev' && 'dev' || 'staging' }}
+    environment: ${{ (github.event.workflow_run.head_branch || github.ref_name) == 'dev' && 'dev' || 'staging' }}
     env:
-      BRANCH: ${{ github.ref_name }}
+      BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
 
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - uses: actions/setup-node@v6
         with:
@@ -620,6 +582,10 @@ jobs:
           CLI_VER="${{ needs.prepare.outputs.cli_version }}"
           git commit -m "chore(release): stamp ${PRE} versions (${CLI_VER}) [skip ci]"
 
+          # We checked out a SHA (detached HEAD), so create/reset a local
+          # branch matching the source branch and rebase on top of any new
+          # commits before pushing.
+          git checkout -B "$BRANCH"
           git pull --rebase origin "$BRANCH"
           git push origin "$BRANCH"
 
