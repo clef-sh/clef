@@ -1,40 +1,58 @@
 # Prerelease publish workflow
 #
+# Sequential job pipeline:
+#
+#   wait-for-ci  →  prepare  →  build-sea-bins  →  publish
+#
+#   1. wait-for-ci    Polls the CI workflow for the same commit. Gates the
+#                     entire pipeline on test/lint/integration success.
+#
+#   2. prepare        Computes the next version for every package, creates
+#                     a git tag at HEAD_SHA, and creates a draft GitHub
+#                     pre-release attached to that tag (staging only).
+#                     Outputs the computed versions for downstream jobs.
+#
+#   3. build-sea-bins Dispatches build-sea.yml against the new tag and
+#                     polls until SEA bins are attached to the draft.
+#                     Skipped for dev/alpha (no SEA bins for alpha).
+#
+#   4. publish        Re-stamps package.json files, builds, runs tests,
+#                     publishes 9 packages to GitHub Packages, commits
+#                     the version stamps back to the branch.
+#
 # dev     → alpha packages → GitHub Packages (restricted, internal only)
 # staging → beta packages  → GitHub Packages (public) + GitHub pre-release
+#                            with SEA bins attached to a draft release.
+#                            Manual `Publish Beta to npm` then publishes to
+#                            npm and flips the draft to published.
 #
-# Version scheme: the prerelease base is the *next* semver computed by
-# analyzing commits since the last release tag (breaking → minor,
-# feat/fix/perf → patch).
-# The base is always derived from main's current version so branch divergence
-# does not corrupt the stamp.
-# e.g. main@0.1.5, feat commit in dev → alpha: 0.1.6-alpha.42
+# Trigger model:
+#   - `push` to dev/staging fires the workflow immediately. The wait-for-ci
+#     job polls the CI workflow on the same commit and only allows the
+#     pipeline to continue once CI succeeds.
+#   - workflow_dispatch is supported as a manual fallback.
 #
-# IMPORTANT: versions are stamped into package.json BEFORE the build so that
-# esbuild bakes the correct version into the CLI bundle (clef --version).
-#
-# To promote a beta version to npm for public testing, trigger the
-# publish-beta-npm workflow manually.
+#   We use push + wait-for-ci instead of workflow_run because workflow_run
+#   only fires when the workflow file is on the default branch (main).
 
 name: Publish Prerelease
 
 on:
   push:
     branches: [dev, staging]
+  workflow_dispatch:
 
 permissions:
-  contents: write # create GitHub releases on staging + commit version stamps
+  contents: write # tag + create GitHub releases on staging + commit version stamps
   packages: write # publish to GitHub Packages
-  actions: read # query CI workflow status
+  actions: write # query CI workflow status + dispatch build-sea on staging
 
 concurrency:
   group: prerelease-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
-  # Gate: wait for the CI workflow (including the full E2E matrix) to pass
-  # before publishing. This replaces workflow_run which only works when the
-  # workflow file is on the default branch.
+  # ── 1. Gate ────────────────────────────────────────────────────────────
   wait-for-ci:
     name: Wait for CI
     runs-on: ubuntu-latest
@@ -69,11 +87,26 @@ jobs:
           echo "::error::Timed out waiting for CI after 30 minutes"
           exit 1
 
-  publish:
-    name: Publish ${{ github.ref_name == 'dev' && 'Alpha' || 'Beta' }}
+  # ── 2. Compute versions, create tag + draft release ───────────────────
+  prepare:
+    name: Prepare release
     needs: wait-for-ci
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'dev' && 'dev' || 'staging' }}
+    outputs:
+      dist_tag: ${{ steps.ver.outputs.dist_tag }}
+      prerelease: ${{ steps.ver.outputs.prerelease }}
+      core_version: ${{ steps.ver.outputs.core_version }}
+      cloud_version: ${{ steps.ver.outputs.cloud_version }}
+      analytics_version: ${{ steps.ver.outputs.analytics_version }}
+      runtime_version: ${{ steps.ver.outputs.runtime_version }}
+      cli_version: ${{ steps.ver.outputs.cli_version }}
+      agent_version: ${{ steps.ver.outputs.agent_version }}
+      broker_version: ${{ steps.ver.outputs.broker_version }}
+      ui_version: ${{ steps.ver.outputs.ui_version }}
+      client_version: ${{ steps.ver.outputs.client_version }}
+    env:
+      BRANCH: ${{ github.ref_name }}
+      HEAD_SHA: ${{ github.sha }}
 
     steps:
       - uses: actions/checkout@v6
@@ -84,16 +117,11 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
-          registry-url: https://npm.pkg.github.com
-          scope: "@clef-sh"
 
-      - run: npm ci
-
-      - name: Compute and stamp prerelease versions
+      - name: Compute prerelease versions
         id: ver
         run: |
-          if [ "$GITHUB_REF_NAME" = "dev" ]; then
+          if [ "$BRANCH" = "dev" ]; then
             PRE="alpha"
             DIST_TAG="alpha"
           else
@@ -193,9 +221,202 @@ jobs:
           UI_VER="${UI_NEXT}-${PRE}.${{ github.run_number }}"
           CLIENT_VER="${CLIENT_NEXT}-${PRE}.${{ github.run_number }}"
 
-          # Stamp package.json files NOW, before the build, so that esbuild
-          # bakes the correct version string into the CLI bundle. The CLI reads
-          # its version via `import pkg from "../package.json"` at compile time.
+          echo "dist_tag=${DIST_TAG}"            >> "$GITHUB_OUTPUT"
+          echo "prerelease=${PRE}"               >> "$GITHUB_OUTPUT"
+          echo "core_version=${CORE_VER}"        >> "$GITHUB_OUTPUT"
+          echo "cloud_version=${CLOUD_VER}"      >> "$GITHUB_OUTPUT"
+          echo "analytics_version=${ANALYTICS_VER}" >> "$GITHUB_OUTPUT"
+          echo "runtime_version=${RUNTIME_VER}"  >> "$GITHUB_OUTPUT"
+          echo "cli_version=${CLI_VER}"          >> "$GITHUB_OUTPUT"
+          echo "agent_version=${AGENT_VER}"      >> "$GITHUB_OUTPUT"
+          echo "broker_version=${BROKER_VER}"    >> "$GITHUB_OUTPUT"
+          echo "ui_version=${UI_VER}"            >> "$GITHUB_OUTPUT"
+          echo "client_version=${CLIENT_VER}"    >> "$GITHUB_OUTPUT"
+
+      # Beta: pre-create the git tag at HEAD_SHA and push it. We need a
+      # real git tag (not just a release object) because build-sea checks
+      # the tag out via actions/checkout. `gh release create --draft`
+      # does NOT push the underlying tag — draft releases hold the tag
+      # internally and only push it when the release is published.
+      # Idempotent: skip if the tag already exists locally or remotely.
+      - name: Create git tag (beta)
+        if: env.BRANCH == 'staging'
+        run: |
+          CLI_VER="${{ steps.ver.outputs.cli_version }}"
+          TAG="v${CLI_VER}"
+
+          if git rev-parse --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists locally — skipping"
+            exit 0
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists on remote — skipping"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG" "$HEAD_SHA"
+          git push origin "$TAG"
+          echo "Created and pushed tag: $TAG → $HEAD_SHA"
+
+      # Beta: create a draft pre-release attached to the tag we just pushed.
+      # The draft is invisible to users until publish-beta-npm flips it.
+      # Idempotent: leave existing drafts alone.
+      - name: Create GitHub pre-release (beta)
+        if: env.BRANCH == 'staging'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CLI_VER="${{ steps.ver.outputs.cli_version }}"
+          if gh release view "v${CLI_VER}" --repo "$GITHUB_REPOSITORY" &>/dev/null; then
+            echo "Draft release v${CLI_VER} already exists — leaving in place"
+            exit 0
+          fi
+          gh release create "v${CLI_VER}" \
+            --draft \
+            --prerelease \
+            --title "v${CLI_VER} (beta)" \
+            --notes "Beta release. Available on GitHub Packages.
+
+          SEA binaries (CLI + agent, 5 platforms each) plus the agent Lambda layer are attached below.
+
+          To promote to npm for public testing, trigger the **Publish Beta to npm** workflow."
+          echo "Created draft release: v${CLI_VER}"
+
+  # ── 3. Build SEA bins (staging only) ──────────────────────────────────
+  build-sea-bins:
+    name: Build SEA bins
+    needs: prepare
+    if: github.ref_name == 'staging'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch & wait for SEA binary build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CLI_VER="${{ needs.prepare.outputs.cli_version }}"
+          TAG="v${CLI_VER}"
+
+          # Idempotency: if every expected SEA bin is already attached
+          # to the draft, this job is already done.
+          EXPECTED_ASSETS=(
+            clef-linux-x64 clef-linux-arm64 clef-darwin-x64 clef-darwin-arm64 clef-windows-x64.exe
+            clef-agent-linux-x64 clef-agent-linux-arm64 clef-agent-darwin-x64 clef-agent-darwin-arm64 clef-agent-windows-x64.exe
+          )
+          ASSETS=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || echo "")
+          ALL_PRESENT=true
+          for asset in "${EXPECTED_ASSETS[@]}"; do
+            if ! echo "$ASSETS" | grep -qx "$asset"; then
+              ALL_PRESENT=false
+              break
+            fi
+          done
+          if [ "$ALL_PRESENT" = "true" ]; then
+            echo "All ${#EXPECTED_ASSETS[@]} SEA bins already attached to $TAG — skipping dispatch"
+            exit 0
+          fi
+
+          # Capture the latest build-sea run ID before dispatching so the
+          # poll loop can identify the run we just triggered.
+          BEFORE=$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow build-sea.yml \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId // 0')
+          echo "Latest build-sea run before dispatch: $BEFORE"
+
+          gh workflow run build-sea.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref staging \
+            -f tag="$TAG"
+          echo "Dispatched build-sea for tag $TAG"
+
+          # Find the dispatched run.
+          NEW_RUN_ID=""
+          for i in $(seq 1 30); do
+            CURRENT=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow build-sea.yml \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // 0')
+            if [ "$CURRENT" -gt "$BEFORE" ]; then
+              NEW_RUN_ID="$CURRENT"
+              break
+            fi
+            sleep 5
+          done
+          if [ -z "$NEW_RUN_ID" ]; then
+            echo "::error::build-sea run did not appear within 2.5 minutes"
+            exit 1
+          fi
+          echo "Tracking build-sea run: $NEW_RUN_ID"
+          echo "URL: https://github.com/$GITHUB_REPOSITORY/actions/runs/$NEW_RUN_ID"
+
+          # Poll until terminal status (max 60 minutes).
+          for i in $(seq 1 180); do
+            STATUS=$(gh run view "$NEW_RUN_ID" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json status,conclusion \
+              --jq '.status')
+            CONCLUSION=$(gh run view "$NEW_RUN_ID" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json status,conclusion \
+              --jq '.conclusion // "pending"')
+
+            if [ "$CONCLUSION" = "success" ]; then
+              echo "build-sea succeeded ✓"
+              exit 0
+            elif [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "cancelled" ]; then
+              echo "::error::build-sea $CONCLUSION — see https://github.com/$GITHUB_REPOSITORY/actions/runs/$NEW_RUN_ID"
+              exit 1
+            fi
+
+            echo "build-sea status=$STATUS conclusion=$CONCLUSION (attempt $i/180)"
+            sleep 20
+          done
+          echo "::error::Timed out waiting for build-sea after 60 minutes"
+          exit 1
+
+  # ── 4. Publish packages ───────────────────────────────────────────────
+  publish:
+    name: Publish ${{ github.ref_name == 'dev' && 'Alpha' || 'Beta' }}
+    needs: [prepare, build-sea-bins]
+    # Run if prepare succeeded and build-sea-bins either succeeded or was
+    # skipped (skipped happens for dev/alpha because of the staging-only if).
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      (needs.build-sea-bins.result == 'success' || needs.build-sea-bins.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'dev' && 'dev' || 'staging' }}
+    env:
+      BRANCH: ${{ github.ref_name }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: "@clef-sh"
+
+      - run: npm ci
+
+      # Re-stamp the package.json files with the versions prepare computed.
+      # The prepare job stamped its own working tree but those edits were
+      # lost when its runner finished — every job is a fresh runner, so we
+      # have to redo the stamping here. The values come from prepare's
+      # outputs so they're guaranteed identical.
+      - name: Stamp prerelease versions
+        run: |
           stamp() { node -e "
             const fs = require('fs');
             const p = JSON.parse(fs.readFileSync('$1/package.json', 'utf8'));
@@ -203,27 +424,15 @@ jobs:
             fs.writeFileSync('$1/package.json', JSON.stringify(p, null, 2) + '\n');
           "; }
 
-          stamp packages/core    "$CORE_VER"
-          stamp packages/cloud     "$CLOUD_VER"
-          stamp packages/analytics "$ANALYTICS_VER"
-          stamp packages/runtime   "$RUNTIME_VER"
-          stamp packages/cli     "$CLI_VER"
-          stamp packages/agent   "$AGENT_VER"
-          stamp packages/broker  "$BROKER_VER"
-          stamp packages/ui      "$UI_VER"
-          stamp packages/client  "$CLIENT_VER"
-
-          echo "dist_tag=${DIST_TAG}"            >> "$GITHUB_OUTPUT"
-          echo "prerelease=${PRE}"               >> "$GITHUB_OUTPUT"
-          echo "core_version=${CORE_VER}"        >> "$GITHUB_OUTPUT"
-          echo "cloud_version=${CLOUD_VER}"          >> "$GITHUB_OUTPUT"
-          echo "analytics_version=${ANALYTICS_VER}"  >> "$GITHUB_OUTPUT"
-          echo "runtime_version=${RUNTIME_VER}"      >> "$GITHUB_OUTPUT"
-          echo "cli_version=${CLI_VER}"          >> "$GITHUB_OUTPUT"
-          echo "agent_version=${AGENT_VER}"      >> "$GITHUB_OUTPUT"
-          echo "broker_version=${BROKER_VER}"    >> "$GITHUB_OUTPUT"
-          echo "ui_version=${UI_VER}"            >> "$GITHUB_OUTPUT"
-          echo "client_version=${CLIENT_VER}"    >> "$GITHUB_OUTPUT"
+          stamp packages/core      "${{ needs.prepare.outputs.core_version }}"
+          stamp packages/cloud     "${{ needs.prepare.outputs.cloud_version }}"
+          stamp packages/analytics "${{ needs.prepare.outputs.analytics_version }}"
+          stamp packages/runtime   "${{ needs.prepare.outputs.runtime_version }}"
+          stamp packages/cli       "${{ needs.prepare.outputs.cli_version }}"
+          stamp packages/agent     "${{ needs.prepare.outputs.agent_version }}"
+          stamp packages/broker    "${{ needs.prepare.outputs.broker_version }}"
+          stamp packages/ui        "${{ needs.prepare.outputs.ui_version }}"
+          stamp packages/client    "${{ needs.prepare.outputs.client_version }}"
 
       - name: Build all packages
         run: npm run build
@@ -232,150 +441,161 @@ jobs:
         run: npm test
 
       # ── Alpha (dev → GitHub Packages, restricted/internal) ───────────────
+      #
+      # Each publish step is idempotent: a re-run on a partial failure
+      # treats "version already exists" as a warning rather than a hard
+      # error.
+
       - name: Publish @clef-sh/core (alpha)
-        if: github.ref_name == 'dev'
+        if: env.BRANCH == 'dev'
+        continue-on-error: true
         working-directory: packages/core
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/core alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/cloud (alpha)
-        if: github.ref_name == 'dev'
+        if: env.BRANCH == 'dev'
+        continue-on-error: true
         working-directory: packages/cloud
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/cloud alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/analytics (alpha)
-        if: github.ref_name == 'dev'
+        if: env.BRANCH == 'dev'
+        continue-on-error: true
         working-directory: packages/analytics
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/analytics alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/runtime (alpha)
-        if: github.ref_name == 'dev'
+        if: env.BRANCH == 'dev'
+        continue-on-error: true
         working-directory: packages/runtime
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/runtime alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/agent (alpha)
-        if: github.ref_name == 'dev'
+        if: env.BRANCH == 'dev'
+        continue-on-error: true
         working-directory: packages/agent
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/agent alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/broker (alpha)
-        if: github.ref_name == 'dev'
+        if: env.BRANCH == 'dev'
+        continue-on-error: true
         working-directory: packages/broker
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/broker alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/cli (alpha)
-        if: github.ref_name == 'dev'
+        if: env.BRANCH == 'dev'
+        continue-on-error: true
         working-directory: packages/cli
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/cli alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/ui (alpha)
-        if: github.ref_name == 'dev'
+        if: env.BRANCH == 'dev'
+        continue-on-error: true
         working-directory: packages/ui
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/ui alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/client (alpha)
-        if: github.ref_name == 'dev'
+        if: env.BRANCH == 'dev'
+        continue-on-error: true
         working-directory: packages/client
-        run: npm publish --tag alpha --access restricted --no-provenance
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/client alpha publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ── Beta (staging → GitHub Packages, public) ─────────────────────────
+      #
+      # Only runs if build-sea-bins succeeded above. SEA failure aborts the
+      # pipeline before any registry publish.
+
       - name: Publish @clef-sh/core (beta)
-        if: github.ref_name == 'staging'
+        if: env.BRANCH == 'staging'
+        continue-on-error: true
         working-directory: packages/core
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/core beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/cloud (beta)
-        if: github.ref_name == 'staging'
+        if: env.BRANCH == 'staging'
+        continue-on-error: true
         working-directory: packages/cloud
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/cloud beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/analytics (beta)
-        if: github.ref_name == 'staging'
+        if: env.BRANCH == 'staging'
+        continue-on-error: true
         working-directory: packages/analytics
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/analytics beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/runtime (beta)
-        if: github.ref_name == 'staging'
+        if: env.BRANCH == 'staging'
+        continue-on-error: true
         working-directory: packages/runtime
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/runtime beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/agent (beta)
-        if: github.ref_name == 'staging'
+        if: env.BRANCH == 'staging'
+        continue-on-error: true
         working-directory: packages/agent
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/agent beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/broker (beta)
-        if: github.ref_name == 'staging'
+        if: env.BRANCH == 'staging'
+        continue-on-error: true
         working-directory: packages/broker
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/broker beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/cli (beta)
-        if: github.ref_name == 'staging'
+        if: env.BRANCH == 'staging'
+        continue-on-error: true
         working-directory: packages/cli
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/cli beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/ui (beta)
-        if: github.ref_name == 'staging'
+        if: env.BRANCH == 'staging'
+        continue-on-error: true
         working-directory: packages/ui
-        run: npm publish --tag beta --access restricted --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/ui beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish @clef-sh/client (beta)
-        if: github.ref_name == 'staging'
+        if: env.BRANCH == 'staging'
+        continue-on-error: true
         working-directory: packages/client
-        run: npm publish --tag beta --access public --no-provenance
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/client beta publish failed (may already exist)"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Beta: create a GitHub pre-release so the version surfaces in Releases
-      - name: Create GitHub pre-release (beta)
-        if: github.ref_name == 'staging'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          CLI_VER="${{ steps.ver.outputs.cli_version }}"
-          gh release create "v${CLI_VER}" \
-            --target "$GITHUB_SHA" \
-            --draft \
-            --prerelease \
-            --title "v${CLI_VER} (beta)" \
-            --notes "Beta release. Available on GitHub Packages.
-
-          To promote to npm for public testing, trigger the **Publish Beta to npm** workflow."
-
-      - name: Commit version stamps back to ${{ github.ref_name }}
+      - name: Commit version stamps back to branch
         run: |
           if git diff --quiet packages/*/package.json; then
             echo "No version changes to commit"
@@ -396,12 +616,12 @@ jobs:
             packages/ui/package.json \
             packages/client/package.json
 
-          PRE="${{ steps.ver.outputs.prerelease }}"
-          CLI_VER="${{ steps.ver.outputs.cli_version }}"
+          PRE="${{ needs.prepare.outputs.prerelease }}"
+          CLI_VER="${{ needs.prepare.outputs.cli_version }}"
           git commit -m "chore(release): stamp ${PRE} versions (${CLI_VER}) [skip ci]"
 
-          git pull --rebase origin "${{ github.ref_name }}"
-          git push origin "${{ github.ref_name }}"
+          git pull --rebase origin "$BRANCH"
+          git push origin "$BRANCH"
 
       - name: Publish summary
         if: always()
@@ -409,12 +629,12 @@ jobs:
           echo "## Prerelease publish" >> "$GITHUB_STEP_SUMMARY"
           echo "| Package | Version |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| \`@clef-sh/core\` | \`${{ steps.ver.outputs.core_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| \`@clef-sh/runtime\` | \`${{ steps.ver.outputs.runtime_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| \`@clef-sh/agent\` | \`${{ steps.ver.outputs.agent_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| \`@clef-sh/broker\` | \`${{ steps.ver.outputs.broker_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| \`@clef-sh/cli\` | \`${{ steps.ver.outputs.cli_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| \`@clef-sh/ui\` | \`${{ steps.ver.outputs.ui_version }}\` (GitHub Packages only) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/core\` | \`${{ needs.prepare.outputs.core_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/runtime\` | \`${{ needs.prepare.outputs.runtime_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/agent\` | \`${{ needs.prepare.outputs.agent_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/broker\` | \`${{ needs.prepare.outputs.broker_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/cli\` | \`${{ needs.prepare.outputs.cli_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/ui\` | \`${{ needs.prepare.outputs.ui_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Registry:** GitHub Packages (\`npm.pkg.github.com\`)" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Dist-tag:** \`${{ steps.ver.outputs.dist_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Dist-tag:** \`${{ needs.prepare.outputs.dist_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
