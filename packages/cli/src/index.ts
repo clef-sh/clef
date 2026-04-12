@@ -34,7 +34,6 @@ import { formatter, setJsonMode, setYesMode, isJsonMode } from "./output/formatt
 import { exitJsonError } from "./handle-error";
 import { setPlainMode, isPlainMode, symbols, sym } from "./output/symbols";
 import { openBrowser } from "./browser";
-import { createSopsClient } from "./age-credential";
 import pkg from "../package.json";
 
 const VERSION = pkg.version as string;
@@ -138,7 +137,6 @@ async function loadCloudPlugin(): Promise<void> {
       formatter,
       sym,
       openBrowser,
-      createSopsClient,
       cliVersion: VERSION,
     });
   } catch {

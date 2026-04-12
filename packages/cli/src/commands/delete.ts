@@ -11,7 +11,7 @@ import {
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
-import { createCloudAwareSopsClient } from "../cloud-sops";
+import { createSopsClient } from "../age-credential";
 import { parseTarget } from "../parse-target";
 
 export function registerDeleteCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -34,11 +34,7 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
-          repoRoot,
-          deps.runner,
-          manifest,
-        );
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
         try {
           const matrixManager = new MatrixManager();
 
@@ -134,7 +130,7 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
             formatter.success(`Deleted '${key}' from ${namespace}/${environment}`);
           }
         } finally {
-          await cleanup();
+          // no cleanup needed
         }
       } catch (err) {
         handleCommandError(err);

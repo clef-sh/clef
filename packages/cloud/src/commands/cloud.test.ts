@@ -1,52 +1,56 @@
 import { Command } from "commander";
 import { registerCloudCommands, type CloudCliDeps } from "./cloud";
 
-const mockParse = jest.fn();
+jest.mock("../credentials", () => ({
+  readCloudCredentials: jest.fn().mockReturnValue(null),
+  writeCloudCredentials: jest.fn(),
+  deleteCloudCredentials: jest.fn(),
+  isSessionExpired: jest.fn().mockReturnValue(false),
+}));
 
-jest.mock("@clef-sh/core", () => {
-  const actual = jest.requireActual("@clef-sh/core");
+jest.mock("../providers", () => {
+  const provider = {
+    id: "github" as const,
+    displayName: "GitHub",
+    login: jest.fn().mockResolvedValue(null),
+  };
   return {
-    ...actual,
-    ManifestParser: jest.fn().mockImplementation(() => ({
-      parse: mockParse,
-    })),
-    MatrixManager: jest.fn().mockImplementation(() => ({
-      resolveMatrix: jest.fn().mockReturnValue([]),
-    })),
-    readManifestYaml: jest.fn().mockReturnValue({
-      version: 1,
-      environments: [{ name: "production", description: "Prod" }],
-      namespaces: [{ name: "api", description: "API" }],
-      sops: { default_backend: "age" },
-      file_pattern: "{namespace}/{environment}.enc.yaml",
-    }),
-    writeManifestYaml: jest.fn(),
+    resolveAuthProvider: jest.fn().mockReturnValue(provider),
+    DEFAULT_PROVIDER: "github",
+    PROVIDER_IDS: ["github"],
+    __mockProvider: provider,
   };
 });
 
-jest.mock("../index", () => ({
-  readCloudCredentials: jest.fn().mockReturnValue(null),
-  writeCloudCredentials: jest.fn(),
-  resolveKeyservicePath: jest.fn().mockReturnValue({
-    path: "clef-keyservice",
-    source: "system",
+jest.mock("../cloud-api", () => ({
+  startInstall: jest.fn().mockResolvedValue({
+    install_url: "https://github.com/apps/clef-bot/installations/new?state=tok",
+    state: "tok",
+    expires_in: 600,
   }),
-  spawnKeyservice: jest.fn().mockResolvedValue({
-    addr: "tcp://127.0.0.1:9999",
-    kill: jest.fn().mockResolvedValue(undefined),
+  pollInstallUntilComplete: jest.fn().mockResolvedValue({
+    status: "complete",
+    installation: { id: 12345678, account: "acme", installedAt: 1712847600000 },
   }),
-  initiateDeviceFlow: jest.fn().mockResolvedValue({
-    sessionId: "sess_abc",
-    loginUrl: "https://cloud.clef.sh/setup?session=sess_abc",
-    pollUrl: "https://api.clef.sh/api/v1/device/poll/sess_abc",
-    expiresIn: 900,
+  getMe: jest.fn().mockResolvedValue({
+    user: { id: "u1", login: "jamesspears", email: "james@clef.sh" },
+    installation: null,
+    subscription: { tier: "free", status: "active" },
   }),
-  pollDeviceFlow: jest.fn().mockResolvedValue({ status: "pending" }),
-  resolveAccessToken: jest.fn().mockResolvedValue({
-    accessToken: "fresh_access_token",
-    endpoint: "https://api.clef.sh",
-  }),
-  CLOUD_DEFAULT_ENDPOINT: "https://api.clef.sh",
+}));
+
+jest.mock("../policy", () => ({
+  POLICY_FILE_PATH: ".clef/policy.yaml",
+  scaffoldPolicyFile: jest
+    .fn()
+    .mockReturnValue({ created: true, filePath: "/repo/.clef/policy.yaml" }),
+  parsePolicyFile: jest
+    .fn()
+    .mockReturnValue({ valid: false, reason: "Could not read file: ENOENT" }),
+}));
+
+jest.mock("fs", () => ({
+  existsSync: jest.fn().mockReturnValue(true),
 }));
 
 const mockFormatter = {
@@ -60,102 +64,69 @@ const mockFormatter = {
 
 function makeProgram() {
   const program = new Command();
-  program.option("--dir <path>", "Path to a local Clef repository root").allowUnknownOption();
-  const runner = { run: jest.fn() };
+  program.option("--dir <path>", "Path to repo root").allowUnknownOption();
+  const runner = {
+    run: jest.fn().mockResolvedValue({
+      stdout: "git@github.com:acme/payments.git\n",
+      stderr: "",
+      exitCode: 0,
+    }),
+  };
   const deps: CloudCliDeps = {
     runner,
     formatter: mockFormatter,
     sym: (name: string) =>
       name === "success" ? "\u2713" : name === "clef" ? "\uD834\uDD1E" : name,
     openBrowser: jest.fn().mockResolvedValue(true),
-    createSopsClient: jest.fn().mockResolvedValue({
-      decrypt: jest.fn().mockResolvedValue({ values: { KEY: "val" }, metadata: {} }),
-      encrypt: jest.fn().mockResolvedValue(undefined),
-    }),
     cliVersion: "0.1.0-test",
   };
   registerCloudCommands(program, deps);
   return { program, runner, deps };
 }
 
-function getCloudMock() {
-  return jest.requireMock("../index") as {
+function getMockProvider() {
+  return (jest.requireMock("../providers") as { __mockProvider: { login: jest.Mock } })
+    .__mockProvider;
+}
+
+function getCredsMock() {
+  return jest.requireMock("../credentials") as {
     readCloudCredentials: jest.Mock;
-    resolveKeyservicePath: jest.Mock;
-    initiateDeviceFlow: jest.Mock;
-    pollDeviceFlow: jest.Mock;
     writeCloudCredentials: jest.Mock;
-    resolveAccessToken: jest.Mock;
+    deleteCloudCredentials: jest.Mock;
+    isSessionExpired: jest.Mock;
   };
 }
 
-describe("clef cloud status", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
+function getCloudApiMock() {
+  return jest.requireMock("../cloud-api") as {
+    startInstall: jest.Mock;
+    pollInstallUntilComplete: jest.Mock;
+    getMe: jest.Mock;
+  };
+}
 
-  it("should show cloud config when manifest has cloud block", async () => {
-    const cloud = getCloudMock();
-    mockParse.mockReturnValue({
-      version: 1,
-      environments: [
-        { name: "dev", description: "Dev" },
-        { name: "production", description: "Prod", sops: { backend: "cloud" } },
-      ],
-      namespaces: [{ name: "api", description: "API" }],
-      sops: { default_backend: "age" },
-      file_pattern: "{namespace}/{environment}.enc.yaml",
-      cloud: { integrationId: "int_abc123", keyId: "clef:int_abc123/production" },
-    });
-    cloud.readCloudCredentials.mockReturnValue({
-      token: "clef_tok_test",
-      endpoint: "https://api.clef.sh",
-    });
+function getPolicyMock() {
+  return jest.requireMock("../policy") as {
+    scaffoldPolicyFile: jest.Mock;
+    parsePolicyFile: jest.Mock;
+  };
+}
 
-    const { program } = makeProgram();
-    await program.parseAsync(["node", "test", "cloud", "status"]);
+function getFsMock() {
+  return jest.requireMock("fs") as { existsSync: jest.Mock };
+}
 
-    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("int_abc123"));
-    expect(mockFormatter.print).toHaveBeenCalledWith(
-      expect.stringContaining("clef:int_abc123/production"),
-    );
-    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("production"));
-    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("authenticated"));
-  });
+const validCreds = {
+  session_token: "jwt_abc",
+  login: "jamesspears",
+  email: "james@clef.sh",
+  expires_at: new Date(Date.now() + 3600000).toISOString(),
+  base_url: "https://cloud.clef.sh",
+  provider: "github" as const,
+};
 
-  it("should show not configured when no cloud block", async () => {
-    mockParse.mockReturnValue({
-      version: 1,
-      environments: [{ name: "dev", description: "Dev" }],
-      namespaces: [{ name: "api", description: "API" }],
-      sops: { default_backend: "age" },
-      file_pattern: "{namespace}/{environment}.enc.yaml",
-    });
-
-    const { program } = makeProgram();
-    await program.parseAsync(["node", "test", "cloud", "status"]);
-
-    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("not configured"));
-  });
-
-  it("should show not authenticated when no credentials", async () => {
-    const cloud = getCloudMock();
-    mockParse.mockReturnValue({
-      version: 1,
-      environments: [{ name: "production", description: "Prod", sops: { backend: "cloud" } }],
-      namespaces: [{ name: "api", description: "API" }],
-      sops: { default_backend: "age" },
-      file_pattern: "{namespace}/{environment}.enc.yaml",
-      cloud: { integrationId: "int_abc123", keyId: "clef:int_abc123/production" },
-    });
-    cloud.readCloudCredentials.mockReturnValue(null);
-
-    const { program } = makeProgram();
-    await program.parseAsync(["node", "test", "cloud", "status"]);
-
-    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("not authenticated"));
-  });
-});
+// ── clef cloud login ──────────────────────────────────────────────────────
 
 describe("clef cloud login", () => {
   const mockExit = jest.spyOn(process, "exit").mockImplementation(() => undefined as never);
@@ -163,71 +134,109 @@ describe("clef cloud login", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockExit.mockClear();
+    getCredsMock().readCloudCredentials.mockReturnValue(null);
+    getCredsMock().isSessionExpired.mockReturnValue(false);
+    getCredsMock().writeCloudCredentials.mockImplementation(() => {});
   });
 
-  it("should complete login flow and write credentials", async () => {
-    const cloud = getCloudMock();
-    cloud.pollDeviceFlow.mockResolvedValueOnce({ status: "complete", token: "clef_tok_new" });
+  it("writes credentials on successful login", async () => {
+    getMockProvider().login.mockResolvedValueOnce(validCreds);
 
     const { program } = makeProgram();
     await program.parseAsync(["node", "test", "cloud", "login"]);
 
-    expect(cloud.initiateDeviceFlow).toHaveBeenCalledWith(
-      undefined,
-      expect.objectContaining({ flow: "login" }),
+    expect(getCredsMock().writeCloudCredentials).toHaveBeenCalledWith(
+      expect.objectContaining({ session_token: "jwt_abc" }),
     );
-    // Login flow should not send environment
-    const callArgs = cloud.initiateDeviceFlow.mock.calls[0][1];
-    expect(callArgs.environment).toBeUndefined();
-
-    expect(cloud.writeCloudCredentials).toHaveBeenCalledWith(
-      expect.objectContaining({ refreshToken: "clef_tok_new" }),
-    );
-    expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Logged in"));
+    expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("jamesspears"));
   });
 
-  it("should save accessToken when server returns it", async () => {
-    const cloud = getCloudMock();
-    cloud.pollDeviceFlow.mockResolvedValueOnce({
-      status: "complete",
-      token: "refresh_tok",
-      accessToken: "access_tok",
-      accessTokenExpiresIn: 3600,
-      cognitoDomain: "https://auth.example.com",
-      clientId: "cli_123",
+  it("exits with error when provider login returns null", async () => {
+    getMockProvider().login.mockResolvedValueOnce(null);
+
+    const { program } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "login"]);
+
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it("shows already signed in when credentials are valid", async () => {
+    getCredsMock().readCloudCredentials.mockReturnValue(validCreds);
+
+    const { program } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "login"]);
+
+    expect(getMockProvider().login).not.toHaveBeenCalled();
+    expect(mockFormatter.success).toHaveBeenCalledWith(
+      expect.stringContaining("Already signed in"),
+    );
+  });
+});
+
+// ── clef cloud logout ─────────────────────────────────────────────────────
+
+describe("clef cloud logout", () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it("deletes credentials and prints success", async () => {
+    const { program } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "logout"]);
+
+    expect(getCredsMock().deleteCloudCredentials).toHaveBeenCalled();
+    expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Logged out"));
+  });
+});
+
+// ── clef cloud status ─────────────────────────────────────────────────────
+
+describe("clef cloud status", () => {
+  const mockExit = jest.spyOn(process, "exit").mockImplementation(() => undefined as never);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockExit.mockClear();
+    getCredsMock().isSessionExpired.mockReturnValue(false);
+  });
+
+  it("shows account info when logged in with installation", async () => {
+    getCredsMock().readCloudCredentials.mockReturnValue(validCreds);
+    getCloudApiMock().getMe.mockResolvedValueOnce({
+      user: { id: "u1", login: "jamesspears", email: "james@clef.sh" },
+      installation: { id: 12345678, account: "acme", installedAt: 1712847600000 },
+      subscription: { tier: "free", status: "active" },
     });
 
     const { program } = makeProgram();
-    await program.parseAsync(["node", "test", "cloud", "login"]);
+    await program.parseAsync(["node", "test", "cloud", "status"]);
 
-    expect(cloud.writeCloudCredentials).toHaveBeenCalledWith(
-      expect.objectContaining({
-        refreshToken: "refresh_tok",
-        accessToken: "access_tok",
-      }),
-    );
+    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("jamesspears"));
+    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("acme"));
+    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("free"));
   });
 
-  it("should handle expired session", async () => {
-    const cloud = getCloudMock();
-    cloud.pollDeviceFlow.mockResolvedValueOnce({ status: "expired" });
+  it("shows not logged in when no credentials", async () => {
+    getCredsMock().readCloudCredentials.mockReturnValue(null);
 
     const { program } = makeProgram();
-    await program.parseAsync(["node", "test", "cloud", "login"]);
+    await program.parseAsync(["node", "test", "cloud", "status"]);
+
+    expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("Not logged in"));
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it("shows expired when session is expired", async () => {
+    getCredsMock().readCloudCredentials.mockReturnValue(validCreds);
+    getCredsMock().isSessionExpired.mockReturnValue(true);
+
+    const { program } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "status"]);
 
     expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("expired"));
-  });
-
-  it("should handle cancelled session", async () => {
-    const cloud = getCloudMock();
-    cloud.pollDeviceFlow.mockResolvedValueOnce({ status: "cancelled" });
-
-    const { program } = makeProgram();
-    await program.parseAsync(["node", "test", "cloud", "login"]);
-
-    expect(mockFormatter.info).toHaveBeenCalledWith(expect.stringContaining("cancelled"));
+    expect(mockExit).toHaveBeenCalledWith(1);
   });
 });
+
+// ── clef cloud init ───────────────────────────────────────────────────────
 
 describe("clef cloud init", () => {
   const mockExit = jest.spyOn(process, "exit").mockImplementation(() => undefined as never);
@@ -235,183 +244,154 @@ describe("clef cloud init", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockExit.mockClear();
-    const cloud = getCloudMock();
-    cloud.readCloudCredentials.mockReturnValue(null);
-    cloud.resolveKeyservicePath.mockReturnValue({ path: "clef-keyservice", source: "system" });
+    // Default: clef.yaml exists, no policy file, no credentials
+    getFsMock().existsSync.mockReturnValue(true);
+    getPolicyMock().parsePolicyFile.mockReturnValue({
+      valid: false,
+      reason: "Could not read file: ENOENT",
+    });
+    getPolicyMock().scaffoldPolicyFile.mockReturnValue({
+      created: true,
+      filePath: "/repo/.clef/policy.yaml",
+    });
+    getCredsMock().readCloudCredentials.mockReturnValue(null);
+    getCredsMock().isSessionExpired.mockReturnValue(false);
+    getCredsMock().writeCloudCredentials.mockImplementation(() => {});
+    getCloudApiMock().getMe.mockResolvedValue({
+      user: { id: "u1", login: "jamesspears", email: "james@clef.sh" },
+      installation: null,
+      subscription: { tier: "free", status: "active" },
+    });
   });
 
-  it("should error when target environment not found", async () => {
-    mockParse.mockReturnValue({
-      version: 1,
-      environments: [{ name: "dev", description: "Dev" }],
-      namespaces: [{ name: "api", description: "API" }],
-      sops: { default_backend: "age" },
-      file_pattern: "{namespace}/{environment}.enc.yaml",
+  it("errors when clef.yaml is missing", async () => {
+    getFsMock().existsSync.mockReturnValue(false);
+
+    const { program } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "init"]);
+
+    expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("No clef.yaml found"));
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it("runs full init flow: auth, install, scaffold", async () => {
+    getMockProvider().login.mockResolvedValueOnce(validCreds);
+
+    const { program } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "init"]);
+
+    // Auth happened via provider
+    expect(getMockProvider().login).toHaveBeenCalled();
+    expect(getCredsMock().writeCloudCredentials).toHaveBeenCalled();
+
+    // Install flow ran
+    expect(getCloudApiMock().startInstall).toHaveBeenCalled();
+    expect(getCloudApiMock().pollInstallUntilComplete).toHaveBeenCalled();
+
+    // Policy scaffolded
+    expect(getPolicyMock().scaffoldPolicyFile).toHaveBeenCalled();
+
+    // Next steps printed
+    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("Next steps"));
+  });
+
+  it("uses provider displayName in init banner", async () => {
+    getMockProvider().login.mockResolvedValueOnce(validCreds);
+
+    const { program } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "init"]);
+
+    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("GitHub"));
+  });
+
+  it("skips install when bot already installed", async () => {
+    getCredsMock().readCloudCredentials.mockReturnValue(validCreds);
+    getCloudApiMock().getMe.mockResolvedValueOnce({
+      user: { id: "u1", login: "jamesspears", email: "james@clef.sh" },
+      installation: { id: 12345678, account: "acme", installedAt: 1712847600000 },
+      subscription: { tier: "free", status: "active" },
     });
 
     const { program } = makeProgram();
-    await program.parseAsync(["node", "test", "cloud", "init", "--env", "production"]);
+    await program.parseAsync(["node", "test", "cloud", "init"]);
 
-    expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("not found"));
-  });
-
-  it("should skip when environment already uses cloud", async () => {
-    mockParse.mockReturnValue({
-      version: 1,
-      environments: [{ name: "production", description: "Prod", sops: { backend: "cloud" } }],
-      namespaces: [{ name: "api", description: "API" }],
-      sops: { default_backend: "age" },
-      file_pattern: "{namespace}/{environment}.enc.yaml",
-      cloud: { integrationId: "int_abc", keyId: "clef:int_abc/production" },
-    });
-
-    const { program } = makeProgram();
-    await program.parseAsync(["node", "test", "cloud", "init", "--env", "production"]);
-
-    expect(mockFormatter.info).toHaveBeenCalledWith(expect.stringContaining("already using"));
-  });
-
-  it("should complete init flow with device flow for new environment", async () => {
-    const manifest = {
-      version: 1,
-      environments: [{ name: "production", description: "Prod" }],
-      namespaces: [{ name: "api", description: "API" }],
-      sops: { default_backend: "age" },
-      file_pattern: "{namespace}/{environment}.enc.yaml",
-    };
-    mockParse.mockReturnValue(manifest);
-
-    const cloud = getCloudMock();
-    cloud.readCloudCredentials.mockReturnValue(null);
-    cloud.pollDeviceFlow.mockResolvedValueOnce({
-      status: "complete",
-      token: "clef_tok_init",
-      integrationId: "int_new",
-      keyId: "clef:int_new/production",
-    });
-
-    const coreFull = jest.requireMock("@clef-sh/core") as {
-      writeManifestYaml: jest.Mock;
-    };
-
-    const { program } = makeProgram();
-    await program.parseAsync(["node", "test", "cloud", "init", "--env", "production"]);
-
-    expect(cloud.initiateDeviceFlow).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ flow: "setup", environment: "production" }),
+    expect(mockFormatter.success).toHaveBeenCalledWith(
+      expect.stringContaining("already installed"),
     );
-    expect(cloud.writeCloudCredentials).toHaveBeenCalledWith(
-      expect.objectContaining({ refreshToken: "clef_tok_init" }),
-    );
-    expect(coreFull.writeManifestYaml).toHaveBeenCalled();
+    expect(getCloudApiMock().startInstall).not.toHaveBeenCalled();
+  });
+
+  it("skips policy scaffold when policy already valid", async () => {
+    getCredsMock().readCloudCredentials.mockReturnValue(validCreds);
+    getCloudApiMock().getMe.mockResolvedValueOnce({
+      user: { id: "u1", login: "jamesspears", email: "james@clef.sh" },
+      installation: { id: 12345678, account: "acme", installedAt: 1712847600000 },
+      subscription: { tier: "free", status: "active" },
+    });
+    getPolicyMock().parsePolicyFile.mockReturnValue({ valid: true });
+
+    const { program } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "init"]);
+
+    expect(mockFormatter.info).toHaveBeenCalledWith(expect.stringContaining("already exists"));
+    expect(getPolicyMock().scaffoldPolicyFile).not.toHaveBeenCalled();
+  });
+
+  it("handles install timeout", async () => {
+    getCredsMock().readCloudCredentials.mockReturnValue(validCreds);
+    getCloudApiMock().pollInstallUntilComplete.mockResolvedValueOnce({
+      status: "pending",
+    });
+
+    const { program } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "init"]);
+
+    expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("timed out"));
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
+});
+
+// ── clef cloud doctor ─────────────────────────────────────────────────────
+
+describe("clef cloud doctor", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getFsMock().existsSync.mockReturnValue(true);
+    getPolicyMock().parsePolicyFile.mockReturnValue({ valid: true });
+    getCredsMock().readCloudCredentials.mockReturnValue(validCreds);
+    getCredsMock().isSessionExpired.mockReturnValue(false);
+    getCredsMock().deleteCloudCredentials.mockImplementation(() => {});
+  });
+
+  it("reports all green when everything is configured", async () => {
+    const { program } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "doctor"]);
+
     expect(mockFormatter.print).toHaveBeenCalledWith(
-      expect.stringContaining("Cloud setup complete"),
+      expect.stringContaining("Everything looks good"),
     );
   });
 
-  it("should use accessToken from device flow when available", async () => {
-    const manifest = {
-      version: 1,
-      environments: [{ name: "production", description: "Prod" }],
-      namespaces: [{ name: "api", description: "API" }],
-      sops: { default_backend: "age" },
-      file_pattern: "{namespace}/{environment}.enc.yaml",
-    };
-    mockParse.mockReturnValue(manifest);
-
-    const cloud = getCloudMock();
-    cloud.readCloudCredentials.mockReturnValue(null);
-    cloud.pollDeviceFlow.mockResolvedValueOnce({
-      status: "complete",
-      token: "clef_tok_init",
-      accessToken: "device_flow_access_tok",
-      accessTokenExpiresIn: 3600,
-      integrationId: "int_new",
-      keyId: "clef:int_new/production",
-      cognitoDomain: "https://auth.example.com",
-      clientId: "cli_123",
-    });
+  it("reports issues when not logged in", async () => {
+    getCredsMock().readCloudCredentials.mockReturnValue(null);
 
     const { program } = makeProgram();
-    await program.parseAsync(["node", "test", "cloud", "init", "--env", "production"]);
+    await program.parseAsync(["node", "test", "cloud", "doctor"]);
 
-    // Should NOT call resolveAccessToken when device flow provides an access token
-    expect(cloud.resolveAccessToken).not.toHaveBeenCalled();
-    expect(cloud.writeCloudCredentials).toHaveBeenCalledWith(
-      expect.objectContaining({
-        refreshToken: "clef_tok_init",
-        accessToken: "device_flow_access_tok",
-      }),
-    );
+    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("Not logged in"));
+    expect(mockFormatter.hint).toHaveBeenCalledWith(expect.stringContaining("clef cloud login"));
   });
+});
 
-  it("should fall back to resolveAccessToken when no accessToken in poll", async () => {
-    const manifest = {
-      version: 1,
-      environments: [{ name: "production", description: "Prod" }],
-      namespaces: [{ name: "api", description: "API" }],
-      sops: { default_backend: "age" },
-      file_pattern: "{namespace}/{environment}.enc.yaml",
-    };
-    mockParse.mockReturnValue(manifest);
+// ── clef cloud upgrade ────────────────────────────────────────────────────
 
-    // Provide cells so the migration block executes
-    const coreMock = jest.requireMock("@clef-sh/core") as { MatrixManager: jest.Mock };
-    coreMock.MatrixManager.mockImplementationOnce(() => ({
-      resolveMatrix: jest.fn().mockReturnValue([
-        {
-          namespace: "api",
-          environment: "production",
-          filePath: "/tmp/api/production.enc.yaml",
-          exists: true,
-        },
-      ]),
-    }));
+describe("clef cloud upgrade", () => {
+  beforeEach(() => jest.clearAllMocks());
 
-    const cloud = getCloudMock();
-    cloud.readCloudCredentials.mockReturnValue(null);
-    cloud.pollDeviceFlow.mockResolvedValueOnce({
-      status: "complete",
-      token: "clef_tok_init",
-      integrationId: "int_new",
-      keyId: "clef:int_new/production",
-    });
-
+  it("prints not yet available", async () => {
     const { program } = makeProgram();
-    await program.parseAsync(["node", "test", "cloud", "init", "--env", "production"]);
+    await program.parseAsync(["node", "test", "cloud", "upgrade"]);
 
-    // Should call resolveAccessToken as fallback
-    expect(cloud.resolveAccessToken).toHaveBeenCalled();
-  });
-
-  it("should skip device flow when already authenticated with cloud config", async () => {
-    const manifest = {
-      version: 1,
-      environments: [{ name: "production", description: "Prod" }],
-      namespaces: [{ name: "api", description: "API" }],
-      sops: { default_backend: "age" },
-      file_pattern: "{namespace}/{environment}.enc.yaml",
-      cloud: { integrationId: "int_existing", keyId: "clef:int_existing/production" },
-    };
-    mockParse.mockReturnValue(manifest);
-
-    const cloud = getCloudMock();
-    cloud.readCloudCredentials.mockReturnValue({
-      refreshToken: "existing_refresh_token",
-      endpoint: "https://api.clef.sh",
-      cognitoDomain: "https://auth.example.com",
-      clientId: "cli_123",
-    });
-
-    const coreFull = jest.requireMock("@clef-sh/core") as {
-      writeManifestYaml: jest.Mock;
-    };
-
-    const { program } = makeProgram();
-    await program.parseAsync(["node", "test", "cloud", "init", "--env", "production"]);
-
-    expect(cloud.initiateDeviceFlow).not.toHaveBeenCalled();
-    expect(coreFull.writeManifestYaml).toHaveBeenCalled();
+    expect(mockFormatter.info).toHaveBeenCalledWith(expect.stringContaining("not yet available"));
   });
 });

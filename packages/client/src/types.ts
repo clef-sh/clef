@@ -12,15 +12,7 @@ export interface ClefClientOptions {
   fetch?: typeof globalThis.fetch;
 }
 
-/** Configuration for the Cloud KMS provider. */
-export interface CloudKmsProviderOptions {
-  /** Clef Cloud API endpoint. Falls back to CLEF_ENDPOINT env var. */
-  endpoint: string;
-  /** Bearer token for Cloud API auth. Falls back to CLEF_SERVICE_TOKEN env var. */
-  token?: string;
-}
-
-/** Error thrown by ClefClient and CloudKmsProvider. */
+/** Error thrown by ClefClient. */
 export class ClefClientError extends Error {
   constructor(
     message: string,

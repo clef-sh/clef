@@ -14,7 +14,6 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import {
   ClefManifest,
-  ClefCloudConfig,
   ClefEnvironment,
   ManifestValidationError,
   ServiceIdentityDefinition,
@@ -28,7 +27,7 @@ import { validateAgePublicKey } from "../recipients/validator";
  */
 export const CLEF_MANIFEST_FILENAME = "clef.yaml";
 
-const VALID_BACKENDS = ["age", "awskms", "gcpkms", "azurekv", "pgp", "cloud"] as const;
+const VALID_BACKENDS = ["age", "awskms", "gcpkms", "azurekv", "pgp"] as const;
 const VALID_TOP_LEVEL_KEYS = [
   "version",
   "environments",
@@ -36,7 +35,6 @@ const VALID_TOP_LEVEL_KEYS = [
   "sops",
   "file_pattern",
   "service_identities",
-  "cloud",
 ];
 /** Shared pattern for environment and namespace names. */
 const ENV_NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
@@ -638,47 +636,6 @@ export class ManifestParser {
       }
     }
 
-    // cloud (optional)
-    let cloud: ClefCloudConfig | undefined;
-    if (obj.cloud !== undefined) {
-      if (typeof obj.cloud !== "object" || obj.cloud === null || Array.isArray(obj.cloud)) {
-        throw new ManifestValidationError("Field 'cloud' must be an object.", "cloud");
-      }
-      const cloudObj = obj.cloud as Record<string, unknown>;
-      if (typeof cloudObj.integrationId !== "string" || cloudObj.integrationId.length === 0) {
-        throw new ManifestValidationError(
-          "Field 'cloud.integrationId' is required and must be a non-empty string.",
-          "cloud",
-        );
-      }
-      if (typeof cloudObj.keyId !== "string" || cloudObj.keyId.length === 0) {
-        throw new ManifestValidationError(
-          "Field 'cloud.keyId' is required and must be a non-empty string.",
-          "cloud",
-        );
-      }
-      if (!/^clef:[a-zA-Z0-9_]+\/[a-zA-Z0-9_-]+$/.test(cloudObj.keyId)) {
-        throw new ManifestValidationError(
-          `Field 'cloud.keyId' has invalid format '${cloudObj.keyId}'. ` +
-            "Must match: clef:<integrationId>/<keyAlias>",
-          "cloud",
-        );
-      }
-      cloud = { integrationId: cloudObj.integrationId, keyId: cloudObj.keyId };
-    }
-
-    // Validate: cloud backend requires cloud config
-    const usesCloudBackend =
-      sopsConfig.default_backend === "cloud" ||
-      environments.some((e) => e.sops?.backend === "cloud");
-    if (usesCloudBackend && !cloud) {
-      throw new ManifestValidationError(
-        "One or more environments use the 'cloud' backend but the manifest is missing " +
-          "the top-level 'cloud' block with 'integrationId' and 'keyId'.",
-        "cloud",
-      );
-    }
-
     return {
       version: 1,
       environments,
@@ -686,7 +643,6 @@ export class ManifestParser {
       sops: sopsConfig,
       file_pattern: obj.file_pattern,
       ...(serviceIdentities ? { service_identities: serviceIdentities } : {}),
-      ...(cloud ? { cloud } : {}),
     };
   }
 

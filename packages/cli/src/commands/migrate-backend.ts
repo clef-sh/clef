@@ -13,7 +13,6 @@ import {
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createCloudAwareSopsClient } from "../cloud-sops";
 import { createSopsClient } from "../age-credential";
 
 interface MigrateBackendFlags {
@@ -22,7 +21,6 @@ interface MigrateBackendFlags {
   azureKvUrl?: string;
   pgpFingerprint?: string;
   age?: boolean;
-  cloud?: string;
   environment?: string;
   dryRun?: boolean;
   skipVerify?: boolean;
@@ -36,12 +34,11 @@ function resolveTarget(opts: MigrateBackendFlags): MigrationTarget {
   if (opts.azureKvUrl) provided.push({ backend: "azurekv", key: opts.azureKvUrl });
   if (opts.pgpFingerprint) provided.push({ backend: "pgp", key: opts.pgpFingerprint });
   if (opts.age) provided.push({ backend: "age" });
-  if (opts.cloud) provided.push({ backend: "cloud", key: opts.cloud });
 
   if (provided.length === 0) {
     throw new Error(
       "No target backend specified. " +
-        "Provide one of: --aws-kms-arn, --gcp-kms-resource-id, --azure-kv-url, --pgp-fingerprint, --age, or --cloud",
+        "Provide one of: --aws-kms-arn, --gcp-kms-resource-id, --azure-kv-url, --pgp-fingerprint, or --age",
     );
   }
   if (provided.length > 1) {
@@ -70,10 +67,6 @@ export function registerMigrateBackendCommand(
     .option("--azure-kv-url <url>", "Migrate to Azure Key Vault with this URL")
     .option("--pgp-fingerprint <fp>", "Migrate to PGP with this fingerprint")
     .option("--age", "Migrate to age backend")
-    .option(
-      "--cloud <keyId>",
-      "Migrate to Clef Cloud managed KMS (e.g. clef:integrationId/production)",
-    )
     .option("-e, --environment <env>", "Scope migration to a single environment")
     .option("--dry-run", "Preview changes without modifying any files")
     .option("--skip-verify", "Skip post-migration verification step")
@@ -123,100 +116,92 @@ export function registerMigrateBackendCommand(
           }
         }
 
-        const { client: decryptClient, cleanup } = await createCloudAwareSopsClient(
-          repoRoot,
-          deps.runner,
-          manifest,
-        );
+        const decryptClient = await createSopsClient(repoRoot, deps.runner);
         const encryptClient = await createSopsClient(repoRoot, deps.runner);
         const tx = new TransactionManager(new GitIntegration(deps.runner));
         const migrator = new BackendMigrator(decryptClient, matrixManager, tx, encryptClient);
 
-        try {
-          const result = await migrator.migrate(
-            manifest,
-            repoRoot,
-            {
-              target,
-              environment: opts.environment,
-              dryRun: opts.dryRun,
-              skipVerify: opts.skipVerify,
-            },
-            (event) => {
-              switch (event.type) {
-                case "skip":
-                  formatter.info(`${sym("skipped")}  ${event.message}`);
-                  break;
-                case "migrate":
-                  formatter.print(`${sym("working")}  ${event.message}`);
-                  break;
-                case "verify":
-                  formatter.print(`${sym("working")}  ${event.message}`);
-                  break;
-                case "warn":
-                  formatter.warn(event.message);
-                  break;
-                case "info":
-                  formatter.info(event.message);
-                  break;
-              }
-            },
-          );
-
-          if (isJsonMode()) {
-            formatter.json({
-              backend: target.backend,
-              migratedFiles: result.migratedFiles,
-              skippedFiles: result.skippedFiles,
-              verifiedFiles: result.verifiedFiles,
-              warnings: result.warnings,
-              rolledBack: result.rolledBack,
-              error: result.error ?? null,
-              dryRun: opts.dryRun ?? false,
-            });
-            process.exit(result.rolledBack ? 1 : 0);
-            return;
-          }
-
-          if (result.rolledBack) {
-            formatter.error(`Migration failed: ${result.error}`);
-            formatter.info("All changes have been rolled back.");
-            process.exit(1);
-            return;
-          }
-
-          // Report results
-          if (opts.dryRun) {
-            formatter.info("\nDry run complete. No files were modified.");
-          } else {
-            if (result.migratedFiles.length > 0) {
-              formatter.success(
-                `Migrated ${result.migratedFiles.length} file(s) to ${target.backend}. ${sym("locked")}`,
-              );
+        const result = await migrator.migrate(
+          manifest,
+          repoRoot,
+          {
+            target,
+            environment: opts.environment,
+            dryRun: opts.dryRun,
+            skipVerify: opts.skipVerify,
+          },
+          (event) => {
+            switch (event.type) {
+              case "skip":
+                formatter.info(`${sym("skipped")}  ${event.message}`);
+                break;
+              case "migrate":
+                formatter.print(`${sym("working")}  ${event.message}`);
+                break;
+              case "verify":
+                formatter.print(`${sym("working")}  ${event.message}`);
+                break;
+              case "warn":
+                formatter.warn(event.message);
+                break;
+              case "info":
+                formatter.info(event.message);
+                break;
             }
-            if (result.skippedFiles.length > 0) {
-              formatter.info(`Skipped ${result.skippedFiles.length} file(s) (already on target).`);
-            }
-            if (result.verifiedFiles.length > 0) {
-              formatter.success(
-                `Verified ${result.verifiedFiles.length}/${result.migratedFiles.length} file(s).`,
-              );
-            }
-          }
+          },
+        );
 
-          for (const warning of result.warnings) {
-            formatter.warn(warning);
-          }
+        if (isJsonMode()) {
+          formatter.json({
+            backend: target.backend,
+            migratedFiles: result.migratedFiles,
+            skippedFiles: result.skippedFiles,
+            verifiedFiles: result.verifiedFiles,
+            warnings: result.warnings,
+            rolledBack: result.rolledBack,
+            error: result.error ?? null,
+            dryRun: opts.dryRun ?? false,
+          });
+          process.exit(result.rolledBack ? 1 : 0);
+          return;
+        }
 
-          if (!opts.dryRun && result.migratedFiles.length > 0) {
-            formatter.hint(
-              'git add clef.yaml secrets/ && git commit -m "chore: migrate backend to ' +
-                target.backend +
-                '"',
+        if (result.rolledBack) {
+          formatter.error(`Migration failed: ${result.error}`);
+          formatter.info("All changes have been rolled back.");
+          process.exit(1);
+          return;
+        }
+
+        // Report results
+        if (opts.dryRun) {
+          formatter.info("\nDry run complete. No files were modified.");
+        } else {
+          if (result.migratedFiles.length > 0) {
+            formatter.success(
+              `Migrated ${result.migratedFiles.length} file(s) to ${target.backend}. ${sym("locked")}`,
             );
           }
-        } finally {
-          await cleanup();
+          if (result.skippedFiles.length > 0) {
+            formatter.info(`Skipped ${result.skippedFiles.length} file(s) (already on target).`);
+          }
+          if (result.verifiedFiles.length > 0) {
+            formatter.success(
+              `Verified ${result.verifiedFiles.length}/${result.migratedFiles.length} file(s).`,
+            );
+          }
+        }
+
+        for (const warning of result.warnings) {
+          formatter.warn(warning);
+        }
+
+        if (!opts.dryRun && result.migratedFiles.length > 0) {
+          formatter.hint(
+            'git add clef.yaml secrets/ && git commit -m "chore: migrate backend to ' +
+              target.backend +
+              '"',
+          );
         }
       } catch (err) {
         handleCommandError(err);

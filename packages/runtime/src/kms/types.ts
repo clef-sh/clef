@@ -1,4 +1,4 @@
-export type KmsProviderType = "aws" | "gcp" | "azure" | "cloud";
+export type KmsProviderType = "aws" | "gcp" | "azure";
 
 export interface KmsWrapResult {
   wrappedKey: Buffer;

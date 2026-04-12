@@ -7,6 +7,11 @@ const PRE_COMMIT_HOOK = `#!/bin/sh
 # and scans staged files for plaintext secrets.
 # Installed by: clef hooks install
 
+# Skip during TransactionManager commits (policy scaffolding, migrations, etc.)
+if [ "$CLEF_IN_TRANSACTION" = "1" ]; then
+  exit 0
+fi
+
 STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
 EXIT_CODE=0
 
@@ -449,13 +454,12 @@ export class GitIntegration {
       ? `${existing.trimEnd()}\n\n# Clef: SOPS-aware merge driver for encrypted files\n${mergeRule}\n`
       : `# Clef: SOPS-aware merge driver for encrypted files\n${mergeRule}\n`;
 
-    const writeResult = await this.runner.run("tee", [attrPath], {
-      stdin: newContent,
-      cwd: repoRoot,
-    });
-
-    if (writeResult.exitCode !== 0) {
-      throw new GitOperationError(`Failed to write .gitattributes: ${writeResult.stderr.trim()}`);
+    try {
+      fs.writeFileSync(attrPath, newContent, "utf-8");
+    } catch (err) {
+      throw new GitOperationError(
+        `Failed to write .gitattributes: ${(err as Error).message}`,
+      );
     }
   }
 
@@ -469,25 +473,16 @@ export class GitIntegration {
   async installPreCommitHook(repoRoot: string): Promise<void> {
     const hookPath = path.join(repoRoot, ".git", "hooks", "pre-commit");
 
-    // Write the hook using the subprocess runner to avoid direct fs writes in the integration
-    const result = await this.runner.run("tee", [hookPath], {
-      stdin: PRE_COMMIT_HOOK,
-      cwd: repoRoot,
-    });
-
-    if (result.exitCode !== 0) {
+    try {
+      const hooksDir = path.dirname(hookPath);
+      if (!fs.existsSync(hooksDir)) {
+        fs.mkdirSync(hooksDir, { recursive: true });
+      }
+      fs.writeFileSync(hookPath, PRE_COMMIT_HOOK, { mode: 0o755 });
+    } catch (err) {
       throw new GitOperationError(
-        `Failed to install pre-commit hook: ${result.stderr.trim()}`,
+        `Failed to install pre-commit hook: ${(err as Error).message}`,
         "Ensure .git/hooks/ directory exists.",
-      );
-    }
-
-    // Make it executable
-    const chmodResult = await this.runner.run("chmod", ["+x", hookPath], { cwd: repoRoot });
-
-    if (chmodResult.exitCode !== 0) {
-      throw new GitOperationError(
-        `Failed to make pre-commit hook executable: ${chmodResult.stderr.trim()}`,
       );
     }
   }
