@@ -103,6 +103,7 @@ export default withMermaid({
             { text: "clef revoke", link: "/cli/revoke" },
             { text: "clef drift", link: "/cli/drift" },
             { text: "clef report", link: "/cli/report" },
+            { text: "clef cloud", link: "/cli/cloud" },
             { text: "clef serve", link: "/cli/serve" },
             { text: "clef agent", link: "/cli/agent" },
             { text: "clef ui", link: "/cli/ui" },
