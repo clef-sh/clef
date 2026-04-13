@@ -781,7 +781,7 @@ test.describe("clef service → ServiceIdentitiesScreen: create flow", () => {
     await page.getByTestId("create-si-submit").click();
     // CI default uses shared-recipient — shows CLEF_AGE_KEY with env list
     await expect(page.getByText("Copy this key now")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText("CLEF_AGE_KEY")).toBeVisible();
+    await expect(page.getByText("CLEF_AGE_KEY", { exact: true })).toBeVisible();
   });
 
   test("[positive] done button returns to list with new identity", async ({ page }) => {
