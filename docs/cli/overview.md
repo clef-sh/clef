@@ -72,11 +72,14 @@ The CLI is built on [commander.js](https://github.com/tj/commander.js) and follo
 
 ### Cloud
 
-| Command                           | Description                                      | Arguments & flags |
-| --------------------------------- | ------------------------------------------------ | ----------------- |
-| [`clef cloud init`](/cli/cloud)   | Provision managed KMS and migrate an environment | `--env <env>`     |
-| [`clef cloud login`](/cli/cloud)  | Authenticate with Clef Cloud                     | —                 |
-| [`clef cloud status`](/cli/cloud) | Show Cloud connection status                     | —                 |
+| Command                            | Description                                     | Arguments & flags      |
+| ---------------------------------- | ----------------------------------------------- | ---------------------- |
+| [`clef cloud init`](/cli/cloud)    | Sign up, install the Clef bot, scaffold policy  | `--provider`, `--repo` |
+| [`clef cloud login`](/cli/cloud)   | Authenticate with Clef Cloud                    | `--provider`           |
+| [`clef cloud logout`](/cli/cloud)  | Clear local Clef Cloud credentials              | —                      |
+| [`clef cloud status`](/cli/cloud)  | Show account, installation, and plan status     | —                      |
+| [`clef cloud doctor`](/cli/cloud)  | Verify Cloud setup: policy, credentials, remote | —                      |
+| [`clef cloud upgrade`](/cli/cloud) | Upgrade to a paid Clef Cloud plan               | —                      |
 
 ### Interface & integration
 

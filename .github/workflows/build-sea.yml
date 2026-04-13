@@ -1,11 +1,28 @@
 # Build Single Executable Application (SEA) binaries for @clef-sh/cli
 # and @clef-sh/agent, then attach them to the GitHub Release.
 #
-# Triggered when a release is published (stable or beta) or manually via
-# workflow_dispatch for retroactively attaching binaries to an existing release.
+# Triggers:
+#   - workflow_dispatch: invoked by release.yml and publish-beta-npm.yml via
+#     `gh workflow run` after they create or flip a release. The calling
+#     workflow then polls this workflow's run via gh CLI until it finishes.
+#     This is the primary entry point because events fired by GITHUB_TOKEN
+#     (used by release.yml + publish-beta-npm.yml) do not trigger downstream
+#     workflows via the `release: published` event — workflow_dispatch and
+#     repository_dispatch are the only events exempt from that restriction.
+#   - release.published: kept as a fallback for releases created outside our
+#     workflows (e.g. by hand from the GitHub UI).
 #
-# Stable releases use per-package tags (@clef-sh/cli@X.Y.Z, @clef-sh/agent@X.Y.Z).
-# Beta releases use a shared tag (vX.Y.Z-beta.N) and build both CLI and agent.
+# Inputs:
+#   - tag: Release tag to build for (e.g. v0.1.6 or v0.1.6-beta.18). Used by
+#     workflow_dispatch entries from release.yml + publish-beta-npm.yml.
+#     Optional: when omitted, the workflow reads the version from
+#     packages/cli/package.json on the dispatched ref.
+#
+# Tag conventions handled by check-tag:
+#   - vX.Y.Z              → stable umbrella release: build both CLI and agent
+#   - vX.Y.Z-beta.N       → beta umbrella release: build both CLI and agent
+#   - @clef-sh/cli@X.Y.Z  → legacy per-package CLI release: build CLI only
+#   - @clef-sh/agent@X.Y.Z → legacy per-package agent release: build agent only
 #
 # SEA embeds the host Node binary, so each platform/arch must build on a
 # native runner. The CLI requires UI assets to be built first.
@@ -16,6 +33,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build for (e.g. v0.1.6 or v0.1.6-beta.18). Optional — defaults to packages/cli/package.json on the dispatched ref."
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -37,23 +59,36 @@ jobs:
       - id: check
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            # Manual dispatch: read version from package.json on the checked-out branch
-            VERSION=$(node -p "require('./packages/cli/package.json').version")
+            # Dispatched from release.yml, publish-beta-npm.yml, or manually.
+            # If a tag input was supplied, trust it; otherwise read the version
+            # from packages/cli/package.json on the dispatched ref.
+            INPUT_TAG="${{ inputs.tag }}"
+            if [ -n "$INPUT_TAG" ]; then
+              RAW="$INPUT_TAG"
+              VERSION="${RAW#v}"
+            else
+              VERSION=$(node -p "require('./packages/cli/package.json').version")
+            fi
             BUILD_CLI=true
             BUILD_AGENT=true
           else
-            # Release event: tag_name (has v prefix, e.g. v0.1.6-beta.18)
+            # Release event (fallback for releases created outside our workflows)
             RAW="${{ github.event.release.tag_name }}"
             VERSION="${RAW#v}"
             BUILD_CLI=false
             BUILD_AGENT=false
 
-            # Beta versions build both CLI and agent
+            # Stable umbrella release: vX.Y.Z (no prerelease suffix)
+            if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              BUILD_CLI=true
+              BUILD_AGENT=true
+            fi
+            # Beta umbrella release: vX.Y.Z-beta.N
             if [[ "$VERSION" =~ ^.+-beta\.[0-9]+$ ]]; then
               BUILD_CLI=true
               BUILD_AGENT=true
             fi
-            # Stable tags build only the matching package
+            # Legacy per-package tags build only the matching package
             if [[ "$RAW" =~ ^@clef-sh/cli@(.+)$ ]]; then
               BUILD_CLI=true
               VERSION="${BASH_REMATCH[1]}"

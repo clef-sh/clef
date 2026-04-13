@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useState } from "react";
 import { theme } from "../theme";
 import { TopBar } from "../components/TopBar";
 import { Button } from "../components/Button";
 import { MatrixGrid } from "../components/MatrixGrid";
+import { SyncPanel } from "../components/SyncPanel";
 import type { ViewName } from "../components/Sidebar";
 import type { ClefManifest, MatrixStatus } from "@clef-sh/core";
 
@@ -11,9 +12,17 @@ interface MatrixViewProps {
   setNs: (ns: string) => void;
   manifest: ClefManifest | null;
   matrixStatuses: MatrixStatus[];
+  reloadMatrix?: () => void;
 }
 
-export function MatrixView({ setView, setNs, manifest, matrixStatuses }: MatrixViewProps) {
+export function MatrixView({
+  setView,
+  setNs,
+  manifest,
+  matrixStatuses,
+  reloadMatrix,
+}: MatrixViewProps) {
+  const [syncingNs, setSyncingNs] = useState<string | null>(null);
   if (!manifest) {
     return (
       <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
@@ -50,7 +59,16 @@ export function MatrixView({ setView, setNs, manifest, matrixStatuses }: MatrixV
         actions={
           <>
             <Button onClick={() => setView("lint")}>Lint All</Button>
-            <Button variant="primary">+ Namespace</Button>
+            <Button onClick={() => setView("manifest")} data-testid="matrix-add-environment-btn">
+              + Environment
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => setView("manifest")}
+              data-testid="matrix-add-namespace-btn"
+            >
+              + Namespace
+            </Button>
           </>
         }
       />
@@ -129,7 +147,20 @@ export function MatrixView({ setView, setNs, manifest, matrixStatuses }: MatrixV
             setNs(nsName);
             setView("editor");
           }}
+          onSyncClick={(nsName) => setSyncingNs(nsName)}
+          syncingNs={syncingNs}
         />
+
+        {syncingNs && (
+          <SyncPanel
+            namespace={syncingNs}
+            onComplete={() => {
+              setSyncingNs(null);
+              reloadMatrix?.();
+            }}
+            onCancel={() => setSyncingNs(null)}
+          />
+        )}
 
         {/* Quick actions */}
         <div style={{ marginTop: 20, display: "flex", gap: 10 }}>

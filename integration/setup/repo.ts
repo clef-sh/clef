@@ -136,19 +136,17 @@ export function scaffoldTestRepo(keys: AgeKeyPair, options?: ScaffoldOptions): T
   fs.unlinkSync(prodPlaintextFile);
   fs.writeFileSync(path.join(dir, "payments", "production.enc.yaml"), prodEncrypted);
 
-  // Init git repo for git operations
+  // Init git repo for git operations. Set user.name/user.email on the repo
+  // itself so TransactionManager's preflight author-identity check finds
+  // them in CI (where there is no global git config). Locally this is a
+  // no-op since the developer's global config already provides these.
   execFileSync("git", ["init"], { cwd: dir, stdio: "pipe" });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: dir, stdio: "pipe" });
+  execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: dir, stdio: "pipe" });
   execFileSync("git", ["add", "."], { cwd: dir, stdio: "pipe" });
   execFileSync("git", ["commit", "-m", "initial"], {
     cwd: dir,
     stdio: "pipe",
-    env: {
-      ...process.env,
-      GIT_AUTHOR_NAME: "Test",
-      GIT_AUTHOR_EMAIL: "test@test.com",
-      GIT_COMMITTER_NAME: "Test",
-      GIT_COMMITTER_EMAIL: "test@test.com",
-    },
   });
 
   return {

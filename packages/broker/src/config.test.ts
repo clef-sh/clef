@@ -18,10 +18,10 @@ describe("resolveConfig", () => {
     expect(config.kmsKeyId).toBe("arn:aws:kms:us-east-1:123456789:key/abc-123");
   });
 
-  it("defaults port to 8080 and host to 0.0.0.0", () => {
+  it("defaults port to 8080 and host to 127.0.0.1", () => {
     const config = resolveConfig(baseEnv());
     expect(config.port).toBe(8080);
-    expect(config.host).toBe("0.0.0.0");
+    expect(config.host).toBe("127.0.0.1");
   });
 
   it("accepts custom port and host", () => {

@@ -13,6 +13,7 @@
 import * as fs from "fs";
 import * as net from "net";
 import { randomBytes } from "crypto";
+import writeFileAtomic from "write-file-atomic";
 import * as YAML from "yaml";
 import {
   BackendType,
@@ -68,21 +69,6 @@ function openWindowsInputPipe(content: string): Promise<{ inputArg: string; clea
 }
 
 /**
- * Convert a Clef Cloud key ID (e.g. "clef:intId/env") to a synthetic ARN that
- * passes SOPS's ARN regex: `^arn:aws[\w-]*:kms:(.+):[0-9]+:(key|alias)/.+$`.
- * SOPS validates --kms values even when --keyservice is set, so we must use a
- * valid-looking AWS ARN. The keyservice proxy forwards it to the Cloud API
- * which recognizes the `alias/clef/` prefix and maps back to the real KMS key.
- */
-export function cloudKeyToArn(keyId: string): string {
-  const body = keyId.replace(/^clef:/, "");
-  const sep = body.indexOf("/");
-  const integration = sep >= 0 ? body.slice(0, sep) : body;
-  const env = sep >= 0 ? body.slice(sep + 1) : "default";
-  return `arn:aws:kms:us-east-1:000000000000:alias/clef/${integration}/${env}`;
-}
-
-/**
  * Wraps the `sops` binary for encryption, decryption, re-encryption, and metadata extraction.
  * All decrypt/encrypt operations are piped via stdin/stdout — plaintext never touches disk.
  *
@@ -94,7 +80,6 @@ export function cloudKeyToArn(keyId: string): string {
  */
 export class SopsClient implements EncryptionBackend {
   private readonly sopsCommand: string;
-  private readonly keyserviceArgs: string[];
 
   /**
    * @param runner - Subprocess runner used to invoke the `sops` binary.
@@ -104,20 +89,14 @@ export class SopsClient implements EncryptionBackend {
    *   to the subprocess environment.
    * @param sopsPath - Optional explicit path to the sops binary. When omitted,
    *   resolved automatically via {@link resolveSopsPath}.
-   * @param keyserviceAddr - Optional keyservice address (e.g. `tcp://127.0.0.1:12345`).
-   *   When set, all SOPS invocations include `--enable-local-keyservice=false --keyservice <addr>`.
    */
   constructor(
     private readonly runner: SubprocessRunner,
     private readonly ageKeyFile?: string,
     private readonly ageKey?: string,
     sopsPath?: string,
-    keyserviceAddr?: string,
   ) {
     this.sopsCommand = sopsPath ?? resolveSopsPath().path;
-    this.keyserviceArgs = keyserviceAddr
-      ? ["--enable-local-keyservice=false", "--keyservice", keyserviceAddr]
-      : [];
   }
 
   private buildSopsEnv(): Record<string, string> | undefined {
@@ -145,7 +124,7 @@ export class SopsClient implements EncryptionBackend {
     const env = this.buildSopsEnv();
     const result = await this.runner.run(
       this.sopsCommand,
-      ["decrypt", ...this.keyserviceArgs, "--output-type", fmt, filePath],
+      ["decrypt", "--output-type", fmt, filePath],
       {
         ...(env ? { env } : {}),
       },
@@ -231,7 +210,6 @@ export class SopsClient implements EncryptionBackend {
           "--config",
           configPath,
           "encrypt",
-          ...this.keyserviceArgs,
           ...args,
           "--input-type",
           fmt,
@@ -259,11 +237,14 @@ export class SopsClient implements EncryptionBackend {
       );
     }
 
-    // Write the encrypted output to the file (using fs directly — tee is not available on Windows)
+    // Atomic write: a torn file from Ctrl+C / OOM mid-write would be undecryptable.
     try {
-      fs.writeFileSync(filePath, result.stdout);
-    } catch {
-      throw new SopsEncryptionError(`Failed to write encrypted data to '${filePath}'.`, filePath);
+      await writeFileAtomic(filePath, result.stdout);
+    } catch (err) {
+      throw new SopsEncryptionError(
+        `Failed to write encrypted data to '${filePath}': ${(err as Error).message}`,
+        filePath,
+      );
     }
   }
 
@@ -290,7 +271,7 @@ export class SopsClient implements EncryptionBackend {
     const env = this.buildSopsEnv();
     const result = await this.runner.run(
       this.sopsCommand,
-      ["rotate", ...this.keyserviceArgs, "-i", "--add-age", key, filePath],
+      ["rotate", "-i", "--add-age", key, filePath],
       {
         ...(env ? { env } : {}),
       },
@@ -316,7 +297,7 @@ export class SopsClient implements EncryptionBackend {
     const env = this.buildSopsEnv();
     const result = await this.runner.run(
       this.sopsCommand,
-      ["rotate", ...this.keyserviceArgs, "-i", "--rm-age", key, filePath],
+      ["rotate", "-i", "--rm-age", key, filePath],
       {
         ...(env ? { env } : {}),
       },
@@ -454,16 +435,7 @@ export class SopsClient implements EncryptionBackend {
 
   private detectBackend(sops: Record<string, unknown>): BackendType {
     if (sops.age && Array.isArray(sops.age) && (sops.age as unknown[]).length > 0) return "age";
-    if (sops.kms && Array.isArray(sops.kms) && (sops.kms as unknown[]).length > 0) {
-      const firstArn = (sops.kms as Array<Record<string, unknown>>)[0]?.arn;
-      if (
-        typeof firstArn === "string" &&
-        (firstArn.startsWith("clef:") || firstArn.includes("alias/clef/"))
-      ) {
-        return "cloud";
-      }
-      return "awskms";
-    }
+    if (sops.kms && Array.isArray(sops.kms) && (sops.kms as unknown[]).length > 0) return "awskms";
     if (sops.gcp_kms && Array.isArray(sops.gcp_kms) && (sops.gcp_kms as unknown[]).length > 0)
       return "gcpkms";
     if (sops.azure_kv && Array.isArray(sops.azure_kv) && (sops.azure_kv as unknown[]).length > 0)
@@ -478,7 +450,6 @@ export class SopsClient implements EncryptionBackend {
         const entries = sops.age as Array<Record<string, unknown>> | undefined;
         return entries?.map((e) => String(e.recipient ?? "")) ?? [];
       }
-      case "cloud":
       case "awskms": {
         const entries = sops.kms as Array<Record<string, unknown>> | undefined;
         return entries?.map((e) => String(e.arn ?? "")) ?? [];
@@ -554,13 +525,6 @@ export class SopsClient implements EncryptionBackend {
           args.push("--pgp", config.pgp_fingerprint);
         }
         break;
-      case "cloud": {
-        const cloudKeyId = manifest.cloud?.keyId;
-        if (cloudKeyId) {
-          args.push("--kms", cloudKeyToArn(cloudKeyId));
-        }
-        break;
-      }
     }
 
     return args;

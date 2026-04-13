@@ -55,5 +55,8 @@
   },
   "dependencies": {
     "vitepress-plugin-mermaid": "^2.0.17"
+  },
+  "overrides": {
+    "axios": "^1.15.0"
   }
 }

@@ -1,6 +1,6 @@
 export * from "./types";
 export { ManifestParser, CLEF_MANIFEST_FILENAME } from "./manifest/parser";
-export { readManifestYaml, writeManifestYaml } from "./manifest/io";
+export { readManifestYaml, writeManifestYaml, writeManifestYamlRaw } from "./manifest/io";
 export {
   ScanRunner,
   shannonEntropy,
@@ -18,6 +18,13 @@ export { SchemaValidator } from "./schema/validator";
 export { DiffEngine } from "./diff/engine";
 export { BulkOps } from "./bulk/ops";
 export { GitIntegration } from "./git/integration";
+export {
+  TransactionManager,
+  TransactionLockError,
+  TransactionPreflightError,
+  TransactionRollbackError,
+} from "./tx";
+export type { TransactionOptions, TransactionResult } from "./tx";
 export { SopsClient } from "./sops/client";
 export { resolveSopsPath, resetSopsResolution } from "./sops/resolver";
 export type { SopsResolution, SopsSource } from "./sops/resolver";
@@ -65,7 +72,14 @@ export {
 } from "./report";
 export { SopsMergeDriver } from "./merge/driver";
 export type { MergeResult, MergeKey, MergeKeyStatus } from "./merge/driver";
-export { ServiceIdentityManager, PartialRotationError } from "./service-identity/manager";
+export { ServiceIdentityManager } from "./service-identity/manager";
+export { StructureManager } from "./structure/manager";
+export type {
+  NamespaceEditOptions,
+  EnvironmentEditOptions,
+  AddNamespaceOptions,
+  AddEnvironmentOptions,
+} from "./structure/manager";
 export { resolveIdentitySecrets } from "./artifact/resolve";
 export type { ResolvedSecrets } from "./artifact/resolve";
 export { ArtifactPacker } from "./artifact/packer";
@@ -95,24 +109,7 @@ export type {
   MigrationResult,
   MigrationProgressEvent,
 } from "./migration/backend";
-export {
-  spawnKeyservice,
-  resolveKeyservicePath,
-  resetKeyserviceResolution,
-  readCloudCredentials,
-  writeCloudCredentials,
-  initiateDeviceFlow,
-  pollDeviceFlow,
-  CloudPackClient,
-  CloudArtifactClient,
-} from "./cloud";
-export type {
-  KeyserviceHandle,
-  KeyserviceResolution,
-  KeyserviceSource,
-  DeviceSession,
-  DevicePollResult,
-  DeviceFlowType,
-  RemotePackConfig,
-  RemotePackResult,
-} from "./cloud";
+export { ResetManager, describeScope, validateResetScope } from "./reset/manager";
+export type { ResetScope, ResetOptions, ResetResult } from "./reset/manager";
+export { SyncManager } from "./sync";
+export type { SyncOptions, SyncPlan, SyncCellPlan, SyncResult } from "./sync";

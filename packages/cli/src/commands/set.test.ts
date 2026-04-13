@@ -18,6 +18,17 @@ jest.mock("@clef-sh/core", () => {
     markPendingWithRetry: jest.fn().mockResolvedValue(undefined),
     markResolved: jest.fn().mockResolvedValue(undefined),
     generateRandomValue: jest.fn().mockReturnValue("a".repeat(64)),
+    GitIntegration: jest.fn().mockImplementation(() => ({})),
+    TransactionManager: jest.fn().mockImplementation(() => ({
+      run: jest
+        .fn()
+        .mockImplementation(
+          async (_repoRoot: string, opts: { mutate: () => Promise<void>; paths: string[] }) => {
+            await opts.mutate();
+            return { sha: null, paths: opts.paths, startedDirty: false };
+          },
+        ),
+    })),
   };
 });
 jest.mock("../output/formatter", () => ({
@@ -105,7 +116,7 @@ describe("clef set", () => {
     await program.parseAsync(["node", "clef", "set", "payments/dev", "STRIPE_KEY", "sk_test_123"]);
 
     expect(mockFormatter.success).toHaveBeenCalledWith("STRIPE_KEY set in payments/dev");
-    expect(mockFormatter.hint).toHaveBeenCalledWith("Commit: git add payments/dev.enc.yaml");
+    // The "git add" hint is gone — TransactionManager auto-commits.
 
     // Verify the secret value never appears in any formatter channel
     const channels = ["success", "print", "error", "warn", "info", "hint", "raw"] as const;
@@ -249,7 +260,7 @@ describe("clef set", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
-  it("rolls back and exits 1 when encrypt succeeds but markPendingWithRetry fails", async () => {
+  it("propagates markPendingWithRetry failure so the transaction can roll back", async () => {
     const mockMarkPendingWithRetry = markPendingWithRetry as jest.Mock;
     mockMarkPendingWithRetry.mockRejectedValueOnce(new Error("disk full"));
 
@@ -258,21 +269,13 @@ describe("clef set", () => {
 
     await program.parseAsync(["node", "clef", "set", "payments/dev", "KEY", "--random"]);
 
-    expect(mockFormatter.error).toHaveBeenCalledWith(
-      expect.stringContaining("pending state could not be recorded"),
-    );
-    expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("rolled back"));
-    // Must exit non-zero
+    // The pending-metadata write now lives inside tx.run alongside the
+    // encrypt, so a metadata failure tears the whole transaction down via
+    // git reset. handleCommandError surfaces the underlying error and
+    // exits non-zero; the manual "encrypted-but-pending-failed" rollback
+    // dance is gone.
     expect(mockExit).toHaveBeenCalledWith(1);
-    // Should NOT report success
     expect(mockFormatter.success).not.toHaveBeenCalled();
-    // Rollback reuses in-scope decrypted values — only one decrypt call needed
-    const runCalls = (runner.run as jest.Mock).mock.calls;
-    const encryptCalls = runCalls.filter(([_cmd, args]: [string, string[]]) =>
-      args?.includes("encrypt"),
-    );
-    // Two encrypt calls: one for original set, one for rollback
-    expect(encryptCalls.length).toBe(2);
   });
 
   it("does not call markPending when encrypt fails", async () => {

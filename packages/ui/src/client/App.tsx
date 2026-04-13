@@ -8,9 +8,11 @@ import { DiffView } from "./screens/DiffView";
 import { LintView } from "./screens/LintView";
 import { ScanScreen } from "./screens/ScanScreen";
 import { ImportScreen } from "./screens/ImportScreen";
+import { ManifestScreen } from "./screens/ManifestScreen";
 import { RecipientsScreen } from "./screens/RecipientsScreen";
 import { ServiceIdentitiesScreen } from "./screens/ServiceIdentitiesScreen";
 import { BackendScreen } from "./screens/BackendScreen";
+import { ResetScreen } from "./screens/ResetScreen";
 import { GitLogView } from "./screens/GitLogView";
 import type { ClefManifest, MatrixStatus, GitStatus, LintResult } from "@clef-sh/core";
 
@@ -104,19 +106,6 @@ export default function App() {
     loadMatrix();
   }, [view, loadManifest, loadMatrix]);
 
-  const handleCommit = async (message: string) => {
-    try {
-      await apiFetch("/api/git/commit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
-      });
-      await Promise.all([loadGitStatus(), loadMatrix()]);
-    } catch {
-      // Error handling in production would show a toast
-    }
-  };
-
   if (loading) {
     return (
       <div
@@ -183,11 +172,10 @@ export default function App() {
             setNs={setActiveNs}
             manifest={manifest}
             matrixStatuses={matrixStatuses}
+            reloadMatrix={loadMatrix}
           />
         )}
-        {view === "editor" && (
-          <NamespaceEditor ns={activeNs} manifest={manifest} onCommit={handleCommit} />
-        )}
+        {view === "editor" && <NamespaceEditor ns={activeNs} manifest={manifest} />}
         {view === "diff" && <DiffView manifest={manifest} />}
         {view === "lint" && <LintView setView={setView} setNs={setActiveNs} />}
         {view === "scan" && <ScanScreen />}
@@ -197,8 +185,14 @@ export default function App() {
         {view === "backend" && (
           <BackendScreen manifest={manifest} setView={setView} reloadManifest={loadManifest} />
         )}
+        {view === "reset" && (
+          <ResetScreen manifest={manifest} setView={setView} reloadManifest={loadManifest} />
+        )}
         {view === "cloud" && null}
         {view === "history" && <GitLogView manifest={manifest} />}
+        {view === "manifest" && (
+          <ManifestScreen manifest={manifest} reloadManifest={loadManifest} />
+        )}
       </div>
     </div>
   );

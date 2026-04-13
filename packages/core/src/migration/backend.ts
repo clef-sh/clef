@@ -1,4 +1,3 @@
-import * as fs from "fs";
 import * as path from "path";
 import * as YAML from "yaml";
 import {
@@ -12,6 +11,7 @@ import {
 import { MatrixManager } from "../matrix/manager";
 import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
 import { readManifestYaml, writeManifestYaml } from "../manifest/io";
+import { TransactionManager } from "../tx";
 
 export interface MigrationTarget {
   backend: BackendType;
@@ -46,18 +46,41 @@ export interface MigrationProgressEvent {
 
 // ── Key-field mapping ───────────────────────────────────────────────────────
 
-const BACKEND_KEY_FIELDS: Record<BackendType, keyof EnvironmentSopsOverride | undefined> = {
+/**
+ * Maps a SOPS backend to the manifest field that holds its key identifier.
+ * `undefined` for backends that don't take a key (age).
+ *
+ * Exported so other backend-aware commands (clef reset, etc.) can
+ * honour the same field layout without duplicating the mapping.
+ */
+export const BACKEND_KEY_FIELDS: Record<BackendType, keyof EnvironmentSopsOverride | undefined> = {
   age: undefined,
   awskms: "aws_kms_arn",
   gcpkms: "gcp_kms_resource_id",
   azurekv: "azure_kv_url",
   pgp: "pgp_fingerprint",
-  cloud: undefined,
 };
 
 const ALL_KEY_FIELDS = Object.values(BACKEND_KEY_FIELDS).filter(
   (v): v is keyof EnvironmentSopsOverride => v !== undefined,
 );
+
+/**
+ * Build a per-environment SOPS override block.
+ * Shared by BackendMigrator and ResetManager so the key-field mapping
+ * lives in one place.
+ */
+export function buildSopsOverride(
+  backend: BackendType,
+  key: string | undefined,
+): EnvironmentSopsOverride {
+  const override: EnvironmentSopsOverride = { backend };
+  const keyField = BACKEND_KEY_FIELDS[backend];
+  if (keyField && key) {
+    (override as unknown as Record<string, unknown>)[keyField] = key;
+  }
+  return override;
+}
 
 function metadataMatchesTarget(meta: SopsMetadata, target: MigrationTarget): boolean {
   if (meta.backend !== target.backend) return false;
@@ -74,12 +97,15 @@ export class BackendMigrator {
   /**
    * @param encryption - Backend used for both decrypt and encrypt (standard case).
    * @param matrixManager - Matrix resolver.
+   * @param tx - Transaction manager that wraps the migration in a single git commit
+   *   so a partial failure rolls back ALL files + the manifest via `git reset --hard`.
    * @param targetEncryption - Optional separate backend for encrypt. Use when migrating
    *   from cloud (decrypt via keyservice) to another backend (encrypt via local credentials).
    */
   constructor(
     encryption: EncryptionBackend,
     private readonly matrixManager: MatrixManager,
+    private readonly tx: TransactionManager,
     targetEncryption?: EncryptionBackend,
   ) {
     this.decryptBackend = encryption;
@@ -174,67 +200,73 @@ export class BackendMigrator {
       };
     }
 
-    // ── Phase 2: Backup ────────────────────────────────────────────────
-
-    const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
-    const manifestBackup = fs.readFileSync(manifestPath, "utf-8");
-
-    const fileBackups = new Map<string, string>();
-
-    // ── Phase 3: Update manifest ───────────────────────────────────────
-
-    const doc = readManifestYaml(repoRoot);
-    this.updateManifestDoc(doc, target, environment);
-    writeManifestYaml(repoRoot, doc);
-
-    const updatedManifest = YAML.parse(YAML.stringify(doc)) as ClefManifest;
-
-    // ── Phase 4: Decrypt & re-encrypt ──────────────────────────────────
+    // ── Phase 2: Migrate inside a transaction ─────────────────────────
+    //
+    // The transaction wraps both the manifest update and every cell
+    // re-encrypt. A failure mid-loop triggers `git reset --hard` to the
+    // pre-migration state, which is what the previous in-method
+    // backup/rollback machinery did by hand.
 
     const migratedFiles: string[] = [];
+    let migrationFailed = false;
+    let migrationError: Error | undefined;
 
-    for (const cell of toMigrate) {
-      try {
-        fileBackups.set(cell.filePath, fs.readFileSync(cell.filePath, "utf-8"));
+    try {
+      await this.tx.run(repoRoot, {
+        description: environment
+          ? `clef migrate-backend ${target.backend}: ${environment}`
+          : `clef migrate-backend ${target.backend}`,
+        paths: [
+          ...toMigrate.map((c) => path.relative(repoRoot, c.filePath)),
+          CLEF_MANIFEST_FILENAME,
+        ],
+        mutate: async () => {
+          const doc = readManifestYaml(repoRoot);
+          this.updateManifestDoc(doc, target, environment);
+          writeManifestYaml(repoRoot, doc);
 
-        onProgress?.({
-          type: "migrate",
-          file: cell.filePath,
-          message: `Migrating ${cell.namespace}/${cell.environment}...`,
-        });
+          const updatedManifest = YAML.parse(YAML.stringify(doc)) as ClefManifest;
 
-        const decrypted = await this.decryptBackend.decrypt(cell.filePath);
-        await this.encryptBackend.encrypt(
-          cell.filePath,
-          decrypted.values,
-          updatedManifest,
-          cell.environment,
-        );
+          for (const cell of toMigrate) {
+            onProgress?.({
+              type: "migrate",
+              file: cell.filePath,
+              message: `Migrating ${cell.namespace}/${cell.environment}...`,
+            });
 
-        migratedFiles.push(cell.filePath);
-      } catch (err) {
-        // Rollback everything
-        this.rollback(manifestPath, manifestBackup, fileBackups);
+            const decrypted = await this.decryptBackend.decrypt(cell.filePath);
+            await this.encryptBackend.encrypt(
+              cell.filePath,
+              decrypted.values,
+              updatedManifest,
+              cell.environment,
+            );
 
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        onProgress?.({
-          type: "warn",
-          file: cell.filePath,
-          message: `Migration failed: ${errorMsg}. All changes rolled back.`,
-        });
-
-        return {
-          migratedFiles: [],
-          skippedFiles,
-          rolledBack: true,
-          error: `Failed on ${cell.namespace}/${cell.environment}: ${errorMsg}`,
-          verifiedFiles: [],
-          warnings: ["All changes have been rolled back."],
-        };
-      }
+            migratedFiles.push(cell.filePath);
+          }
+        },
+      });
+    } catch (err) {
+      migrationFailed = true;
+      migrationError = err as Error;
+      onProgress?.({
+        type: "warn",
+        message: `Migration failed: ${migrationError.message}. All changes rolled back.`,
+      });
     }
 
-    // ── Phase 5: Verify ────────────────────────────────────────────────
+    if (migrationFailed) {
+      return {
+        migratedFiles: [],
+        skippedFiles,
+        rolledBack: true,
+        error: migrationError!.message,
+        verifiedFiles: [],
+        warnings: ["All changes have been rolled back."],
+      };
+    }
+
+    // ── Phase 3: Verify ────────────────────────────────────────────────
 
     const verifiedFiles: string[] = [];
     const warnings: string[] = [];
@@ -279,11 +311,7 @@ export class BackendMigrator {
         (e) => (e as { name: string }).name === environment,
       ) as Record<string, unknown>;
 
-      const sopsOverride: Record<string, unknown> = { backend: target.backend };
-      if (keyField && target.key) {
-        sopsOverride[keyField] = target.key;
-      }
-      envDoc.sops = sopsOverride;
+      envDoc.sops = buildSopsOverride(target.backend, target.key);
     } else {
       // Global default
       const sops = doc.sops as Record<string, unknown>;
@@ -297,34 +325,6 @@ export class BackendMigrator {
         sops[keyField] = target.key;
       }
     }
-
-    // Remove the cloud config block if no environment still uses the cloud backend
-    if (doc.cloud && target.backend !== "cloud") {
-      const sops = doc.sops as Record<string, unknown>;
-      const environments = doc.environments as Record<string, unknown>[];
-      const defaultIsCloud = sops.default_backend === "cloud";
-      const anyEnvIsCloud = environments.some((e) => {
-        const envSops = e.sops as Record<string, unknown> | undefined;
-        return envSops?.backend === "cloud";
-      });
-
-      if (!defaultIsCloud && !anyEnvIsCloud) {
-        delete doc.cloud;
-      }
-    }
-  }
-
-  private rollback(
-    manifestPath: string,
-    manifestBackup: string,
-    fileBackups: Map<string, string>,
-  ): void {
-    // Restore encrypted files
-    for (const [filePath, backup] of fileBackups) {
-      fs.writeFileSync(filePath, backup, "utf-8");
-    }
-    // Restore manifest
-    fs.writeFileSync(manifestPath, manifestBackup, "utf-8");
   }
 
   private checkAgeRecipientsWarning(

@@ -1,5 +1,6 @@
 import { ImportRunner } from "./index";
 import { ClefManifest, DecryptedFile } from "../types";
+import { TransactionManager } from "../tx";
 
 const mockDecrypt = jest.fn();
 const mockEncrypt = jest.fn();
@@ -23,9 +24,23 @@ const defaultDecrypted: DecryptedFile = {
   metadata: { backend: "age", recipients: ["age1test"], lastModified: new Date() },
 };
 
+/** Stub TransactionManager that just runs the mutate callback inline. */
+function makeStubTx(): TransactionManager {
+  return {
+    run: jest
+      .fn()
+      .mockImplementation(
+        async (_repoRoot: string, opts: { mutate: () => Promise<void>; paths: string[] }) => {
+          await opts.mutate();
+          return { sha: null, paths: opts.paths, startedDirty: false };
+        },
+      ),
+  } as unknown as TransactionManager;
+}
+
 function makeRunner(): ImportRunner {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new ImportRunner(fakeSopsClient as any);
+  return new ImportRunner(fakeSopsClient as any, makeStubTx());
 }
 
 describe("ImportRunner", () => {
@@ -54,7 +69,7 @@ describe("ImportRunner", () => {
       expect(result.dryRun).toBe(false);
     });
 
-    it("calls encrypt for each successfully imported key", async () => {
+    it("encrypts the file once with all imported keys merged", async () => {
       const runner = makeRunner();
       await runner.import(
         "database/staging",
@@ -65,7 +80,16 @@ describe("ImportRunner", () => {
         {},
       );
 
-      expect(mockEncrypt).toHaveBeenCalledTimes(2);
+      // After the migration, the runner merges all candidates in memory and
+      // does a SINGLE encrypt instead of N encrypts. Cuts SOPS subprocess
+      // overhead from O(N) to O(1) and makes the import atomic.
+      expect(mockEncrypt).toHaveBeenCalledTimes(1);
+      const lastCall = mockEncrypt.mock.calls[0];
+      expect(lastCall[1]).toMatchObject({
+        EXISTING_KEY: "existing_value",
+        DB_HOST: "localhost",
+        DB_PORT: "5432",
+      });
     });
 
     it("uses correct file path from manifest pattern", async () => {
@@ -246,57 +270,25 @@ describe("ImportRunner", () => {
     });
   });
 
-  describe("partial failure", () => {
-    it("adds failed keys to failed array and continues importing remaining", async () => {
-      let callCount = 0;
-      mockEncrypt.mockImplementation(async () => {
-        callCount++;
-        if (callCount === 1) {
-          throw new Error("encryption failed");
-        }
-        // Second call succeeds
-      });
+  describe("encrypt failure", () => {
+    it("propagates the encrypt error so the transaction can roll back", async () => {
+      mockEncrypt.mockRejectedValueOnce(new Error("encryption failed"));
 
       const runner = makeRunner();
-      const result = await runner.import(
-        "database/staging",
-        null,
-        "FIRST_KEY=value1\nSECOND_KEY=value2\n",
-        manifest,
-        "/repo",
-        {},
-      );
 
-      expect(result.failed).toEqual(
-        expect.arrayContaining([expect.objectContaining({ key: "FIRST_KEY" })]),
-      );
-      expect(result.imported).toContain("SECOND_KEY");
-    });
-
-    it("does not roll back successful imports on partial failure", async () => {
-      let callCount = 0;
-      mockEncrypt.mockImplementation(async () => {
-        callCount++;
-        if (callCount === 2) {
-          throw new Error("encryption failed");
-        }
-      });
-
-      const runner = makeRunner();
-      const result = await runner.import(
-        "database/staging",
-        null,
-        "KEY_A=value1\nKEY_B=fail\nKEY_C=value3\n",
-        manifest,
-        "/repo",
-        {},
-      );
-
-      expect(result.imported).toContain("KEY_A");
-      expect(result.failed).toEqual(
-        expect.arrayContaining([expect.objectContaining({ key: "KEY_B" })]),
-      );
-      expect(result.imported).toContain("KEY_C");
+      // Import is now atomic — there is no per-key partial state. A failure
+      // during the single merged encrypt aborts the whole import and the
+      // error propagates so TransactionManager can `git reset --hard`.
+      await expect(
+        runner.import(
+          "database/staging",
+          null,
+          "FIRST_KEY=value1\nSECOND_KEY=value2\n",
+          manifest,
+          "/repo",
+          {},
+        ),
+      ).rejects.toThrow("encryption failed");
     });
   });
 

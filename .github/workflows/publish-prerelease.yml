@@ -344,7 +344,7 @@ jobs:
 
   # ── 3. Publish packages ───────────────────────────────────────────────
   publish:
-    name: Publish ${{ (github.event.workflow_run.head_branch || github.ref_name) == 'dev' && 'Alpha' || 'Beta' }}
+    name: Publish ${{ (github.event.workflow_run.head_branch || github.ref_name) == 'dev' && 'Alpha' || 'Beta' }} to GitHub Packages
     needs: [prepare, build-sea-bins]
     # Run if prepare succeeded and build-sea-bins either succeeded or was
     # skipped (skipped happens for dev/alpha because of the staging-only if).

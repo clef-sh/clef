@@ -20,10 +20,9 @@ interface EditorRow {
 interface NamespaceEditorProps {
   ns: string;
   manifest: ClefManifest | null;
-  onCommit: (message: string) => void;
 }
 
-export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps) {
+export function NamespaceEditor({ ns, manifest }: NamespaceEditorProps) {
   const [env, setEnv] = useState("");
   const [rows, setRows] = useState<EditorRow[]>([]);
   const [adding, setAdding] = useState(false);
@@ -35,8 +34,7 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [commitMessage, setCommitMessage] = useState("");
-  const [showCommitInput, setShowCommitInput] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [sopsInfo, setSopsInfo] = useState("");
   const [lintIssues, setLintIssues] = useState<LintIssue[]>([]);
   const [protectedConfirm, setProtectedConfirm] = useState<"save" | "add" | null>(null);
@@ -129,23 +127,25 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
 
   const handleSave = async (confirmed?: boolean) => {
     const dirtyRows = rows.filter((r) => r.edited);
-    await Promise.all(
-      dirtyRows.map((row) => {
+    if (dirtyRows.length === 0) return;
+    setSaving(true);
+    try {
+      // Each PUT auto-commits via the transaction manager, matching CLI
+      // behavior where each `clef set` is its own commit. Serialize so
+      // each transaction completes before the next starts.
+      for (const row of dirtyRows) {
         const payload: Record<string, unknown> = { value: row.value };
         if (confirmed) payload.confirmed = true;
-        return apiFetch(`/api/namespace/${ns}/${env}/${row.key}`, {
+        await apiFetch(`/api/namespace/${ns}/${env}/${row.key}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-      }),
-    );
-    if (commitMessage) {
-      onCommit(commitMessage);
+      }
+      await loadData();
+    } finally {
+      setSaving(false);
     }
-    setShowCommitInput(false);
-    setCommitMessage("");
-    await loadData();
   };
 
   const handleAdd = async (confirmed?: boolean) => {
@@ -269,44 +269,20 @@ export function NamespaceEditor({ ns, manifest, onCommit }: NamespaceEditorProps
         subtitle={`Namespace \u00B7 ${rows.length} keys`}
         actions={
           <>
-            {hasChanges && !showCommitInput && (
-              <Button variant="primary" onClick={() => setShowCommitInput(true)}>
-                Commit changes
+            {hasChanges && (
+              <Button
+                variant="primary"
+                disabled={saving}
+                onClick={() => {
+                  if (isProduction) {
+                    setProtectedConfirm("save");
+                  } else {
+                    handleSave();
+                  }
+                }}
+              >
+                {saving ? "Saving..." : "Save"}
               </Button>
-            )}
-            {showCommitInput && (
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <input
-                  data-testid="commit-message-input"
-                  value={commitMessage}
-                  onChange={(e) => setCommitMessage(e.target.value)}
-                  placeholder="Commit message..."
-                  style={{
-                    background: "#0D0F14",
-                    border: `1px solid ${theme.borderLight}`,
-                    borderRadius: 5,
-                    padding: "5px 10px",
-                    fontFamily: theme.mono,
-                    fontSize: 12,
-                    color: theme.text,
-                    outline: "none",
-                    width: 220,
-                  }}
-                />
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    if (isProduction) {
-                      setProtectedConfirm("save");
-                    } else {
-                      handleSave();
-                    }
-                  }}
-                >
-                  Save & Commit
-                </Button>
-                <Button onClick={() => setShowCommitInput(false)}>Cancel</Button>
-              </div>
             )}
             <Button variant="primary" data-testid="add-key-btn" onClick={() => setAdding(true)}>
               + Add key

@@ -5,7 +5,6 @@ import {
   SubprocessRunner,
   MatrixManager,
   ArtifactPacker,
-  MemoryPackOutput,
   FilePackOutput,
   isKmsEnvelope,
 } from "@clef-sh/core";
@@ -37,8 +36,6 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
       "--signing-kms-key <keyId>",
       "KMS asymmetric signing key ARN/ID (ECDSA_SHA_256, or env CLEF_SIGNING_KMS_KEY)",
     )
-    .option("--remote", "Send encrypted files to Cloud for packing and serving")
-    .option("--push", "Pack locally and upload artifact to Cloud for serving")
     .action(
       async (
         identity: string,
@@ -48,20 +45,11 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
           ttl?: string;
           signingKey?: string;
           signingKmsKey?: string;
-          remote?: boolean;
-          push?: boolean;
         },
       ) => {
         try {
-          if (opts.remote && opts.push) {
-            formatter.error("Cannot specify both --remote and --push.");
-            process.exit(1);
-            return;
-          }
-          if (!opts.remote && !opts.push && !opts.output) {
-            formatter.error(
-              "--output is required for local pack. Use --push for Cloud or --remote for remote packing.",
-            );
+          if (!opts.output) {
+            formatter.error("--output is required.");
             process.exit(1);
             return;
           }
@@ -69,24 +57,6 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
           const repoRoot = (program.opts().dir as string) || process.cwd();
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
-
-          // --remote: send to Cloud for packing
-          if (opts.remote) {
-            const { resolveAccessToken, CloudPackClient } = await import("@clef-sh/cloud");
-            const { accessToken: token, endpoint } = await resolveAccessToken();
-            const ttl = opts.ttl ? parseInt(opts.ttl, 10) : undefined;
-            formatter.print(`${sym("working")}  Sending to Cloud for packing...`);
-            const packClient = new CloudPackClient(endpoint);
-            const remoteResult = await packClient.pack(token, {
-              identity,
-              environment,
-              manifest,
-              repoRoot,
-              ttl,
-            });
-            formatter.success(`Artifact packed by Cloud: revision ${remoteResult.revision}`);
-            return;
-          }
 
           const sopsClient = await createSopsClient(repoRoot, deps.runner);
           const matrixManager = new MatrixManager();
@@ -124,10 +94,7 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
             return;
           }
 
-          // Use MemoryPackOutput for --push (no unnecessary disk round-trip).
-          // If --output is also set, write the file separately.
-          const memOutput = opts.push ? new MemoryPackOutput() : undefined;
-          const output = memOutput ?? (outputPath ? new FilePackOutput(outputPath) : undefined);
+          const output = outputPath ? new FilePackOutput(outputPath) : undefined;
 
           formatter.print(
             `${sym("working")}  Packing artifact for '${identity}/${environment}'...`,
@@ -138,12 +105,6 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
             manifest,
             repoRoot,
           );
-
-          // If --push with --output, also write the file
-          if (opts.push && outputPath && memOutput?.json) {
-            const fileOut = new FilePackOutput(outputPath);
-            await fileOut.write(memOutput.artifact!, memOutput.json);
-          }
 
           if (isJsonMode()) {
             formatter.json({
@@ -177,24 +138,10 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
             formatter.print(`  Signed:   KMS ECDSA_SHA256`);
           }
 
-          // --push: upload artifact to Cloud from memory
-          if (opts.push && memOutput?.json) {
-            const { resolveAccessToken, CloudArtifactClient } = await import("@clef-sh/cloud");
-            const { accessToken: token, endpoint } = await resolveAccessToken();
-            formatter.print(`${sym("working")}  Uploading artifact to Cloud...`);
-            const artifactClient = new CloudArtifactClient(endpoint);
-            await artifactClient.upload(token, {
-              identity,
-              environment,
-              artifactJson: memOutput.json,
-            });
-            formatter.success("Artifact uploaded to Cloud for serving.");
-          } else if (!opts.push) {
-            formatter.hint(
-              "\nUpload the artifact to an HTTP-accessible store (S3, GCS, etc.) or commit to\n" +
-                "  .clef/packed/ for VCS-based delivery. See: clef.sh/guide/service-identities",
-            );
-          }
+          formatter.hint(
+            "\nUpload the artifact to an HTTP-accessible store (S3, GCS, etc.) or commit to\n" +
+              "  .clef/packed/ for VCS-based delivery. See: clef.sh/guide/service-identities",
+          );
         } catch (err) {
           handleCommandError(err);
         }

@@ -1,10 +1,11 @@
 import * as path from "path";
 import { Command } from "commander";
 import {
-  BulkOps,
+  GitIntegration,
   ManifestParser,
   MatrixManager,
   SubprocessRunner,
+  TransactionManager,
   generateRandomValue,
   markPendingWithRetry,
   markResolved,
@@ -12,7 +13,7 @@ import {
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createCloudAwareSopsClient } from "../cloud-sops";
+import { createSopsClient } from "../age-credential";
 import { parseTarget } from "../parse-target";
 
 export function registerSetCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -53,11 +54,7 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
           const repoRoot = (program.opts().dir as string) || process.cwd();
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
-          const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
-            repoRoot,
-            deps.runner,
-            manifest,
-          );
+          const sopsClient = await createSopsClient(repoRoot, deps.runner);
           try {
             if (opts.allEnvs) {
               const namespace = target.includes("/") ? target.split("/")[0] : target;
@@ -102,31 +99,66 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                 );
               }
 
-              const bulkOps = new BulkOps();
-              await bulkOps.setAcrossEnvironments(
-                namespace,
-                key,
-                values,
-                manifest,
-                sopsClient,
-                repoRoot,
-              );
+              const targets = manifest.environments
+                .filter((env) => env.name in values)
+                .map((env) => {
+                  const relPath = manifest.file_pattern
+                    .replace("{namespace}", namespace)
+                    .replace("{environment}", env.name);
+                  return {
+                    env: env.name,
+                    filePath: path.join(repoRoot, relPath),
+                    relPath,
+                  };
+                });
+
+              const pendingErrors: string[] = [];
+              const tx = new TransactionManager(new GitIntegration(deps.runner));
+              await tx.run(repoRoot, {
+                description: allPending
+                  ? `clef set --random --all-envs: ${namespace}/${key}`
+                  : `clef set --all-envs: ${namespace}/${key}`,
+                paths: targets.flatMap((t) => [
+                  t.relPath,
+                  t.relPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml"),
+                ]),
+                mutate: async () => {
+                  for (const target of targets) {
+                    const decrypted = await sopsClient.decrypt(target.filePath);
+                    decrypted.values[key] = values[target.env];
+                    await sopsClient.encrypt(
+                      target.filePath,
+                      decrypted.values,
+                      manifest,
+                      target.env,
+                    );
+                  }
+
+                  if (allPending) {
+                    for (const target of targets) {
+                      try {
+                        await markPendingWithRetry(
+                          target.filePath,
+                          [key],
+                          "clef set --random --all-envs",
+                        );
+                      } catch {
+                        pendingErrors.push(target.env);
+                      }
+                    }
+                  } else {
+                    for (const target of targets) {
+                      try {
+                        await markResolved(target.filePath, [key]);
+                      } catch {
+                        // Non-fatal — file may not have had pending state
+                      }
+                    }
+                  }
+                },
+              });
 
               if (allPending) {
-                const pendingErrors: string[] = [];
-                for (const env of manifest.environments) {
-                  const filePath = path.join(
-                    repoRoot,
-                    manifest.file_pattern
-                      .replace("{namespace}", namespace)
-                      .replace("{environment}", env.name),
-                  );
-                  try {
-                    await markPendingWithRetry(filePath, [key], "clef set --random --all-envs");
-                  } catch {
-                    pendingErrors.push(env.name);
-                  }
-                }
                 if (isJsonMode()) {
                   formatter.json({
                     key,
@@ -150,19 +182,6 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                 }
                 formatter.hint(`clef set ${namespace}/<env> ${key}  # for each environment`);
               } else {
-                for (const env of manifest.environments) {
-                  const filePath = path.join(
-                    repoRoot,
-                    manifest.file_pattern
-                      .replace("{namespace}", namespace)
-                      .replace("{environment}", env.name),
-                  );
-                  try {
-                    await markResolved(filePath, [key]);
-                  } catch {
-                    // Non-fatal — file may not have had pending state
-                  }
-                }
                 if (isJsonMode()) {
                   formatter.json({
                     key,
@@ -174,7 +193,6 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                   return;
                 }
                 formatter.success(`'${key}' set in ${namespace} across all environments`);
-                formatter.hint(`git add ${namespace}/  # stage all updated files`);
               }
               return;
             }
@@ -213,50 +231,42 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
               secretValue = value;
             }
 
-            const filePath = path.join(
-              repoRoot,
-              manifest.file_pattern
-                .replace("{namespace}", namespace)
-                .replace("{environment}", environment),
-            );
+            const relCellPath = manifest.file_pattern
+              .replace("{namespace}", namespace)
+              .replace("{environment}", environment);
+            const filePath = path.join(repoRoot, relCellPath);
 
-            // Note: the CLI set command supports --random for pending placeholders.
-            // The UI API (PUT /api/namespace/:ns/:env/:key) also supports { random: true }
-            // but adds rollback on metadata failure. This asymmetry is intentional:
-            // the CLI warns and continues, while the API must return a consistent state.
-            const decrypted = await sopsClient.decrypt(filePath);
-            decrypted.values[key] = secretValue;
-            await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
+            // Single-cell set wraps both the encrypt and the pending-metadata
+            // write in one transaction. Either both land or both roll back —
+            // no more "encrypted but pending tracking lost" footgun.
+            const tx = new TransactionManager(new GitIntegration(deps.runner));
+            await tx.run(repoRoot, {
+              description: isPendingValue
+                ? `clef set --random ${namespace}/${environment} ${key}`
+                : `clef set ${namespace}/${environment} ${key}`,
+              // Stage both the encrypted cell and its sibling pending-metadata
+              // file. The metadata file may not exist yet, but git add tolerates
+              // that and tx.run rolls back any new metadata file via git clean.
+              paths: [relCellPath, relCellPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
+              mutate: async () => {
+                const decrypted = await sopsClient.decrypt(filePath);
+                decrypted.values[key] = secretValue;
+                await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
 
-            // Update pending metadata
-            if (isPendingValue) {
-              try {
-                await markPendingWithRetry(filePath, [key], "clef set --random");
-              } catch {
-                // Roll back: remove the key and re-encrypt to avoid an orphaned
-                // placeholder with no tracking metadata. Reuse the in-scope
-                // decrypted values to avoid a redundant decrypt subprocess call.
-                try {
-                  delete decrypted.values[key];
-                  await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
-                } catch {
-                  // Rollback failed — warn the user explicitly
-                  formatter.error(
-                    `${key} was encrypted but pending state could not be recorded, and rollback failed.\n` +
-                      "  The encrypted file may contain an untracked random placeholder.\n" +
-                      "  This key MUST be set to a real value before deploying.\n" +
-                      `  Run: clef set ${namespace}/${environment} ${key}`,
-                  );
-                  process.exit(1);
-                  return;
+                if (isPendingValue) {
+                  await markPendingWithRetry(filePath, [key], "clef set --random");
+                } else {
+                  // Normal set resolves any pending state for this key
+                  try {
+                    await markResolved(filePath, [key]);
+                  } catch {
+                    // Non-fatal — file may not have had pending state
+                  }
                 }
-                formatter.error(
-                  `${key}: pending state could not be recorded. The value was rolled back.\n` +
-                    `  Retry: clef set --random ${namespace}/${environment} ${key}`,
-                );
-                process.exit(1);
-                return;
-              }
+              },
+            });
+
+            if (isPendingValue) {
               if (isJsonMode()) {
                 formatter.json({ key, namespace, environment, action: "created", pending: true });
                 return;
@@ -267,26 +277,14 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
               );
               formatter.hint(`clef set ${namespace}/${environment} ${key}`);
             } else {
-              // Normal set resolves any pending state for this key
-              try {
-                await markResolved(filePath, [key]);
-              } catch {
-                formatter.warn(
-                  `${key} was set but pending state could not be cleared.\n` +
-                    "  The value is saved. Run clef lint to check for stale pending markers.",
-                );
-              }
               if (isJsonMode()) {
                 formatter.json({ key, namespace, environment, action: "created", pending: false });
                 return;
               }
               formatter.success(`${key} set in ${namespace}/${environment}`);
-              formatter.hint(
-                `Commit: git add ${manifest.file_pattern.replace("{namespace}", namespace).replace("{environment}", environment)}`,
-              );
             }
           } finally {
-            await cleanup();
+            // no cleanup needed
           }
         } catch (err) {
           handleCommandError(err);

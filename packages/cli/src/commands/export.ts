@@ -3,7 +3,7 @@ import { Command } from "commander";
 import { ManifestParser, ConsumptionClient, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
-import { createCloudAwareSopsClient } from "../cloud-sops";
+import { createSopsClient } from "../age-credential";
 import { copyToClipboard } from "../clipboard";
 import { parseTarget } from "../parse-target";
 
@@ -63,11 +63,7 @@ export function registerExportCommand(program: Command, deps: { runner: Subproce
             .replace("{environment}", environment),
         );
 
-        const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
-          repoRoot,
-          deps.runner,
-          manifest,
-        );
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
         try {
           const decrypted = await sopsClient.decrypt(filePath);
 
@@ -108,7 +104,7 @@ export function registerExportCommand(program: Command, deps: { runner: Subproce
             }
           }
         } finally {
-          await cleanup();
+          // no cleanup needed
         }
       } catch (err) {
         handleCommandError(err);

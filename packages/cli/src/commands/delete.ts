@@ -1,15 +1,16 @@
 import * as path from "path";
 import { Command } from "commander";
 import {
-  BulkOps,
+  GitIntegration,
   ManifestParser,
   MatrixManager,
   markResolved,
   SubprocessRunner,
+  TransactionManager,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
-import { createCloudAwareSopsClient } from "../cloud-sops";
+import { createSopsClient } from "../age-credential";
 import { parseTarget } from "../parse-target";
 
 export function registerDeleteCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -32,11 +33,7 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
-          repoRoot,
-          deps.runner,
-          manifest,
-        );
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
         try {
           const matrixManager = new MatrixManager();
 
@@ -53,15 +50,51 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
                 ? ` including protected environments: ${protectedEnvs.join(", ")}`
                 : "";
             const confirmed = await formatter.confirm(
-              `This will delete '${key}' from ${manifest.environments.length} environments (${envNames})${protectedNote}.\nType the key name to confirm:`,
+              `This will delete '${key}' from ${manifest.environments.length} environments (${envNames})${protectedNote}. Proceed?`,
             );
             if (!confirmed) {
               formatter.info("Aborted.");
               return;
             }
 
-            const bulkOps = new BulkOps();
-            await bulkOps.deleteAcrossEnvironments(namespace, key, manifest, sopsClient, repoRoot);
+            const targets = manifest.environments.map((env) => {
+              const relPath = manifest.file_pattern
+                .replace("{namespace}", namespace)
+                .replace("{environment}", env.name);
+              return {
+                env: env.name,
+                filePath: path.join(repoRoot, relPath),
+                relPath,
+              };
+            });
+
+            const tx = new TransactionManager(new GitIntegration(deps.runner));
+            await tx.run(repoRoot, {
+              description: `clef delete --all-envs: ${namespace}/${key}`,
+              paths: targets.flatMap((t) => [
+                t.relPath,
+                t.relPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml"),
+              ]),
+              mutate: async () => {
+                for (const target of targets) {
+                  const decrypted = await sopsClient.decrypt(target.filePath);
+                  if (key in decrypted.values) {
+                    delete decrypted.values[key];
+                    await sopsClient.encrypt(
+                      target.filePath,
+                      decrypted.values,
+                      manifest,
+                      target.env,
+                    );
+                  }
+                  try {
+                    await markResolved(target.filePath, [key]);
+                  } catch {
+                    // Non-fatal — file may not have had pending state
+                  }
+                }
+              },
+            });
             if (isJsonMode()) {
               formatter.json({
                 key,
@@ -94,43 +127,44 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
               return;
             }
 
-            const filePath = path.join(
-              repoRoot,
-              manifest.file_pattern
-                .replace("{namespace}", namespace)
-                .replace("{environment}", environment),
-            );
+            const relCellPath = manifest.file_pattern
+              .replace("{namespace}", namespace)
+              .replace("{environment}", environment);
+            const filePath = path.join(repoRoot, relCellPath);
 
-            const decrypted = await sopsClient.decrypt(filePath);
-            if (!(key in decrypted.values)) {
+            // Preflight the key existence check OUTSIDE the transaction so
+            // we don't open a tx + lock just to error out.
+            const existing = await sopsClient.decrypt(filePath);
+            if (!(key in existing.values)) {
               formatter.error(`Key '${key}' not found in ${namespace}/${environment}.`);
               process.exit(1);
               return;
             }
 
-            delete decrypted.values[key];
-            await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
-
-            // Clean up pending metadata if it exists
-            try {
-              await markResolved(filePath, [key]);
-            } catch {
-              formatter.warn(
-                `Key deleted but pending metadata could not be cleaned up. Run clef lint to verify.`,
-              );
-            }
+            const tx = new TransactionManager(new GitIntegration(deps.runner));
+            await tx.run(repoRoot, {
+              description: `clef delete ${namespace}/${environment} ${key}`,
+              paths: [relCellPath, relCellPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
+              mutate: async () => {
+                const decrypted = await sopsClient.decrypt(filePath);
+                delete decrypted.values[key];
+                await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
+                try {
+                  await markResolved(filePath, [key]);
+                } catch {
+                  // Non-fatal — file may not have had pending state
+                }
+              },
+            });
 
             if (isJsonMode()) {
               formatter.json({ key, namespace, environment, action: "deleted" });
               return;
             }
             formatter.success(`Deleted '${key}' from ${namespace}/${environment}`);
-            formatter.hint(
-              `Commit: git add ${manifest.file_pattern.replace("{namespace}", namespace).replace("{environment}", environment)}`,
-            );
           }
         } finally {
-          await cleanup();
+          // no cleanup needed
         }
       } catch (err) {
         handleCommandError(err);

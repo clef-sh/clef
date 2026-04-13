@@ -124,11 +124,10 @@ export function prepareSopsClientArgs(credential: AgeCredential | null): {
 export async function createSopsClient(
   repoRoot: string,
   runner: SubprocessRunner,
-  keyserviceAddr?: string,
 ): Promise<SopsClient> {
   const credential = await resolveAgeCredential(repoRoot, runner);
   const { ageKeyFile, ageKey } = prepareSopsClientArgs(credential);
-  return new SopsClient(runner, ageKeyFile, ageKey, undefined, keyserviceAddr);
+  return new SopsClient(runner, ageKeyFile, ageKey);
 }
 
 const AGE_SECRET_KEY_RE = /^(AGE-SECRET-KEY-\S+)/m;

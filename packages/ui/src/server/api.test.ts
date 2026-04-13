@@ -6,6 +6,9 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 
 jest.mock("fs");
+// write-file-atomic and @clef-sh/core source mapping are wired up in
+// packages/ui/jest.config.js — needed because the built core dist inlines
+// write-file-atomic, which would defeat any local jest.mock() here.
 
 const mockServiceIdCreate = jest.fn().mockResolvedValue({
   identity: {
@@ -25,6 +28,41 @@ const mockMigrate = jest.fn().mockResolvedValue({
   warnings: [],
 });
 
+const mockResetReset = jest.fn().mockResolvedValue({
+  scaffoldedCells: ["/repo/database/dev.enc.yaml"],
+  pendingKeysByCell: {},
+  backendChanged: false,
+  affectedEnvironments: ["dev"],
+});
+
+const mockSyncPlan = jest.fn().mockResolvedValue({
+  cells: [
+    {
+      namespace: "database",
+      environment: "production",
+      filePath: "/repo/database/production.enc.yaml",
+      missingKeys: ["API_KEY"],
+      isProtected: true,
+    },
+  ],
+  totalKeys: 1,
+  hasProtectedEnvs: true,
+});
+const mockSyncSync = jest.fn().mockResolvedValue({
+  modifiedCells: ["database/production"],
+  scaffoldedKeys: { "database/production": ["API_KEY"] },
+  totalKeysScaffolded: 1,
+});
+
+// StructureManager method stubs — default to success. Tests override per-case
+// for error scenarios.
+const mockAddNamespace = jest.fn().mockResolvedValue(undefined);
+const mockEditNamespace = jest.fn().mockResolvedValue(undefined);
+const mockRemoveNamespace = jest.fn().mockResolvedValue(undefined);
+const mockAddEnvironment = jest.fn().mockResolvedValue(undefined);
+const mockEditEnvironment = jest.fn().mockResolvedValue(undefined);
+const mockRemoveEnvironment = jest.fn().mockResolvedValue(undefined);
+
 // Mock the pending metadata functions and ServiceIdentityManager from core
 jest.mock("@clef-sh/core", () => {
   const actual = jest.requireActual("@clef-sh/core");
@@ -37,8 +75,36 @@ jest.mock("@clef-sh/core", () => {
       updateEnvironments: jest.fn().mockResolvedValue(undefined),
       validate: jest.fn().mockReturnValue([]),
     })),
+    StructureManager: jest.fn().mockImplementation(() => ({
+      addNamespace: mockAddNamespace,
+      editNamespace: mockEditNamespace,
+      removeNamespace: mockRemoveNamespace,
+      addEnvironment: mockAddEnvironment,
+      editEnvironment: mockEditEnvironment,
+      removeEnvironment: mockRemoveEnvironment,
+    })),
     BackendMigrator: jest.fn().mockImplementation(() => ({
       migrate: mockMigrate,
+    })),
+    ResetManager: jest.fn().mockImplementation(() => ({
+      reset: mockResetReset,
+    })),
+    SyncManager: jest.fn().mockImplementation(() => ({
+      plan: mockSyncPlan,
+      sync: mockSyncSync,
+    })),
+    // TransactionManager wraps every mutation in a real RecipientManager,
+    // BulkOps, ImportRunner, etc. Stub it so tests don't try to acquire
+    // git locks or run preflight against a mocked filesystem.
+    TransactionManager: jest.fn().mockImplementation(() => ({
+      run: jest
+        .fn()
+        .mockImplementation(
+          async (_repoRoot: string, opts: { mutate: () => Promise<void>; paths: string[] }) => {
+            await opts.mutate();
+            return { sha: null, paths: opts.paths, startedDirty: false };
+          },
+        ),
     })),
     getPendingKeys: jest.fn().mockResolvedValue([]),
     markResolved: jest.fn().mockResolvedValue(undefined),
@@ -106,6 +172,9 @@ function makeRunner(overrides?: Partial<Record<string, SubprocessResult>>): Subp
       }
       if (cmd === "git" && args[0] === "commit") {
         return { stdout: "[main abc1234] test commit", stderr: "", exitCode: 0 };
+      }
+      if (cmd === "git" && args[0] === "rev-parse" && args[1] === "HEAD") {
+        return { stdout: "abc1234", stderr: "", exitCode: 0 };
       }
       if (cmd === "git" && args[0] === "add") {
         return { stdout: "", stderr: "", exitCode: 0 };
@@ -265,7 +334,7 @@ describe("API routes", () => {
       expect(res.body.value).toBeUndefined();
     });
 
-    it("should rollback and return 500 when markPendingWithRetry fails after encrypt succeeds", async () => {
+    it("propagates markPendingWithRetry failures so the transaction can roll back", async () => {
       (markPendingWithRetry as jest.Mock).mockRejectedValueOnce(new Error("disk full"));
 
       const runner = makeRunner();
@@ -273,68 +342,15 @@ describe("API routes", () => {
       const res = await request(app)
         .put("/api/namespace/database/dev/NEW_KEY")
         .send({ random: true });
+
+      // The PUT runs inside tx.run by default. When markPendingWithRetry
+      // throws, the error bubbles up out of mutate; the transaction handles
+      // the file rollback via git reset. The endpoint surfaces the
+      // underlying error message — the old in-method rollback dance with
+      // PENDING_FAILURE/PARTIAL_FAILURE codes is gone.
       expect(res.status).toBe(500);
-      expect(res.body.error).toBe("Pending state could not be recorded");
-      expect(res.body.message).toContain("rolled back");
-      // Verify sops.encrypt was called twice (once for set, once for rollback)
-      const runCalls = (runner.run as jest.Mock).mock.calls;
-      const encryptCalls = runCalls.filter(
-        (c: [string, string[], Record<string, unknown>?]) =>
-          c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
-      );
-      expect(encryptCalls.length).toBeGreaterThanOrEqual(2);
-
-      // Verify the rollback encrypt does NOT contain the new key
-      const rollbackCall = encryptCalls[1];
-      const rollbackStdin = (rollbackCall[2] as { stdin?: string })?.stdin ?? "";
-      expect(rollbackStdin).not.toContain("NEW_KEY");
-      // Verify original values are preserved
-      const parsed = YAML.parse(rollbackStdin);
-      expect(parsed).toEqual({ DB_HOST: "localhost", DB_PORT: "5432" });
-    });
-
-    it("should return 500 with partial failure when both pending and rollback fail", async () => {
-      (markPendingWithRetry as jest.Mock).mockRejectedValueOnce(new Error("disk full"));
-
-      const runner = makeRunner({
-        "sops encrypt": { stdout: "", stderr: "encrypt failed", exitCode: 1 },
-      });
-      // Override so first encrypt succeeds, second fails (rollback)
-      let encryptCallCount = 0;
-      (runner.run as jest.Mock).mockImplementation(async (cmd: string, args: string[]) => {
-        if (cmd === "sops" && args[0] === "decrypt") {
-          return {
-            stdout: YAML.stringify({ DB_HOST: "localhost", DB_PORT: "5432" }),
-            stderr: "",
-            exitCode: 0,
-          };
-        }
-        if (cmd === "sops" && args.includes("encrypt")) {
-          encryptCallCount++;
-          if (encryptCallCount === 1) {
-            return { stdout: "encrypted", stderr: "", exitCode: 0 };
-          }
-          return { stdout: "", stderr: "encrypt failed", exitCode: 1 };
-        }
-        if (cmd === "sops" && args[0] === "--version") {
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
-        }
-        if (cmd === "sops" && args[0] === "filestatus") {
-          return { stdout: "", stderr: "", exitCode: 1 };
-        }
-        if (cmd === "cat") {
-          return { stdout: sopsFileContent, stderr: "", exitCode: 0 };
-        }
-        return { stdout: "", stderr: "", exitCode: 0 };
-      });
-
-      const app = createApp(runner);
-      const res = await request(app)
-        .put("/api/namespace/database/dev/NEW_KEY")
-        .send({ random: true });
-      expect(res.status).toBe(500);
-      expect(res.body.error).toBe("Partial failure");
-      expect(res.body.code).toBe("PARTIAL_FAILURE");
+      expect(res.body.error).toContain("disk full");
+      expect(res.body.code).toBe("SET_ERROR");
     });
 
     it("should return 500 on encrypt error", async () => {
@@ -1753,6 +1769,462 @@ describe("API routes", () => {
       expect(res.status).toBe(500);
       expect(res.body.code).toBe("MIGRATION_ERROR");
       expect(res.body.error).toContain("KMS connection timeout");
+    });
+  });
+
+  // ── Manifest structure: namespaces ──────────────────────────────────────
+
+  describe("POST /api/namespaces", () => {
+    it("creates a namespace and returns 201", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/namespaces")
+        .send({ name: "billing", description: "Billing secrets" });
+
+      expect(res.status).toBe(201);
+      expect(res.body.name).toBe("billing");
+      expect(mockAddNamespace).toHaveBeenCalledWith(
+        "billing",
+        expect.objectContaining({ description: "Billing secrets" }),
+        expect.any(Object),
+        expect.any(String),
+      );
+    });
+
+    it("returns 400 when name is missing", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/namespaces").send({});
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+    });
+
+    it("returns 409 on duplicate namespace name", async () => {
+      mockAddNamespace.mockRejectedValueOnce(new Error("Namespace 'billing' already exists."));
+      const app = createApp();
+      const res = await request(app).post("/api/namespaces").send({ name: "billing" });
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe("CONFLICT");
+    });
+
+    it("returns 400 on invalid identifier", async () => {
+      mockAddNamespace.mockRejectedValueOnce(new Error("Invalid namespace name 'has spaces'."));
+      const app = createApp();
+      const res = await request(app).post("/api/namespaces").send({ name: "has spaces" });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+    });
+  });
+
+  describe("PATCH /api/namespaces/:name", () => {
+    it("renames a namespace", async () => {
+      const app = createApp();
+      const res = await request(app).patch("/api/namespaces/database").send({ rename: "billing" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe("billing");
+      expect(res.body.previousName).toBe("database");
+      expect(mockEditNamespace).toHaveBeenCalledWith(
+        "database",
+        expect.objectContaining({ rename: "billing" }),
+        expect.any(Object),
+        expect.any(String),
+      );
+    });
+
+    it("updates a description without renaming", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .patch("/api/namespaces/database")
+        .send({ description: "Updated" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.previousName).toBeUndefined();
+    });
+
+    it("returns 400 when no edit fields are provided", async () => {
+      const app = createApp();
+      const res = await request(app).patch("/api/namespaces/database").send({});
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+    });
+
+    it("returns 404 when the namespace doesn't exist", async () => {
+      mockEditNamespace.mockRejectedValueOnce(new Error("Namespace 'nonexistent' not found."));
+      const app = createApp();
+      const res = await request(app)
+        .patch("/api/namespaces/nonexistent")
+        .send({ description: "x" });
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe("NOT_FOUND");
+    });
+
+    it("returns 409 when the rename target already exists", async () => {
+      mockEditNamespace.mockRejectedValueOnce(new Error("Namespace 'billing' already exists."));
+      const app = createApp();
+      const res = await request(app).patch("/api/namespaces/database").send({ rename: "billing" });
+      expect(res.status).toBe(409);
+    });
+  });
+
+  describe("DELETE /api/namespaces/:name", () => {
+    it("removes a namespace", async () => {
+      const app = createApp();
+      const res = await request(app).delete("/api/namespaces/database");
+
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(mockRemoveNamespace).toHaveBeenCalledWith(
+        "database",
+        expect.any(Object),
+        expect.any(String),
+      );
+    });
+
+    it("returns 412 when removing would orphan a service identity", async () => {
+      mockRemoveNamespace.mockRejectedValueOnce(
+        new Error(
+          "Cannot remove namespace 'database': it is the only scope of service identity 'web-app'.",
+        ),
+      );
+      const app = createApp();
+      const res = await request(app).delete("/api/namespaces/database");
+      expect(res.status).toBe(412);
+      expect(res.body.code).toBe("PRECONDITION_FAILED");
+    });
+
+    it("returns 412 when removing the last namespace", async () => {
+      mockRemoveNamespace.mockRejectedValueOnce(
+        new Error("Cannot remove the last namespace from the manifest."),
+      );
+      const app = createApp();
+      const res = await request(app).delete("/api/namespaces/database");
+      expect(res.status).toBe(412);
+    });
+  });
+
+  // ── Manifest structure: environments ────────────────────────────────────
+
+  describe("POST /api/environments", () => {
+    it("creates an environment and returns 201", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/environments")
+        .send({ name: "staging", description: "Staging" });
+
+      expect(res.status).toBe(201);
+      expect(res.body.name).toBe("staging");
+      expect(res.body.protected).toBe(false);
+      expect(mockAddEnvironment).toHaveBeenCalledWith(
+        "staging",
+        expect.objectContaining({ description: "Staging" }),
+        expect.any(Object),
+        expect.any(String),
+      );
+    });
+
+    it("creates a protected environment when protected:true", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/environments")
+        .send({ name: "canary", protected: true });
+
+      expect(res.status).toBe(201);
+      expect(res.body.protected).toBe(true);
+    });
+
+    it("returns 400 when name is missing", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/environments").send({});
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 409 on duplicate env name", async () => {
+      mockAddEnvironment.mockRejectedValueOnce(new Error("Environment 'staging' already exists."));
+      const app = createApp();
+      const res = await request(app).post("/api/environments").send({ name: "staging" });
+      expect(res.status).toBe(409);
+    });
+  });
+
+  describe("PATCH /api/environments/:name", () => {
+    it("renames an environment", async () => {
+      const app = createApp();
+      const res = await request(app).patch("/api/environments/dev").send({ rename: "development" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe("development");
+      expect(res.body.previousName).toBe("dev");
+    });
+
+    it("toggles protected via PATCH", async () => {
+      const app = createApp();
+      const res = await request(app).patch("/api/environments/dev").send({ protected: true });
+
+      expect(res.status).toBe(200);
+      expect(mockEditEnvironment).toHaveBeenCalledWith(
+        "dev",
+        expect.objectContaining({ protected: true }),
+        expect.any(Object),
+        expect.any(String),
+      );
+    });
+
+    it("returns 400 when no edit fields are provided", async () => {
+      const app = createApp();
+      const res = await request(app).patch("/api/environments/dev").send({});
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe("DELETE /api/environments/:name", () => {
+    it("removes an environment", async () => {
+      const app = createApp();
+      const res = await request(app).delete("/api/environments/dev");
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+    });
+
+    it("returns 412 when the environment is protected", async () => {
+      mockRemoveEnvironment.mockRejectedValueOnce(
+        new Error("Environment 'production' is protected. Cannot remove a protected environment."),
+      );
+      const app = createApp();
+      const res = await request(app).delete("/api/environments/production");
+      expect(res.status).toBe(412);
+      expect(res.body.error).toContain("protected");
+    });
+
+    it("returns 412 when removing the last environment", async () => {
+      mockRemoveEnvironment.mockRejectedValueOnce(
+        new Error("Cannot remove the last environment from the manifest."),
+      );
+      const app = createApp();
+      const res = await request(app).delete("/api/environments/dev");
+      expect(res.status).toBe(412);
+    });
+  });
+
+  describe("POST /api/reset", () => {
+    it("resets an env scope and returns the result", async () => {
+      mockResetReset.mockResolvedValueOnce({
+        scaffoldedCells: ["/repo/database/dev.enc.yaml"],
+        pendingKeysByCell: {},
+        backendChanged: false,
+        affectedEnvironments: ["dev"],
+      });
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/reset")
+        .send({ scope: { kind: "env", name: "dev" } });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.result.scaffoldedCells).toHaveLength(1);
+      expect(res.body.result.affectedEnvironments).toEqual(["dev"]);
+      expect(mockResetReset).toHaveBeenCalledWith(
+        expect.objectContaining({ scope: { kind: "env", name: "dev" } }),
+        expect.any(Object),
+        "/repo",
+      );
+    });
+
+    it("resets a namespace scope", async () => {
+      mockResetReset.mockResolvedValueOnce({
+        scaffoldedCells: ["/repo/database/dev.enc.yaml", "/repo/database/production.enc.yaml"],
+        pendingKeysByCell: {},
+        backendChanged: false,
+        affectedEnvironments: ["dev", "production"],
+      });
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/reset")
+        .send({ scope: { kind: "namespace", name: "database" } });
+
+      expect(res.status).toBe(200);
+      expect(res.body.result.scaffoldedCells).toHaveLength(2);
+    });
+
+    it("resets a cell scope", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/reset")
+        .send({ scope: { kind: "cell", namespace: "database", environment: "dev" } });
+
+      expect(res.status).toBe(200);
+      expect(mockResetReset).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scope: { kind: "cell", namespace: "database", environment: "dev" },
+        }),
+        expect.any(Object),
+        "/repo",
+      );
+    });
+
+    it("passes optional backend + key + keys through to ResetManager", async () => {
+      const app = createApp();
+      await request(app)
+        .post("/api/reset")
+        .send({
+          scope: { kind: "env", name: "dev" },
+          backend: "awskms",
+          key: "arn:aws:kms:us-east-1:123:key/new",
+          keys: ["DB_URL", "DB_PASSWORD"],
+        });
+
+      expect(mockResetReset).toHaveBeenCalledWith(
+        expect.objectContaining({
+          backend: "awskms",
+          key: "arn:aws:kms:us-east-1:123:key/new",
+          keys: ["DB_URL", "DB_PASSWORD"],
+        }),
+        expect.any(Object),
+        "/repo",
+      );
+    });
+
+    it("returns 400 when scope is missing", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/reset").send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+      expect(mockResetReset).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 when scope is malformed", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/reset").send({ scope: "env" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+      expect(mockResetReset).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when scope references an unknown environment", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/reset")
+        .send({ scope: { kind: "env", name: "nonexistent" } });
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe("NOT_FOUND");
+      expect(res.body.error).toContain("Environment 'nonexistent' not found");
+      expect(mockResetReset).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when scope references an unknown namespace", async () => {
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/reset")
+        .send({ scope: { kind: "namespace", name: "nope" } });
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe("NOT_FOUND");
+      expect(mockResetReset).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 when ResetManager throws a user-error message", async () => {
+      mockResetReset.mockRejectedValueOnce(
+        new Error("Backend 'awskms' requires a key. Pass --key <keyId>."),
+      );
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/reset")
+        .send({ scope: { kind: "env", name: "dev" }, backend: "awskms" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+      expect(res.body.error).toContain("requires a key");
+    });
+
+    it("returns 400 when scope matches zero cells", async () => {
+      mockResetReset.mockRejectedValueOnce(
+        new Error("Reset scope env dev matches zero cells. Check the scope name."),
+      );
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/reset")
+        .send({ scope: { kind: "env", name: "dev" } });
+
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("BAD_REQUEST");
+      expect(res.body.error).toContain("matches zero cells");
+    });
+
+    it("returns 500 with RESET_ERROR on unexpected failure", async () => {
+      mockResetReset.mockRejectedValueOnce(new Error("git lock contention"));
+      const app = createApp();
+      const res = await request(app)
+        .post("/api/reset")
+        .send({ scope: { kind: "env", name: "dev" } });
+
+      expect(res.status).toBe(500);
+      expect(res.body.code).toBe("RESET_ERROR");
+      expect(res.body.error).toContain("git lock contention");
+    });
+  });
+
+  describe("POST /api/sync/preview", () => {
+    it("returns plan for a valid namespace", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/sync/preview").send({ namespace: "database" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.totalKeys).toBe(1);
+      expect(res.body.cells).toHaveLength(1);
+      expect(mockSyncPlan).toHaveBeenCalledWith(expect.any(Object), expect.any(String), {
+        namespace: "database",
+      });
+    });
+
+    it("returns 404 for unknown namespace", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/sync/preview").send({ namespace: "nope" });
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe("NOT_FOUND");
+    });
+
+    it("returns plan for all namespaces when no namespace provided", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/sync/preview").send({});
+
+      expect(res.status).toBe(200);
+      expect(mockSyncPlan).toHaveBeenCalledWith(expect.any(Object), expect.any(String), {
+        namespace: undefined,
+      });
+    });
+  });
+
+  describe("POST /api/sync", () => {
+    it("executes sync and returns result", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/sync").send({ namespace: "database" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.result.totalKeysScaffolded).toBe(1);
+      expect(mockSyncSync).toHaveBeenCalledWith(expect.any(Object), expect.any(String), {
+        namespace: "database",
+      });
+    });
+
+    it("returns 404 for unknown namespace", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/sync").send({ namespace: "nope" });
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe("NOT_FOUND");
+    });
+
+    it("returns 500 on sync failure", async () => {
+      mockSyncSync.mockRejectedValueOnce(new Error("transaction failed"));
+      const app = createApp();
+      const res = await request(app).post("/api/sync").send({ namespace: "database" });
+
+      expect(res.status).toBe(500);
+      expect(res.body.code).toBe("SYNC_ERROR");
+      expect(res.body.error).toContain("transaction failed");
     });
   });
 });

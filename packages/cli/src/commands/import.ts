@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { Command } from "commander";
 import {
+  GitIntegration,
   ManifestParser,
   MatrixManager,
   SopsMissingError,
@@ -9,11 +10,12 @@ import {
   SubprocessRunner,
   ImportRunner,
   ImportFormat,
+  TransactionManager,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createCloudAwareSopsClient } from "../cloud-sops";
+import { createSopsClient } from "../age-credential";
 
 async function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -146,13 +148,10 @@ export function registerImportCommand(program: Command, deps: { runner: Subproce
             formatter.print(`Importing to ${namespace}/${environment} from ${sourceLabel}...\n`);
           }
 
-          const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
-            repoRoot,
-            deps.runner,
-            manifest,
-          );
+          const sopsClient = await createSopsClient(repoRoot, deps.runner);
           try {
-            const importRunner = new ImportRunner(sopsClient);
+            const tx = new TransactionManager(new GitIntegration(deps.runner));
+            const importRunner = new ImportRunner(sopsClient, tx);
 
             let result;
             try {
@@ -235,7 +234,7 @@ export function registerImportCommand(program: Command, deps: { runner: Subproce
               }
             }
           } finally {
-            await cleanup();
+            // no cleanup needed
           }
         } catch (err) {
           handleCommandError(err);

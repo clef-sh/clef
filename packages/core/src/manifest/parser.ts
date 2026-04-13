@@ -14,7 +14,6 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import {
   ClefManifest,
-  ClefCloudConfig,
   ClefEnvironment,
   ManifestValidationError,
   ServiceIdentityDefinition,
@@ -28,7 +27,7 @@ import { validateAgePublicKey } from "../recipients/validator";
  */
 export const CLEF_MANIFEST_FILENAME = "clef.yaml";
 
-const VALID_BACKENDS = ["age", "awskms", "gcpkms", "azurekv", "pgp", "cloud"] as const;
+const VALID_BACKENDS = ["age", "awskms", "gcpkms", "azurekv", "pgp"] as const;
 const VALID_TOP_LEVEL_KEYS = [
   "version",
   "environments",
@@ -36,7 +35,6 @@ const VALID_TOP_LEVEL_KEYS = [
   "sops",
   "file_pattern",
   "service_identities",
-  "cloud",
 ];
 /** Shared pattern for environment and namespace names. */
 const ENV_NAME_PATTERN = /^[a-z][a-z0-9_-]*$/;
@@ -532,15 +530,14 @@ export class ManifestParser {
         const siEnvs = siObj.environments as Record<string, unknown>;
         const parsedEnvs: Record<string, ServiceIdentityEnvironmentConfig> = {};
 
-        // Validate that all declared environments are covered
-        for (const env of environments) {
-          if (!(env.name in siEnvs)) {
-            throw new ManifestValidationError(
-              `Service identity '${siName}' is missing environment '${env.name}'. Service identities must cover all declared environments.`,
-              "service_identities",
-            );
-          }
-        }
+        // Note: we deliberately DO NOT enforce "every declared env must be on
+        // every SI" at parse time. `clef env add` adds an env without
+        // cascading to existing SIs — that gap is reported by `clef lint` /
+        // ServiceIdentityManager.validate as a `missing_environment` issue,
+        // and the user fills it explicitly with `clef service add-env`.
+        // Failing the parse would prevent any clef command from running
+        // against a manifest in the legitimate "env added, SIs not yet
+        // updated" state.
 
         for (const [envName, envVal] of Object.entries(siEnvs)) {
           if (!envNames.has(envName)) {
@@ -639,47 +636,6 @@ export class ManifestParser {
       }
     }
 
-    // cloud (optional)
-    let cloud: ClefCloudConfig | undefined;
-    if (obj.cloud !== undefined) {
-      if (typeof obj.cloud !== "object" || obj.cloud === null || Array.isArray(obj.cloud)) {
-        throw new ManifestValidationError("Field 'cloud' must be an object.", "cloud");
-      }
-      const cloudObj = obj.cloud as Record<string, unknown>;
-      if (typeof cloudObj.integrationId !== "string" || cloudObj.integrationId.length === 0) {
-        throw new ManifestValidationError(
-          "Field 'cloud.integrationId' is required and must be a non-empty string.",
-          "cloud",
-        );
-      }
-      if (typeof cloudObj.keyId !== "string" || cloudObj.keyId.length === 0) {
-        throw new ManifestValidationError(
-          "Field 'cloud.keyId' is required and must be a non-empty string.",
-          "cloud",
-        );
-      }
-      if (!/^clef:[a-zA-Z0-9_]+\/[a-zA-Z0-9_-]+$/.test(cloudObj.keyId)) {
-        throw new ManifestValidationError(
-          `Field 'cloud.keyId' has invalid format '${cloudObj.keyId}'. ` +
-            "Must match: clef:<integrationId>/<keyAlias>",
-          "cloud",
-        );
-      }
-      cloud = { integrationId: cloudObj.integrationId, keyId: cloudObj.keyId };
-    }
-
-    // Validate: cloud backend requires cloud config
-    const usesCloudBackend =
-      sopsConfig.default_backend === "cloud" ||
-      environments.some((e) => e.sops?.backend === "cloud");
-    if (usesCloudBackend && !cloud) {
-      throw new ManifestValidationError(
-        "One or more environments use the 'cloud' backend but the manifest is missing " +
-          "the top-level 'cloud' block with 'integrationId' and 'keyId'.",
-        "cloud",
-      );
-    }
-
     return {
       version: 1,
       environments,
@@ -687,7 +643,6 @@ export class ManifestParser {
       sops: sopsConfig,
       file_pattern: obj.file_pattern,
       ...(serviceIdentities ? { service_identities: serviceIdentities } : {}),
-      ...(cloud ? { cloud } : {}),
     };
   }
 

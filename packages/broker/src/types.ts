@@ -68,7 +68,11 @@ export interface BrokerInvoker {
 export interface ServeOptions extends HandleOptions {
   /** Port to listen on. Default: 8080. */
   port?: number;
-  /** Bind address. Default: "0.0.0.0" (broker serves encrypted envelopes, not plaintext). */
+  /**
+   * Bind address. Default: "127.0.0.1". Override explicitly (e.g. "0.0.0.0")
+   * for container deployments that need network exposure — `serve()` emits a
+   * prominent warning when the bind host is not a loopback address.
+   */
   host?: string;
 }
 

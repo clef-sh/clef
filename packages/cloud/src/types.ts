@@ -1,17 +1,124 @@
-/** User-scoped Cloud credentials stored in ~/.clef/credentials.yaml. */
+/** Supported VCS provider identifiers. */
+export type VcsProvider = "github" | "gitlab" | "bitbucket";
+
+/** User-scoped Cloud credentials stored in ~/.clef/cloud-credentials.json. */
 export interface ClefCloudCredentials {
-  /** Cognito refresh token — long-lived, auto-refreshed to get access tokens. */
-  refreshToken: string;
-  /** Cached Cognito access token — short-lived, refreshed as needed. */
-  accessToken?: string;
-  /** Epoch ms when the cached access token expires. */
-  accessTokenExpiry?: number;
-  /** Cloud API endpoint override. Defaults to https://api.clef.sh. */
-  endpoint?: string;
-  /** Cognito OAuth2 domain for token refresh (e.g. https://clefcloud-123.auth.us-east-1.amazoncognito.com). */
-  cognitoDomain?: string;
-  /** Cognito CLI app client ID. */
-  clientId?: string;
+  /** Clef session JWT obtained by exchanging a VCS provider OAuth token. */
+  session_token: string;
+  /** VCS login / username (e.g. "jamesspears"). */
+  login: string;
+  /** Email address from the VCS provider profile. */
+  email: string;
+  /** ISO 8601 timestamp when the session token expires. */
+  expires_at: string;
+  /** Clef Cloud API base URL. */
+  base_url: string;
+  /** Which VCS provider was used to authenticate. Defaults to "github". */
+  provider: VcsProvider;
+}
+
+// ── Auth provider interface ───────────────────────────────────────────────
+
+/** Dependencies available to auth providers during login. */
+export interface AuthProviderDeps {
+  formatter: {
+    print(msg: string): void;
+    success(msg: string): void;
+    error(msg: string): void;
+    info(msg: string): void;
+  };
+  openBrowser(url: string): Promise<boolean>;
+}
+
+/**
+ * Auth provider abstraction. Each VCS provider implements this to handle
+ * its specific OAuth flow and exchange the resulting token for a Clef session.
+ */
+export interface AuthProvider {
+  /** Provider identifier (e.g. "github"). */
+  readonly id: VcsProvider;
+  /** Human-readable name for CLI output (e.g. "GitHub"). */
+  readonly displayName: string;
+  /**
+   * Run the full authentication flow for this provider.
+   * Returns credentials on success, or null if the user cancelled / timed out.
+   */
+  login(baseUrl: string, deps: AuthProviderDeps): Promise<ClefCloudCredentials | null>;
+}
+
+// ── GitHub Device Flow types ──────────────────────────────────────────────
+
+/** Response from GitHub's POST /login/device/code endpoint. */
+export interface GitHubDeviceCodeResponse {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  expires_in: number;
+  interval: number;
+}
+
+/** Response from GitHub's POST /login/oauth/access_token (success). */
+export interface GitHubAccessTokenResponse {
+  access_token: string;
+  token_type: string;
+  scope: string;
+}
+
+/** Response from Clef backend POST /api/v1/auth/github/token. */
+export interface ClefTokenExchangeResponse {
+  data: {
+    session_token: string;
+    user: {
+      id: string;
+      login: string;
+      email: string;
+    };
+  };
+  success: true;
+}
+
+// ── Install flow types ────────────────────────────────────────────────────
+
+/** Response from POST /api/v1/install/start. */
+export interface InstallStartResponse {
+  data: {
+    install_url: string;
+    state: string;
+    expires_in: number;
+  };
+  success: true;
+}
+
+/** Response from GET /api/v1/install/poll. */
+export interface InstallPollResponse {
+  data: {
+    status: "pending" | "complete";
+    installation?: {
+      id: number;
+      account: string;
+      installedAt: number;
+    };
+  };
+  success: true;
+}
+
+// ── /me endpoint types ────────────────────────────────────────────────────
+
+/** Response from GET /api/v1/me. */
+export interface MeResponse {
+  data: {
+    user: { id: string; login: string; email: string };
+    installation: {
+      id: number;
+      account: string;
+      installedAt: number;
+    } | null;
+    subscription: {
+      tier: string;
+      status: string;
+    };
+  };
+  success: true;
 }
 
 // ── Cloud report types ─────────────────────────────────────────────────────

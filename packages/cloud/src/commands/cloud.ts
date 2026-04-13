@@ -1,26 +1,18 @@
+import * as fs from "fs";
 import * as path from "path";
 import { Command } from "commander";
-import {
-  ManifestParser,
-  MatrixManager,
-  SubprocessRunner,
-  SopsClient,
-  readManifestYaml,
-  writeManifestYaml,
-} from "@clef-sh/core";
+import { SubprocessRunner } from "@clef-sh/core";
+import { CLOUD_DEFAULT_ENDPOINT, CLOUD_DEV_ENDPOINT } from "../constants";
 import {
   readCloudCredentials,
   writeCloudCredentials,
-  resolveKeyservicePath,
-  initiateDeviceFlow,
-  pollDeviceFlow,
-  spawnKeyservice,
-  resolveAccessToken,
-  CLOUD_DEFAULT_ENDPOINT,
-} from "../index";
-import type { DevicePollResult, ClefCloudCredentials } from "../index";
-
-const POLL_INTERVAL_MS = 2000;
+  deleteCloudCredentials,
+  isSessionExpired,
+} from "../credentials";
+import { startInstall, pollInstallUntilComplete, getMe } from "../cloud-api";
+import { scaffoldPolicyFile, parsePolicyFile, POLICY_FILE_PATH } from "../policy";
+import { resolveAuthProvider, DEFAULT_PROVIDER } from "../providers";
+import type { AuthProvider, AuthProviderDeps, ClefCloudCredentials } from "../types";
 
 /** CLI utilities injected by the host CLI package. */
 export interface CloudCliDeps {
@@ -35,344 +27,346 @@ export interface CloudCliDeps {
   };
   sym(name: string): string;
   openBrowser(url: string, runner: SubprocessRunner): Promise<boolean>;
-  createSopsClient(
-    repoRoot: string,
-    runner: SubprocessRunner,
-    keyserviceAddr?: string,
-  ): Promise<SopsClient>;
   cliVersion: string;
+}
+
+function resolveEndpoint(): string {
+  if (process.env.CLEF_CLOUD_ENDPOINT) return process.env.CLEF_CLOUD_ENDPOINT;
+  if (process.env.CLEF_CLOUD_ENV === "dev") return CLOUD_DEV_ENDPOINT;
+  return CLOUD_DEFAULT_ENDPOINT;
+}
+
+/**
+ * Detect the owner/name from git remote origin.
+ * Works with any git host (GitHub, GitLab, Bitbucket, etc.).
+ * Returns null if it can't be detected.
+ */
+async function detectRepo(runner: SubprocessRunner): Promise<string | null> {
+  try {
+    const result = await runner.run("git", ["remote", "get-url", "origin"]);
+    const url = result.stdout.trim();
+
+    // SSH: git@host.com:owner/repo.git
+    const sshMatch = url.match(/git@[^:]+:([^/]+\/[^/]+?)(?:\.git)?$/);
+    if (sshMatch) return sshMatch[1];
+
+    // HTTPS: https://host.com/owner/repo.git
+    const httpsMatch = url.match(/https?:\/\/[^/]+\/([^/]+\/[^/]+?)(?:\.git)?$/);
+    if (httpsMatch) return httpsMatch[1];
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Build the AuthProviderDeps bridge from CloudCliDeps. */
+function toAuthDeps(deps: CloudCliDeps): AuthProviderDeps {
+  return {
+    formatter: deps.formatter,
+    openBrowser: (url: string) => deps.openBrowser(url, deps.runner),
+  };
+}
+
+/**
+ * Ensure the user has a valid (non-expired) session.
+ * If expired or missing, runs the provider's login flow.
+ * Returns the credentials or null if auth was cancelled/expired.
+ */
+async function ensureAuth(
+  provider: AuthProvider,
+  deps: CloudCliDeps,
+  endpoint: string,
+): Promise<ClefCloudCredentials | null> {
+  const existing = readCloudCredentials();
+  if (existing && !isSessionExpired(existing)) {
+    return existing;
+  }
+
+  if (existing && isSessionExpired(existing)) {
+    deps.formatter.info("Session expired. Re-authenticating...");
+  }
+
+  const creds = await provider.login(endpoint, toAuthDeps(deps));
+  if (creds) {
+    writeCloudCredentials(creds);
+    deps.formatter.success(`Signed in as ${creds.login}`);
+  }
+  return creds;
 }
 
 export function registerCloudCommands(program: Command, deps: CloudCliDeps): void {
   const { formatter, sym, runner } = deps;
   const cloud = program.command("cloud").description("Manage Clef Cloud integration.");
 
+  // ── clef cloud login ────────────────────────────────────────────────────
+
   cloud
-    .command("status")
-    .description("Show Clef Cloud integration status.")
-    .action(async () => {
+    .command("login")
+    .description("Authenticate to Clef Cloud.")
+    .option("--provider <name>", "VCS provider to authenticate with", DEFAULT_PROVIDER)
+    .action(async (opts) => {
       try {
-        const repoRoot = (program.opts().dir as string) || process.cwd();
-        const parser = new ManifestParser();
+        const provider = resolveAuthProvider(opts.provider as string);
+        const endpoint = resolveEndpoint();
 
-        // Check manifest
-        let manifest;
-        try {
-          manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
-        } catch {
-          formatter.print(`${sym("info")}  No clef.yaml found in ${repoRoot}`);
+        // Check if already logged in with a valid session
+        const existing = readCloudCredentials();
+        if (existing && !isSessionExpired(existing)) {
+          formatter.success(`Already signed in as ${existing.login}`);
           return;
         }
 
-        formatter.print(`${sym("clef")}  Clef Cloud Status\n`);
-
-        // Cloud config
-        if (manifest.cloud) {
-          formatter.print(`   Integration:  ${manifest.cloud.integrationId}`);
-          formatter.print(`   Key ID:       ${manifest.cloud.keyId}`);
-        } else {
-          formatter.print(`   Cloud:  not configured`);
-          formatter.hint("\n   Run 'clef cloud init --env <environment>' to set up Cloud.");
-          return;
-        }
-
-        // Environments using cloud backend
-        const cloudEnvs = manifest.environments.filter((e) => e.sops?.backend === "cloud");
-        const defaultCloud = manifest.sops.default_backend === "cloud";
-        if (cloudEnvs.length > 0 || defaultCloud) {
-          const envNames = defaultCloud
-            ? manifest.environments.map((e) => e.name)
-            : cloudEnvs.map((e) => e.name);
-          formatter.print(`   Environments: ${envNames.join(", ")}`);
-        } else {
-          formatter.print(`   Environments: none using cloud backend`);
-        }
-
-        // Credentials
-        const creds = readCloudCredentials();
-        if (creds) {
-          formatter.print(`   Auth:         authenticated`);
-          formatter.print(`   Endpoint:     ${creds.endpoint}`);
-        } else {
-          formatter.print(`   Auth:         not authenticated`);
-          formatter.hint("   Run 'clef cloud login' to authenticate.");
-        }
-
-        // Keyservice binary
-        try {
-          const ks = resolveKeyservicePath();
-          formatter.print(`   Keyservice:   ${ks.source} (${ks.path})`);
-        } catch {
-          formatter.print(`   Keyservice:   not found`);
-          formatter.hint("   Install the cloud package: npm install @clef-sh/cloud");
+        const creds = await ensureAuth(provider, deps, endpoint);
+        if (!creds) {
+          process.exit(1);
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        formatter.error(message);
+        formatter.error(err instanceof Error ? err.message : String(err));
         process.exit(1);
       }
     });
 
-  cloud
-    .command("init")
-    .description("Set up Clef Cloud for an environment.")
-    .requiredOption("--env <environment>", "Target environment (e.g., production)")
-    .action(async (opts: { env: string }) => {
-      try {
-        const repoRoot = (program.opts().dir as string) || process.cwd();
-        const parser = new ManifestParser();
-        const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
+  // ── clef cloud logout ───────────────────────────────────────────────────
 
-        // Pre-checks
-        const targetEnv = manifest.environments.find((e) => e.name === opts.env);
-        if (!targetEnv) {
-          formatter.error(
-            `Environment '${opts.env}' not found in clef.yaml. ` +
-              `Available: ${manifest.environments.map((e) => e.name).join(", ")}`,
-          );
+  cloud
+    .command("logout")
+    .description("Clear local Clef Cloud credentials.")
+    .action(() => {
+      deleteCloudCredentials();
+      formatter.success("Logged out of Clef Cloud.");
+    });
+
+  // ── clef cloud status ───────────────────────────────────────────────────
+
+  cloud
+    .command("status")
+    .description("Show Clef Cloud account, installation, and subscription status.")
+    .action(async () => {
+      try {
+        const creds = readCloudCredentials();
+        if (!creds) {
+          formatter.error("Not logged in. Run 'clef cloud login' first.");
           process.exit(1);
           return;
         }
 
-        if (targetEnv.sops?.backend === "cloud" && manifest.cloud) {
-          formatter.info(
-            `Environment '${opts.env}' is already using Cloud backend ` +
-              `(${manifest.cloud.keyId}). Nothing to do.`,
-          );
+        if (isSessionExpired(creds)) {
+          formatter.error("Session expired. Run 'clef cloud login'.");
+          process.exit(1);
           return;
         }
 
-        // Verify keyservice binary is available
-        let keyservicePath: string;
-        try {
-          keyservicePath = resolveKeyservicePath().path;
-        } catch {
-          formatter.error(
-            "Keyservice binary not found. Install the cloud package: npm install @clef-sh/cloud",
+        const me = await getMe(creds.base_url, creds.session_token);
+
+        formatter.print(`${sym("clef")}  Clef Cloud Status\n`);
+        formatter.print(`  Signed in as: ${me.user.login} (${me.user.email})`);
+
+        if (me.installation) {
+          formatter.print(
+            `  Bot installed: ${me.installation.account} (id: ${me.installation.id})`,
           );
+        } else {
+          formatter.print("  Bot installed: not yet");
+          formatter.hint("  Run 'clef cloud init' to install the bot.");
+        }
+
+        formatter.print(`  Plan: ${me.subscription.tier}`);
+      } catch (err) {
+        formatter.error(err instanceof Error ? err.message : String(err));
+        process.exit(1);
+      }
+    });
+
+  // ── clef cloud init ─────────────────────────────────────────────────────
+
+  cloud
+    .command("init")
+    .description("Sign up, install the Clef bot, and scaffold .clef/policy.yaml.")
+    .option("--provider <name>", "VCS provider", DEFAULT_PROVIDER)
+    .option("--repo <owner/name>", "Override repo detection")
+    .option("--no-browser", "Print URLs instead of opening browser")
+    .option("--non-interactive", "Skip prompts; fail if input needed")
+    .option("--policy-file <path>", "Custom policy file path", POLICY_FILE_PATH)
+    .option("--no-policy", "Skip policy file creation")
+    .action(async (opts) => {
+      try {
+        const provider = resolveAuthProvider(opts.provider as string);
+        const repoRoot = (program.opts().dir as string) || process.cwd();
+        const endpoint = resolveEndpoint();
+
+        // Step 1: Check for clef.yaml
+        const manifestPath = path.join(repoRoot, "clef.yaml");
+        if (!fs.existsSync(manifestPath)) {
+          formatter.error("No clef.yaml found. Run 'clef init' first.");
+          process.exit(1);
+          return;
+        }
+
+        // Step 2: Detect repo
+        const repo = (opts.repo as string) || (await detectRepo(runner));
+        if (!repo) {
+          formatter.error("Could not detect repo from git remote. Use --repo owner/name.");
           process.exit(1);
           return;
         }
 
         formatter.print(`${sym("clef")}  Clef Cloud\n`);
+        formatter.print("  This will:");
+        formatter.print(`    1. Sign you in to Clef Cloud via ${provider.displayName} (free tier)`);
+        formatter.print("    2. Install the Clef bot on this repo");
+        formatter.print("    3. Create .clef/policy.yaml with sensible defaults\n");
+        formatter.print(`  Detected repo: ${repo}`);
 
-        // Device flow — auth + payment
-        const existingCreds = readCloudCredentials();
-        const cloudEndpoint = existingCreds?.endpoint ?? CLOUD_DEFAULT_ENDPOINT;
-        formatter.print(`   Endpoint:  ${cloudEndpoint}`);
-        formatter.print(
-          `   Creds:     ${existingCreds ? `authenticated=${existingCreds.refreshToken ? "yes" : "no"}, endpoint=${existingCreds.endpoint}` : "none"}`,
-        );
+        // Step 3: Authenticate
+        const creds = await ensureAuth(provider, deps, endpoint);
+        if (!creds) {
+          process.exit(1);
+          return;
+        }
 
-        let integrationId: string;
-        let keyId: string;
-        let deviceFlowAccessToken: string | undefined;
-
-        if (existingCreds && existingCreds.refreshToken && manifest.cloud) {
-          // Already authenticated and cloud config exists — skip device flow
-          integrationId = manifest.cloud.integrationId;
-          keyId = manifest.cloud.keyId;
-          formatter.print(`   Using existing Cloud integration: ${keyId}`);
-        } else {
-          formatter.print(`   Opening browser to set up Cloud for ${opts.env}...`);
-
-          const session = await initiateDeviceFlow(cloudEndpoint, {
-            repoName: path.basename(repoRoot),
-            environment: opts.env,
-            clientVersion: deps.cliVersion,
-            flow: "setup",
-          });
-
-          formatter.print(`   If the browser doesn't open, visit:\n   ${session.loginUrl}\n`);
-
-          await deps.openBrowser(session.loginUrl, runner);
-          formatter.print(`   Waiting for authorization... (press Ctrl+C to cancel)`);
-
-          const result = await pollUntilComplete(session.pollUrl);
-
-          if (
-            result.status !== "complete" ||
-            !result.token ||
-            !result.integrationId ||
-            !result.keyId
-          ) {
-            formatter.error(
-              result.status === "expired"
-                ? "Session expired. Run 'clef cloud init' again."
-                : "Setup cancelled.",
+        // Step 4: Check if already installed
+        let alreadyInstalled = false;
+        try {
+          const me = await getMe(creds.base_url, creds.session_token);
+          if (me.installation) {
+            formatter.success(
+              `Bot already installed on ${me.installation.account} (id: ${me.installation.id})`,
             );
+            alreadyInstalled = true;
+          }
+        } catch {
+          // Non-fatal — proceed to install
+        }
+
+        if (!alreadyInstalled) {
+          // Start install flow
+          const installData = await startInstall(creds.base_url, creds.session_token);
+
+          formatter.print("\n  Opening browser to install the bot...");
+          formatter.print(`  If it doesn't open, go to: ${installData.install_url}\n`);
+
+          if (opts.browser !== false) {
+            await deps.openBrowser(installData.install_url, runner);
+          }
+
+          formatter.print("  Waiting for installation to complete... (press Ctrl+C to cancel)");
+
+          const installResult = await pollInstallUntilComplete(
+            creds.base_url,
+            installData.state,
+            installData.expires_in,
+          );
+
+          if (installResult.status !== "complete") {
+            formatter.error("Install timed out. Run 'clef cloud init' again.");
             process.exit(1);
             return;
           }
 
-          integrationId = result.integrationId;
-          keyId = result.keyId;
-
-          const creds: ClefCloudCredentials = {
-            refreshToken: result.token,
-            endpoint: existingCreds?.endpoint,
-            cognitoDomain: result.cognitoDomain,
-            clientId: result.clientId,
-          };
-          if (result.accessToken && result.accessTokenExpiresIn) {
-            creds.accessToken = result.accessToken;
-            creds.accessTokenExpiry = Date.now() + result.accessTokenExpiresIn * 1000;
-            deviceFlowAccessToken = result.accessToken;
-          }
-          writeCloudCredentials(creds);
-          formatter.success("Authorized");
+          formatter.success(`Installation confirmed (id: ${installResult.installation!.id})`);
         }
 
-        formatter.print(`\n   Provisioning Cloud backend for ${opts.env}...`);
-        formatter.print(`   ${sym("success")}  KMS key provisioned: ${keyId}`);
-
-        formatter.print(`\n   Migrating ${opts.env} secrets to Cloud backend...`);
-
-        // Build the cloud-enabled manifest in memory — don't write to disk yet
-        // so a failed migration can be retried with `clef cloud init` again.
-        const cloudManifest = structuredClone(manifest);
-        cloudManifest.cloud = { integrationId, keyId };
-        const cloudEnv = cloudManifest.environments.find((e) => e.name === opts.env);
-        if (cloudEnv) {
-          cloudEnv.sops = { backend: "cloud" };
-        }
-
-        const matrixManager = new MatrixManager();
-        const cells = matrixManager
-          .resolveMatrix(manifest, repoRoot)
-          .filter((c) => c.environment === opts.env && c.exists);
-
-        if (cells.length === 0) {
-          formatter.print(`   No encrypted files found for ${opts.env}.`);
-        } else {
-          const ageSopsClient = await deps.createSopsClient(repoRoot, runner);
-          const { accessToken, endpoint: ksEndpoint } = deviceFlowAccessToken
-            ? { accessToken: deviceFlowAccessToken, endpoint: cloudEndpoint }
-            : await resolveAccessToken();
-
-          const ksHandle = await spawnKeyservice({
-            binaryPath: keyservicePath,
-            token: accessToken,
-            endpoint: ksEndpoint,
-          });
-
-          try {
-            const cloudSopsClient = await deps.createSopsClient(repoRoot, runner, ksHandle.addr);
-
-            for (const cell of cells) {
-              const decrypted = await ageSopsClient.decrypt(cell.filePath);
-              await cloudSopsClient.encrypt(
-                cell.filePath,
-                decrypted.values,
-                cloudManifest,
-                cell.environment,
+        // Step 5: Scaffold policy file
+        if (opts.policy !== false) {
+          const existingPolicy = parsePolicyFile(repoRoot);
+          if (existingPolicy.valid) {
+            formatter.info("Policy file already exists.");
+          } else {
+            const { created } = scaffoldPolicyFile(repoRoot);
+            if (created) {
+              formatter.success(`Created ${POLICY_FILE_PATH}`);
+            } else {
+              formatter.warn(
+                `${POLICY_FILE_PATH} exists but could not be parsed: ${(existingPolicy as { valid: false; reason: string }).reason}`,
               );
-              const relPath = path.relative(repoRoot, cell.filePath);
-              formatter.print(`   ${sym("success")}  ${relPath}`);
+              formatter.hint("Fix or delete the file and run 'clef cloud init' again.");
             }
-
-            formatter.print(`\n   Verifying encrypted files...`);
-            for (const cell of cells) {
-              await cloudSopsClient.decrypt(cell.filePath);
-              const relPath = path.relative(repoRoot, cell.filePath);
-              formatter.print(`   ${sym("success")}  ${relPath}`);
-            }
-          } finally {
-            await ksHandle.kill();
           }
         }
 
-        // Migration succeeded — now persist the manifest changes
-        const rawManifest = readManifestYaml(repoRoot);
-        rawManifest.cloud = { integrationId, keyId };
-        const envs = rawManifest.environments as Array<Record<string, unknown>>;
-        const targetRawEnv = envs.find((e) => e.name === opts.env);
-        if (targetRawEnv) {
-          targetRawEnv.sops = { backend: "cloud" };
-        }
-        writeManifestYaml(repoRoot, rawManifest);
-
-        formatter.print(`\n   ${sym("success")}  Cloud setup complete.\n`);
-        formatter.print(`   Your ${opts.env} environment now uses Clef Cloud for encryption.`);
-        formatter.print(`   Other environments continue to use age keys locally.\n`);
-        formatter.hint("   Commit your changes: git add clef.yaml && git commit");
+        // Step 6: Print next steps
+        formatter.print("\n  Next steps:");
+        formatter.print("    1. Review .clef/policy.yaml");
+        formatter.print("    2. git add .clef/policy.yaml");
+        formatter.print('    3. git commit -m "Enable Clef bot"');
+        formatter.print("    4. Push — the bot will run on your next PR\n");
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        formatter.error(message);
+        formatter.error(err instanceof Error ? err.message : String(err));
         process.exit(1);
       }
     });
+
+  // ── clef cloud doctor ───────────────────────────────────────────────────
 
   cloud
-    .command("login")
-    .description("Authenticate with Clef Cloud.")
+    .command("doctor")
+    .description("Verify Clef Cloud setup: policy, credentials, git remote.")
     .action(async () => {
       try {
-        formatter.print(`${sym("clef")}  Clef Cloud\n`);
+        const repoRoot = (program.opts().dir as string) || process.cwd();
+        let issues = 0;
 
-        const existingCreds = readCloudCredentials();
-        const endpoint = existingCreds?.endpoint;
+        formatter.print(`${sym("clef")}  Clef Cloud Doctor\n`);
 
-        const session = await initiateDeviceFlow(endpoint, {
-          repoName: path.basename(process.cwd()),
-          clientVersion: deps.cliVersion,
-          flow: "login",
-        });
-
-        formatter.print(`   Opening browser to log in...`);
-        formatter.print(`   If the browser doesn't open, visit:\n   ${session.loginUrl}\n`);
-
-        const opened = await deps.openBrowser(session.loginUrl, runner);
-        if (!opened) {
-          formatter.warn("Could not open browser automatically. Visit the URL above.");
+        // Check clef.yaml
+        const manifestPath = path.join(repoRoot, "clef.yaml");
+        if (fs.existsSync(manifestPath)) {
+          formatter.print(`  ${sym("success")} clef.yaml found`);
+        } else {
+          formatter.print("  ✗ clef.yaml not found");
+          issues++;
         }
 
-        formatter.print(`   Waiting for authorization... (press Ctrl+C to cancel)`);
-
-        const result = await pollUntilComplete(session.pollUrl);
-
-        if (result.status === "expired") {
-          formatter.error("Session expired. Run 'clef cloud login' again.");
-          process.exit(1);
-          return;
-        }
-        if (result.status === "cancelled") {
-          formatter.info("Login cancelled.");
-          return;
+        // Check policy file
+        const policy = parsePolicyFile(repoRoot);
+        if (policy.valid) {
+          formatter.print(`  ${sym("success")} ${POLICY_FILE_PATH} valid`);
+        } else {
+          formatter.print(`  ✗ ${POLICY_FILE_PATH}: ${(policy as { reason: string }).reason}`);
+          issues++;
         }
 
-        if (result.token) {
-          const creds: ClefCloudCredentials = {
-            refreshToken: result.token,
-            endpoint,
-            cognitoDomain: result.cognitoDomain,
-            clientId: result.clientId,
-          };
-          if (result.accessToken && result.accessTokenExpiresIn) {
-            creds.accessToken = result.accessToken;
-            creds.accessTokenExpiry = Date.now() + result.accessTokenExpiresIn * 1000;
-          }
-          writeCloudCredentials(creds);
-          formatter.success("Logged in. Credentials saved to ~/.clef/credentials.yaml");
+        // Check credentials
+        const creds = readCloudCredentials();
+        if (creds && !isSessionExpired(creds)) {
+          formatter.print(`  ${sym("success")} Session valid (${creds.login})`);
+        } else if (creds && isSessionExpired(creds)) {
+          formatter.print("  ✗ Session token expired");
+          formatter.hint("  Run 'clef cloud login' to re-authenticate.");
+          issues++;
+        } else {
+          formatter.print("  ✗ Not logged in");
+          formatter.hint("  Run 'clef cloud login' to authenticate.");
+          issues++;
+        }
+
+        // Check git remote
+        const repo = await detectRepo(runner);
+        if (repo) {
+          formatter.print(`  ${sym("success")} Git remote: ${repo}`);
+        } else {
+          formatter.print("  ✗ Could not detect git remote");
+          issues++;
+        }
+
+        if (issues === 0) {
+          formatter.print("\n  Everything looks good!");
+        } else {
+          formatter.print(`\n  ${issues} issue${issues > 1 ? "s" : ""} found.`);
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        formatter.error(message);
+        formatter.error(err instanceof Error ? err.message : String(err));
         process.exit(1);
       }
     });
-}
 
-async function pollUntilComplete(pollUrl: string): Promise<DevicePollResult> {
-  for (;;) {
-    const result = await pollDeviceFlow(pollUrl);
-    if (
-      result.status === "complete" ||
-      result.status === "expired" ||
-      result.status === "cancelled"
-    ) {
-      return result;
-    }
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-  }
+  // ── clef cloud upgrade ──────────────────────────────────────────────────
+
+  cloud
+    .command("upgrade")
+    .description("Upgrade to a paid Clef Cloud plan.")
+    .action(() => {
+      formatter.info("Upgrade is not yet available.");
+    });
 }
