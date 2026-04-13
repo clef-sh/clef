@@ -10,6 +10,7 @@ import type { ClefManifest, MatrixStatus } from "@clef-sh/core";
 interface MatrixViewProps {
   setView: (view: ViewName) => void;
   setNs: (ns: string) => void;
+  setEnv?: (env: string) => void;
   manifest: ClefManifest | null;
   matrixStatuses: MatrixStatus[];
   reloadMatrix?: () => void;
@@ -18,6 +19,7 @@ interface MatrixViewProps {
 export function MatrixView({
   setView,
   setNs,
+  setEnv,
   manifest,
   matrixStatuses,
   reloadMatrix,
@@ -143,8 +145,9 @@ export function MatrixView({
           namespaces={namespaces}
           environments={environments}
           matrixStatuses={matrixStatuses}
-          onNamespaceClick={(nsName) => {
+          onNamespaceClick={(nsName, envName) => {
             setNs(nsName);
+            if (envName) setEnv?.(envName);
             setView("editor");
           }}
           onSyncClick={(nsName) => setSyncingNs(nsName)}

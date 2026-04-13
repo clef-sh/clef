@@ -15,6 +15,16 @@ import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
 import { readManifestYaml, writeManifestYaml } from "../manifest/io";
 import { TransactionManager } from "../tx";
 
+/** Options for creating a new service identity. */
+export interface CreateServiceIdentityOptions {
+  /** Per-environment KMS config. Envs listed here use KMS instead of age. */
+  kmsEnvConfigs?: Record<string, KmsConfig>;
+  /** Generate one age key pair shared across all age-backed environments. */
+  sharedRecipient?: boolean;
+  /** Runtime-only identity: keys are NOT registered on SOPS files. */
+  packOnly?: boolean;
+}
+
 /**
  * Manages service identities: creation, listing, key rotation, and drift validation.
  *
@@ -49,10 +59,7 @@ export class ServiceIdentityManager {
    * Create a new service identity with per-environment age key pairs or KMS envelope config.
    * For age-only: generates keys, updates the manifest, and registers public keys as SOPS recipients.
    * For KMS: stores KMS config in manifest, no age keys generated.
-   *
-   * @param kmsEnvConfigs - Optional per-environment KMS config. When provided, those envs use
-   *   KMS envelope encryption instead of generating age keys.
-   * @returns The created identity definition and the per-environment private keys (empty for KMS envs).
+   * For pack-only (runtime) identities: keys are generated but NOT registered on SOPS files.
    */
   async create(
     name: string,
@@ -60,11 +67,14 @@ export class ServiceIdentityManager {
     description: string,
     manifest: ClefManifest,
     repoRoot: string,
-    kmsEnvConfigs?: Record<string, KmsConfig>,
+    options?: CreateServiceIdentityOptions,
   ): Promise<{
     identity: ServiceIdentityDefinition;
     privateKeys: Record<string, string>;
+    sharedRecipient: boolean;
   }> {
+    const { kmsEnvConfigs, sharedRecipient, packOnly } = options ?? {};
+
     // Validate name uniqueness
     if (manifest.service_identities?.some((si) => si.name === name)) {
       throw new Error(`Service identity '${name}' already exists.`);
@@ -84,16 +94,22 @@ export class ServiceIdentityManager {
     const environments: Record<string, ServiceIdentityEnvironmentConfig> = {};
     const privateKeys: Record<string, string> = {};
 
+    // For shared-recipient mode, generate one key pair and reuse it across all
+    // age-backed environments. Per-env keys are still stored in the manifest
+    // (one recipient entry per env) so the underlying isolation model is intact
+    // — the user has simply chosen to use the same private key for all of them.
+    const sharedKey = sharedRecipient ? await generateAgeIdentity() : undefined;
+
     for (const env of manifest.environments) {
       const kmsConfig = kmsEnvConfigs?.[env.name];
       if (kmsConfig) {
         // KMS envelope path — no age keys generated
         environments[env.name] = { kms: kmsConfig };
       } else {
-        // Age-only path
-        const identity = await generateAgeIdentity();
-        environments[env.name] = { recipient: identity.publicKey };
-        privateKeys[env.name] = identity.privateKey;
+        // Age-only path: use shared key if requested, otherwise generate fresh
+        const ageIdentity = sharedKey ?? (await generateAgeIdentity());
+        environments[env.name] = { recipient: ageIdentity.publicKey };
+        privateKeys[env.name] = ageIdentity.privateKey;
       }
     }
 
@@ -102,21 +118,22 @@ export class ServiceIdentityManager {
       description,
       namespaces,
       environments,
+      ...(packOnly ? { pack_only: true } : {}),
     };
 
-    // Touched cells: every existing cell in (this SI's namespaces × all envs).
-    // The manifest is also touched. We pre-compute paths so the transaction
-    // can stage them and roll them back atomically on failure.
-    const cells = this.matrixManager
-      .resolveMatrix(manifest, repoRoot)
-      .filter((c) => c.exists && namespaces.includes(c.namespace));
+    // Pack-only (runtime) identities don't touch SOPS files — only the manifest.
+    const cells = packOnly
+      ? []
+      : this.matrixManager
+          .resolveMatrix(manifest, repoRoot)
+          .filter((c) => c.exists && namespaces.includes(c.namespace));
 
     await this.tx.run(repoRoot, {
       description: `clef service create ${name}`,
       paths: this.txPaths(repoRoot, cells),
       mutate: async () => {
         // Register public keys as SOPS recipients on scoped files BEFORE
-        // writing the manifest. (KMS envs have no recipient to register.)
+        // writing the manifest. (KMS envs and pack-only SIs skip this.)
         await this.registerRecipients(definition, manifest, repoRoot);
 
         const doc = readManifestYaml(repoRoot);
@@ -128,12 +145,13 @@ export class ServiceIdentityManager {
           description,
           namespaces,
           environments,
+          ...(packOnly ? { pack_only: true } : {}),
         });
         writeManifestYaml(repoRoot, doc);
       },
     });
 
-    return { identity: definition, privateKeys };
+    return { identity: definition, privateKeys, sharedRecipient: sharedKey !== undefined };
   }
 
   /**
@@ -160,9 +178,11 @@ export class ServiceIdentityManager {
       throw new Error(`Service identity '${name}' not found.`);
     }
 
-    const scopedCells = this.matrixManager
-      .resolveMatrix(manifest, repoRoot)
-      .filter((c) => c.exists && identity.namespaces.includes(c.namespace));
+    const scopedCells = identity.pack_only
+      ? []
+      : this.matrixManager
+          .resolveMatrix(manifest, repoRoot)
+          .filter((c) => c.exists && identity.namespaces.includes(c.namespace));
 
     await this.tx.run(repoRoot, {
       description: `clef service delete ${name}`,
@@ -240,7 +260,8 @@ export class ServiceIdentityManager {
         for (const [envName, kmsConfig] of Object.entries(kmsEnvConfigs)) {
           const oldConfig = identity.environments[envName];
           // If switching age → KMS, strip the old recipient from scoped files
-          if (oldConfig?.recipient && !isKmsEnvelope(oldConfig)) {
+          // (pack-only SIs never had recipients registered, so skip)
+          if (!identity.pack_only && oldConfig?.recipient && !isKmsEnvelope(oldConfig)) {
             const scopedCells = cells.filter((c) => c.environment === envName);
             for (const cell of scopedCells) {
               try {
@@ -263,12 +284,15 @@ export class ServiceIdentityManager {
 
   /**
    * Register a service identity's public keys as SOPS recipients on scoped matrix files.
+   * Pack-only (runtime) identities skip registration entirely.
    */
   async registerRecipients(
     identity: ServiceIdentityDefinition,
     manifest: ClefManifest,
     repoRoot: string,
   ): Promise<void> {
+    if (identity.pack_only) return;
+
     const cells = this.matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
 
     for (const cell of cells) {
@@ -341,20 +365,22 @@ export class ServiceIdentityManager {
       description: `clef service update ${name}: add namespaces ${toAdd.join(",")}`,
       paths: this.txPaths(repoRoot, cells),
       mutate: async () => {
-        for (const cell of cells) {
-          const envConfig = identity.environments[cell.environment];
-          if (!envConfig) continue;
-          if (isKmsEnvelope(envConfig)) continue;
-          if (!envConfig.recipient) continue;
+        if (!identity.pack_only) {
+          for (const cell of cells) {
+            const envConfig = identity.environments[cell.environment];
+            if (!envConfig) continue;
+            if (isKmsEnvelope(envConfig)) continue;
+            if (!envConfig.recipient) continue;
 
-          try {
-            await this.encryption.addRecipient(cell.filePath, envConfig.recipient);
-            affectedFiles.push(cell.filePath);
-          } catch (err) {
-            // SOPS may exit non-zero for duplicate recipients — safe to ignore
-            const message = err instanceof Error ? err.message : String(err);
-            if (!message.includes("already")) {
-              throw err;
+            try {
+              await this.encryption.addRecipient(cell.filePath, envConfig.recipient);
+              affectedFiles.push(cell.filePath);
+            } catch (err) {
+              // SOPS may exit non-zero for duplicate recipients — safe to ignore
+              const message = err instanceof Error ? err.message : String(err);
+              if (!message.includes("already")) {
+                throw err;
+              }
             }
           }
         }
@@ -421,17 +447,19 @@ export class ServiceIdentityManager {
       description: `clef service update ${name}: remove namespaces ${namespacesToRemove.join(",")}`,
       paths: this.txPaths(repoRoot, cells),
       mutate: async () => {
-        for (const cell of cells) {
-          const envConfig = identity.environments[cell.environment];
-          if (!envConfig) continue;
-          if (isKmsEnvelope(envConfig)) continue;
-          if (!envConfig.recipient) continue;
+        if (!identity.pack_only) {
+          for (const cell of cells) {
+            const envConfig = identity.environments[cell.environment];
+            if (!envConfig) continue;
+            if (isKmsEnvelope(envConfig)) continue;
+            if (!envConfig.recipient) continue;
 
-          try {
-            await this.encryption.removeRecipient(cell.filePath, envConfig.recipient);
-            affectedFiles.push(cell.filePath);
-          } catch {
-            // May not be a current recipient — safe to skip
+            try {
+              await this.encryption.removeRecipient(cell.filePath, envConfig.recipient);
+              affectedFiles.push(cell.filePath);
+            } catch {
+              // May not be a current recipient — safe to skip
+            }
           }
         }
 
@@ -515,9 +543,8 @@ export class ServiceIdentityManager {
       paths: this.txPaths(repoRoot, cells),
       mutate: async () => {
         // For age envs, register the new recipient on every scoped cell.
-        // KMS envs have no recipient on the cells — the cells are encrypted
-        // to the KMS-managed envelope key.
-        if (!isKmsEnvelope(envConfig) && envConfig.recipient) {
+        // KMS envs and pack-only SIs have no recipient on the cells.
+        if (!identity.pack_only && !isKmsEnvelope(envConfig) && envConfig.recipient) {
           for (const cell of cells) {
             try {
               await this.encryption.addRecipient(cell.filePath, envConfig.recipient);
@@ -594,14 +621,16 @@ export class ServiceIdentityManager {
       return newPrivateKeys;
     }
 
-    const cells = this.matrixManager
-      .resolveMatrix(manifest, repoRoot)
-      .filter(
-        (c) =>
-          c.exists &&
-          identity.namespaces.includes(c.namespace) &&
-          targetEnvNames.has(c.environment),
-      );
+    const cells = identity.pack_only
+      ? []
+      : this.matrixManager
+          .resolveMatrix(manifest, repoRoot)
+          .filter(
+            (c) =>
+              c.exists &&
+              identity.namespaces.includes(c.namespace) &&
+              targetEnvNames.has(c.environment),
+          );
 
     await this.tx.run(repoRoot, {
       description: `clef service rotate ${name}${environment ? `:${environment}` : ""}`,
@@ -620,17 +649,19 @@ export class ServiceIdentityManager {
 
           envs[envName] = { recipient: newPublicKey };
 
-          const scopedCells = cells.filter((c) => c.environment === envName);
-          for (const cell of scopedCells) {
-            try {
-              await this.encryption.removeRecipient(cell.filePath, oldRecipient);
-            } catch {
-              // May not be a current recipient — safe to skip
+          if (!identity.pack_only) {
+            const scopedCells = cells.filter((c) => c.environment === envName);
+            for (const cell of scopedCells) {
+              try {
+                await this.encryption.removeRecipient(cell.filePath, oldRecipient);
+              } catch {
+                // May not be a current recipient — safe to skip
+              }
+              // No try/catch around add: failure here triggers full transaction
+              // rollback (git reset --hard), which is safer than the old manual
+              // re-add dance.
+              await this.encryption.addRecipient(cell.filePath, newPublicKey);
             }
-            // No try/catch around add: failure here triggers full transaction
-            // rollback (git reset --hard), which is safer than the old manual
-            // re-add dance.
-            await this.encryption.addRecipient(cell.filePath, newPublicKey);
           }
         }
 
@@ -678,6 +709,25 @@ export class ServiceIdentityManager {
             fixCommand: `clef service add-env ${si.name} ${envName}`,
           });
         }
+      }
+
+      // Pack-only (runtime) SIs: skip recipient checks (they are never
+      // registered on SOPS files) but warn about shared recipients.
+      if (si.pack_only) {
+        const ageRecipients = Object.values(si.environments)
+          .filter((cfg) => !isKmsEnvelope(cfg) && cfg.recipient)
+          .map((cfg) => cfg.recipient!);
+        if (ageRecipients.length >= 2 && new Set(ageRecipients).size === 1) {
+          issues.push({
+            identity: si.name,
+            type: "runtime_shared_recipient",
+            message:
+              `Runtime identity '${si.name}' uses a shared recipient across all environments. ` +
+              "A compromised key in any environment decrypts artifacts for all environments. " +
+              "Consider per-environment keys for runtime workloads.",
+          });
+        }
+        continue;
       }
 
       // Check recipient registration on scoped files
