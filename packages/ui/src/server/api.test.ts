@@ -35,6 +35,25 @@ const mockResetReset = jest.fn().mockResolvedValue({
   affectedEnvironments: ["dev"],
 });
 
+const mockSyncPlan = jest.fn().mockResolvedValue({
+  cells: [
+    {
+      namespace: "database",
+      environment: "production",
+      filePath: "/repo/database/production.enc.yaml",
+      missingKeys: ["API_KEY"],
+      isProtected: true,
+    },
+  ],
+  totalKeys: 1,
+  hasProtectedEnvs: true,
+});
+const mockSyncSync = jest.fn().mockResolvedValue({
+  modifiedCells: ["database/production"],
+  scaffoldedKeys: { "database/production": ["API_KEY"] },
+  totalKeysScaffolded: 1,
+});
+
 // StructureManager method stubs — default to success. Tests override per-case
 // for error scenarios.
 const mockAddNamespace = jest.fn().mockResolvedValue(undefined);
@@ -69,6 +88,10 @@ jest.mock("@clef-sh/core", () => {
     })),
     ResetManager: jest.fn().mockImplementation(() => ({
       reset: mockResetReset,
+    })),
+    SyncManager: jest.fn().mockImplementation(() => ({
+      plan: mockSyncPlan,
+      sync: mockSyncSync,
     })),
     // TransactionManager wraps every mutation in a real RecipientManager,
     // BulkOps, ImportRunner, etc. Stub it so tests don't try to acquire
@@ -2138,6 +2161,70 @@ describe("API routes", () => {
       expect(res.status).toBe(500);
       expect(res.body.code).toBe("RESET_ERROR");
       expect(res.body.error).toContain("git lock contention");
+    });
+  });
+
+  describe("POST /api/sync/preview", () => {
+    it("returns plan for a valid namespace", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/sync/preview").send({ namespace: "database" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.totalKeys).toBe(1);
+      expect(res.body.cells).toHaveLength(1);
+      expect(mockSyncPlan).toHaveBeenCalledWith(expect.any(Object), expect.any(String), {
+        namespace: "database",
+      });
+    });
+
+    it("returns 404 for unknown namespace", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/sync/preview").send({ namespace: "nope" });
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe("NOT_FOUND");
+    });
+
+    it("returns plan for all namespaces when no namespace provided", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/sync/preview").send({});
+
+      expect(res.status).toBe(200);
+      expect(mockSyncPlan).toHaveBeenCalledWith(expect.any(Object), expect.any(String), {
+        namespace: undefined,
+      });
+    });
+  });
+
+  describe("POST /api/sync", () => {
+    it("executes sync and returns result", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/sync").send({ namespace: "database" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.result.totalKeysScaffolded).toBe(1);
+      expect(mockSyncSync).toHaveBeenCalledWith(expect.any(Object), expect.any(String), {
+        namespace: "database",
+      });
+    });
+
+    it("returns 404 for unknown namespace", async () => {
+      const app = createApp();
+      const res = await request(app).post("/api/sync").send({ namespace: "nope" });
+
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe("NOT_FOUND");
+    });
+
+    it("returns 500 on sync failure", async () => {
+      mockSyncSync.mockRejectedValueOnce(new Error("transaction failed"));
+      const app = createApp();
+      const res = await request(app).post("/api/sync").send({ namespace: "database" });
+
+      expect(res.status).toBe(500);
+      expect(res.body.code).toBe("SYNC_ERROR");
+      expect(res.body.error).toContain("transaction failed");
     });
   });
 });

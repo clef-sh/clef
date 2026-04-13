@@ -11,7 +11,7 @@ import {
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createCloudAwareSopsClient } from "../cloud-sops";
+import { createSopsClient } from "../age-credential";
 
 const MASKED = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
 
@@ -38,11 +38,7 @@ export function registerDiffCommand(program: Command, deps: { runner: Subprocess
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-          const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
-            repoRoot,
-            deps.runner,
-            manifest,
-          );
+          const sopsClient = await createSopsClient(repoRoot, deps.runner);
           try {
             const diffEngine = new DiffEngine();
 
@@ -95,7 +91,7 @@ export function registerDiffCommand(program: Command, deps: { runner: Subprocess
             const hasDiffs = result.rows.some((r) => r.status !== "identical");
             process.exit(hasDiffs ? 1 : 0);
           } finally {
-            await cleanup();
+            // no cleanup needed
           }
         } catch (err) {
           handleCommandError(err);

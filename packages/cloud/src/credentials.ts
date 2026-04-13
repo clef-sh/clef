@@ -1,44 +1,51 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import * as YAML from "yaml";
 import type { ClefCloudCredentials } from "./types";
-import { CLOUD_DEFAULT_ENDPOINT } from "./constants";
 
-const CREDENTIALS_FILENAME = "credentials.yaml";
+const CREDENTIALS_FILENAME = "cloud-credentials.json";
 
 /**
- * Read Cloud credentials from ~/.clef/credentials.yaml.
+ * Read Cloud credentials from ~/.clef/cloud-credentials.json.
  * Returns null if the file does not exist or is malformed.
  */
 export function readCloudCredentials(): ClefCloudCredentials | null {
   const credPath = path.join(os.homedir(), ".clef", CREDENTIALS_FILENAME);
 
-  let raw: unknown;
+  let raw: string;
   try {
-    raw = YAML.parse(fs.readFileSync(credPath, "utf-8"));
+    raw = fs.readFileSync(credPath, "utf-8");
   } catch {
     return null;
   }
 
-  if (!raw || typeof raw !== "object") return null;
-  const obj = raw as Record<string, unknown>;
+  let obj: unknown;
+  try {
+    obj = JSON.parse(raw);
+  } catch {
+    return null;
+  }
 
-  const refreshToken = typeof obj.refreshToken === "string" ? obj.refreshToken : "";
-  const accessToken = typeof obj.accessToken === "string" ? obj.accessToken : undefined;
-  const accessTokenExpiry =
-    typeof obj.accessTokenExpiry === "number" ? obj.accessTokenExpiry : undefined;
-  const endpoint = typeof obj.endpoint === "string" ? obj.endpoint : CLOUD_DEFAULT_ENDPOINT;
-  const cognitoDomain = typeof obj.cognitoDomain === "string" ? obj.cognitoDomain : undefined;
-  const clientId = typeof obj.clientId === "string" ? obj.clientId : undefined;
+  if (!obj || typeof obj !== "object") return null;
+  const data = obj as Record<string, unknown>;
 
-  if (!refreshToken && endpoint === CLOUD_DEFAULT_ENDPOINT) return null;
+  const sessionToken = typeof data.session_token === "string" ? data.session_token : "";
+  if (!sessionToken) return null;
 
-  return { refreshToken, accessToken, accessTokenExpiry, endpoint, cognitoDomain, clientId };
+  const provider = typeof data.provider === "string" ? data.provider : "github";
+
+  return {
+    session_token: sessionToken,
+    login: typeof data.login === "string" ? data.login : "",
+    email: typeof data.email === "string" ? data.email : "",
+    expires_at: typeof data.expires_at === "string" ? data.expires_at : "",
+    base_url: typeof data.base_url === "string" ? data.base_url : "",
+    provider: provider as "github" | "gitlab" | "bitbucket",
+  };
 }
 
 /**
- * Write Cloud credentials to ~/.clef/credentials.yaml.
+ * Write Cloud credentials to ~/.clef/cloud-credentials.json.
  * Creates ~/.clef/ with mode 0700 if it doesn't exist.
  * File is written with mode 0600 (owner read/write only).
  */
@@ -46,10 +53,26 @@ export function writeCloudCredentials(credentials: ClefCloudCredentials): void {
   const clefDir = path.join(os.homedir(), ".clef");
   fs.mkdirSync(clefDir, { recursive: true, mode: 0o700 });
   const credPath = path.join(clefDir, CREDENTIALS_FILENAME);
+  fs.writeFileSync(credPath, JSON.stringify(credentials, null, 2) + "\n", { mode: 0o600 });
+}
 
-  const content = Object.fromEntries(
-    Object.entries(credentials).filter(([, v]) => v !== undefined),
-  );
+/**
+ * Delete Cloud credentials from ~/.clef/cloud-credentials.json.
+ * No-op if the file does not exist.
+ */
+export function deleteCloudCredentials(): void {
+  const credPath = path.join(os.homedir(), ".clef", CREDENTIALS_FILENAME);
+  try {
+    fs.unlinkSync(credPath);
+  } catch {
+    // File doesn't exist — nothing to do
+  }
+}
 
-  fs.writeFileSync(credPath, YAML.stringify(content), { mode: 0o600 });
+/**
+ * Check whether the stored session token is expired.
+ */
+export function isSessionExpired(credentials: ClefCloudCredentials): boolean {
+  if (!credentials.expires_at) return true;
+  return new Date(credentials.expires_at).getTime() <= Date.now();
 }

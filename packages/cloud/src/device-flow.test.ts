@@ -1,6 +1,10 @@
-import { initiateDeviceFlow, pollDeviceFlow } from "./device-flow";
+import {
+  requestDeviceCode,
+  pollGitHubAuth,
+  exchangeGitHubToken,
+  runDeviceFlow,
+} from "./device-flow";
 
-// Mock global fetch
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
@@ -13,168 +17,219 @@ function jsonResponse(status: number, body: unknown) {
   };
 }
 
-describe("initiateDeviceFlow", () => {
-  beforeEach(() => {
-    mockFetch.mockReset();
-  });
+describe("requestDeviceCode", () => {
+  beforeEach(() => mockFetch.mockReset());
 
-  it("should POST to /api/v1/device/init and return session", async () => {
-    const session = {
-      sessionId: "sess_abc",
-      loginUrl: "https://cloud.clef.sh/setup?session=sess_abc",
-      pollUrl: "https://api.clef.sh/api/v1/device/poll/sess_abc",
-      expiresIn: 900,
-    };
-    mockFetch.mockResolvedValue(jsonResponse(200, session));
-
-    const result = await initiateDeviceFlow("https://api.clef.sh", {
-      repoName: "my-app",
-      environment: "production",
-      clientVersion: "0.1.11",
-      flow: "setup",
-    });
-
-    expect(result).toEqual(session);
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.clef.sh/api/v1/device/init",
-      expect.objectContaining({
-        method: "POST",
-        body: expect.stringContaining("my-app"),
+  it("should POST to GitHub device code endpoint and return parsed result", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(200, {
+        device_code: "dc_abc123",
+        user_code: "WDJB-MJHT",
+        verification_uri: "https://github.com/login/device",
+        expires_in: 900,
+        interval: 5,
       }),
     );
-  });
 
-  it("should use default endpoint when undefined", async () => {
-    mockFetch.mockResolvedValue(
-      jsonResponse(200, { sessionId: "s", loginUrl: "u", pollUrl: "p", expiresIn: 900 }),
-    );
+    const result = await requestDeviceCode("Iv1.test123");
 
-    await initiateDeviceFlow(undefined, {
-      repoName: "r",
-      environment: "e",
-      clientVersion: "v",
-      flow: "setup",
+    expect(result).toEqual({
+      deviceCode: "dc_abc123",
+      userCode: "WDJB-MJHT",
+      verificationUri: "https://github.com/login/device",
+      expiresIn: 900,
+      interval: 5,
     });
 
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.clef.sh/api/v1/device/init",
-      expect.anything(),
+      "https://github.com/login/device/code",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          client_id: "Iv1.test123",
+          scope: "read:user user:email",
+        }),
+      }),
     );
   });
 
   it("should throw on HTTP error", async () => {
-    mockFetch.mockResolvedValue(jsonResponse(500, { error: "internal" }));
+    mockFetch.mockResolvedValue(jsonResponse(422, { message: "bad request" }));
 
-    await expect(
-      initiateDeviceFlow("https://api.clef.sh", {
-        repoName: "r",
-        environment: "e",
-        clientVersion: "v",
-        flow: "setup",
-      }),
-    ).rejects.toThrow("Device flow init failed (500)");
-  });
-
-  it("should include flow field and environment for setup flow", async () => {
-    mockFetch.mockResolvedValue(
-      jsonResponse(200, { sessionId: "s", loginUrl: "u", pollUrl: "p", expiresIn: 900 }),
+    await expect(requestDeviceCode("Iv1.test123")).rejects.toThrow(
+      "GitHub device code request failed (422)",
     );
-
-    await initiateDeviceFlow("https://api.clef.sh", {
-      repoName: "my-app",
-      environment: "production",
-      clientVersion: "0.1.0",
-      flow: "setup",
-    });
-
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.flow).toBe("setup");
-    expect(body.environment).toBe("production");
-  });
-
-  it("should omit environment for login flow", async () => {
-    mockFetch.mockResolvedValue(
-      jsonResponse(200, { sessionId: "s", loginUrl: "u", pollUrl: "p", expiresIn: 900 }),
-    );
-
-    await initiateDeviceFlow("https://api.clef.sh", {
-      repoName: "my-app",
-      clientVersion: "0.1.0",
-      flow: "login",
-    });
-
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.flow).toBe("login");
-    expect(body.environment).toBeUndefined();
   });
 });
 
-describe("pollDeviceFlow", () => {
-  beforeEach(() => {
-    mockFetch.mockReset();
-  });
+describe("pollGitHubAuth", () => {
+  beforeEach(() => mockFetch.mockReset());
 
-  it("should return pending status", async () => {
-    mockFetch.mockResolvedValue(jsonResponse(200, { status: "pending" }));
-
-    const result = await pollDeviceFlow("https://api.clef.sh/api/v1/device/poll/sess_abc");
-
-    expect(result.status).toBe("pending");
-  });
-
-  it("should return complete with token and integration data", async () => {
+  it("should return success with access token when authorized", async () => {
     mockFetch.mockResolvedValue(
       jsonResponse(200, {
-        status: "complete",
-        token: "clef_tok_abc",
-        integrationId: "int_abc123",
-        keyId: "clef:int_abc123/production",
+        access_token: "gho_abc123",
+        token_type: "bearer",
+        scope: "read:user,user:email",
       }),
     );
 
-    const result = await pollDeviceFlow("https://api.clef.sh/api/v1/device/poll/sess_abc");
+    const result = await pollGitHubAuth("Iv1.test", "dc_abc", 0, 10);
 
-    expect(result.status).toBe("complete");
-    expect(result.token).toBe("clef_tok_abc");
-    expect(result.integrationId).toBe("int_abc123");
-    expect(result.keyId).toBe("clef:int_abc123/production");
+    expect(result).toEqual({ status: "success", accessToken: "gho_abc123" });
   });
 
-  it("should return complete with accessToken when server provides it", async () => {
-    mockFetch.mockResolvedValue(
-      jsonResponse(200, {
-        status: "complete",
-        token: "refresh_tok",
-        accessToken: "access_tok",
-        accessTokenExpiresIn: 3600,
-        cognitoDomain: "https://auth.example.com",
-        clientId: "cli_123",
-        integrationId: "int_abc",
-        keyId: "clef:int_abc/prod",
-      }),
-    );
+  it("should poll through authorization_pending then succeed", async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse(200, { error: "authorization_pending" }))
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          access_token: "gho_abc123",
+          token_type: "bearer",
+          scope: "read:user",
+        }),
+      );
 
-    const result = await pollDeviceFlow("https://api.clef.sh/api/v1/device/poll/sess_abc");
+    const result = await pollGitHubAuth("Iv1.test", "dc_abc", 0, 10);
 
-    expect(result.status).toBe("complete");
-    expect(result.accessToken).toBe("access_tok");
-    expect(result.accessTokenExpiresIn).toBe(3600);
-    expect(result.token).toBe("refresh_tok");
+    expect(result).toEqual({ status: "success", accessToken: "gho_abc123" });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
-  it("should return expired status", async () => {
-    mockFetch.mockResolvedValue(jsonResponse(200, { status: "expired" }));
+  it("should return expired when token expires", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, { error: "expired_token" }));
 
-    const result = await pollDeviceFlow("https://api.clef.sh/api/v1/device/poll/sess_abc");
+    const result = await pollGitHubAuth("Iv1.test", "dc_abc", 0, 10);
 
-    expect(result.status).toBe("expired");
+    expect(result).toEqual({ status: "expired" });
+  });
+
+  it("should return access_denied when user denies", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, { error: "access_denied" }));
+
+    const result = await pollGitHubAuth("Iv1.test", "dc_abc", 0, 10);
+
+    expect(result).toEqual({ status: "access_denied" });
   });
 
   it("should throw on HTTP error", async () => {
-    mockFetch.mockResolvedValue(jsonResponse(429, "rate limited"));
+    mockFetch.mockResolvedValue(jsonResponse(500, "server error"));
 
-    await expect(pollDeviceFlow("https://api.clef.sh/api/v1/device/poll/sess_abc")).rejects.toThrow(
-      "Device flow poll failed (429)",
+    await expect(pollGitHubAuth("Iv1.test", "dc_abc", 0, 10)).rejects.toThrow(
+      "GitHub token poll failed (500)",
     );
+  });
+});
+
+describe("exchangeGitHubToken", () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it("should exchange GitHub token for Clef session credentials", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(200, {
+        data: {
+          session_token: "jwt_abc",
+          user: { id: "u1", login: "jamesspears", email: "james@clef.sh" },
+        },
+        success: true,
+      }),
+    );
+
+    const result = await exchangeGitHubToken("https://cloud.clef.sh", "gho_abc");
+
+    expect(result.session_token).toBe("jwt_abc");
+    expect(result.login).toBe("jamesspears");
+    expect(result.email).toBe("james@clef.sh");
+    expect(result.base_url).toBe("https://cloud.clef.sh");
+    expect(result.provider).toBe("github");
+    expect(result.expires_at).toBeTruthy();
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://cloud.clef.sh/api/v1/auth/github/token",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ access_token: "gho_abc" }),
+      }),
+    );
+  });
+
+  it("should throw friendly message on 5xx", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(500, "internal"));
+
+    await expect(exchangeGitHubToken("https://cloud.clef.sh", "gho_abc")).rejects.toThrow(
+      "Authentication failed. Try again later.",
+    );
+  });
+
+  it("should throw on 4xx with body", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(400, "bad request"));
+
+    await expect(exchangeGitHubToken("https://cloud.clef.sh", "gho_abc")).rejects.toThrow(
+      "Token exchange failed (400)",
+    );
+  });
+});
+
+describe("runDeviceFlow", () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it("should run the full flow and return credentials on success", async () => {
+    // Step 1: device code
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse(200, {
+        device_code: "dc_abc",
+        user_code: "ABCD-1234",
+        verification_uri: "https://github.com/login/device",
+        expires_in: 900,
+        interval: 0,
+      }),
+    );
+
+    // Step 3: poll (immediate success)
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse(200, {
+        access_token: "gho_success",
+        token_type: "bearer",
+        scope: "read:user",
+      }),
+    );
+
+    // Step 4: exchange
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse(200, {
+        data: {
+          session_token: "jwt_session",
+          user: { id: "u1", login: "testuser", email: "test@test.com" },
+        },
+        success: true,
+      }),
+    );
+
+    const onDeviceCode = jest.fn();
+    const result = await runDeviceFlow("Iv1.test", "https://cloud.clef.sh", onDeviceCode);
+
+    expect(result.status).toBe("success");
+    expect(result.credentials!.session_token).toBe("jwt_session");
+    expect(result.credentials!.login).toBe("testuser");
+    expect(onDeviceCode).toHaveBeenCalledWith(expect.objectContaining({ userCode: "ABCD-1234" }));
+  });
+
+  it("should return expired when device code expires", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse(200, {
+        device_code: "dc_abc",
+        user_code: "ABCD-1234",
+        verification_uri: "https://github.com/login/device",
+        expires_in: 900,
+        interval: 0,
+      }),
+    );
+
+    mockFetch.mockResolvedValueOnce(jsonResponse(200, { error: "expired_token" }));
+
+    const result = await runDeviceFlow("Iv1.test", "https://cloud.clef.sh", jest.fn());
+
+    expect(result.status).toBe("expired");
+    expect(result.credentials).toBeUndefined();
   });
 });

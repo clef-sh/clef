@@ -5,7 +5,7 @@ import { Command } from "commander";
 import { ManifestParser, ConsumptionClient, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
-import { createCloudAwareSopsClient } from "../cloud-sops";
+import { createSopsClient } from "../age-credential";
 import { parseTarget } from "../parse-target";
 
 function collect(value: string, previous: string[]): string[] {
@@ -80,11 +80,7 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
             formatter.warn(`Executing in protected environment '${environment}'.`);
           }
 
-          const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
-            repoRoot,
-            deps.runner,
-            manifest,
-          );
+          const sopsClient = await createSopsClient(repoRoot, deps.runner);
           try {
             // Decrypt primary target
             const primaryFilePath = path.join(
@@ -144,7 +140,7 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
             const exitCode = await spawnChild(childCommand, childCommandArgs, childEnv);
             process.exit(exitCode);
           } finally {
-            await cleanup();
+            // no cleanup needed
           }
         } catch (err) {
           handleCommandError(err);

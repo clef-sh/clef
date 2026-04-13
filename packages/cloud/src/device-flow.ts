@@ -1,119 +1,199 @@
 /**
- * Device flow client for Clef Cloud authentication.
+ * GitHub Device Flow (RFC 8628) client for Clef Cloud authentication.
  *
- * The CLI initiates a device flow session, opens the browser to the login URL,
- * and polls until the user completes auth + payment. Same pattern as
- * `gh auth login` and Claude Code.
+ * The CLI authenticates using GitHub's native Device Flow:
+ * 1. Request a device code from GitHub
+ * 2. Display the user code and open the verification URL
+ * 3. Poll GitHub until the user enters the code
+ * 4. Exchange the GitHub access token for a Clef session JWT
  */
-import { CLOUD_DEFAULT_ENDPOINT } from "./constants";
+import {
+  GITHUB_DEVICE_CODE_URL,
+  GITHUB_ACCESS_TOKEN_URL,
+  GITHUB_DEVICE_FLOW_SCOPES,
+  SESSION_TOKEN_LIFETIME_MS,
+} from "./constants";
+import type {
+  GitHubDeviceCodeResponse,
+  GitHubAccessTokenResponse,
+  ClefTokenExchangeResponse,
+  ClefCloudCredentials,
+} from "./types";
 
-export interface DeviceSession {
-  sessionId: string;
-  loginUrl: string;
-  pollUrl: string;
-  /** Session lifetime in seconds. */
+/** Result of requesting a device code from GitHub. */
+export interface DeviceCodeResult {
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
   expiresIn: number;
+  interval: number;
 }
 
-export type DeviceFlowType = "login" | "setup";
+export type DeviceFlowStatus = "success" | "expired" | "access_denied";
 
-export interface DevicePollResult {
-  status: "pending" | "awaiting_payment" | "complete" | "cancelled" | "expired";
-  /** Cognito refresh token. Present when status is "complete". */
-  token?: string;
-  /** Cognito access token. Present when status is "complete". */
-  accessToken?: string;
-  /** Access token lifetime in seconds. Present alongside accessToken. */
-  accessTokenExpiresIn?: number;
-  /** Present when status is "complete". */
-  integrationId?: string;
-  /** Present when status is "complete". */
-  keyId?: string;
-  /** Cognito OAuth2 domain URL for token refresh. Present when status is "complete". */
-  cognitoDomain?: string;
-  /** CLI Cognito app client ID. Present when status is "complete". */
-  clientId?: string;
+/** Result of completing the full device flow (GitHub + Clef token exchange). */
+export interface DeviceFlowResult {
+  status: DeviceFlowStatus;
+  credentials?: ClefCloudCredentials;
 }
 
 /**
- * Initiate a device flow session with the Cloud API.
- *
- * @param endpoint - Cloud API base URL. Defaults to https://api.clef.sh.
- * @param options - Session metadata carried into the browser flow.
- * @returns The session with a login URL to open in the browser.
+ * Step 1: Request a device code from GitHub.
  */
-export async function initiateDeviceFlow(
-  endpoint: string | undefined,
-  options: {
-    repoName: string;
-    environment?: string;
-    clientVersion: string;
-    flow: DeviceFlowType;
-  },
-): Promise<DeviceSession> {
-  const base = endpoint ?? CLOUD_DEFAULT_ENDPOINT;
-  const payload: Record<string, string> = {
-    clientType: "cli",
-    clientVersion: options.clientVersion,
-    repoName: options.repoName,
-    flow: options.flow,
+export async function requestDeviceCode(clientId: string): Promise<DeviceCodeResult> {
+  const res = await fetch(GITHUB_DEVICE_CODE_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      client_id: clientId,
+      scope: GITHUB_DEVICE_FLOW_SCOPES,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`GitHub device code request failed (${res.status}): ${body}`);
+  }
+
+  const data = (await res.json()) as GitHubDeviceCodeResponse;
+  return {
+    deviceCode: data.device_code,
+    userCode: data.user_code,
+    verificationUri: data.verification_uri,
+    expiresIn: data.expires_in,
+    interval: data.interval,
   };
-  if (options.environment) {
-    payload.environment = options.environment;
-  }
-  let res: Response;
-  try {
-    res = await fetch(`${base}/api/v1/device/init`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  } catch (err) {
-    const cause = err instanceof Error ? (err as Error & { cause?: unknown }).cause : undefined;
-    const reason =
-      cause instanceof Error ? cause.message : err instanceof Error ? err.message : String(err);
-    throw new Error(`Could not reach Clef Cloud at ${base}: ${reason}`);
-  }
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Device flow init failed (${res.status}): ${body}`);
-  }
-
-  const json = await res.json();
-  // Support both { data: { ... } } (saas API) and flat { ... } formats
-  const session = (json.data ?? json) as DeviceSession;
-
-  // The API may return a relative pollUrl — resolve it against the base
-  if (session.pollUrl && !session.pollUrl.startsWith("http")) {
-    session.pollUrl = `${base}${session.pollUrl}`;
-  }
-
-  return session;
 }
 
 /**
- * Poll a device flow session for completion.
+ * Step 3: Poll GitHub until the user completes authorization.
  *
- * @param pollUrl - The full poll URL returned by {@link initiateDeviceFlow}.
- * @returns The current session state.
+ * Returns the GitHub access token on success, or a terminal status.
  */
-export async function pollDeviceFlow(pollUrl: string): Promise<DevicePollResult> {
-  let res: Response;
-  try {
-    res = await fetch(pollUrl);
-  } catch (err) {
-    const cause = err instanceof Error ? (err as Error & { cause?: unknown }).cause : undefined;
-    const reason =
-      cause instanceof Error ? cause.message : err instanceof Error ? err.message : String(err);
-    throw new Error(`Could not reach Clef Cloud poll endpoint: ${reason}`);
+export async function pollGitHubAuth(
+  clientId: string,
+  deviceCode: string,
+  intervalSeconds: number,
+  expiresIn: number,
+): Promise<{ status: "success"; accessToken: string } | { status: "expired" | "access_denied" }> {
+  const deadline = Date.now() + expiresIn * 1000;
+
+  while (Date.now() < deadline) {
+    await sleep(intervalSeconds * 1000);
+
+    const res = await fetch(GITHUB_ACCESS_TOKEN_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        client_id: clientId,
+        device_code: deviceCode,
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`GitHub token poll failed (${res.status}): ${body}`);
+    }
+
+    const data = (await res.json()) as GitHubAccessTokenResponse & { error?: string };
+
+    if (data.error === "authorization_pending") {
+      continue;
+    }
+    if (data.error === "slow_down") {
+      // GitHub is asking us to back off — increase interval by 5 seconds per spec
+      intervalSeconds += 5;
+      continue;
+    }
+    if (data.error === "expired_token") {
+      return { status: "expired" };
+    }
+    if (data.error === "access_denied") {
+      return { status: "access_denied" };
+    }
+    if (data.error) {
+      throw new Error(`GitHub device flow error: ${data.error}`);
+    }
+
+    // Success — we have an access token
+    return { status: "success", accessToken: data.access_token };
   }
+
+  return { status: "expired" };
+}
+
+/**
+ * Step 4: Exchange a GitHub OAuth access token for a Clef session JWT.
+ */
+export async function exchangeGitHubToken(
+  baseUrl: string,
+  githubAccessToken: string,
+): Promise<ClefCloudCredentials> {
+  const res = await fetch(`${baseUrl}/api/v1/auth/github/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ access_token: githubAccessToken }),
+  });
 
   if (!res.ok) {
+    if (res.status >= 500) {
+      throw new Error("Authentication failed. Try again later.");
+    }
     const body = await res.text().catch(() => "");
-    throw new Error(`Device flow poll failed (${res.status}): ${body}`);
+    throw new Error(`Token exchange failed (${res.status}): ${body}`);
   }
 
-  const json = await res.json();
-  return (json.data ?? json) as DevicePollResult;
+  const json = (await res.json()) as ClefTokenExchangeResponse;
+  if (!json.success) {
+    throw new Error(
+      `Token exchange failed: ${(json as { message?: string }).message ?? "unknown error"}`,
+    );
+  }
+
+  const expiresAt = new Date(Date.now() + SESSION_TOKEN_LIFETIME_MS).toISOString();
+
+  return {
+    session_token: json.data.session_token,
+    login: json.data.user.login,
+    email: json.data.user.email,
+    expires_at: expiresAt,
+    base_url: baseUrl,
+    provider: "github",
+  };
+}
+
+/**
+ * Run the full GitHub Device Flow: request code, poll for auth, exchange token.
+ *
+ * The caller is responsible for displaying the user code and opening the browser.
+ * This function yields control back after requesting the device code so the caller
+ * can display the code, then resumes polling.
+ */
+export async function runDeviceFlow(
+  clientId: string,
+  baseUrl: string,
+  onDeviceCode: (result: DeviceCodeResult) => void | Promise<void>,
+): Promise<DeviceFlowResult> {
+  const code = await requestDeviceCode(clientId);
+  await onDeviceCode(code);
+
+  const authResult = await pollGitHubAuth(clientId, code.deviceCode, code.interval, code.expiresIn);
+
+  if (authResult.status !== "success") {
+    return { status: authResult.status };
+  }
+
+  const credentials = await exchangeGitHubToken(baseUrl, authResult.accessToken);
+  return { status: "success", credentials };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

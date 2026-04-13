@@ -31,12 +31,6 @@ export interface SubprocessOptions {
 
 // ── Manifest ────────────────────────────────────────────────────────────────
 
-/** Cloud integration configuration stored in the manifest. */
-export interface ClefCloudConfig {
-  integrationId: string;
-  keyId: string;
-}
-
 /** Parsed and validated contents of a `clef.yaml` manifest file. */
 export interface ClefManifest {
   version: number;
@@ -45,11 +39,10 @@ export interface ClefManifest {
   sops: SopsConfig;
   file_pattern: string;
   service_identities?: ServiceIdentityDefinition[];
-  cloud?: ClefCloudConfig;
 }
 
 /** Supported SOPS encryption backend identifiers. */
-export type BackendType = "age" | "awskms" | "gcpkms" | "azurekv" | "pgp" | "cloud";
+export type BackendType = "age" | "awskms" | "gcpkms" | "azurekv" | "pgp";
 
 /** Per-environment SOPS backend override. */
 export interface EnvironmentSopsOverride {
@@ -481,7 +474,7 @@ export class SopsVersionError extends ClefError {
 
 // ── KMS Envelope Encryption ──────────────────────────────────────────────
 
-export type KmsProviderType = "aws" | "gcp" | "azure" | "cloud";
+export type KmsProviderType = "aws" | "gcp" | "azure";
 
 export interface KmsConfig {
   provider: KmsProviderType;

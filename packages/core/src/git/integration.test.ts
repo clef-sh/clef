@@ -301,51 +301,56 @@ describe("GitIntegration", () => {
   });
 
   describe("installPreCommitHook", () => {
-    it("should write hook file and make it executable", async () => {
-      const runner = mockRunner(async () => ({
-        stdout: "",
-        stderr: "",
-        exitCode: 0,
-      }));
-      const git = new GitIntegration(runner);
+    let tmpRepo: string;
 
-      await git.installPreCommitHook("/repo");
+    beforeEach(() => {
+      tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), "git-hook-test-"));
+      fs.mkdirSync(path.join(tmpRepo, ".git", "hooks"), { recursive: true });
+    });
 
-      // Should call tee to write the hook
-      expect(runner.run).toHaveBeenCalledWith(
-        "tee",
-        ["/repo/.git/hooks/pre-commit"],
-        expect.objectContaining({ stdin: expect.stringContaining("#!/bin/sh") }),
+    afterEach(() => {
+      try {
+        fs.rmSync(tmpRepo, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
+    });
+
+    it("should write hook file with shebang and correct mode", async () => {
+      const git = new GitIntegration(mockRunner());
+
+      await git.installPreCommitHook(tmpRepo);
+
+      const hookPath = path.join(tmpRepo, ".git", "hooks", "pre-commit");
+      const content = fs.readFileSync(hookPath, "utf-8");
+      expect(content).toContain("#!/bin/sh");
+      expect(content).toContain("CLEF_IN_TRANSACTION");
+
+      const stat = fs.statSync(hookPath);
+      // Owner-execute bit should be set (mode & 0o100)
+      expect(stat.mode & 0o100).toBeTruthy();
+    });
+
+    it("should create hooks directory if missing", async () => {
+      const noHooksDir = fs.mkdtempSync(path.join(os.tmpdir(), "git-hook-test-"));
+      fs.mkdirSync(path.join(noHooksDir, ".git"));
+      const git = new GitIntegration(mockRunner());
+
+      await git.installPreCommitHook(noHooksDir);
+
+      const hookPath = path.join(noHooksDir, ".git", "hooks", "pre-commit");
+      expect(fs.existsSync(hookPath)).toBe(true);
+
+      fs.rmSync(noHooksDir, { recursive: true, force: true });
+    });
+
+    it("should throw GitOperationError when write fails", async () => {
+      const git = new GitIntegration(mockRunner());
+
+      // Point at a path that can't be written to
+      await expect(git.installPreCommitHook("/nonexistent/repo")).rejects.toThrow(
+        GitOperationError,
       );
-
-      // Should call chmod
-      expect(runner.run).toHaveBeenCalledWith("chmod", ["+x", "/repo/.git/hooks/pre-commit"], {
-        cwd: "/repo",
-      });
-    });
-
-    it("should throw GitOperationError when tee fails", async () => {
-      const runner = mockRunner(async (command) => {
-        if (command === "tee") {
-          return { stdout: "", stderr: "Permission denied", exitCode: 1 };
-        }
-        return { stdout: "", stderr: "", exitCode: 0 };
-      });
-      const git = new GitIntegration(runner);
-
-      await expect(git.installPreCommitHook("/repo")).rejects.toThrow(GitOperationError);
-    });
-
-    it("should throw GitOperationError when chmod fails", async () => {
-      const runner = mockRunner(async (command) => {
-        if (command === "chmod") {
-          return { stdout: "", stderr: "Operation not permitted", exitCode: 1 };
-        }
-        return { stdout: "", stderr: "", exitCode: 0 };
-      });
-      const git = new GitIntegration(runner);
-
-      await expect(git.installPreCommitHook("/repo")).rejects.toThrow(GitOperationError);
     });
   });
 

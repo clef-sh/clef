@@ -12,7 +12,7 @@ import {
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createCloudAwareSopsClient } from "../cloud-sops";
+import { createSopsClient } from "../age-credential";
 import { lintResultToOtlp, pushOtlp, resolveTelemetryConfig } from "../output/otlp";
 import { version as cliVersion } from "../../package.json";
 
@@ -33,11 +33,7 @@ export function registerLintCommand(program: Command, deps: { runner: Subprocess
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
-          repoRoot,
-          deps.runner,
-          manifest,
-        );
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
         try {
           const matrixManager = new MatrixManager();
           const schemaValidator = new SchemaValidator();
@@ -79,7 +75,7 @@ export function registerLintCommand(program: Command, deps: { runner: Subprocess
           const hasErrors = result.issues.some((i) => i.severity === "error");
           process.exit(hasErrors ? 1 : 0);
         } finally {
-          await cleanup();
+          // no cleanup needed
         }
       } catch (err) {
         handleCommandError(err);

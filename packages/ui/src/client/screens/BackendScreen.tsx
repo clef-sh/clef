@@ -45,7 +45,6 @@ const BACKEND_LABELS: Record<BackendType, string> = {
   gcpkms: "GCP KMS",
   azurekv: "Azure Key Vault",
   pgp: "PGP",
-  cloud: "Cloud KMS",
 };
 
 const KEY_PLACEHOLDERS: Record<string, string> = {

@@ -48,7 +48,7 @@ export interface MigrationProgressEvent {
 
 /**
  * Maps a SOPS backend to the manifest field that holds its key identifier.
- * `undefined` for backends that don't take a key (age, cloud).
+ * `undefined` for backends that don't take a key (age).
  *
  * Exported so other backend-aware commands (clef reset, etc.) can
  * honour the same field layout without duplicating the mapping.
@@ -59,7 +59,6 @@ export const BACKEND_KEY_FIELDS: Record<BackendType, keyof EnvironmentSopsOverri
   gcpkms: "gcp_kms_resource_id",
   azurekv: "azure_kv_url",
   pgp: "pgp_fingerprint",
-  cloud: undefined,
 };
 
 const ALL_KEY_FIELDS = Object.values(BACKEND_KEY_FIELDS).filter(
@@ -324,21 +323,6 @@ export class BackendMigrator {
       }
       if (keyField && target.key) {
         sops[keyField] = target.key;
-      }
-    }
-
-    // Remove the cloud config block if no environment still uses the cloud backend
-    if (doc.cloud && target.backend !== "cloud") {
-      const sops = doc.sops as Record<string, unknown>;
-      const environments = doc.environments as Record<string, unknown>[];
-      const defaultIsCloud = sops.default_backend === "cloud";
-      const anyEnvIsCloud = environments.some((e) => {
-        const envSops = e.sops as Record<string, unknown> | undefined;
-        return envSops?.backend === "cloud";
-      });
-
-      if (!defaultIsCloud && !anyEnvIsCloud) {
-        delete doc.cloud;
       }
     }
   }
