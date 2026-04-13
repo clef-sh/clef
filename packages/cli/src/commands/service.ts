@@ -55,7 +55,6 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
       "--shared-recipient",
       "Generate one age key pair shared across all environments instead of one per environment",
     )
-    .option("--no-shared-recipient", "Generate a separate age key pair per environment")
     .option(
       "--runtime",
       "Create a runtime identity (artifact-only). Keys are NOT registered on encrypted files.",
@@ -87,11 +86,9 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           const isRuntime = opts.runtime === true;
 
           // Smart defaults: CI → shared-recipient, Runtime → per-env.
-          // Commander sets sharedRecipient=true with --shared-recipient and
-          // sharedRecipient=false with --no-shared-recipient. When neither is
-          // passed, it is undefined — use the role-based default.
-          const sharedRecipient =
-            opts.sharedRecipient !== undefined ? opts.sharedRecipient : !isRuntime;
+          // --shared-recipient explicitly overrides to true. When omitted,
+          // use the role-based default: CI = shared, Runtime = per-env.
+          const sharedRecipient = opts.sharedRecipient === true ? true : !isRuntime;
 
           // Runtime SIs don't touch SOPS files — skip protected-env confirmation.
           const protectedEnvs = manifest.environments.filter((e) => e.protected).map((e) => e.name);
