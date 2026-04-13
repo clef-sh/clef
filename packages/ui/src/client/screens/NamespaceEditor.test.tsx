@@ -42,7 +42,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     expect(screen.getByText("DB_HOST")).toBeInTheDocument();
@@ -56,7 +56,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     // Click production tab
@@ -77,7 +77,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     await act(async () => {
@@ -94,7 +94,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     expect(screen.getByText("Decrypt failed")).toBeInTheDocument();
@@ -107,7 +107,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     await act(async () => {
@@ -126,7 +126,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     await act(async () => {
@@ -149,7 +149,7 @@ describe("NamespaceEditor", () => {
     global.fetch = fetchMock;
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     await act(async () => {
@@ -188,7 +188,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     await act(async () => {
@@ -206,7 +206,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     // Open overflow menu
@@ -230,7 +230,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     await act(async () => {
@@ -260,7 +260,7 @@ describe("NamespaceEditor", () => {
     global.fetch = fetchMock;
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     await act(async () => {
@@ -292,7 +292,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     // Reveal the value
@@ -318,7 +318,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     // Reveal a value to start the timer
@@ -347,7 +347,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     // Switch to production tab
@@ -384,7 +384,7 @@ describe("NamespaceEditor", () => {
     global.fetch = fetchMock;
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     // Switch to production tab
@@ -435,7 +435,7 @@ describe("NamespaceEditor", () => {
     global.fetch = fetchMock;
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     // Switch to production tab
@@ -480,7 +480,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     // Switch to production tab
@@ -509,7 +509,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     // Stay on dev tab (default)
@@ -542,7 +542,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     expect(screen.getByTestId("accept-value-DB_HOST")).toBeInTheDocument();
@@ -569,7 +569,7 @@ describe("NamespaceEditor", () => {
     global.fetch = fetchMock;
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     // Click accept
@@ -598,7 +598,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     await act(async () => {
@@ -615,7 +615,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     await act(async () => {
@@ -638,7 +638,7 @@ describe("NamespaceEditor", () => {
     global.fetch = fetchMock;
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     await act(async () => {
@@ -672,7 +672,7 @@ describe("NamespaceEditor", () => {
     } as Response);
 
     await act(async () => {
-      render(<NamespaceEditor ns="database" manifest={manifest} onCommit={jest.fn()} />);
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
     });
 
     await act(async () => {

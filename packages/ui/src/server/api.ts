@@ -16,7 +16,6 @@ import {
   LintRunner,
   SchemaValidator,
   GitIntegration,
-  BulkOps,
   ScanRunner,
   SubprocessRunner,
   ClefManifest,
@@ -35,6 +34,7 @@ import {
   VALID_KMS_PROVIDERS,
   BackendMigrator,
   ResetManager,
+  SyncManager,
   resolveBackendConfig,
   validateResetScope,
 } from "@clef-sh/core";
@@ -129,7 +129,7 @@ export function createApiRouter(deps: ApiDeps): Router {
   const serviceIdManager = new ServiceIdentityManager(sops, matrix, tx);
   const backendMigrator = new BackendMigrator(sops, matrix, tx);
   const resetManager = new ResetManager(matrix, sops, schemaValidator, tx);
-  const bulkOps = new BulkOps(tx);
+  const syncManager = new SyncManager(matrix, sops, tx);
   const structureManager = new StructureManager(matrix, sops, tx);
 
   // In-session scan cache
@@ -437,10 +437,19 @@ export function createApiRouter(deps: ApiDeps): Router {
           return;
         }
 
-        const filePath = `${deps.repoRoot}/${manifest.file_pattern.replace("{namespace}", ns).replace("{environment}", env)}`;
+        const relCellPath = manifest.file_pattern
+          .replace("{namespace}", ns)
+          .replace("{environment}", env);
+        const filePath = `${deps.repoRoot}/${relCellPath}`;
         const decrypted = await sops.decrypt(filePath);
         const value = key in decrypted.values ? String(decrypted.values[key]) : undefined;
-        await markResolved(filePath, [key]);
+        await tx.run(deps.repoRoot, {
+          description: `clef ui: accept ${ns}/${env}/${key}`,
+          paths: [relCellPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
+          mutate: async () => {
+            await markResolved(filePath, [key]);
+          },
+        });
         res.json({ success: true, key, value });
       } catch {
         res.status(500).json({ error: "Failed to accept pending value", code: "ACCEPT_ERROR" });
@@ -491,7 +500,30 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
-      await bulkOps.copyValue(key, fromCell, toCell, sops, manifest, deps.repoRoot);
+      const source = await sops.decrypt(fromCell.filePath);
+      if (!(key in source.values)) {
+        res.status(404).json({
+          error: `Key '${key}' not found in ${fromNs}/${fromEnv}.`,
+          code: "KEY_NOT_FOUND",
+        });
+        return;
+      }
+
+      const relToPath = path.relative(deps.repoRoot, toCell.filePath);
+      await tx.run(deps.repoRoot, {
+        description: `clef ui: copy ${key} from ${fromNs}/${fromEnv} to ${toNs}/${toEnv}`,
+        paths: [relToPath, relToPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
+        mutate: async () => {
+          const dest = await sops.decrypt(toCell.filePath);
+          dest.values[key] = source.values[key];
+          await sops.encrypt(toCell.filePath, dest.values, manifest, toCell.environment);
+          try {
+            await markResolved(toCell.filePath, [key]);
+          } catch {
+            // Non-fatal — destination may not have had pending state
+          }
+        },
+      });
       res.json({ success: true, key, from: `${fromNs}/${fromEnv}`, to: `${toNs}/${toEnv}` });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to copy value";
@@ -1408,6 +1440,58 @@ export function createApiRouter(deps: ApiDeps): Router {
       const status = isUserError ? 400 : 500;
       const code = isUserError ? "BAD_REQUEST" : "RESET_ERROR";
       res.status(status).json({ error: message, code });
+    }
+  });
+
+  // ── Sync ─────────────────────────────────────────────────────────────
+
+  // POST /api/sync/preview — dry-run: compute what sync would do
+  router.post("/sync/preview", async (req: Request, res: Response) => {
+    try {
+      const { namespace } = req.body as { namespace?: string };
+      const manifest = loadManifest();
+
+      if (namespace) {
+        const nsExists = manifest.namespaces.some((n) => n.name === namespace);
+        if (!nsExists) {
+          res.status(404).json({
+            error: `Namespace '${namespace}' not found in manifest.`,
+            code: "NOT_FOUND",
+          });
+          return;
+        }
+      }
+
+      const plan = await syncManager.plan(manifest, deps.repoRoot, { namespace });
+      res.json(plan);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Sync preview failed";
+      res.status(500).json({ error: message, code: "SYNC_ERROR" });
+    }
+  });
+
+  // POST /api/sync — execute sync: scaffold missing keys with random pending values
+  router.post("/sync", async (req: Request, res: Response) => {
+    try {
+      const { namespace } = req.body as { namespace?: string };
+      const manifest = loadManifest();
+
+      if (namespace) {
+        const nsExists = manifest.namespaces.some((n) => n.name === namespace);
+        if (!nsExists) {
+          res.status(404).json({
+            error: `Namespace '${namespace}' not found in manifest.`,
+            code: "NOT_FOUND",
+          });
+          return;
+        }
+      }
+
+      const result = await syncManager.sync(manifest, deps.repoRoot, { namespace });
+      res.json({ success: true, result });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Sync failed";
+      res.status(500).json({ error: message, code: "SYNC_ERROR" });
     }
   });
 

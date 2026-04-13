@@ -140,8 +140,11 @@ describe("clef hooks install", () => {
 
   it("should exit 1 on install failure", async () => {
     mockFs.existsSync.mockReturnValue(false);
+    mockFs.writeFileSync.mockImplementation(() => {
+      throw new Error("ENOENT: no .git dir");
+    });
     const runner: SubprocessRunner = {
-      run: jest.fn().mockResolvedValue({ stdout: "", stderr: "no .git dir", exitCode: 1 }),
+      run: jest.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 }),
     };
     const program = makeProgram(runner);
 
