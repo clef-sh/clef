@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/agent",
-  "version": "0.1.15-beta.108",
+  "version": "0.1.15",
   "description": "Runtime secrets sidecar agent for Clef",
   "repository": {
     "type": "git",
