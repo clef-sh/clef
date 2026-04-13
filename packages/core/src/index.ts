@@ -111,3 +111,5 @@ export type {
 } from "./migration/backend";
 export { ResetManager, describeScope, validateResetScope } from "./reset/manager";
 export type { ResetScope, ResetOptions, ResetResult } from "./reset/manager";
+export { SyncManager } from "./sync";
+export type { SyncOptions, SyncPlan, SyncCellPlan, SyncResult } from "./sync";

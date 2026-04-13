@@ -9,6 +9,8 @@ export interface MatrixGridProps {
   environments: Array<{ name: string }>;
   matrixStatuses: MatrixStatus[];
   onNamespaceClick?: (ns: string) => void;
+  onSyncClick?: (ns: string) => void;
+  syncingNs?: string | null;
 }
 
 function getStatusType(status: MatrixStatus): string {
@@ -38,6 +40,8 @@ export function MatrixGrid({
   environments,
   matrixStatuses,
   onNamespaceClick,
+  onSyncClick,
+  syncingNs,
 }: MatrixGridProps) {
   return (
     <div
@@ -98,7 +102,13 @@ export function MatrixGrid({
       </div>
 
       {/* Namespace rows */}
-      {namespaces.map((ns, i) => (
+      {namespaces.map((ns, i) => {
+        const nsCells = matrixStatuses.filter((s) => s.cell.namespace === ns.name);
+        const hasDrift = nsCells.some((s) =>
+          s.issues.some((issue) => issue.type === "missing_keys"),
+        );
+
+        return (
         <div
           key={ns.name}
           data-testid={`matrix-row-${ns.name}`}
@@ -146,10 +156,33 @@ export function MatrixGrid({
                 fontSize: 13,
                 fontWeight: 600,
                 color: theme.text,
+                flex: 1,
               }}
             >
               {ns.name}
             </span>
+            {hasDrift && syncingNs !== ns.name && onSyncClick && (
+              <button
+                data-testid={`sync-btn-${ns.name}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSyncClick(ns.name);
+                }}
+                style={{
+                  fontFamily: theme.sans,
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: theme.accent,
+                  background: `${theme.accent}18`,
+                  border: `1px solid ${theme.accent}33`,
+                  borderRadius: 4,
+                  padding: "2px 8px",
+                  cursor: "pointer",
+                }}
+              >
+                Sync
+              </button>
+            )}
           </div>
 
           {/* Environment cells */}
@@ -259,7 +292,8 @@ export function MatrixGrid({
             );
           })}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
