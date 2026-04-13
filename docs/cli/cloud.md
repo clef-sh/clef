@@ -14,14 +14,14 @@ clef cloud <subcommand> [flags]
 
 ## Subcommands
 
-| Subcommand              | Description                                                |
-| ----------------------- | ---------------------------------------------------------- |
-| `clef cloud init`       | Sign up, install the Clef bot, scaffold `.clef/policy.yaml` |
-| `clef cloud login`      | Authenticate to Clef Cloud                                 |
-| `clef cloud logout`     | Clear local Clef Cloud credentials                         |
-| `clef cloud status`     | Show account, installation, and subscription status        |
-| `clef cloud doctor`     | Verify Cloud setup: policy file, credentials, git remote   |
-| `clef cloud upgrade`    | Upgrade to a paid Clef Cloud plan                          |
+| Subcommand           | Description                                                 |
+| -------------------- | ----------------------------------------------------------- |
+| `clef cloud init`    | Sign up, install the Clef bot, scaffold `.clef/policy.yaml` |
+| `clef cloud login`   | Authenticate to Clef Cloud                                  |
+| `clef cloud logout`  | Clear local Clef Cloud credentials                          |
+| `clef cloud status`  | Show account, installation, and subscription status         |
+| `clef cloud doctor`  | Verify Cloud setup: policy file, credentials, git remote    |
+| `clef cloud upgrade` | Upgrade to a paid Clef Cloud plan                           |
 
 ---
 
@@ -41,14 +41,14 @@ clef cloud init [flags]
 
 ### Flags
 
-| Flag                    | Type   | Default    | Description                                         |
-| ----------------------- | ------ | ---------- | --------------------------------------------------- |
-| `--provider <name>`     | string | `github`   | VCS provider to authenticate with                   |
-| `--repo <owner/name>`   | string | auto-detect | Override repo detection from git remote             |
-| `--no-browser`          | bool   | false      | Print URLs instead of opening a browser             |
-| `--non-interactive`     | bool   | false      | Fail if any interactive prompt is required          |
-| `--policy-file <path>`  | string | `.clef/policy.yaml` | Custom policy file path                  |
-| `--no-policy`           | bool   | false      | Skip policy file creation                           |
+| Flag                   | Type   | Default             | Description                                |
+| ---------------------- | ------ | ------------------- | ------------------------------------------ |
+| `--provider <name>`    | string | `github`            | VCS provider to authenticate with          |
+| `--repo <owner/name>`  | string | auto-detect         | Override repo detection from git remote    |
+| `--no-browser`         | bool   | false               | Print URLs instead of opening a browser    |
+| `--non-interactive`    | bool   | false               | Fail if any interactive prompt is required |
+| `--policy-file <path>` | string | `.clef/policy.yaml` | Custom policy file path                    |
+| `--no-policy`          | bool   | false               | Skip policy file creation                  |
 
 ### After init
 

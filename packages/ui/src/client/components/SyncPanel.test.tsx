@@ -19,7 +19,12 @@ describe("SyncPanel", () => {
       json: () =>
         Promise.resolve({
           cells: [
-            { namespace: "payments", environment: "production", missingKeys: ["API_KEY"], isProtected: true },
+            {
+              namespace: "payments",
+              environment: "production",
+              missingKeys: ["API_KEY"],
+              isProtected: true,
+            },
           ],
           totalKeys: 1,
           hasProtectedEnvs: true,
@@ -55,7 +60,12 @@ describe("SyncPanel", () => {
         json: () =>
           Promise.resolve({
             cells: [
-              { namespace: "payments", environment: "staging", missingKeys: ["SECRET"], isProtected: false },
+              {
+                namespace: "payments",
+                environment: "staging",
+                missingKeys: ["SECRET"],
+                isProtected: false,
+              },
             ],
             totalKeys: 1,
             hasProtectedEnvs: false,
@@ -105,7 +115,12 @@ describe("SyncPanel", () => {
       json: () =>
         Promise.resolve({
           cells: [
-            { namespace: "payments", environment: "staging", missingKeys: ["KEY"], isProtected: false },
+            {
+              namespace: "payments",
+              environment: "staging",
+              missingKeys: ["KEY"],
+              isProtected: false,
+            },
           ],
           totalKeys: 1,
           hasProtectedEnvs: false,

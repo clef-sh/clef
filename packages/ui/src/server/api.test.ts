@@ -37,7 +37,13 @@ const mockResetReset = jest.fn().mockResolvedValue({
 
 const mockSyncPlan = jest.fn().mockResolvedValue({
   cells: [
-    { namespace: "database", environment: "production", filePath: "/repo/database/production.enc.yaml", missingKeys: ["API_KEY"], isProtected: true },
+    {
+      namespace: "database",
+      environment: "production",
+      filePath: "/repo/database/production.enc.yaml",
+      missingKeys: ["API_KEY"],
+      isProtected: true,
+    },
   ],
   totalKeys: 1,
   hasProtectedEnvs: true,
@@ -2166,11 +2172,9 @@ describe("API routes", () => {
       expect(res.status).toBe(200);
       expect(res.body.totalKeys).toBe(1);
       expect(res.body.cells).toHaveLength(1);
-      expect(mockSyncPlan).toHaveBeenCalledWith(
-        expect.any(Object),
-        expect.any(String),
-        { namespace: "database" },
-      );
+      expect(mockSyncPlan).toHaveBeenCalledWith(expect.any(Object), expect.any(String), {
+        namespace: "database",
+      });
     });
 
     it("returns 404 for unknown namespace", async () => {
@@ -2186,11 +2190,9 @@ describe("API routes", () => {
       const res = await request(app).post("/api/sync/preview").send({});
 
       expect(res.status).toBe(200);
-      expect(mockSyncPlan).toHaveBeenCalledWith(
-        expect.any(Object),
-        expect.any(String),
-        { namespace: undefined },
-      );
+      expect(mockSyncPlan).toHaveBeenCalledWith(expect.any(Object), expect.any(String), {
+        namespace: undefined,
+      });
     });
   });
 
@@ -2202,11 +2204,9 @@ describe("API routes", () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.result.totalKeysScaffolded).toBe(1);
-      expect(mockSyncSync).toHaveBeenCalledWith(
-        expect.any(Object),
-        expect.any(String),
-        { namespace: "database" },
-      );
+      expect(mockSyncSync).toHaveBeenCalledWith(expect.any(Object), expect.any(String), {
+        namespace: "database",
+      });
     });
 
     it("returns 404 for unknown namespace", async () => {

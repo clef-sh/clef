@@ -106,8 +106,6 @@ export default function App() {
     loadMatrix();
   }, [view, loadManifest, loadMatrix]);
 
-
-
   if (loading) {
     return (
       <div
@@ -177,9 +175,7 @@ export default function App() {
             reloadMatrix={loadMatrix}
           />
         )}
-        {view === "editor" && (
-          <NamespaceEditor ns={activeNs} manifest={manifest} />
-        )}
+        {view === "editor" && <NamespaceEditor ns={activeNs} manifest={manifest} />}
         {view === "diff" && <DiffView manifest={manifest} />}
         {view === "lint" && <LintView setView={setView} setNs={setActiveNs} />}
         {view === "scan" && <ScanScreen />}

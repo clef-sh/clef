@@ -457,9 +457,7 @@ export class GitIntegration {
     try {
       fs.writeFileSync(attrPath, newContent, "utf-8");
     } catch (err) {
-      throw new GitOperationError(
-        `Failed to write .gitattributes: ${(err as Error).message}`,
-      );
+      throw new GitOperationError(`Failed to write .gitattributes: ${(err as Error).message}`);
     }
   }
 

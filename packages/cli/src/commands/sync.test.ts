@@ -117,34 +117,30 @@ describe("clef sync", () => {
     const program = makeProgram();
     await program.parseAsync(["node", "clef", "sync", "payments"]);
 
-    expect(mockPlanFn).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.any(String),
-      { namespace: "payments" },
-    );
-    expect(mockSyncFn).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.any(String),
-      { namespace: "payments" },
-    );
+    expect(mockPlanFn).toHaveBeenCalledWith(expect.any(Object), expect.any(String), {
+      namespace: "payments",
+    });
+    expect(mockSyncFn).toHaveBeenCalledWith(expect.any(Object), expect.any(String), {
+      namespace: "payments",
+    });
   });
 
   it("passes undefined namespace with --all", async () => {
     const program = makeProgram();
     await program.parseAsync(["node", "clef", "sync", "--all"]);
 
-    expect(mockPlanFn).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.any(String),
-      { namespace: undefined },
-    );
+    expect(mockPlanFn).toHaveBeenCalledWith(expect.any(Object), expect.any(String), {
+      namespace: undefined,
+    });
   });
 
   it("errors when neither namespace nor --all provided", async () => {
     const program = makeProgram();
     await program.parseAsync(["node", "clef", "sync"]);
 
-    expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("Provide a namespace"));
+    expect(mockFormatter.error).toHaveBeenCalledWith(
+      expect.stringContaining("Provide a namespace"),
+    );
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
@@ -163,9 +159,7 @@ describe("clef sync", () => {
     const program = makeProgram();
     await program.parseAsync(["node", "clef", "sync", "payments"]);
 
-    expect(mockFormatter.success).toHaveBeenCalledWith(
-      expect.stringContaining("fully in sync"),
-    );
+    expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("fully in sync"));
     expect(mockSyncFn).not.toHaveBeenCalled();
   });
 
@@ -196,9 +190,7 @@ describe("clef sync", () => {
     const program = makeProgram();
     await program.parseAsync(["node", "clef", "sync", "payments"]);
 
-    expect(mockFormatter.confirm).toHaveBeenCalledWith(
-      expect.stringContaining("protected"),
-    );
+    expect(mockFormatter.confirm).toHaveBeenCalledWith(expect.stringContaining("protected"));
   });
 
   it("aborts when confirmation is denied", async () => {
@@ -223,12 +215,8 @@ describe("clef sync", () => {
     const program = makeProgram();
     await program.parseAsync(["node", "clef", "sync", "payments"]);
 
-    expect(mockFormatter.success).toHaveBeenCalledWith(
-      expect.stringContaining("3 key(s)"),
-    );
-    expect(mockFormatter.hint).toHaveBeenCalledWith(
-      expect.stringContaining("clef set"),
-    );
+    expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("3 key(s)"));
+    expect(mockFormatter.hint).toHaveBeenCalledWith(expect.stringContaining("clef set"));
   });
 
   it("outputs JSON on success with --json", async () => {

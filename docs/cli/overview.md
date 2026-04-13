@@ -72,8 +72,8 @@ The CLI is built on [commander.js](https://github.com/tj/commander.js) and follo
 
 ### Cloud
 
-| Command                           | Description                                      | Arguments & flags |
-| --------------------------------- | ------------------------------------------------ | ----------------- |
+| Command                            | Description                                     | Arguments & flags      |
+| ---------------------------------- | ----------------------------------------------- | ---------------------- |
 | [`clef cloud init`](/cli/cloud)    | Sign up, install the Clef bot, scaffold policy  | `--provider`, `--repo` |
 | [`clef cloud login`](/cli/cloud)   | Authenticate with Clef Cloud                    | `--provider`           |
 | [`clef cloud logout`](/cli/cloud)  | Clear local Clef Cloud credentials              | —                      |

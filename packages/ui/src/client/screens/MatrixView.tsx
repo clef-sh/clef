@@ -15,7 +15,13 @@ interface MatrixViewProps {
   reloadMatrix?: () => void;
 }
 
-export function MatrixView({ setView, setNs, manifest, matrixStatuses, reloadMatrix }: MatrixViewProps) {
+export function MatrixView({
+  setView,
+  setNs,
+  manifest,
+  matrixStatuses,
+  reloadMatrix,
+}: MatrixViewProps) {
   const [syncingNs, setSyncingNs] = useState<string | null>(null);
   if (!manifest) {
     return (

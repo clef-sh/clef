@@ -45,19 +45,46 @@ const baseManifest: ClefManifest = {
 
 function makeCells(): MatrixCell[] {
   return [
-    { namespace: "payments", environment: "dev", filePath: "/repo/payments/dev.enc.yaml", exists: true },
-    { namespace: "payments", environment: "staging", filePath: "/repo/payments/staging.enc.yaml", exists: true },
-    { namespace: "payments", environment: "production", filePath: "/repo/payments/production.enc.yaml", exists: true },
+    {
+      namespace: "payments",
+      environment: "dev",
+      filePath: "/repo/payments/dev.enc.yaml",
+      exists: true,
+    },
+    {
+      namespace: "payments",
+      environment: "staging",
+      filePath: "/repo/payments/staging.enc.yaml",
+      exists: true,
+    },
+    {
+      namespace: "payments",
+      environment: "production",
+      filePath: "/repo/payments/production.enc.yaml",
+      exists: true,
+    },
     { namespace: "auth", environment: "dev", filePath: "/repo/auth/dev.enc.yaml", exists: true },
-    { namespace: "auth", environment: "staging", filePath: "/repo/auth/staging.enc.yaml", exists: true },
-    { namespace: "auth", environment: "production", filePath: "/repo/auth/production.enc.yaml", exists: true },
+    {
+      namespace: "auth",
+      environment: "staging",
+      filePath: "/repo/auth/staging.enc.yaml",
+      exists: true,
+    },
+    {
+      namespace: "auth",
+      environment: "production",
+      filePath: "/repo/auth/production.enc.yaml",
+      exists: true,
+    },
   ];
 }
 
 function makeMatrixManager(cells: MatrixCell[] = makeCells()) {
   return {
     resolveMatrix: jest.fn().mockReturnValue(cells),
-    isProtectedEnvironment: jest.fn().mockImplementation((_m: ClefManifest, env: string) => env === "production"),
+    isProtectedEnvironment: jest
+      .fn()
+      .mockImplementation((_m: ClefManifest, env: string) => env === "production"),
   };
 }
 
@@ -157,7 +184,8 @@ describe("SyncManager", () => {
     it("skips non-existing cells", async () => {
       const cells = makeCells();
       // Mark production as not existing
-      cells.find((c) => c.namespace === "payments" && c.environment === "production")!.exists = false;
+      cells.find((c) => c.namespace === "payments" && c.environment === "production")!.exists =
+        false;
       const mm = makeMatrixManager(cells);
       const enc = makeEncryption();
       const tx = makeStubTx();
@@ -217,11 +245,14 @@ describe("SyncManager", () => {
         return ["DB_URL"];
       });
 
-      const result = await sync.sync(baseManifest, repoRoot, { namespace: "payments", dryRun: true });
+      const result = await sync.sync(baseManifest, repoRoot, {
+        namespace: "payments",
+        dryRun: true,
+      });
 
       expect(result.totalKeysScaffolded).toBe(0);
       expect(result.modifiedCells).toHaveLength(0);
-      expect((tx.run as jest.Mock)).not.toHaveBeenCalled();
+      expect(tx.run as jest.Mock).not.toHaveBeenCalled();
     });
 
     it("returns no-op when plan has 0 keys", async () => {
@@ -235,7 +266,7 @@ describe("SyncManager", () => {
       const result = await sync.sync(baseManifest, repoRoot, { namespace: "payments" });
 
       expect(result.totalKeysScaffolded).toBe(0);
-      expect((tx.run as jest.Mock)).not.toHaveBeenCalled();
+      expect(tx.run as jest.Mock).not.toHaveBeenCalled();
     });
 
     it("decrypts, merges random values, encrypts, and marks pending for each gap cell", async () => {
@@ -313,7 +344,7 @@ describe("SyncManager", () => {
 
       await sync.sync(baseManifest, repoRoot, { namespace: "payments" });
 
-      expect((tx.run as jest.Mock)).toHaveBeenCalledTimes(1);
+      expect(tx.run as jest.Mock).toHaveBeenCalledTimes(1);
       const txCall = (tx.run as jest.Mock).mock.calls[0];
       const paths: string[] = txCall[1].paths;
 
