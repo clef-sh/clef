@@ -1,179 +1,152 @@
 # clef cloud
 
-Manage the Clef Cloud backend -- managed KMS encryption for production without AWS knowledge.
+Manage Clef Cloud integration. These commands connect your repository to Clef Cloud for managed KMS and bot-powered PR automation.
+
+::: info Optional package
+`clef cloud` requires `@clef-sh/cloud`. Enable it with the `CLEF_CLOUD=1` environment variable once installed.
+:::
 
 ## Synopsis
 
 ```bash
-clef cloud init --env <environment>
-clef cloud login
-clef cloud status
+clef cloud <subcommand> [flags]
 ```
-
-## Description
-
-Clef Cloud provides a managed KMS key for production encryption. Your dev and staging environments stay on age keys (free, local, no network calls). Production gets real KMS encryption with one command.
-
-Cloud handles three things:
-
-1. **Managed KMS key** -- provisioned per integration, accessed via Clef key ID. You never see AWS ARNs, IAM policies, or the KMS console.
-2. **Artifact hosting** -- `clef pack --push` uploads packed artifacts to Cloud for serving.
-3. **Serve endpoint** -- production workloads fetch secrets via `GET /v1/secrets` from a Cloud-hosted URL.
-
-::: info Migration path out
-Cloud is not a lock-in. Run `clef migrate-backend --env production --aws-kms-arn YOUR_OWN_KEY` to move to your own KMS key at any time. You were on KMS the whole time -- you just change whose.
-:::
 
 ## Subcommands
 
-### clef cloud init
+| Subcommand           | Description                                                 |
+| -------------------- | ----------------------------------------------------------- |
+| `clef cloud init`    | Sign up, install the Clef bot, scaffold `.clef/policy.yaml` |
+| `clef cloud login`   | Authenticate to Clef Cloud                                  |
+| `clef cloud logout`  | Clear local Clef Cloud credentials                          |
+| `clef cloud status`  | Show account, installation, and subscription status         |
+| `clef cloud doctor`  | Verify Cloud setup: policy file, credentials, git remote    |
+| `clef cloud upgrade` | Upgrade to a paid Clef Cloud plan                           |
 
-Provision a managed KMS key and migrate an environment to Cloud.
+---
 
-```bash
-clef cloud init --env production
-```
+## clef cloud init
 
-**Flow:**
-
-1. Opens your browser to `cloud.clef.sh` for authentication and payment
-2. Polls for completion (device flow)
-3. Downloads the keyservice binary (if not already bundled)
-4. Decrypts all cells in the target environment using your current backend
-5. Re-encrypts using the Cloud-managed KMS key
-6. Updates the manifest with `cloud.integrationId`, `cloud.keyId`, and `sops.backend: cloud`
-
-After init, your manifest will include:
-
-```yaml
-cloud:
-  integrationId: int_abc123
-  keyId: clef:int_abc123/production
-environments:
-  - name: production
-    sops:
-      backend: cloud
-```
-
-**Flags:**
-
-| Flag              | Type   | Required | Default | Description              |
-| ----------------- | ------ | -------- | ------- | ------------------------ |
-| `-e, --env <env>` | string | Yes      | ---     | Environment to migrate   |
-| `--dir <path>`    | string | No       | cwd     | Override repository root |
-
-### clef cloud login
-
-Authenticate with Clef Cloud. Use this on a new machine or to re-authenticate after token expiry.
+Sign up for Clef Cloud, install the Clef bot on your repository, and scaffold `.clef/policy.yaml` with sensible defaults.
 
 ```bash
-clef cloud login
+clef cloud init [flags]
 ```
 
-Opens your browser for authentication (same Cognito login as the dashboard). Stores credentials in `~/.clef/credentials.yaml` (mode 0600).
+### What it does
 
-This is auth-only -- no provisioning, no payment. Use `clef cloud init` for first-time setup.
+1. Authenticates you via your VCS provider (GitHub OAuth device flow)
+2. Installs the Clef GitHub App on your repository
+3. Creates `.clef/policy.yaml` if one doesn't already exist
 
-### clef cloud status
+### Flags
 
-Show the current Cloud connection status.
+| Flag                   | Type   | Default             | Description                                |
+| ---------------------- | ------ | ------------------- | ------------------------------------------ |
+| `--provider <name>`    | string | `github`            | VCS provider to authenticate with          |
+| `--repo <owner/name>`  | string | auto-detect         | Override repo detection from git remote    |
+| `--no-browser`         | bool   | false               | Print URLs instead of opening a browser    |
+| `--non-interactive`    | bool   | false               | Fail if any interactive prompt is required |
+| `--policy-file <path>` | string | `.clef/policy.yaml` | Custom policy file path                    |
+| `--no-policy`          | bool   | false               | Skip policy file creation                  |
+
+### After init
+
+```bash
+git add .clef/policy.yaml
+git commit -m "Enable Clef bot"
+git push
+```
+
+The bot runs automatically on your next pull request.
+
+---
+
+## clef cloud login
+
+Authenticate to Clef Cloud using the GitHub OAuth device flow.
+
+```bash
+clef cloud login [--provider <name>]
+```
+
+Opens a browser to complete authentication. If you are already logged in with a valid session, the command exits immediately.
+
+---
+
+## clef cloud logout
+
+Clear locally stored Clef Cloud credentials.
+
+```bash
+clef cloud logout
+```
+
+---
+
+## clef cloud status
+
+Show your current Clef Cloud account, bot installation, and subscription tier.
 
 ```bash
 clef cloud status
 ```
 
-Displays:
+Example output:
 
-- Integration ID and Key ID (if configured)
-- Which environments use the Cloud backend
-- Whether credentials are present and valid
-- Keyservice binary location and source
+```
+  Clef Cloud Status
 
-## Examples
+  Signed in as: acmecorp (acme@example.com)
+  Bot installed: acmecorp (id: 12345678)
+  Plan: free
+```
 
-### First-time setup
+---
+
+## clef cloud doctor
+
+Check that your Clef Cloud setup is complete and healthy.
 
 ```bash
-# 1. Initialise Cloud for production
-clef cloud init --env production
-
-# 2. Verify the setup
-clef cloud status
-
-# 3. Secrets now encrypt/decrypt via managed KMS
-clef set payments/production STRIPE_KEY sk_live_...
-clef get payments/production STRIPE_KEY
+clef cloud doctor
 ```
 
-### Pack and push to Cloud
+Checks:
+
+- `clef.yaml` exists in the repository root
+- `.clef/policy.yaml` is present and valid
+- Local session credentials are valid (not expired)
+- Git remote is detectable
+
+Example output:
+
+```
+  Clef Cloud Doctor
+
+  ✔ clef.yaml found
+  ✔ .clef/policy.yaml valid
+  ✔ Session valid (acmecorp)
+  ✔ Git remote: acmecorp/myrepo
+
+  Everything looks good!
+```
+
+---
+
+## clef cloud upgrade
+
+Upgrade to a paid Clef Cloud plan.
 
 ```bash
-# Pack locally, upload to Cloud for serving
-clef pack api-gateway production --push
+clef cloud upgrade
 ```
 
-### Authenticate on a new machine
-
-```bash
-# Auth only (no provisioning)
-clef cloud login
-
-# Verify
-clef cloud status
-```
-
-### Use in CI
-
-```yaml
-# .github/workflows/deploy.yml
-- name: Pack and push
-  env:
-    CLEF_CLOUD_TOKEN: ${{ secrets.CLEF_CLOUD_TOKEN }}
-  run: |
-    npx @clef-sh/cli pack api-gateway production --push
-```
-
-::: info CI uses the keyservice
-When the manifest has `backend: cloud`, CLI commands that encrypt or decrypt automatically spawn the keyservice binary. The keyservice proxies KMS operations through the Cloud API using `CLEF_CLOUD_TOKEN`. No AWS credentials needed in CI.
-:::
-
-## How it works
-
-```
-Developer machine / CI:
-  clef set payments/production STRIPE_KEY sk_live_...
-      |
-  SopsClient detects Cloud-managed environment
-      |
-  Spawns: clef-keyservice --token <cloud_token>
-      |
-  SOPS encrypts data locally with DEK
-      |
-  SOPS calls gRPC: Encrypt(KmsKey, dek_plaintext)
-      |
-  keyservice: POST https://api.clef.sh/v1/cloud/kms/encrypt
-      |
-  Cloud API: validates token, calls AWS KMS Encrypt
-      |
-  Wrapped DEK flows back: Cloud -> keyservice -> SOPS
-      |
-  SOPS writes encrypted file. keyservice exits.
-```
-
-Secret values never leave your machine. Only the 32-byte DEK crosses the wire.
-
-## Security
-
-- Secret values never leave the developer's machine -- SOPS encrypts/decrypts locally
-- Only the DEK (32-byte random key) crosses the wire as base64
-- Cloud API authenticates every request via Cognito JWT
-- Cloud validates key ARN belongs to the caller's team
-- The keyservice binary binds to `127.0.0.1` only and is short-lived
-- Credentials stored with mode `0600` (owner read/write only)
+---
 
 ## Related commands
 
-- [`clef serve`](serve.md) -- local development server (same URL contract as Cloud)
-- [`clef pack`](pack.md) -- pack artifacts (use `--push` to upload to Cloud)
-- [`clef migrate-backend`](migrate-backend.md) -- migrate between encryption backends
-- [`clef exec`](exec.md) -- run a command with secrets as env vars
+- [`clef init`](init.md) — initialize a repository with `clef.yaml`
+- [`clef serve`](serve.md) — local dev secrets server (mirrors production Cloud serve)
+- [`clef pack`](pack.md) — pack a service artifact for deployment
+- [`clef service`](service.md) — manage service identities

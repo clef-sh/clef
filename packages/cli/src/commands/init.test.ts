@@ -437,12 +437,16 @@ describe("clef init", () => {
   });
 
   it("should warn when pre-commit hook install fails", async () => {
+    mockFs.writeFileSync.mockImplementation((p: unknown) => {
+      if (typeof p === "string" && p.includes("pre-commit")) {
+        throw new Error("ENOENT: no .git directory");
+      }
+    });
     const runner: SubprocessRunner = {
       run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
         if (cmd === "sops" && args[0] === "--version") {
           return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
         }
-        if (cmd === "tee") return { stdout: "", stderr: "no .git", exitCode: 1 };
         return { stdout: "encrypted", stderr: "", exitCode: 0 };
       }),
     };

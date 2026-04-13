@@ -1,7 +1,6 @@
 import * as path from "path";
 import { Command } from "commander";
 import {
-  BulkOps,
   GitIntegration,
   ManifestParser,
   MatrixManager,
@@ -11,7 +10,7 @@ import {
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
-import { createCloudAwareSopsClient } from "../cloud-sops";
+import { createSopsClient } from "../age-credential";
 import { parseTarget } from "../parse-target";
 
 export function registerDeleteCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -34,11 +33,7 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
-          repoRoot,
-          deps.runner,
-          manifest,
-        );
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
         try {
           const matrixManager = new MatrixManager();
 
@@ -62,9 +57,44 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
               return;
             }
 
+            const targets = manifest.environments.map((env) => {
+              const relPath = manifest.file_pattern
+                .replace("{namespace}", namespace)
+                .replace("{environment}", env.name);
+              return {
+                env: env.name,
+                filePath: path.join(repoRoot, relPath),
+                relPath,
+              };
+            });
+
             const tx = new TransactionManager(new GitIntegration(deps.runner));
-            const bulkOps = new BulkOps(tx);
-            await bulkOps.deleteAcrossEnvironments(namespace, key, manifest, sopsClient, repoRoot);
+            await tx.run(repoRoot, {
+              description: `clef delete --all-envs: ${namespace}/${key}`,
+              paths: targets.flatMap((t) => [
+                t.relPath,
+                t.relPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml"),
+              ]),
+              mutate: async () => {
+                for (const target of targets) {
+                  const decrypted = await sopsClient.decrypt(target.filePath);
+                  if (key in decrypted.values) {
+                    delete decrypted.values[key];
+                    await sopsClient.encrypt(
+                      target.filePath,
+                      decrypted.values,
+                      manifest,
+                      target.env,
+                    );
+                  }
+                  try {
+                    await markResolved(target.filePath, [key]);
+                  } catch {
+                    // Non-fatal — file may not have had pending state
+                  }
+                }
+              },
+            });
             if (isJsonMode()) {
               formatter.json({
                 key,
@@ -134,7 +164,7 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
             formatter.success(`Deleted '${key}' from ${namespace}/${environment}`);
           }
         } finally {
-          await cleanup();
+          // no cleanup needed
         }
       } catch (err) {
         handleCommandError(err);

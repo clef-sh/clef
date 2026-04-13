@@ -3,7 +3,7 @@ import { Command } from "commander";
 import { ManifestParser, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
-import { createCloudAwareSopsClient } from "../cloud-sops";
+import { createSopsClient } from "../age-credential";
 import { copyToClipboard, maskedPlaceholder } from "../clipboard";
 import { parseTarget } from "../parse-target";
 
@@ -36,11 +36,7 @@ export function registerGetCommand(program: Command, deps: { runner: SubprocessR
             .replace("{environment}", environment),
         );
 
-        const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
-          repoRoot,
-          deps.runner,
-          manifest,
-        );
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
         try {
           const decrypted = await sopsClient.decrypt(filePath);
 
@@ -66,7 +62,7 @@ export function registerGetCommand(program: Command, deps: { runner: SubprocessR
             }
           }
         } finally {
-          await cleanup();
+          // no cleanup needed
         }
       } catch (err) {
         handleCommandError(err);

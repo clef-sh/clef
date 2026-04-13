@@ -27,6 +27,7 @@ import { registerInstallCommand } from "./commands/install";
 import { registerSearchCommand } from "./commands/search";
 import { registerMigrateBackendCommand } from "./commands/migrate-backend";
 import { registerResetCommand } from "./commands/reset";
+import { registerSyncCommand } from "./commands/sync";
 import { registerServeCommand } from "./commands/serve";
 import { registerNamespaceCommand } from "./commands/namespace";
 import { registerEnvCommand } from "./commands/env";
@@ -34,7 +35,6 @@ import { formatter, setJsonMode, setYesMode, isJsonMode } from "./output/formatt
 import { exitJsonError } from "./handle-error";
 import { setPlainMode, isPlainMode, symbols, sym } from "./output/symbols";
 import { openBrowser } from "./browser";
-import { createSopsClient } from "./age-credential";
 import pkg from "../package.json";
 
 const VERSION = pkg.version as string;
@@ -121,6 +121,7 @@ registerInstallCommand(program, deps);
 registerSearchCommand(program, deps);
 registerMigrateBackendCommand(program, deps);
 registerResetCommand(program, deps);
+registerSyncCommand(program, deps);
 registerServeCommand(program, deps);
 registerNamespaceCommand(program, deps);
 registerEnvCommand(program, deps);
@@ -138,7 +139,6 @@ async function loadCloudPlugin(): Promise<void> {
       formatter,
       sym,
       openBrowser,
-      createSopsClient,
       cliVersion: VERSION,
     });
   } catch {

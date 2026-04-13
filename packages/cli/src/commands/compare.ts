@@ -4,7 +4,7 @@ import { ManifestParser, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createCloudAwareSopsClient } from "../cloud-sops";
+import { createSopsClient } from "../age-credential";
 import { parseTarget } from "../parse-target";
 import * as crypto from "crypto";
 
@@ -50,11 +50,7 @@ export function registerCompareCommand(program: Command, deps: { runner: Subproc
           compareValue = value;
         }
 
-        const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
-          repoRoot,
-          deps.runner,
-          manifest,
-        );
+        const sopsClient = await createSopsClient(repoRoot, deps.runner);
         try {
           const decrypted = await sopsClient.decrypt(filePath);
 
@@ -93,7 +89,7 @@ export function registerCompareCommand(program: Command, deps: { runner: Subproc
             process.exit(1);
           }
         } finally {
-          await cleanup();
+          // no cleanup needed
         }
       } catch (err) {
         handleCommandError(err);

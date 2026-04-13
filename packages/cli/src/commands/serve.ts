@@ -77,7 +77,7 @@ export function registerServeCommand(program: Command, deps: { runner: Subproces
         if (env.protected) {
           formatter.error(
             `Cannot serve protected environment '${opts.env}' locally.\n` +
-              "  Use Clef Cloud for production secrets: clef cloud init --env production",
+              "  Protected environments should be served from your CI/CD pipeline.",
           );
           process.exit(1);
           return;

@@ -2,13 +2,21 @@
 # and @clef-sh/agent, then attach them to the GitHub Release.
 #
 # Triggers:
-#   - workflow_call: invoked by release.yml and publish-beta-npm.yml after
-#     they create or flip a release. This is the primary entry point because
-#     events fired by GITHUB_TOKEN (which is what those workflows use) do not
-#     trigger downstream workflows via the `release: published` event.
+#   - workflow_dispatch: invoked by release.yml and publish-beta-npm.yml via
+#     `gh workflow run` after they create or flip a release. The calling
+#     workflow then polls this workflow's run via gh CLI until it finishes.
+#     This is the primary entry point because events fired by GITHUB_TOKEN
+#     (used by release.yml + publish-beta-npm.yml) do not trigger downstream
+#     workflows via the `release: published` event — workflow_dispatch and
+#     repository_dispatch are the only events exempt from that restriction.
 #   - release.published: kept as a fallback for releases created outside our
 #     workflows (e.g. by hand from the GitHub UI).
-#   - workflow_dispatch: manual reattach for an existing release.
+#
+# Inputs:
+#   - tag: Release tag to build for (e.g. v0.1.6 or v0.1.6-beta.18). Used by
+#     workflow_dispatch entries from release.yml + publish-beta-npm.yml.
+#     Optional: when omitted, the workflow reads the version from
+#     packages/cli/package.json on the dispatched ref.
 #
 # Tag conventions handled by check-tag:
 #   - vX.Y.Z              → stable umbrella release: build both CLI and agent
@@ -25,11 +33,10 @@ on:
   release:
     types: [published]
   workflow_dispatch:
-  workflow_call:
     inputs:
       tag:
-        description: "Release tag to build for (e.g. v0.1.6 or v0.1.6-beta.18)"
-        required: true
+        description: "Release tag to build for (e.g. v0.1.6 or v0.1.6-beta.18). Optional — defaults to packages/cli/package.json on the dispatched ref."
+        required: false
         type: string
 
 permissions:
@@ -51,16 +58,17 @@ jobs:
 
       - id: check
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
-            # Called from release.yml or publish-beta-npm.yml after they
-            # create/flip a release. The tag is passed in directly.
-            RAW="${{ inputs.tag }}"
-            VERSION="${RAW#v}"
-            BUILD_CLI=true
-            BUILD_AGENT=true
-          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            # Manual dispatch: read version from package.json on the checked-out branch
-            VERSION=$(node -p "require('./packages/cli/package.json').version")
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # Dispatched from release.yml, publish-beta-npm.yml, or manually.
+            # If a tag input was supplied, trust it; otherwise read the version
+            # from packages/cli/package.json on the dispatched ref.
+            INPUT_TAG="${{ inputs.tag }}"
+            if [ -n "$INPUT_TAG" ]; then
+              RAW="$INPUT_TAG"
+              VERSION="${RAW#v}"
+            else
+              VERSION=$(node -p "require('./packages/cli/package.json').version")
+            fi
             BUILD_CLI=true
             BUILD_AGENT=true
           else

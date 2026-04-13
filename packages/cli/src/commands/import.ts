@@ -15,7 +15,7 @@ import {
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createCloudAwareSopsClient } from "../cloud-sops";
+import { createSopsClient } from "../age-credential";
 
 async function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -148,11 +148,7 @@ export function registerImportCommand(program: Command, deps: { runner: Subproce
             formatter.print(`Importing to ${namespace}/${environment} from ${sourceLabel}...\n`);
           }
 
-          const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
-            repoRoot,
-            deps.runner,
-            manifest,
-          );
+          const sopsClient = await createSopsClient(repoRoot, deps.runner);
           try {
             const tx = new TransactionManager(new GitIntegration(deps.runner));
             const importRunner = new ImportRunner(sopsClient, tx);
@@ -238,7 +234,7 @@ export function registerImportCommand(program: Command, deps: { runner: Subproce
               }
             }
           } finally {
-            await cleanup();
+            // no cleanup needed
           }
         } catch (err) {
           handleCommandError(err);

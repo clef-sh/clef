@@ -1,7 +1,6 @@
 import * as path from "path";
 import { Command } from "commander";
 import {
-  BulkOps,
   GitIntegration,
   ManifestParser,
   MatrixManager,
@@ -14,7 +13,7 @@ import {
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createCloudAwareSopsClient } from "../cloud-sops";
+import { createSopsClient } from "../age-credential";
 import { parseTarget } from "../parse-target";
 
 export function registerSetCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -55,11 +54,7 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
           const repoRoot = (program.opts().dir as string) || process.cwd();
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
-          const { client: sopsClient, cleanup } = await createCloudAwareSopsClient(
-            repoRoot,
-            deps.runner,
-            manifest,
-          );
+          const sopsClient = await createSopsClient(repoRoot, deps.runner);
           try {
             if (opts.allEnvs) {
               const namespace = target.includes("/") ? target.split("/")[0] : target;
@@ -104,32 +99,66 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                 );
               }
 
+              const targets = manifest.environments
+                .filter((env) => env.name in values)
+                .map((env) => {
+                  const relPath = manifest.file_pattern
+                    .replace("{namespace}", namespace)
+                    .replace("{environment}", env.name);
+                  return {
+                    env: env.name,
+                    filePath: path.join(repoRoot, relPath),
+                    relPath,
+                  };
+                });
+
+              const pendingErrors: string[] = [];
               const tx = new TransactionManager(new GitIntegration(deps.runner));
-              const bulkOps = new BulkOps(tx);
-              await bulkOps.setAcrossEnvironments(
-                namespace,
-                key,
-                values,
-                manifest,
-                sopsClient,
-                repoRoot,
-              );
+              await tx.run(repoRoot, {
+                description: allPending
+                  ? `clef set --random --all-envs: ${namespace}/${key}`
+                  : `clef set --all-envs: ${namespace}/${key}`,
+                paths: targets.flatMap((t) => [
+                  t.relPath,
+                  t.relPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml"),
+                ]),
+                mutate: async () => {
+                  for (const target of targets) {
+                    const decrypted = await sopsClient.decrypt(target.filePath);
+                    decrypted.values[key] = values[target.env];
+                    await sopsClient.encrypt(
+                      target.filePath,
+                      decrypted.values,
+                      manifest,
+                      target.env,
+                    );
+                  }
+
+                  if (allPending) {
+                    for (const target of targets) {
+                      try {
+                        await markPendingWithRetry(
+                          target.filePath,
+                          [key],
+                          "clef set --random --all-envs",
+                        );
+                      } catch {
+                        pendingErrors.push(target.env);
+                      }
+                    }
+                  } else {
+                    for (const target of targets) {
+                      try {
+                        await markResolved(target.filePath, [key]);
+                      } catch {
+                        // Non-fatal — file may not have had pending state
+                      }
+                    }
+                  }
+                },
+              });
 
               if (allPending) {
-                const pendingErrors: string[] = [];
-                for (const env of manifest.environments) {
-                  const filePath = path.join(
-                    repoRoot,
-                    manifest.file_pattern
-                      .replace("{namespace}", namespace)
-                      .replace("{environment}", env.name),
-                  );
-                  try {
-                    await markPendingWithRetry(filePath, [key], "clef set --random --all-envs");
-                  } catch {
-                    pendingErrors.push(env.name);
-                  }
-                }
                 if (isJsonMode()) {
                   formatter.json({
                     key,
@@ -153,19 +182,6 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                 }
                 formatter.hint(`clef set ${namespace}/<env> ${key}  # for each environment`);
               } else {
-                for (const env of manifest.environments) {
-                  const filePath = path.join(
-                    repoRoot,
-                    manifest.file_pattern
-                      .replace("{namespace}", namespace)
-                      .replace("{environment}", env.name),
-                  );
-                  try {
-                    await markResolved(filePath, [key]);
-                  } catch {
-                    // Non-fatal — file may not have had pending state
-                  }
-                }
                 if (isJsonMode()) {
                   formatter.json({
                     key,
@@ -177,7 +193,6 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                   return;
                 }
                 formatter.success(`'${key}' set in ${namespace} across all environments`);
-                formatter.hint(`git add ${namespace}/  # stage all updated files`);
               }
               return;
             }
@@ -269,7 +284,7 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
               formatter.success(`${key} set in ${namespace}/${environment}`);
             }
           } finally {
-            await cleanup();
+            // no cleanup needed
           }
         } catch (err) {
           handleCommandError(err);

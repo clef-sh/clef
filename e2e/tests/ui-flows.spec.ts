@@ -173,39 +173,24 @@ test.describe("clef set → NamespaceEditor: edit an existing value", () => {
     await expect(page.getByTestId("dirty-dot").first()).toBeVisible();
   });
 
-  test("[positive] editing a value reveals the Commit changes button", async ({ page }) => {
+  test("[positive] editing a value reveals the Save button", async ({ page }) => {
     await page.goto(server.url);
     await page.getByTestId("matrix-row-payments").click();
     await expect(page.getByText("STRIPE_KEY")).toBeVisible();
     await page.getByTestId("eye-STRIPE_KEY").click();
     await page.getByTestId("value-input-STRIPE_KEY").fill("sk_test_modified");
-    await expect(page.getByRole("button", { name: "Commit changes" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save" })).toBeVisible();
   });
 
-  test("[positive] clicking Commit changes reveals the commit message input", async ({ page }) => {
+  test("[positive] clicking Save encrypts and auto-commits the value", async ({ page }) => {
     await page.goto(server.url);
     await page.getByTestId("matrix-row-payments").click();
     await expect(page.getByText("STRIPE_KEY")).toBeVisible();
     await page.getByTestId("eye-STRIPE_KEY").click();
-    await page.getByTestId("value-input-STRIPE_KEY").fill("sk_test_val");
-    await page.getByRole("button", { name: "Commit changes" }).click();
-    await expect(page.getByTestId("commit-message-input")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Save & Commit" })).toBeVisible();
-  });
-
-  test("[positive] Save & Commit encrypts the value and dismisses the commit UI", async ({
-    page,
-  }) => {
-    await page.goto(server.url);
-    await page.getByTestId("matrix-row-payments").click();
-    await expect(page.getByText("STRIPE_KEY")).toBeVisible();
-    await page.getByTestId("eye-STRIPE_KEY").click();
-    await page.getByTestId("value-input-STRIPE_KEY").fill("sk_test_e2e_committed");
-    await page.getByRole("button", { name: "Commit changes" }).click();
-    await page.getByTestId("commit-message-input").fill("test: update STRIPE_KEY via e2e");
-    await page.getByRole("button", { name: "Save & Commit" }).click();
-    // After save the commit UI should disappear and the editor should reload
-    await expect(page.getByTestId("commit-message-input")).not.toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("value-input-STRIPE_KEY").fill("sk_test_e2e_saved");
+    await page.getByRole("button", { name: "Save" }).click();
+    // After save the editor should reload with the key still visible
+    await expect(page.getByRole("button", { name: "Save" })).not.toBeVisible({ timeout: 30_000 });
     await expect(page.getByText("STRIPE_KEY")).toBeVisible();
   });
 });
@@ -258,8 +243,7 @@ test.describe("clef set (new key) → NamespaceEditor: add a key", () => {
     await expect(page.getByText("STRIPE_KEY")).toBeVisible();
     await page.getByTestId("add-key-btn").click();
     await expect(page.getByTestId("new-key-input")).toBeVisible();
-    // Cancel is the second Cancel button (first is for commit UI, second for add form)
-    await page.getByRole("button", { name: "Cancel" }).last().click();
+    await page.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByTestId("new-key-input")).not.toBeVisible();
   });
 });

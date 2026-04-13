@@ -111,24 +111,5 @@ export type {
 } from "./migration/backend";
 export { ResetManager, describeScope, validateResetScope } from "./reset/manager";
 export type { ResetScope, ResetOptions, ResetResult } from "./reset/manager";
-export {
-  spawnKeyservice,
-  resolveKeyservicePath,
-  resetKeyserviceResolution,
-  readCloudCredentials,
-  writeCloudCredentials,
-  initiateDeviceFlow,
-  pollDeviceFlow,
-  CloudPackClient,
-  CloudArtifactClient,
-} from "./cloud";
-export type {
-  KeyserviceHandle,
-  KeyserviceResolution,
-  KeyserviceSource,
-  DeviceSession,
-  DevicePollResult,
-  DeviceFlowType,
-  RemotePackConfig,
-  RemotePackResult,
-} from "./cloud";
+export { SyncManager } from "./sync";
+export type { SyncOptions, SyncPlan, SyncCellPlan, SyncResult } from "./sync";
