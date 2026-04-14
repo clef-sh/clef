@@ -51,8 +51,25 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
       },
       [] as string[],
     )
+    .option(
+      "--shared-recipient",
+      "Generate one age key pair shared across all environments instead of one per environment",
+    )
+    .option(
+      "--runtime",
+      "Create a runtime identity (artifact-only). Keys are NOT registered on encrypted files.",
+    )
     .action(
-      async (name: string, opts: { namespaces: string; description: string; kmsEnv: string[] }) => {
+      async (
+        name: string,
+        opts: {
+          namespaces: string;
+          description: string;
+          kmsEnv: string[];
+          sharedRecipient?: boolean;
+          runtime?: boolean;
+        },
+      ) => {
         try {
           const repoRoot = (program.opts().dir as string) || process.cwd();
           const parser = new ManifestParser();
@@ -66,9 +83,17 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           const hasAgeEnvs =
             !kmsEnvConfigs || manifest.environments.some((e) => !kmsEnvConfigs![e.name]);
 
+          const isRuntime = opts.runtime === true;
+
+          // Smart defaults: CI → shared-recipient, Runtime → per-env.
+          // --shared-recipient explicitly overrides to true. When omitted,
+          // use the role-based default: CI = shared, Runtime = per-env.
+          const sharedRecipient = opts.sharedRecipient === true ? true : !isRuntime;
+
+          // Runtime SIs don't touch SOPS files — skip protected-env confirmation.
           const protectedEnvs = manifest.environments.filter((e) => e.protected).map((e) => e.name);
 
-          if (protectedEnvs.length > 0 && hasAgeEnvs) {
+          if (!isRuntime && protectedEnvs.length > 0 && hasAgeEnvs) {
             const confirmed = await formatter.confirm(
               `This will register recipients in protected environment(s): ${protectedEnvs.join(", ")}. Continue?`,
             );
@@ -91,7 +116,11 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
             opts.description || name,
             manifest,
             repoRoot,
-            kmsEnvConfigs,
+            {
+              kmsEnvConfigs,
+              sharedRecipient,
+              packOnly: isRuntime,
+            },
           );
 
           if (isJsonMode()) {
@@ -101,6 +130,8 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
               namespaces: result.identity.namespaces,
               environments: Object.keys(result.identity.environments),
               privateKeys: result.privateKeys,
+              sharedRecipient: result.sharedRecipient,
+              packOnly: result.identity.pack_only ?? false,
             });
             return;
           }
@@ -108,27 +139,54 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           formatter.success(`Service identity '${name}' created.`);
           formatter.print(`\n  Namespaces: ${result.identity.namespaces.join(", ")}`);
           formatter.print(
-            `  Environments: ${Object.keys(result.identity.environments).join(", ")}\n`,
+            `  Environments: ${Object.keys(result.identity.environments).join(", ")}`,
           );
+          if (isRuntime) {
+            formatter.print("  Mode: runtime (keys are not registered on encrypted files)\n");
+          } else {
+            formatter.print("  Mode: CI (keys registered on encrypted files)\n");
+          }
 
           if (Object.keys(result.privateKeys).length > 0) {
-            const entries = Object.entries(result.privateKeys);
-            const block = entries.map(([env, key]) => `${env}: ${key}`).join("\n");
-            const copied = copyToClipboard(block);
+            if (result.sharedRecipient) {
+              // All age envs share the same private key — display it once.
+              const sharedKey = Object.values(result.privateKeys)[0];
+              const ageEnvs = Object.keys(result.privateKeys).join(", ");
+              const block = sharedKey;
+              const copied = copyToClipboard(block);
 
-            if (copied) {
-              formatter.warn("Private keys copied to clipboard. Store them securely.\n");
-              for (const [envName] of entries) {
-                formatter.print(`  ${envName}: ${maskedPlaceholder()}`);
+              if (copied) {
+                formatter.warn(
+                  `Shared private key copied to clipboard. It decrypts: ${ageEnvs}. Store it securely.\n`,
+                );
+                formatter.print(`  CLEF_AGE_KEY: ${maskedPlaceholder()}`);
+                formatter.print("");
+              } else {
+                formatter.warn(
+                  `Shared private key shown ONCE. It decrypts: ${ageEnvs}. Store it securely.\n`,
+                );
+                formatter.print(`  CLEF_AGE_KEY:`);
+                formatter.print(`    ${sharedKey}\n`);
               }
-              formatter.print("");
             } else {
-              formatter.warn(
-                "Private keys are shown ONCE. Store them securely (e.g. AWS Secrets Manager, Vault).\n",
-              );
-              for (const [envName, privateKey] of entries) {
-                formatter.print(`  ${envName}:`);
-                formatter.print(`    ${privateKey}\n`);
+              const entries = Object.entries(result.privateKeys);
+              const block = entries.map(([env, key]) => `${env}: ${key}`).join("\n");
+              const copied = copyToClipboard(block);
+
+              if (copied) {
+                formatter.warn("Private keys copied to clipboard. Store them securely.\n");
+                for (const [envName] of entries) {
+                  formatter.print(`  ${envName}: ${maskedPlaceholder()}`);
+                }
+                formatter.print("");
+              } else {
+                formatter.warn(
+                  "Private keys are shown ONCE. Store them securely (e.g. AWS Secrets Manager, Vault).\n",
+                );
+                for (const [envName, privateKey] of entries) {
+                  formatter.print(`  ${envName}:`);
+                  formatter.print(`    ${privateKey}\n`);
+                }
               }
             }
             for (const k of Object.keys(result.privateKeys)) result.privateKeys[k] = "";
@@ -182,7 +240,8 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
                 : `${e}: ${keyPreview(cfg.recipient!)}`,
             )
             .join(", ");
-          return [si.name, si.namespaces.join(", "), envStr];
+          const nameCol = si.pack_only ? `${si.name} (runtime)` : si.name;
+          return [nameCol, si.namespaces.join(", "), envStr];
         });
 
         formatter.table(rows, ["Name", "Namespaces", "Environments"]);
@@ -219,6 +278,9 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
 
         formatter.print(`\nService Identity: ${identity.name}`);
         formatter.print(`Description: ${identity.description}`);
+        if (identity.pack_only) {
+          formatter.print("Mode: runtime (not registered on encrypted files)");
+        }
         formatter.print(`Namespaces: ${identity.namespaces.join(", ")}\n`);
 
         for (const [envName, envConfig] of Object.entries(identity.environments)) {

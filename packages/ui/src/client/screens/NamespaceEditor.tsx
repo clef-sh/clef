@@ -19,11 +19,12 @@ interface EditorRow {
 
 interface NamespaceEditorProps {
   ns: string;
+  initialEnv?: string;
   manifest: ClefManifest | null;
 }
 
-export function NamespaceEditor({ ns, manifest }: NamespaceEditorProps) {
-  const [env, setEnv] = useState("");
+export function NamespaceEditor({ ns, initialEnv, manifest }: NamespaceEditorProps) {
+  const [env, setEnv] = useState(initialEnv ?? "");
   const [rows, setRows] = useState<EditorRow[]>([]);
   const [adding, setAdding] = useState(false);
   const [addMode, setAddMode] = useState<"value" | "random">("value");
@@ -553,7 +554,9 @@ export function NamespaceEditor({ ns, manifest }: NamespaceEditorProps) {
                           letterSpacing: "0.15em",
                         }}
                       >
-                        {"\u2022".repeat(Math.min(row.value.length, 20))}
+                        {
+                          "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+                        }
                       </span>
                     )}
                     {row.pending && !row.visible ? (

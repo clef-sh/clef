@@ -779,8 +779,9 @@ test.describe("clef service → ServiceIdentitiesScreen: create flow", () => {
     await page.getByTestId("si-name-input").fill("e2e-create");
     await page.getByTestId("ns-checkbox-payments").click();
     await page.getByTestId("create-si-submit").click();
-    await expect(page.getByText("Copy these private keys now")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText("DEV", { exact: true })).toBeVisible();
+    // CI default uses shared-recipient — shows CLEF_AGE_KEY with env list
+    await expect(page.getByText("Copy this key now")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("CLEF_AGE_KEY", { exact: true })).toBeVisible();
   });
 
   test("[positive] done button returns to list with new identity", async ({ page }) => {
@@ -797,6 +798,64 @@ test.describe("clef service → ServiceIdentitiesScreen: create flow", () => {
     await page.getByTestId("si-name-input").fill("web-app");
     await expect(page.getByText("A service identity with this name already exists.")).toBeVisible();
     await expect(page.getByTestId("create-si-submit")).toBeDisabled();
+  });
+});
+
+// ── clef service → ServiceIdentitiesScreen: CI/Runtime role toggle ────────────
+
+test.describe("clef service → ServiceIdentitiesScreen: role toggle", () => {
+  test("[positive] role toggle shows CI and Runtime buttons", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByText("+ New identity").click();
+    await expect(page.getByTestId("role-ci")).toBeVisible();
+    await expect(page.getByTestId("role-runtime")).toBeVisible();
+  });
+
+  test("[positive] selecting Runtime auto-disables shared-recipient", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByText("+ New identity").click();
+    // Default is CI with shared-recipient ON
+    await expect(page.getByTestId("shared-recipient-toggle")).toBeVisible();
+    // Switch to Runtime
+    await page.getByTestId("role-runtime").click();
+    // Description text should mention "packed artifacts"
+    await expect(page.getByText("packed artifacts only")).toBeVisible();
+  });
+
+  test("[positive] overriding shared-recipient on runtime shows warning", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByText("+ New identity").click();
+    await page.getByTestId("role-runtime").click();
+    // Toggle shared-recipient ON (against runtime default)
+    await page.getByTestId("shared-recipient-toggle").click();
+    await expect(page.getByTestId("shared-recipient-warning")).toBeVisible();
+    await expect(page.getByText("compromised key")).toBeVisible();
+  });
+
+  test("[positive] creating a runtime identity shows runtime badge", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByText("+ New identity").click();
+    await page.getByTestId("si-name-input").fill("e2e-runtime");
+    await page.getByTestId("role-runtime").click();
+    await page.getByTestId("ns-checkbox-payments").click();
+    await page.getByTestId("create-si-submit").click();
+    // Runtime default is per-env keys — should show per-env key blocks
+    await expect(page.getByText("Copy these private keys now")).toBeVisible({ timeout: 15_000 });
+    // Return to list and verify runtime badge
+    await page.getByRole("button", { name: "Done" }).click();
+    await expect(page.getByTestId("si-runtime-badge-e2e-runtime")).toBeVisible();
+  });
+
+  test("[positive] runtime identity detail shows info banner", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-service ids").click();
+    await page.getByTestId("si-e2e-runtime").click();
+    await expect(page.getByTestId("runtime-info-banner")).toBeVisible();
+    await expect(page.getByText("Runtime identity")).toBeVisible();
   });
 });
 
