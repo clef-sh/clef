@@ -187,14 +187,9 @@ describe("ServiceIdentityManager", () => {
         production: { provider: "aws" as const, keyId: "arn:aws:kms:us-west-2:333:key/prd" },
       };
 
-      const result = await manager.create(
-        "kms-svc",
-        ["api"],
-        "KMS service",
-        manifest,
-        "/repo",
+      const result = await manager.create("kms-svc", ["api"], "KMS service", manifest, "/repo", {
         kmsEnvConfigs,
-      );
+      });
 
       // No private keys should be generated for KMS environments
       expect(Object.keys(result.privateKeys)).toHaveLength(0);
@@ -232,7 +227,7 @@ describe("ServiceIdentityManager", () => {
         "Mixed service",
         manifest,
         "/repo",
-        kmsEnvConfigs,
+        { kmsEnvConfigs },
       );
 
       // Only dev and staging should have age keys
@@ -249,6 +244,123 @@ describe("ServiceIdentityManager", () => {
         expect.stringContaining("api/"),
         expect.stringMatching(/^age1pubkey/),
       );
+    });
+
+    it("should reuse one age key for all environments with sharedRecipient", async () => {
+      const manifest = baseManifest();
+      const manifestYaml = YAML.stringify({
+        version: 1,
+        environments: manifest.environments,
+        namespaces: manifest.namespaces,
+        sops: manifest.sops,
+        file_pattern: manifest.file_pattern,
+      });
+      mockFs.readFileSync.mockReturnValue(manifestYaml);
+      mockFs.writeFileSync.mockImplementation(() => {});
+      mockFs.existsSync.mockReturnValue(false);
+
+      const result = await manager.create(
+        "shared-svc",
+        ["api"],
+        "Shared-key service",
+        manifest,
+        "/repo",
+        { sharedRecipient: true },
+      );
+
+      // generateAgeIdentity should be called exactly once regardless of env count
+      expect(generateAgeIdentity).toHaveBeenCalledTimes(1);
+
+      // All environments should have the same public key as recipient
+      const recipients = Object.values(result.identity.environments).map((e) => e.recipient);
+      expect(new Set(recipients).size).toBe(1);
+      expect(recipients[0]).toBe("age1pubkey1");
+
+      // All private key entries should be the same value
+      const keys = Object.values(result.privateKeys);
+      expect(keys).toHaveLength(3);
+      expect(new Set(keys).size).toBe(1);
+      expect(keys[0]).toBe("AGE-SECRET-KEY-1");
+
+      // sharedRecipient flag is reflected in the result
+      expect(result.sharedRecipient).toBe(true);
+    });
+
+    it("should return sharedRecipient: false for per-env key generation", async () => {
+      const manifest = baseManifest();
+      const manifestYaml = YAML.stringify({
+        version: 1,
+        environments: manifest.environments,
+        namespaces: manifest.namespaces,
+        sops: manifest.sops,
+        file_pattern: manifest.file_pattern,
+      });
+      mockFs.readFileSync.mockReturnValue(manifestYaml);
+      mockFs.writeFileSync.mockImplementation(() => {});
+      mockFs.existsSync.mockReturnValue(false);
+
+      const result = await manager.create("per-env-svc", ["api"], "Per-env", manifest, "/repo");
+
+      expect(result.sharedRecipient).toBe(false);
+      expect(generateAgeIdentity).toHaveBeenCalledTimes(3);
+    });
+
+    it("should not register recipients when packOnly is true", async () => {
+      const manifest = baseManifest();
+      const manifestYaml = YAML.stringify({
+        version: 1,
+        environments: manifest.environments,
+        namespaces: manifest.namespaces,
+        sops: manifest.sops,
+        file_pattern: manifest.file_pattern,
+      });
+      mockFs.readFileSync.mockReturnValue(manifestYaml);
+      mockFs.writeFileSync.mockImplementation(() => {});
+      mockFs.existsSync.mockImplementation((p) => String(p).includes("api/"));
+
+      const result = await manager.create(
+        "runtime-svc",
+        ["api"],
+        "Runtime service",
+        manifest,
+        "/repo",
+        { packOnly: true },
+      );
+
+      // Should still generate keys (runtime needs them for artifact decryption)
+      expect(Object.keys(result.privateKeys)).toHaveLength(3);
+      // But should NOT register recipients on SOPS files
+      expect(encryption.addRecipient).not.toHaveBeenCalled();
+      // pack_only flag should be set on the definition
+      expect(result.identity.pack_only).toBe(true);
+    });
+
+    it("should support packOnly with sharedRecipient together", async () => {
+      const manifest = baseManifest();
+      const manifestYaml = YAML.stringify({
+        version: 1,
+        environments: manifest.environments,
+        namespaces: manifest.namespaces,
+        sops: manifest.sops,
+        file_pattern: manifest.file_pattern,
+      });
+      mockFs.readFileSync.mockReturnValue(manifestYaml);
+      mockFs.writeFileSync.mockImplementation(() => {});
+      mockFs.existsSync.mockReturnValue(false);
+
+      const result = await manager.create(
+        "runtime-shared",
+        ["api"],
+        "Runtime shared",
+        manifest,
+        "/repo",
+        { packOnly: true, sharedRecipient: true },
+      );
+
+      expect(generateAgeIdentity).toHaveBeenCalledTimes(1);
+      expect(encryption.addRecipient).not.toHaveBeenCalled();
+      expect(result.identity.pack_only).toBe(true);
+      expect(result.sharedRecipient).toBe(true);
     });
   });
 
@@ -496,6 +608,76 @@ describe("ServiceIdentityManager", () => {
       const issues = await manager.validate(manifest, "/repo");
       const mismatch = issues.filter((i) => i.type === "scope_mismatch");
       expect(mismatch).toHaveLength(1);
+    });
+
+    it("should skip recipient checks for pack-only identities", async () => {
+      const si: ServiceIdentityDefinition = {
+        name: "runtime-svc",
+        description: "Runtime",
+        namespaces: ["api"],
+        pack_only: true,
+        environments: {
+          dev: { recipient: "age1svcdev" },
+          staging: { recipient: "age1svcstg" },
+          production: { recipient: "age1svcprd" },
+        },
+      };
+      const manifest = baseManifest({ service_identities: [si] });
+      mockFs.existsSync.mockImplementation((p) => String(p).includes("api/dev"));
+
+      // Recipient is NOT on the file — but pack-only should not report this
+      const metadata: SopsMetadata = {
+        backend: "age",
+        recipients: ["age1other"],
+        lastModified: new Date(),
+      };
+      encryption.getMetadata.mockResolvedValue(metadata);
+
+      const issues = await manager.validate(manifest, "/repo");
+      const recipientIssues = issues.filter(
+        (i) => i.type === "recipient_not_registered" || i.type === "scope_mismatch",
+      );
+      expect(recipientIssues).toHaveLength(0);
+    });
+
+    it("should still detect namespace_not_found for pack-only identities", async () => {
+      const si: ServiceIdentityDefinition = {
+        name: "runtime-svc",
+        description: "Runtime",
+        namespaces: ["nonexistent"],
+        pack_only: true,
+        environments: {
+          dev: { recipient: "age1dev" },
+          staging: { recipient: "age1stg" },
+          production: { recipient: "age1prd" },
+        },
+      };
+      const manifest = baseManifest({ service_identities: [si] });
+      mockFs.existsSync.mockReturnValue(false);
+
+      const issues = await manager.validate(manifest, "/repo");
+      expect(issues.some((i) => i.type === "namespace_not_found")).toBe(true);
+    });
+
+    it("should warn when pack-only identity has shared recipients", async () => {
+      const si: ServiceIdentityDefinition = {
+        name: "runtime-shared",
+        description: "Runtime shared",
+        namespaces: ["api"],
+        pack_only: true,
+        environments: {
+          dev: { recipient: "age1same" },
+          staging: { recipient: "age1same" },
+          production: { recipient: "age1same" },
+        },
+      };
+      const manifest = baseManifest({ service_identities: [si] });
+      mockFs.existsSync.mockReturnValue(false);
+
+      const issues = await manager.validate(manifest, "/repo");
+      const shared = issues.filter((i) => i.type === "runtime_shared_recipient");
+      expect(shared).toHaveLength(1);
+      expect(shared[0].message).toContain("shared recipient");
     });
   });
 

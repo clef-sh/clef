@@ -73,6 +73,7 @@ export {
 export { SopsMergeDriver } from "./merge/driver";
 export type { MergeResult, MergeKey, MergeKeyStatus } from "./merge/driver";
 export { ServiceIdentityManager } from "./service-identity/manager";
+export type { CreateServiceIdentityOptions } from "./service-identity/manager";
 export { StructureManager } from "./structure/manager";
 export type {
   NamespaceEditOptions,

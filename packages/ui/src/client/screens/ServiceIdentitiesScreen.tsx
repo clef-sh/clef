@@ -19,6 +19,7 @@ interface IdentityInfo {
   description: string;
   namespaces: string[];
   environments: Record<string, EnvInfo>;
+  packOnly?: boolean;
 }
 
 interface EnvBackendConfig {
@@ -49,12 +50,16 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
   const [description, setDescription] = useState("");
   const [selectedNamespaces, setSelectedNamespaces] = useState<Set<string>>(new Set());
   const [envBackends, setEnvBackends] = useState<Record<string, EnvBackendConfig>>({});
+  const [role, setRole] = useState<"ci" | "runtime">("ci");
+  const [sharedRecipient, setSharedRecipient] = useState(true); // CI default
+  const [sharedRecipientOverridden, setSharedRecipientOverridden] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
 
   // Post-create / post-rotate keys
   const [privateKeys, setPrivateKeys] = useState<Record<string, string>>({});
   const [createdName, setCreatedName] = useState("");
+  const [wasSharedRecipient, setWasSharedRecipient] = useState(false);
 
   // Update form state
   const [updateEnvBackends, setUpdateEnvBackends] = useState<Record<string, UpdateEnvState>>({});
@@ -96,6 +101,9 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
       defaults[env.name] = { type: "age", provider: "aws", keyId: "" };
     }
     setEnvBackends(defaults);
+    setRole("ci");
+    setSharedRecipient(true); // CI default
+    setSharedRecipientOverridden(false);
     setCreateError("");
     setView("create");
   }, [manifest]);
@@ -146,7 +154,12 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
         description: description.trim(),
         namespaces: Array.from(selectedNamespaces),
       };
-      if (Object.keys(kmsEnvConfigs).length > 0) {
+      if (role === "runtime") {
+        body.packOnly = true;
+      }
+      if (sharedRecipient) {
+        body.sharedRecipient = true;
+      } else if (Object.keys(kmsEnvConfigs).length > 0) {
         body.kmsEnvConfigs = kmsEnvConfigs;
       }
       const res = await apiFetch("/api/service-identities", {
@@ -161,6 +174,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
       }
       setCreatedName(data.identity.name);
       setPrivateKeys(data.privateKeys ?? {});
+      setWasSharedRecipient(data.sharedRecipient === true);
       setView("keys");
     } catch {
       setCreateError("Network error. Check that the UI server is running.");
@@ -284,7 +298,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                 <div style={{ fontSize: 28, marginBottom: 12, opacity: 0.4 }}>{"\uD83D\uDD11"}</div>
                 No service identities configured.
                 {manifest && (
-                  <div style={{ marginTop: 16 }}>
+                  <div style={{ marginTop: 16, display: "flex", justifyContent: "center" }}>
                     <Button variant="primary" onClick={openCreate}>
                       Create the first one
                     </Button>
@@ -337,6 +351,22 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                   >
                     {si.name}
                   </span>
+                  {si.packOnly && (
+                    <span
+                      data-testid={`si-runtime-badge-${si.name}`}
+                      style={{
+                        fontFamily: theme.mono,
+                        fontSize: 9,
+                        color: theme.yellow,
+                        background: `${theme.yellow}15`,
+                        border: `1px solid ${theme.yellow}33`,
+                        borderRadius: 3,
+                        padding: "1px 6px",
+                      }}
+                    >
+                      runtime
+                    </span>
+                  )}
                 </div>
                 <div
                   style={{
@@ -440,6 +470,26 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                     ))}
                   </div>
                 </div>
+
+                {selectedIdentity.packOnly && (
+                  <div
+                    data-testid="runtime-info-banner"
+                    style={{
+                      background: `${theme.yellow}10`,
+                      border: `1px solid ${theme.yellow}33`,
+                      borderRadius: 8,
+                      padding: "10px 16px",
+                      marginBottom: 20,
+                      fontFamily: theme.sans,
+                      fontSize: 12,
+                      color: theme.yellow,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    Runtime identity — keys are not registered on encrypted files. This identity can
+                    only decrypt packed artifacts.
+                  </div>
+                )}
 
                 <Label>Environment keys</Label>
 
@@ -938,6 +988,10 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
   // ── Keys result view (post-creation) ─────────────────────────────────────────
   if (view === "keys") {
     const hasAgeKeys = Object.keys(privateKeys).length > 0;
+    // For shared mode, all entries hold the same key — grab it once
+    const sharedKey = wasSharedRecipient ? Object.values(privateKeys)[0] : undefined;
+    const sharedEnvNames = wasSharedRecipient ? Object.keys(privateKeys) : [];
+
     return (
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <TopBar title={`${createdName} created`} subtitle="Service identity ready" />
@@ -961,8 +1015,9 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
               >
                 <span style={{ fontSize: 16, flexShrink: 0 }}>⚠</span>
                 <span>
-                  Copy these private keys now — they will not be shown again. Store each key
-                  securely and provision it to the relevant runtime.
+                  {wasSharedRecipient
+                    ? `Copy this key now — it will not be shown again. Set it as CLEF_AGE_KEY in your CI. It decrypts: ${sharedEnvNames.join(", ")}.`
+                    : "Copy these private keys now — they will not be shown again. Store each key securely and provision it to the relevant runtime."}
                 </span>
               </div>
             )}
@@ -986,12 +1041,13 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
             )}
 
             <Label>Private keys</Label>
-            {Object.entries(privateKeys).map(([envName, key]) => (
+
+            {wasSharedRecipient && sharedKey ? (
+              // Shared mode: one block, all env badges, labeled CLEF_AGE_KEY
               <div
-                key={envName}
                 style={{
                   background: theme.surface,
-                  border: `1px solid ${theme.border}`,
+                  border: `1px solid ${theme.accent}44`,
                   borderRadius: 8,
                   padding: "14px 18px",
                   marginBottom: 10,
@@ -1005,8 +1061,25 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                     marginBottom: 10,
                   }}
                 >
-                  <EnvBadge env={envName} />
-                  <CopyButton text={key} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span
+                      style={{
+                        fontFamily: theme.mono,
+                        fontSize: 11,
+                        color: theme.accent,
+                        fontWeight: 600,
+                      }}
+                    >
+                      CLEF_AGE_KEY
+                    </span>
+                    <span style={{ fontFamily: theme.sans, fontSize: 11, color: theme.textDim }}>
+                      —
+                    </span>
+                    {sharedEnvNames.map((e) => (
+                      <EnvBadge key={e} env={e} small />
+                    ))}
+                  </div>
+                  <CopyButton text={sharedKey} />
                 </div>
                 <div
                   style={{
@@ -1019,10 +1092,48 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                     padding: "8px 10px",
                   }}
                 >
-                  {key}
+                  {sharedKey}
                 </div>
               </div>
-            ))}
+            ) : (
+              Object.entries(privateKeys).map(([envName, key]) => (
+                <div
+                  key={envName}
+                  style={{
+                    background: theme.surface,
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: 8,
+                    padding: "14px 18px",
+                    marginBottom: 10,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      marginBottom: 10,
+                    }}
+                  >
+                    <EnvBadge env={envName} />
+                    <CopyButton text={key} />
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: theme.mono,
+                      fontSize: 11,
+                      color: theme.textMuted,
+                      wordBreak: "break-all",
+                      background: theme.bg,
+                      borderRadius: 4,
+                      padding: "8px 10px",
+                    }}
+                  >
+                    {key}
+                  </div>
+                </div>
+              ))
+            )}
 
             <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}>
               <Button
@@ -1120,6 +1231,61 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
             />
           </div>
 
+          {/* Role */}
+          <div style={{ marginBottom: 24 }}>
+            <FieldLabel>Role</FieldLabel>
+            <div
+              style={{
+                display: "flex",
+                gap: 0,
+                borderRadius: 6,
+                overflow: "hidden",
+                border: `1px solid ${theme.border}`,
+                width: "fit-content",
+                marginBottom: 8,
+              }}
+            >
+              {(["ci", "runtime"] as const).map((r) => (
+                <button
+                  key={r}
+                  data-testid={`role-${r}`}
+                  onClick={() => {
+                    setRole(r);
+                    // Auto-set shared-recipient to the role's natural default
+                    const newDefault = r === "ci";
+                    setSharedRecipient(newDefault);
+                    setSharedRecipientOverridden(false);
+                  }}
+                  style={{
+                    background: role === r ? theme.accent : "transparent",
+                    border: "none",
+                    padding: "7px 18px",
+                    cursor: "pointer",
+                    fontFamily: theme.sans,
+                    fontSize: 12,
+                    fontWeight: role === r ? 600 : 400,
+                    color: role === r ? "#fff" : theme.textMuted,
+                    transition: "all 0.12s",
+                  }}
+                >
+                  {r === "ci" ? "CI" : "Runtime"}
+                </button>
+              ))}
+            </div>
+            <div
+              style={{
+                fontFamily: theme.sans,
+                fontSize: 12,
+                color: theme.textMuted,
+                lineHeight: 1.5,
+              }}
+            >
+              {role === "ci"
+                ? "Decrypts files directly. Keys are registered on encrypted SOPS files. Use for CI pipelines and local tools."
+                : "Decrypts packed artifacts only. Keys are NOT added to encrypted files — smaller blast radius for deployment targets (Lambda, ECS, containers)."}
+            </div>
+          </div>
+
           {/* Namespaces */}
           <div style={{ marginBottom: 24 }}>
             <FieldLabel>Namespaces</FieldLabel>
@@ -1192,7 +1358,68 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
 
           {/* Per-environment backend */}
           <div style={{ marginBottom: 28 }}>
-            <FieldLabel>Environment backends</FieldLabel>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 6,
+              }}
+            >
+              <FieldLabel>Environment backends</FieldLabel>
+              {/* Shared recipient toggle */}
+              <label
+                data-testid="shared-recipient-toggle"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  cursor: "pointer",
+                  fontFamily: theme.sans,
+                  fontSize: 11,
+                  color: sharedRecipient ? theme.accent : theme.textMuted,
+                  userSelect: "none",
+                }}
+              >
+                <div
+                  style={{
+                    width: 28,
+                    height: 16,
+                    borderRadius: 8,
+                    background: sharedRecipient ? theme.accent : theme.border,
+                    position: "relative",
+                    transition: "background 0.15s",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 2,
+                      left: sharedRecipient ? 14 : 2,
+                      width: 12,
+                      height: 12,
+                      borderRadius: "50%",
+                      background: "#fff",
+                      transition: "left 0.15s",
+                    }}
+                  />
+                  <input
+                    type="checkbox"
+                    checked={sharedRecipient}
+                    onChange={(e) => {
+                      setSharedRecipient(e.target.checked);
+                      // Track whether user manually overrode the role's default
+                      const roleDefault = role === "ci";
+                      setSharedRecipientOverridden(e.target.checked !== roleDefault);
+                    }}
+                    style={{ position: "absolute", opacity: 0, width: 0, height: 0 }}
+                  />
+                </div>
+                Shared age key
+              </label>
+            </div>
+
             <div
               style={{
                 fontFamily: theme.sans,
@@ -1201,112 +1428,166 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                 marginBottom: 10,
               }}
             >
-              Age generates a key pair per environment. KMS uses your cloud provider — no key
-              material is provisioned.
+              {sharedRecipient
+                ? "One age key pair for all environments — one CI secret, easier to provision."
+                : "Age generates a key pair per environment. KMS uses your cloud provider — no key material is provisioned."}
             </div>
+
+            {/* Warning when shared-recipient is overridden from role default */}
+            {sharedRecipientOverridden && (
+              <div
+                data-testid="shared-recipient-warning"
+                style={{
+                  background: "#1a1200",
+                  border: `1px solid ${theme.yellow}55`,
+                  borderRadius: 6,
+                  padding: "10px 14px",
+                  marginBottom: 10,
+                  fontFamily: theme.sans,
+                  fontSize: 12,
+                  color: theme.yellow,
+                  lineHeight: 1.5,
+                }}
+              >
+                {role === "ci" && !sharedRecipient
+                  ? "Most CI pipelines use a single key. Per-environment keys are useful when your CI environments have separate secret access controls (e.g. GitHub environment protection rules)."
+                  : "Runtime workloads typically use per-environment keys for isolation. A shared key means a compromised key in any environment decrypts artifacts for all environments."}
+              </div>
+            )}
+
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {environments.map((env) => {
-                const cfg = envBackends[env.name] ?? { type: "age", provider: "aws", keyId: "" };
-                return (
-                  <div
-                    key={env.name}
+              {sharedRecipient ? (
+                <div
+                  style={{
+                    background: theme.accentDim,
+                    border: `1px solid ${theme.accent}44`,
+                    borderRadius: 8,
+                    padding: "14px 16px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                  }}
+                >
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {environments.map((env) => (
+                      <EnvBadge key={env.name} env={env.name} small />
+                    ))}
+                  </div>
+                  <span
                     style={{
-                      background: theme.surface,
-                      border: `1px solid ${theme.border}`,
-                      borderRadius: 8,
-                      padding: "14px 16px",
+                      fontFamily: theme.mono,
+                      fontSize: 11,
+                      color: theme.accent,
+                      marginLeft: "auto",
                     }}
                   >
+                    age (shared)
+                  </span>
+                </div>
+              ) : (
+                environments.map((env) => {
+                  const cfg = envBackends[env.name] ?? { type: "age", provider: "aws", keyId: "" };
+                  return (
                     <div
+                      key={env.name}
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        marginBottom: cfg.type === "kms" ? 12 : 0,
+                        background: theme.surface,
+                        border: `1px solid ${theme.border}`,
+                        borderRadius: 8,
+                        padding: "14px 16px",
                       }}
                     >
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <EnvBadge env={env.name} />
-                        {env.protected && (
-                          <span style={{ fontSize: 11, color: theme.red }}>{"\uD83D\uDD12"}</span>
-                        )}
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          marginBottom: cfg.type === "kms" ? 12 : 0,
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <EnvBadge env={env.name} />
+                          {env.protected && (
+                            <span style={{ fontSize: 11, color: theme.red }}>{"\uD83D\uDD12"}</span>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          {(["age", "kms"] as const).map((t) => (
+                            <button
+                              key={t}
+                              onClick={() =>
+                                setEnvBackends((prev) => ({
+                                  ...prev,
+                                  [env.name]: { ...cfg, type: t },
+                                }))
+                              }
+                              style={{
+                                background:
+                                  cfg.type === t
+                                    ? t === "kms"
+                                      ? theme.purple
+                                      : theme.accent
+                                    : "transparent",
+                                border: `1px solid ${
+                                  cfg.type === t
+                                    ? t === "kms"
+                                      ? theme.purple
+                                      : theme.accent
+                                    : theme.border
+                                }`,
+                                borderRadius: 4,
+                                padding: "3px 10px",
+                                cursor: "pointer",
+                                fontFamily: theme.mono,
+                                fontSize: 11,
+                                color: cfg.type === t ? "#fff" : theme.textMuted,
+                                transition: "all 0.1s",
+                              }}
+                            >
+                              {t.toUpperCase()}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                      <div style={{ display: "flex", gap: 4 }}>
-                        {(["age", "kms"] as const).map((t) => (
-                          <button
-                            key={t}
-                            onClick={() =>
+
+                      {cfg.type === "kms" && (
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <select
+                            value={cfg.provider}
+                            onChange={(e) =>
                               setEnvBackends((prev) => ({
                                 ...prev,
-                                [env.name]: { ...cfg, type: t },
+                                [env.name]: { ...cfg, provider: e.target.value },
                               }))
                             }
                             style={{
-                              background:
-                                cfg.type === t
-                                  ? t === "kms"
-                                    ? theme.purple
-                                    : theme.accent
-                                  : "transparent",
-                              border: `1px solid ${
-                                cfg.type === t
-                                  ? t === "kms"
-                                    ? theme.purple
-                                    : theme.accent
-                                  : theme.border
-                              }`,
-                              borderRadius: 4,
-                              padding: "3px 10px",
-                              cursor: "pointer",
-                              fontFamily: theme.mono,
-                              fontSize: 11,
-                              color: cfg.type === t ? "#fff" : theme.textMuted,
-                              transition: "all 0.1s",
+                              ...inputStyle,
+                              width: 90,
+                              flexShrink: 0,
+                              padding: "7px 8px",
                             }}
                           >
-                            {t.toUpperCase()}
-                          </button>
-                        ))}
-                      </div>
+                            <option value="aws">AWS</option>
+                            <option value="gcp">GCP</option>
+                            <option value="azure">Azure</option>
+                          </select>
+                          <input
+                            value={cfg.keyId}
+                            onChange={(e) =>
+                              setEnvBackends((prev) => ({
+                                ...prev,
+                                [env.name]: { ...cfg, keyId: e.target.value },
+                              }))
+                            }
+                            placeholder="arn:aws:kms:… or key resource ID"
+                            style={{ ...inputStyle, flex: 1 }}
+                          />
+                        </div>
+                      )}
                     </div>
-
-                    {cfg.type === "kms" && (
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <select
-                          value={cfg.provider}
-                          onChange={(e) =>
-                            setEnvBackends((prev) => ({
-                              ...prev,
-                              [env.name]: { ...cfg, provider: e.target.value },
-                            }))
-                          }
-                          style={{
-                            ...inputStyle,
-                            width: 90,
-                            flexShrink: 0,
-                            padding: "7px 8px",
-                          }}
-                        >
-                          <option value="aws">AWS</option>
-                          <option value="gcp">GCP</option>
-                          <option value="azure">Azure</option>
-                        </select>
-                        <input
-                          value={cfg.keyId}
-                          onChange={(e) =>
-                            setEnvBackends((prev) => ({
-                              ...prev,
-                              [env.name]: { ...cfg, keyId: e.target.value },
-                            }))
-                          }
-                          placeholder="arn:aws:kms:… or key resource ID"
-                          style={{ ...inputStyle, flex: 1 }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
 

@@ -263,6 +263,7 @@ jobs:
           gh release create "$TAG" \
             --title "v${CLI_VER}" \
             --notes-file /tmp/release-notes.md \
+            --generate-notes \
             --draft
           echo "Created draft umbrella release: $TAG"
 

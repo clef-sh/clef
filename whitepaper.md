@@ -310,12 +310,14 @@ The `ciphertext` field is base64-encoded encrypted binary — age format for age
 Service identities provide **cryptographic least privilege**. Each identity has:
 
 - A list of namespace scopes (which secrets it can access)
+- A role: **CI** (decrypts source SOPS files directly — the identity's key is registered as a SOPS recipient on scoped files) or **runtime** (decrypts packed artifacts only — the identity's key is never registered on SOPS files)
 - Per-environment cryptographic configuration (age recipient keys or KMS envelope keys)
-- Registration as a SOPS recipient on scoped files only (age mode) or no registration at all (KMS envelope mode)
 
 An `api-gateway` identity scoped to `["api-keys", "database"]` cannot decrypt the `payments` namespace — the enforcement is cryptographic at the file level. The configuration of that enforcement — who is a recipient on which files — is controlled by the manifest in git (see Section 2.3 for the implications of git as the access control layer).
 
-**KMS envelope identities have zero access to git-stored secrets.** In KMS envelope mode, the service identity has no age key and is not registered as a SOPS recipient on any file. The `registerRecipients` step is skipped entirely for KMS-backed environments. This means a compromised workload with IAM `kms:Decrypt` permission on the envelope key can unwrap the packed artifact — recovering only the pre-scoped secrets for its identity and environment — but it has no cryptographic path to decrypt anything in git. The SOPS backend uses a different KMS key entirely, and the workload's IAM role should not have permission on it. This separation is the strongest isolation the architecture provides: the workload never touches the source-of-truth encrypted files, only the derivative artifact built specifically for it.
+**Runtime identities have zero access to git-stored secrets.** A runtime identity (`pack_only: true` for age, or any KMS envelope identity) is never registered as a SOPS recipient on any file — the `registerRecipients` step is skipped entirely. A compromised workload with that identity's credential can only unwrap the packed artifact built specifically for it, recovering pre-scoped secrets for its environment. It has no cryptographic path to decrypt anything in git, even with read access to the repository. This is the strongest file-level isolation the architecture provides: the workload never touches the source-of-truth encrypted files, only the derivative artifact.
+
+The two runtime modes — age and KMS envelope — share this isolation property. They differ in what the workload holds: an age runtime identity stores an age private key (still a static credential, see Section 4.1), while a KMS envelope identity holds only an IAM permission (`kms:Decrypt` on a specific key, no static secret). With separate KMS keys for the SOPS backend and the envelope (Section 4.1), KMS envelope mode adds a second layer: even if the workload were misconfigured with permission to read the encrypted files, it would lack `kms:Decrypt` on the SOPS key and could not decrypt them.
 
 ---
 

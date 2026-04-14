@@ -494,6 +494,13 @@ export class ManifestParser {
           );
         }
 
+        if (siObj.pack_only !== undefined && typeof siObj.pack_only !== "boolean") {
+          throw new ManifestValidationError(
+            `Service identity '${siName}' has a non-boolean 'pack_only' field.`,
+            "service_identities",
+          );
+        }
+
         // namespaces
         if (!Array.isArray(siObj.namespaces) || siObj.namespaces.length === 0) {
           throw new ManifestValidationError(
@@ -620,6 +627,7 @@ export class ManifestParser {
           description: (siObj.description as string) ?? "",
           namespaces: siObj.namespaces as string[],
           environments: parsedEnvs,
+          ...(siObj.pack_only === true ? { pack_only: true } : {}),
         };
       });
 

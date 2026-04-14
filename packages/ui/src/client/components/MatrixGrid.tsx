@@ -8,7 +8,7 @@ export interface MatrixGridProps {
   namespaces: Array<{ name: string }>;
   environments: Array<{ name: string }>;
   matrixStatuses: MatrixStatus[];
-  onNamespaceClick?: (ns: string) => void;
+  onNamespaceClick?: (ns: string, env?: string) => void;
   onSyncClick?: (ns: string) => void;
   syncingNs?: string | null;
 }
@@ -118,6 +118,7 @@ export function MatrixGrid({
             onKeyDown={(e) => {
               if (e.key === "Enter") onNamespaceClick?.(ns.name);
             }}
+            // Cell-level clicks pass the environment; row-level is fallback
             style={{
               display: "grid",
               gridTemplateColumns: `180px ${environments.map(() => "1fr").join(" ")}`,
@@ -214,6 +215,10 @@ export function MatrixGrid({
               return (
                 <div
                   key={env.name}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onNamespaceClick?.(ns.name, env.name);
+                  }}
                   style={{
                     padding: "14px 20px",
                     borderLeft: `1px solid ${theme.border}`,
