@@ -238,6 +238,7 @@ jobs:
           gh release create "v${CLI_VER}" \
             --draft \
             --prerelease \
+            --generate-notes \
             --title "v${CLI_VER} (beta)" \
             --notes "Beta release. Available on GitHub Packages.
 

@@ -507,6 +507,9 @@ export interface ServiceIdentityDefinition {
   description: string;
   namespaces: string[];
   environments: Record<string, ServiceIdentityEnvironmentConfig>;
+  /** When true, this identity is a runtime-only pack target — its keys are NOT
+   *  registered as SOPS recipients on encrypted files. */
+  pack_only?: boolean;
 }
 
 /** A drift issue detected in a service identity configuration. */
@@ -519,7 +522,8 @@ export interface ServiceIdentityDriftIssue {
     | "scope_mismatch"
     | "recipient_not_registered"
     | "orphaned_recipient"
-    | "namespace_not_found";
+    | "namespace_not_found"
+    | "runtime_shared_recipient";
   message: string;
   fixCommand?: string;
 }

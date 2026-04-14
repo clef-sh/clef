@@ -3,6 +3,7 @@ import {
   ClefManifest,
   LintIssue,
   LintResult,
+  isKmsEnvelope,
   resolveRecipientsForEnvironment,
   ServiceIdentityDefinition,
 } from "../types";
@@ -293,6 +294,25 @@ export class LintRunner {
               `Run: clef service add-env ${si.name} ${envName}`,
           });
         }
+      }
+
+      // Pack-only (runtime) SIs: skip recipient checks but warn about shared recipients.
+      if (si.pack_only) {
+        const ageRecipients = Object.values(si.environments)
+          .filter((cfg) => !isKmsEnvelope(cfg) && cfg.recipient)
+          .map((cfg) => cfg.recipient!);
+        if (ageRecipients.length >= 2 && new Set(ageRecipients).size === 1) {
+          issues.push({
+            severity: "warning",
+            category: "service-identity",
+            file: "clef.yaml",
+            message:
+              `Runtime identity '${si.name}' uses a shared recipient across all environments. ` +
+              "A compromised key in any environment decrypts artifacts for all environments. " +
+              "Consider per-environment keys for runtime workloads.",
+          });
+        }
+        continue;
       }
 
       // Recipient registration on scoped files

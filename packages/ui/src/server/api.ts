@@ -968,6 +968,7 @@ export function createApiRouter(deps: ApiDeps): Router {
           description: si.description,
           namespaces: si.namespaces,
           environments,
+          packOnly: si.pack_only ?? false,
         };
       });
 
@@ -982,12 +983,15 @@ export function createApiRouter(deps: ApiDeps): Router {
   router.post("/service-identities", async (req: Request, res: Response) => {
     try {
       const manifest = loadManifest();
-      const { name, description, namespaces, kmsEnvConfigs } = req.body as {
-        name: string;
-        description?: string;
-        namespaces: string[];
-        kmsEnvConfigs?: Record<string, { provider: string; keyId: string }>;
-      };
+      const { name, description, namespaces, kmsEnvConfigs, sharedRecipient, packOnly } =
+        req.body as {
+          name: string;
+          description?: string;
+          namespaces: string[];
+          kmsEnvConfigs?: Record<string, { provider: string; keyId: string }>;
+          sharedRecipient?: boolean;
+          packOnly?: boolean;
+        };
 
       if (!name || typeof name !== "string") {
         res.status(400).json({ error: "name is required.", code: "BAD_REQUEST" });
@@ -1025,11 +1029,20 @@ export function createApiRouter(deps: ApiDeps): Router {
         description ?? "",
         manifest,
         deps.repoRoot,
-        typedKmsConfigs,
+        {
+          kmsEnvConfigs: typedKmsConfigs,
+          sharedRecipient: sharedRecipient === true,
+          packOnly: packOnly === true,
+        },
       );
 
       setNoCacheHeaders(res);
-      res.json({ identity: result.identity, privateKeys: result.privateKeys });
+      res.json({
+        identity: result.identity,
+        privateKeys: result.privateKeys,
+        sharedRecipient: result.sharedRecipient,
+        packOnly: result.identity.pack_only ?? false,
+      });
 
       // Best-effort: clear references to private key strings (V8 may retain copies)
       zeroStringRecord(result.privateKeys);

@@ -326,6 +326,126 @@ describe("clef service", () => {
       expect(mockFormatter.error).toHaveBeenCalledWith(expect.stringContaining("not found"));
       expect(mockExit).toHaveBeenCalledWith(1);
     });
+
+    it("should print one shared key with --shared-recipient", async () => {
+      const noIdentities = {
+        version: 1,
+        environments: [
+          { name: "dev", description: "Dev" },
+          { name: "staging", description: "Staging" },
+        ],
+        namespaces: [{ name: "api", description: "API" }],
+        sops: { default_backend: "age" },
+        file_pattern: "{namespace}/{environment}.enc.yaml",
+      };
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(noIdentities));
+      mockFs.existsSync.mockReturnValue(false);
+
+      const runner = makeRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync([
+        "node",
+        "clef",
+        "service",
+        "create",
+        "shared-svc",
+        "--namespaces",
+        "api",
+        "--shared-recipient",
+      ]);
+
+      expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("shared-svc"));
+      // Warn message should mention CLEF_AGE_KEY (shared key hint) not per-env keys
+      const warnCalls = (mockFormatter.warn as jest.Mock).mock.calls.map((c: unknown[]) =>
+        String(c[0]),
+      );
+      expect(warnCalls.some((m) => m.includes("Shared"))).toBe(true);
+      // Should not print separate per-env key lines
+      const printCalls = (mockFormatter.print as jest.Mock).mock.calls.map((c: unknown[]) =>
+        String(c[0]),
+      );
+      expect(printCalls.some((m) => m.includes("CLEF_AGE_KEY"))).toBe(true);
+      expect(printCalls.some((m) => m.startsWith("  dev:"))).toBe(false);
+      expect(printCalls.some((m) => m.startsWith("  staging:"))).toBe(false);
+    });
+
+    it("should create a runtime identity with --runtime flag", async () => {
+      const noIdentities = {
+        version: 1,
+        environments: [
+          { name: "dev", description: "Dev" },
+          { name: "staging", description: "Staging" },
+        ],
+        namespaces: [{ name: "api", description: "API" }],
+        sops: { default_backend: "age" },
+        file_pattern: "{namespace}/{environment}.enc.yaml",
+      };
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(noIdentities));
+      mockFs.existsSync.mockReturnValue(false);
+
+      const runner = makeRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync([
+        "node",
+        "clef",
+        "service",
+        "create",
+        "lambda-svc",
+        "--namespaces",
+        "api",
+        "--runtime",
+      ]);
+
+      expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("lambda-svc"));
+      const printCalls = (mockFormatter.print as jest.Mock).mock.calls.map((c: unknown[]) =>
+        String(c[0]),
+      );
+      // Should show runtime mode
+      expect(printCalls.some((m) => m.includes("runtime"))).toBe(true);
+      // Runtime default is per-env keys (not shared), so individual env lines should appear
+      expect(printCalls.some((m) => m.includes("dev:"))).toBe(true);
+    });
+
+    it("should default to shared-recipient for CI (no --runtime)", async () => {
+      const noIdentities = {
+        version: 1,
+        environments: [
+          { name: "dev", description: "Dev" },
+          { name: "staging", description: "Staging" },
+        ],
+        namespaces: [{ name: "api", description: "API" }],
+        sops: { default_backend: "age" },
+        file_pattern: "{namespace}/{environment}.enc.yaml",
+      };
+      mockFs.readFileSync.mockReturnValue(YAML.stringify(noIdentities));
+      mockFs.existsSync.mockReturnValue(false);
+
+      const runner = makeRunner();
+      const program = makeProgram(runner);
+
+      await program.parseAsync([
+        "node",
+        "clef",
+        "service",
+        "create",
+        "ci-svc",
+        "--namespaces",
+        "api",
+      ]);
+
+      expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("ci-svc"));
+      // CI default is shared-recipient, so should see CLEF_AGE_KEY
+      const warnCalls = (mockFormatter.warn as jest.Mock).mock.calls.map((c: unknown[]) =>
+        String(c[0]),
+      );
+      expect(warnCalls.some((m) => m.includes("Shared"))).toBe(true);
+      const printCalls = (mockFormatter.print as jest.Mock).mock.calls.map((c: unknown[]) =>
+        String(c[0]),
+      );
+      expect(printCalls.some((m) => m.includes("CI"))).toBe(true);
+    });
   });
 
   describe("rotate", () => {

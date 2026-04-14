@@ -19,6 +19,7 @@ import type { ClefManifest, MatrixStatus, GitStatus, LintResult } from "@clef-sh
 export default function App() {
   const [view, setView] = useState<ViewName>("matrix");
   const [activeNs, setActiveNs] = useState("");
+  const [activeEnv, setActiveEnv] = useState("");
   const [loading, setLoading] = useState(true);
   const [manifest, setManifest] = useState<ClefManifest | null>(null);
   const [matrixStatuses, setMatrixStatuses] = useState<MatrixStatus[]>([]);
@@ -170,12 +171,15 @@ export default function App() {
           <MatrixView
             setView={setView}
             setNs={setActiveNs}
+            setEnv={setActiveEnv}
             manifest={manifest}
             matrixStatuses={matrixStatuses}
             reloadMatrix={loadMatrix}
           />
         )}
-        {view === "editor" && <NamespaceEditor ns={activeNs} manifest={manifest} />}
+        {view === "editor" && (
+          <NamespaceEditor ns={activeNs} initialEnv={activeEnv} manifest={manifest} />
+        )}
         {view === "diff" && <DiffView manifest={manifest} />}
         {view === "lint" && <LintView setView={setView} setNs={setActiveNs} />}
         {view === "scan" && <ScanScreen />}
