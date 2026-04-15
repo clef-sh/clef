@@ -1,0 +1,31 @@
+# Clef compliance check — enforces rotation policy, scan, and lint.
+# Merge into your .circleci/config.yml. Regenerate with
+# `clef policy init --force` after upgrading the CLI.
+#
+# Docs: https://docs.clef.sh/policy
+
+version: 2.1
+
+jobs:
+  clef-compliance:
+    docker:
+      - image: cimg/node:20.11
+    steps:
+      - checkout
+      - run:
+          name: Install Clef CLI
+          command: npm install -g @clef-sh/cli@^0.1
+      - run:
+          name: Check rotation policy
+          command: clef policy check
+      - run:
+          name: Generate compliance report
+          command: clef policy report --output compliance.json
+          when: always
+      - store_artifacts:
+          path: compliance.json
+
+workflows:
+  compliance:
+    jobs:
+      - clef-compliance

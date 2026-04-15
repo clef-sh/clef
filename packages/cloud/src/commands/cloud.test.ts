@@ -33,9 +33,17 @@ jest.mock("../cloud-api", () => ({
     installation: { id: 12345678, account: "acme", installedAt: 1712847600000 },
   }),
   getMe: jest.fn().mockResolvedValue({
-    user: { id: "u1", login: "jamesspears", email: "james@clef.sh" },
-    installation: null,
-    subscription: { tier: "free", status: "active" },
+    user: {
+      clefId: "u1",
+      vcsAccounts: [
+        { provider: "github", login: "jamesspears", avatarUrl: "", displayName: "James Spears" },
+      ],
+      email: "james@clef.sh",
+      displayName: "James Spears",
+    },
+    installations: [],
+    posthog_distinct_id: "u1",
+    freeTierLimit: 1,
   }),
 }));
 
@@ -198,20 +206,41 @@ describe("clef cloud status", () => {
     getCredsMock().isSessionExpired.mockReturnValue(false);
   });
 
-  it("shows account info when logged in with installation", async () => {
+  it("shows all installations when logged in", async () => {
     getCredsMock().readCloudCredentials.mockReturnValue(validCreds);
     getCloudApiMock().getMe.mockResolvedValueOnce({
-      user: { id: "u1", login: "jamesspears", email: "james@clef.sh" },
-      installation: { id: 12345678, account: "acme", installedAt: 1712847600000 },
-      subscription: { tier: "free", status: "active" },
+      user: {
+        clefId: "u1",
+        vcsAccounts: [
+          { provider: "github", login: "jamesspears", avatarUrl: "", displayName: "James Spears" },
+        ],
+        email: "james@clef.sh",
+        displayName: "James Spears",
+      },
+      installations: [
+        { id: 11111111, account: "acme-corp", installedAt: 1712847600000 },
+        { id: 22222222, account: "jamesspears", installedAt: 1712848000000 },
+      ],
+      posthog_distinct_id: "u1",
+      freeTierLimit: 1,
     });
 
     const { program } = makeProgram();
     await program.parseAsync(["node", "test", "cloud", "status"]);
 
     expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("jamesspears"));
-    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("acme"));
-    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("free"));
+    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("acme-corp"));
+    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("11111111"));
+    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("Free tier limit"));
+  });
+
+  it("shows no-installations message when installations is empty", async () => {
+    getCredsMock().readCloudCredentials.mockReturnValue(validCreds);
+
+    const { program } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "status"]);
+
+    expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("No installations"));
   });
 
   it("shows not logged in when no credentials", async () => {
@@ -257,11 +286,6 @@ describe("clef cloud init", () => {
     getCredsMock().readCloudCredentials.mockReturnValue(null);
     getCredsMock().isSessionExpired.mockReturnValue(false);
     getCredsMock().writeCloudCredentials.mockImplementation(() => {});
-    getCloudApiMock().getMe.mockResolvedValue({
-      user: { id: "u1", login: "jamesspears", email: "james@clef.sh" },
-      installation: null,
-      subscription: { tier: "free", status: "active" },
-    });
   });
 
   it("errors when clef.yaml is missing", async () => {
@@ -304,30 +328,8 @@ describe("clef cloud init", () => {
     expect(mockFormatter.print).toHaveBeenCalledWith(expect.stringContaining("GitHub"));
   });
 
-  it("skips install when bot already installed", async () => {
-    getCredsMock().readCloudCredentials.mockReturnValue(validCreds);
-    getCloudApiMock().getMe.mockResolvedValueOnce({
-      user: { id: "u1", login: "jamesspears", email: "james@clef.sh" },
-      installation: { id: 12345678, account: "acme", installedAt: 1712847600000 },
-      subscription: { tier: "free", status: "active" },
-    });
-
-    const { program } = makeProgram();
-    await program.parseAsync(["node", "test", "cloud", "init"]);
-
-    expect(mockFormatter.success).toHaveBeenCalledWith(
-      expect.stringContaining("already installed"),
-    );
-    expect(getCloudApiMock().startInstall).not.toHaveBeenCalled();
-  });
-
   it("skips policy scaffold when policy already valid", async () => {
     getCredsMock().readCloudCredentials.mockReturnValue(validCreds);
-    getCloudApiMock().getMe.mockResolvedValueOnce({
-      user: { id: "u1", login: "jamesspears", email: "james@clef.sh" },
-      installation: { id: 12345678, account: "acme", installedAt: 1712847600000 },
-      subscription: { tier: "free", status: "active" },
-    });
     getPolicyMock().parsePolicyFile.mockReturnValue({ valid: true });
 
     const { program } = makeProgram();
@@ -335,6 +337,59 @@ describe("clef cloud init", () => {
 
     expect(mockFormatter.info).toHaveBeenCalledWith(expect.stringContaining("already exists"));
     expect(getPolicyMock().scaffoldPolicyFile).not.toHaveBeenCalled();
+  });
+
+  it("short-circuits when startInstall returns already_installed", async () => {
+    getCredsMock().readCloudCredentials.mockReturnValue(validCreds);
+    getCloudApiMock().startInstall.mockResolvedValueOnce({
+      already_installed: true,
+      installation: { id: 12345678, account: "acme" },
+      dashboard_url: "https://cloud.clef.sh/dashboard",
+    });
+
+    const { program, deps } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "init"]);
+
+    expect(getCloudApiMock().pollInstallUntilComplete).not.toHaveBeenCalled();
+    expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("acme"));
+    expect(deps.openBrowser).toHaveBeenCalledWith(
+      "https://cloud.clef.sh/dashboard",
+      expect.anything(),
+    );
+  });
+
+  it("prints dashboard URL instead of opening browser when --no-browser and already_installed", async () => {
+    getCredsMock().readCloudCredentials.mockReturnValue(validCreds);
+    getCloudApiMock().startInstall.mockResolvedValueOnce({
+      already_installed: true,
+      installation: { id: 12345678, account: "acme" },
+      dashboard_url: "https://cloud.clef.sh/dashboard",
+    });
+
+    const { program, deps } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "init", "--no-browser"]);
+
+    expect(deps.openBrowser).not.toHaveBeenCalled();
+    expect(mockFormatter.hint).toHaveBeenCalledWith(
+      expect.stringContaining("https://cloud.clef.sh/dashboard"),
+    );
+  });
+
+  it("prints fallback URL when dashboard_url is null", async () => {
+    getCredsMock().readCloudCredentials.mockReturnValue(validCreds);
+    getCloudApiMock().startInstall.mockResolvedValueOnce({
+      already_installed: true,
+      installation: { id: 12345678, account: "acme" },
+      dashboard_url: null,
+    });
+
+    const { program, deps } = makeProgram();
+    await program.parseAsync(["node", "test", "cloud", "init"]);
+
+    expect(deps.openBrowser).not.toHaveBeenCalled();
+    expect(mockFormatter.info).toHaveBeenCalledWith(
+      expect.stringContaining("https://cloud.clef.sh/app"),
+    );
   });
 
   it("handles install timeout", async () => {

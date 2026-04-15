@@ -1,0 +1,39 @@
+# Clef compliance check — enforces rotation policy, scan, and lint.
+# Regenerate with `clef policy init --force` after upgrading the CLI.
+#
+# Docs: https://docs.clef.sh/policy
+
+name: Clef Compliance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  compliance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Clef CLI
+        run: npm install -g @clef-sh/cli@^0.1
+
+      - name: Check rotation policy
+        run: clef policy check
+
+      - name: Generate compliance report
+        if: always()
+        run: clef policy report --output compliance.json
+
+      - name: Upload compliance artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compliance
+          path: compliance.json
+          retention-days: 90

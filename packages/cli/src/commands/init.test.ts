@@ -18,6 +18,15 @@ jest.mock("../label-generator", () => ({
   generateKeyLabel: jest.fn().mockReturnValue("test-label"),
 }));
 
+// Mock scaffold engine — the engine itself is exercised in scaffold.test.ts.
+// Here we only verify init wires through to it correctly.  Without a mock
+// the engine would try to load templates from disk and fail because fs is
+// fully mocked above.
+const mockScaffoldPolicy = jest.fn();
+jest.mock("../scaffold", () => ({
+  scaffoldPolicy: (opts: unknown) => mockScaffoldPolicy(opts),
+}));
+
 jest.mock("@clef-sh/core", () => {
   const actual = jest.requireActual("@clef-sh/core");
   return {
@@ -163,6 +172,13 @@ describe("clef init", () => {
     mockSetKeychainKey.mockResolvedValue(false);
     // Clean up env vars that may be set by keychain-success tests
     delete process.env.CLEF_AGE_KEY;
+    // Default: scaffold succeeds for both files (github CI)
+    mockScaffoldPolicy.mockReturnValue({
+      policy: { path: ".clef/policy.yaml", status: "created" },
+      workflow: { path: ".github/workflows/clef-compliance.yml", status: "created" },
+      provider: "github",
+      mergeInstruction: undefined,
+    });
   });
 
   it("should print 'Already initialised' when both clef.yaml and .clef/config.yaml exist", async () => {
@@ -871,5 +887,91 @@ describe("clef init", () => {
     } else {
       process.env.CLEF_AGE_KEY_FILE = origKeyFile;
     }
+  });
+
+  describe("policy scaffold integration", () => {
+    it("calls scaffoldPolicy with the resolved repoRoot", async () => {
+      const runner = mockRunner();
+      const program = makeProgram(runner);
+      await program.parseAsync(["node", "clef", "init", "--namespaces", "db", "--non-interactive"]);
+      expect(mockScaffoldPolicy).toHaveBeenCalledWith(
+        expect.objectContaining({ repoRoot: expect.any(String) }),
+      );
+    });
+
+    it("prints success messages for both scaffolded files", async () => {
+      const runner = mockRunner();
+      const program = makeProgram(runner);
+      await program.parseAsync(["node", "clef", "init", "--namespaces", "db", "--non-interactive"]);
+      expect(mockFormatter.success).toHaveBeenCalledWith(
+        expect.stringMatching(/Created .clef\/policy\.yaml/),
+      );
+      expect(mockFormatter.success).toHaveBeenCalledWith(
+        expect.stringMatching(/Created .github\/workflows\/clef-compliance\.yml \(github CI\)/),
+      );
+    });
+
+    it("does not warn when scaffold reports skipped_exists", async () => {
+      mockScaffoldPolicy.mockReturnValueOnce({
+        policy: { path: ".clef/policy.yaml", status: "skipped_exists" },
+        workflow: {
+          path: ".github/workflows/clef-compliance.yml",
+          status: "skipped_exists",
+        },
+        provider: "github",
+      });
+      const runner = mockRunner();
+      const program = makeProgram(runner);
+      await program.parseAsync(["node", "clef", "init", "--namespaces", "db", "--non-interactive"]);
+      // No "Created policy.yaml" message because both were skipped
+      const successCalls = mockFormatter.success.mock.calls.map((c) => String(c[0]));
+      expect(successCalls.some((s) => /Created \.clef\/policy/.test(s))).toBe(false);
+    });
+
+    it("surfaces a merge instruction when the provider needs one", async () => {
+      mockScaffoldPolicy.mockReturnValueOnce({
+        policy: { path: ".clef/policy.yaml", status: "created" },
+        workflow: { path: ".gitlab/clef-compliance.yml", status: "created" },
+        provider: "gitlab",
+        mergeInstruction: "Add `include: '/.gitlab/clef-compliance.yml'` to .gitlab-ci.yml",
+      });
+      const runner = mockRunner();
+      const program = makeProgram(runner);
+      await program.parseAsync(["node", "clef", "init", "--namespaces", "db", "--non-interactive"]);
+      expect(mockFormatter.hint).toHaveBeenCalledWith(
+        expect.stringMatching(/include.*gitlab-ci\.yml/),
+      );
+    });
+
+    it("warns but does not fail init when scaffold throws", async () => {
+      mockScaffoldPolicy.mockImplementationOnce(() => {
+        throw new Error("template not found");
+      });
+      const runner = mockRunner();
+      const program = makeProgram(runner);
+      await program.parseAsync(["node", "clef", "init", "--namespaces", "db", "--non-interactive"]);
+      expect(mockFormatter.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/Could not scaffold policy.*template not found/),
+      );
+      // init still completed (Next steps section was reached via section())
+      expect(mockFormatter.section).toHaveBeenCalledWith("Next steps:");
+    });
+
+    it("includes the scaffold result in --json output", async () => {
+      const { isJsonMode } = jest.requireMock("../output/formatter");
+      isJsonMode.mockReturnValue(true);
+
+      const runner = mockRunner();
+      const program = makeProgram(runner);
+      await program.parseAsync(["node", "clef", "init", "--namespaces", "db", "--non-interactive"]);
+
+      const jsonCall = mockFormatter.json.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(jsonCall).toBeDefined();
+      expect(jsonCall.policy).toMatchObject({
+        provider: "github",
+        policy: { status: "created" },
+        workflow: { status: "created" },
+      });
+    });
   });
 });

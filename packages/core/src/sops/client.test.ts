@@ -654,6 +654,8 @@ sops:
       expect(metadata.backend).toBe("age");
       expect(metadata.recipients).toEqual(["age1test123"]);
       expect(metadata.lastModified).toEqual(new Date("2024-01-15T10:30:00Z"));
+      expect(metadata.lastModifiedPresent).toBe(true);
+      expect(metadata.version).toBe("3.8.1");
     });
 
     it("should detect AWS KMS backend", async () => {
@@ -847,7 +849,7 @@ sops:
       );
     });
 
-    it("should fall back to new Date() when lastmodified is missing", async () => {
+    it("should fall back to new Date() and flag lastModifiedPresent=false when missing", async () => {
       const noLastModYaml = `data: ENC[AES256_GCM,data:test=]
 sops:
   age:
@@ -871,6 +873,32 @@ sops:
       expect(metadata.backend).toBe("age");
       expect(metadata.lastModified.getTime()).toBeGreaterThanOrEqual(before.getTime());
       expect(metadata.lastModified.getTime()).toBeLessThanOrEqual(after.getTime());
+      expect(metadata.lastModifiedPresent).toBe(false);
+      // version should still parse even when lastmodified is absent
+      expect(metadata.version).toBe("3.8.1");
+    });
+
+    it("should leave version undefined when sops.version is absent", async () => {
+      const noVersionYaml = `data: ENC[AES256_GCM,data:test=]
+sops:
+  age:
+    - recipient: age1test123
+      enc: |
+        -----BEGIN AGE ENCRYPTED FILE-----
+        testdata
+        -----END AGE ENCRYPTED FILE-----
+  lastmodified: "2024-01-15T10:30:00Z"`;
+
+      mockReadFileSync.mockReturnValue(noVersionYaml);
+      const runner = mockRunner({
+        "sops filestatus": { stdout: "", stderr: "", exitCode: 1 },
+      });
+
+      const client = new SopsClient(runner);
+      const metadata = await client.getMetadata("database/dev.enc.yaml");
+
+      expect(metadata.lastModifiedPresent).toBe(true);
+      expect(metadata.version).toBeUndefined();
     });
 
     it("should default to age when no known backend keys are present", async () => {

@@ -304,7 +304,26 @@ export interface SopsMetadata {
   backend: BackendType;
   /** List of recipient identifiers (age public keys, KMS ARNs, Azure KV URLs, PGP fingerprints). */
   recipients: string[];
+  /**
+   * Effective last-modified timestamp.  When `lastModifiedPresent` is `false`
+   * this falls back to the time the metadata was parsed — callers that care
+   * about rotation policy should branch on `lastModifiedPresent`, not on the
+   * date itself.
+   */
   lastModified: Date;
+  /**
+   * Whether the file's `sops.lastmodified` field was actually populated.
+   * `false` means `lastModified` is a synthetic fallback (now), not a real
+   * encryption timestamp — compliance and rotation evaluators surface this
+   * distinctly so files without metadata don't appear "freshly rotated."
+   *
+   * Optional: callers that don't set this are assumed to have a real
+   * timestamp (the current behavior of every consumer pre-dating this field).
+   * `parseMetadataFromFile` always populates it.
+   */
+  lastModifiedPresent?: boolean;
+  /** SOPS format version string from the file's `sops.version` field (e.g. `"3.9.4"`). */
+  version?: string;
 }
 
 /**
@@ -427,6 +446,17 @@ export class GitOperationError extends ClefError {
   constructor(message: string, fix?: string) {
     super(message, fix ?? "Ensure you are inside a git repository");
     this.name = "GitOperationError";
+  }
+}
+
+/** Thrown when `.clef/policy.yaml` fails parsing or schema validation. */
+export class PolicyValidationError extends ClefError {
+  constructor(
+    message: string,
+    public readonly field?: string,
+  ) {
+    super(message, field ? `Check the '${field}' field in .clef/policy.yaml` : undefined);
+    this.name = "PolicyValidationError";
   }
 }
 

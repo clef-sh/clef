@@ -428,9 +428,12 @@ export class SopsClient implements EncryptionBackend {
 
     const backend = this.detectBackend(sops);
     const recipients = this.extractRecipients(sops, backend);
-    const lastModified = sops.lastmodified ? new Date(sops.lastmodified as string) : new Date();
+    const lastModifiedRaw = typeof sops.lastmodified === "string" ? sops.lastmodified : undefined;
+    const lastModified = lastModifiedRaw ? new Date(lastModifiedRaw) : new Date();
+    const lastModifiedPresent = lastModifiedRaw !== undefined;
+    const version = typeof sops.version === "string" ? sops.version : undefined;
 
-    return { backend, recipients, lastModified };
+    return { backend, recipients, lastModified, lastModifiedPresent, version };
   }
 
   private detectBackend(sops: Record<string, unknown>): BackendType {

@@ -14,8 +14,8 @@ import { runDeviceFlow } from "../device-flow";
  * Not a secret — appears in OAuth URLs. Hardcoded per environment for v0.1.
  * Override via CLEF_GITHUB_CLIENT_ID env var.
  */
-const GITHUB_CLIENT_ID_PROD = "";
-const GITHUB_CLIENT_ID_DEV = "";
+const GITHUB_CLIENT_ID_PROD = ""; // TBD — set at prod App creation
+const GITHUB_CLIENT_ID_DEV = "Iv23liZR0h6cykSAXWzC"; // clef-bot-dev GitHub App
 
 function resolveClientId(): string {
   if (process.env.CLEF_GITHUB_CLIENT_ID) return process.env.CLEF_GITHUB_CLIENT_ID;
