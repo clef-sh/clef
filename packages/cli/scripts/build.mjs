@@ -179,6 +179,14 @@ async function buildSea() {
     collectAssets(uiClientDest, "client");
   }
 
+  // Embed scaffold templates (policy.yaml + CI workflows) for `clef policy init`.
+  // Keys are prefixed "templates/..." so the runtime loader can request them
+  // with the same relative paths it uses when reading from disk.
+  const templatesSrc = resolve(packageRoot, "templates");
+  if (existsSync(templatesSrc)) {
+    collectAssets(templatesSrc, "templates");
+  }
+
   const seaConfig = {
     main: "dist/index.cjs",
     output: "dist/sea-prep.blob",

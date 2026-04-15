@@ -1,0 +1,17 @@
+# Rotation policy for Clef secrets.
+#
+# Run `clef policy check` locally to evaluate the current matrix.
+# The companion CI workflow enforces this on every PR and merge.
+#
+# Docs: https://docs.clef.sh/policy
+
+version: 1
+
+rotation:
+  # Rotate secrets older than this many days.
+  max_age_days: 90
+
+  # Per-environment overrides. Uncomment to tighten production.
+  # environments:
+  #   production:
+  #     max_age_days: 30

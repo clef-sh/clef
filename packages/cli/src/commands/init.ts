@@ -25,6 +25,7 @@ import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { setKeychainKey } from "../keychain";
 import { generateKeyLabel } from "../label-generator";
+import { ScaffoldResult, scaffoldPolicy } from "../scaffold";
 
 const CLEF_DIR = ".clef";
 const CLEF_CONFIG_FILENAME = "config.yaml";
@@ -500,6 +501,25 @@ async function handleFullSetup(
     );
   }
 
+  // Scaffold rotation policy + CI workflow.  Unconditional — no prompt.
+  // Idempotent: skipped silently if either file already exists.  Rerun later
+  // with `clef policy init` to customize or pick a different CI provider.
+  let policyScaffold: ScaffoldResult | null = null;
+  try {
+    policyScaffold = scaffoldPolicy({ repoRoot });
+    if (policyScaffold.policy.status === "created") {
+      formatter.success(`Created ${policyScaffold.policy.path}`);
+    }
+    if (policyScaffold.workflow.status === "created") {
+      formatter.success(`Created ${policyScaffold.workflow.path} (${policyScaffold.provider} CI)`);
+    }
+    if (policyScaffold.mergeInstruction) {
+      formatter.hint(policyScaffold.mergeInstruction);
+    }
+  } catch (err) {
+    formatter.warn(`Could not scaffold policy: ${(err as Error).message}`);
+  }
+
   // Analytics notice — only on first init, not second-dev onboarding
   try {
     await import("@clef-sh/analytics");
@@ -521,15 +541,17 @@ async function handleFullSetup(
       namespaces: manifest.namespaces.map((n) => n.name),
       backend,
       scaffolded: scaffoldedCount,
+      policy: policyScaffold,
     });
     return;
   }
 
   formatter.section("Next steps:");
   formatter.hint("clef set <namespace>/<env> <KEY> <value>  \u2014 add a secret");
-  formatter.hint("clef scan  \u2014 check for existing plaintext secrets");
-  formatter.hint("clef lint  \u2014 check repo health");
-  formatter.hint("clef ui    \u2014 open the web UI");
+  formatter.hint("clef policy check                         \u2014 enforce rotation");
+  formatter.hint("clef scan                                 \u2014 look for plaintext leaks");
+  formatter.hint("clef lint                                 \u2014 check repo health");
+  formatter.hint("clef ui                                   \u2014 open the web UI");
 }
 
 /* istanbul ignore next -- only reachable if a namespace has a schema field, which init never sets */

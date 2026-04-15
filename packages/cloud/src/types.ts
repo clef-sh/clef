@@ -79,13 +79,19 @@ export interface ClefTokenExchangeResponse {
 
 // ── Install flow types ────────────────────────────────────────────────────
 
+/** Data payload from POST /api/v1/install/start. Two shapes: new install vs. already set up. */
+export type InstallStartData =
+  | {
+      already_installed: true;
+      installation: { id: number; account: string };
+      /** Null when PUBLIC_BASE_URL is not set (local dev). */
+      dashboard_url: string | null;
+    }
+  | { already_installed?: false; install_url: string; state: string; expires_in: number };
+
 /** Response from POST /api/v1/install/start. */
 export interface InstallStartResponse {
-  data: {
-    install_url: string;
-    state: string;
-    expires_in: number;
-  };
+  data: InstallStartData;
   success: true;
 }
 
@@ -107,16 +113,25 @@ export interface InstallPollResponse {
 /** Response from GET /api/v1/me. */
 export interface MeResponse {
   data: {
-    user: { id: string; login: string; email: string };
-    installation: {
+    user: {
+      clefId: string;
+      vcsAccounts: Array<{
+        provider: string;
+        login: string;
+        avatarUrl: string;
+        displayName: string;
+      }>;
+      email: string;
+      displayName: string;
+    };
+    /** All orgs/users this person has the app installed on. Empty array if none. */
+    installations: Array<{
       id: number;
       account: string;
       installedAt: number;
-    } | null;
-    subscription: {
-      tier: string;
-      status: string;
-    };
+    }>;
+    posthog_distinct_id: string;
+    freeTierLimit: number;
   };
   success: true;
 }
