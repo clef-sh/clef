@@ -12,7 +12,8 @@
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "types": ["node", "jest"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts", "dist", "node_modules"]

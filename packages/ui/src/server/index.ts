@@ -3,7 +3,7 @@ import * as path from "path";
 import { extname } from "path";
 import { randomBytes, timingSafeEqual } from "crypto";
 import express, { Request, Response, NextFunction } from "express";
-import rateLimit from "express-rate-limit";
+import rateLimit, { MemoryStore } from "express-rate-limit";
 import { Server } from "http";
 import { SubprocessRunner } from "@clef-sh/core";
 import { createApiRouter } from "./api";
@@ -137,11 +137,13 @@ export async function startServer(
   // Rate-limit static asset serving. This server binds to 127.0.0.1 only, so
   // the limit is generous — it exists solely to satisfy the DoS-prevention
   // requirement and will not affect normal interactive use.
+  const rateLimitStore = new MemoryStore();
   const staticLimiter = rateLimit({
     windowMs: 60 * 1000,
     limit: 1000,
     standardHeaders: "draft-7",
     legacyHeaders: false,
+    store: rateLimitStore,
   });
 
   // Serve static client files.
@@ -210,6 +212,7 @@ export async function startServer(
                 if (apiRouter?.dispose) {
                   apiRouter.dispose();
                 }
+                rateLimitStore.shutdown();
                 if (err) {
                   rejectStop(err);
                 } else {

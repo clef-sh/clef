@@ -287,9 +287,24 @@ The CI role needs:
 
 These can be the same KMS key. The runtime role needs only `kms:Decrypt` on the envelope key.
 
+## Rotation Policy Enforcement
+
+Beyond consuming secrets in CI, Clef can also gate PRs on whether secrets are due for rotation. `clef policy check` reads the `sops.lastmodified` timestamp from each encrypted file's SOPS metadata (no decryption required) and fails if any file exceeds the configured age limit.
+
+```bash
+# Fail if any file exceeds its rotation limit
+clef policy check
+
+# Generate a compliance artifact for audit storage
+clef policy report --output compliance.json
+```
+
+`clef policy init` scaffolds a ready-to-use CI workflow that runs both commands on every PR. See the [Rotation Policy & Compliance guide](/guide/compliance) for full details.
+
 ## Best Practices
 
 1. **Use `clef exec` over `clef export`** — subprocess injection never exposes secrets in shell state
 2. **Scope CI permissions narrowly** — IAM roles should have `kms:Decrypt` only, on specific keys
 3. **Use `--only` to limit exposure** — inject only the keys your command needs
 4. **Test with `clef exec ... -- env`** — verify which variables are injected
+5. **Add `clef policy check` to your CI** — enforce rotation schedules automatically

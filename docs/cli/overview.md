@@ -33,6 +33,15 @@ The CLI is built on [commander.js](https://github.com/tj/commander.js) and follo
 | [`clef drift`](/cli/drift)   | Detect drift between manifest and encrypted files     | `--json`, `--push`                                                                |
 | [`clef report`](/cli/report) | Generate a metadata report for the repository         | `--json`, `--push`, `--at <sha>`, `--since <sha>`, `--namespace`, `--environment` |
 
+### Compliance & rotation policy
+
+| Command                             | Description                                               | Arguments & flags                                                           |
+| ----------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------- |
+| [`clef policy init`](/cli/policy)   | Scaffold `.clef/policy.yaml` and a CI compliance workflow | `--ci <provider>`, `--force`, `--policy-only`, `--workflow-only`            |
+| [`clef policy show`](/cli/policy)   | Print the resolved rotation policy                        | `--json`                                                                    |
+| [`clef policy check`](/cli/policy)  | Evaluate matrix files against the rotation policy         | `-n/--namespace`, `-e/--environment`, `--strict`, `--json`                  |
+| [`clef policy report`](/cli/policy) | Generate a full `ComplianceDocument` artifact (JSON)      | `-o/--output`, `--sha`, `--repo`, `--no-scan`, `--no-lint`, `--no-rotation` |
+
 ### Key & recipient management
 
 | Command                                      | Description                                | Arguments & flags                     |
@@ -113,13 +122,14 @@ clef --dir ../other-project exec payments/production -- ./deploy.sh
 
 All commands follow the same exit code convention:
 
-| Code | Meaning                                                                       |
-| ---- | ----------------------------------------------------------------------------- |
-| `0`  | Success (for `diff`: no differences found)                                    |
-| `1`  | Error or differences found                                                    |
-| `2`  | Precondition failure — command could not start or complete (`scan`, `import`) |
+| Code | Meaning                                                                                       |
+| ---- | --------------------------------------------------------------------------------------------- |
+| `0`  | Success (for `diff`: no differences found; for `policy check`: all files compliant)           |
+| `1`  | Error or findings (differences, overdue files, scan/lint issues)                              |
+| `2`  | Precondition failure — command could not start or complete (`scan`, `import`, `policy check`) |
+| `3`  | `clef policy check --strict` only: one or more files have unknown `sops.lastmodified`         |
 
-`clef exec` is an exception: its exit code matches the child process exactly.
+`clef exec` is an exception: its exit code matches the child process exactly. `clef policy report` always exits `0` on successful artifact generation — the `passed` field in the JSON document carries the actual verdict.
 
 ## Target syntax
 

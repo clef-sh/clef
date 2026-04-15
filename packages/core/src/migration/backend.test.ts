@@ -45,11 +45,21 @@ function makeManifestYaml(overrides?: Partial<ClefManifest>): string {
 }
 
 function ageMeta(): SopsMetadata {
-  return { backend: "age", recipients: ["age1abc..."], lastModified: new Date() };
+  return {
+    backend: "age",
+    recipients: ["age1abc..."],
+    lastModified: new Date(),
+    lastModifiedPresent: true,
+  };
 }
 
 function kmsMeta(arn = "arn:aws:kms:us-east-1:123:key/old"): SopsMetadata {
-  return { backend: "awskms", recipients: [arn], lastModified: new Date() };
+  return {
+    backend: "awskms",
+    recipients: [arn],
+    lastModified: new Date(),
+    lastModifiedPresent: true,
+  };
 }
 
 function makeEncryption(overrides?: Partial<EncryptionBackend>): EncryptionBackend {

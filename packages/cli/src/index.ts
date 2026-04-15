@@ -31,6 +31,7 @@ import { registerSyncCommand } from "./commands/sync";
 import { registerServeCommand } from "./commands/serve";
 import { registerNamespaceCommand } from "./commands/namespace";
 import { registerEnvCommand } from "./commands/env";
+import { registerPolicyCommand } from "./commands/policy";
 import { formatter, setJsonMode, setYesMode, isJsonMode } from "./output/formatter";
 import { exitJsonError } from "./handle-error";
 import { setPlainMode, isPlainMode, symbols, sym } from "./output/symbols";
@@ -125,6 +126,7 @@ registerSyncCommand(program, deps);
 registerServeCommand(program, deps);
 registerNamespaceCommand(program, deps);
 registerEnvCommand(program, deps);
+registerPolicyCommand(program, deps);
 
 // Cloud commands are provided by @clef-sh/cloud (optional package).
 // If not installed, register a stub that tells users how to install it.

@@ -1,0 +1,26 @@
+# Clef compliance check — enforces rotation policy, scan, and lint.
+# Merge into your bitbucket-pipelines.yml. Regenerate with
+# `clef policy init --force` after upgrading the CLI.
+#
+# Docs: https://docs.clef.sh/policy
+
+image: node:20
+
+definitions:
+  steps:
+    - step: &clef-compliance
+        name: Clef Compliance
+        script:
+          - npm install -g @clef-sh/cli@^0.1
+          - clef policy check
+          - clef policy report --output compliance.json
+        artifacts:
+          - compliance.json
+
+pipelines:
+  pull-requests:
+    "**":
+      - step: *clef-compliance
+  branches:
+    main:
+      - step: *clef-compliance
