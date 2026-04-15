@@ -1,0 +1,21 @@
+# Clef compliance check — enforces rotation policy, scan, and lint.
+# Add this job to your .gitlab-ci.yml. Regenerate with
+# `clef policy init --force` after upgrading the CLI.
+#
+# Docs: https://docs.clef.sh/policy
+
+clef-compliance:
+  stage: test
+  image: node:20-alpine
+  script:
+    - npm install -g @clef-sh/cli@^0.1
+    - clef policy check
+    - clef policy report --output compliance.json
+  artifacts:
+    when: always
+    paths:
+      - compliance.json
+    expire_in: 90 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

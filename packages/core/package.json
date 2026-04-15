@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/core",
-  "version": "0.1.16-alpha.109",
+  "version": "0.1.16-beta.110",
   "description": "Core library for Clef — git-native secrets management",
   "repository": {
     "type": "git",
@@ -39,7 +39,7 @@
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
-    "@types/node": "^20.11.0",
+    "@types/node": "^20.19.39",
     "@types/proper-lockfile": "^4.1.4",
     "@types/write-file-atomic": "^4.0.3",
     "esbuild": "^0.27.4",

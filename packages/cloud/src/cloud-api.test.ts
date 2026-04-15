@@ -46,6 +46,48 @@ describe("startInstall", () => {
     );
   });
 
+  it("returns already_installed shape when user is already set up", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(200, {
+        data: {
+          already_installed: true,
+          installation: { id: 12345678, account: "acme" },
+          dashboard_url: "https://cloud.clef.sh/dashboard",
+        },
+        success: true,
+      }),
+    );
+
+    const result = await startInstall("https://cloud.clef.sh", "jwt_abc");
+
+    expect(result).toEqual({
+      already_installed: true,
+      installation: { id: 12345678, account: "acme" },
+      dashboard_url: "https://cloud.clef.sh/dashboard",
+    });
+  });
+
+  it("returns already_installed shape with null dashboard_url", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(200, {
+        data: {
+          already_installed: true,
+          installation: { id: 12345678, account: "acme" },
+          dashboard_url: null,
+        },
+        success: true,
+      }),
+    );
+
+    const result = await startInstall("https://cloud.clef.sh", "jwt_abc");
+
+    expect(result).toEqual({
+      already_installed: true,
+      installation: { id: 12345678, account: "acme" },
+      dashboard_url: null,
+    });
+  });
+
   it("should throw on HTTP error", async () => {
     mockFetch.mockResolvedValue(jsonResponse(401, "unauthorized"));
 
@@ -109,9 +151,25 @@ describe("getMe", () => {
     mockFetch.mockResolvedValue(
       jsonResponse(200, {
         data: {
-          user: { id: "u1", login: "jamesspears", email: "james@clef.sh" },
-          installation: { id: 12345678, account: "acme", installedAt: 1712847600000 },
-          subscription: { tier: "free", status: "active" },
+          user: {
+            clefId: "u1",
+            vcsAccounts: [
+              {
+                provider: "github",
+                login: "jamesspears",
+                avatarUrl: "",
+                displayName: "James Spears",
+              },
+            ],
+            email: "james@clef.sh",
+            displayName: "James Spears",
+          },
+          installations: [
+            { id: 11111111, account: "acme-corp", installedAt: 1712847600000 },
+            { id: 22222222, account: "jamesspears", installedAt: 1712848000000 },
+          ],
+          posthog_distinct_id: "u1",
+          freeTierLimit: 1,
         },
         success: true,
       }),
@@ -119,9 +177,10 @@ describe("getMe", () => {
 
     const result = await getMe("https://cloud.clef.sh", "jwt_abc");
 
-    expect(result.user.login).toBe("jamesspears");
-    expect(result.installation!.account).toBe("acme");
-    expect(result.subscription.tier).toBe("free");
+    expect(result.user.vcsAccounts[0].login).toBe("jamesspears");
+    expect(result.installations).toHaveLength(2);
+    expect(result.installations[0].account).toBe("acme-corp");
+    expect(result.freeTierLimit).toBe(1);
   });
 
   it("should throw session expired on 401", async () => {

@@ -45,5 +45,25 @@ module.exports = {
       functions: 95,
       branches: 90,
     },
+    "./src/policy/parser.ts": {
+      lines: 95,
+      functions: 95,
+      branches: 90,
+    },
+    "./src/policy/evaluator.ts": {
+      lines: 95,
+      functions: 95,
+      branches: 90,
+    },
+    "./src/compliance/generator.ts": {
+      lines: 95,
+      functions: 95,
+      branches: 90,
+    },
+    "./src/compliance/run.ts": {
+      lines: 95,
+      functions: 95,
+      branches: 90,
+    },
   },
 };

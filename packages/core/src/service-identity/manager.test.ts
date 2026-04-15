@@ -575,6 +575,7 @@ describe("ServiceIdentityManager", () => {
         backend: "age",
         recipients: ["age1other"],
         lastModified: new Date(),
+        lastModifiedPresent: true,
       };
       encryption.getMetadata.mockResolvedValue(metadata);
 
@@ -602,6 +603,7 @@ describe("ServiceIdentityManager", () => {
         backend: "age",
         recipients: ["age1svcdev"], // identity's key found outside scope
         lastModified: new Date(),
+        lastModifiedPresent: true,
       };
       encryption.getMetadata.mockResolvedValue(metadata);
 
@@ -630,6 +632,7 @@ describe("ServiceIdentityManager", () => {
         backend: "age",
         recipients: ["age1other"],
         lastModified: new Date(),
+        lastModifiedPresent: true,
       };
       encryption.getMetadata.mockResolvedValue(metadata);
 

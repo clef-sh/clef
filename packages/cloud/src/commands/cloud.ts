@@ -141,7 +141,7 @@ export function registerCloudCommands(program: Command, deps: CloudCliDeps): voi
 
   cloud
     .command("status")
-    .description("Show Clef Cloud account, installation, and subscription status.")
+    .description("Show Clef Cloud account and installation status.")
     .action(async () => {
       try {
         const creds = readCloudCredentials();
@@ -158,20 +158,22 @@ export function registerCloudCommands(program: Command, deps: CloudCliDeps): voi
         }
 
         const me = await getMe(creds.base_url, creds.session_token);
+        const login = me.user.vcsAccounts[0]?.login ?? me.user.email;
 
         formatter.print(`${sym("clef")}  Clef Cloud Status\n`);
-        formatter.print(`  Signed in as: ${me.user.login} (${me.user.email})`);
+        formatter.print(`  Signed in as: ${login} (${me.user.email})`);
 
-        if (me.installation) {
-          formatter.print(
-            `  Bot installed: ${me.installation.account} (id: ${me.installation.id})`,
-          );
+        if (me.installations.length > 0) {
+          formatter.print("\n  Installed on:");
+          for (const inst of me.installations) {
+            formatter.print(`    ${inst.account.padEnd(20)} (id: ${inst.id})`);
+          }
+          formatter.print(`\n  Free tier limit: ${me.freeTierLimit} repo per installation`);
         } else {
-          formatter.print("  Bot installed: not yet");
-          formatter.hint("  Run 'clef cloud init' to install the bot.");
+          formatter.print(
+            "  No installations — run 'clef cloud init' to install the app on an org",
+          );
         }
-
-        formatter.print(`  Plan: ${me.subscription.tier}`);
       } catch (err) {
         formatter.error(err instanceof Error ? err.message : String(err));
         process.exit(1);
@@ -225,25 +227,24 @@ export function registerCloudCommands(program: Command, deps: CloudCliDeps): voi
           return;
         }
 
-        // Step 4: Check if already installed
-        let alreadyInstalled = false;
-        try {
-          const me = await getMe(creds.base_url, creds.session_token);
-          if (me.installation) {
-            formatter.success(
-              `Bot already installed on ${me.installation.account} (id: ${me.installation.id})`,
-            );
-            alreadyInstalled = true;
+        // Step 4: Install — let the server decide whether this is a fresh install or re-run.
+        // POST /install/start returns already_installed: true (with a dashboard handoff URL)
+        // if the app is already set up, or the install URL + state token for a fresh install.
+        const installData = await startInstall(creds.base_url, creds.session_token);
+
+        if (installData.already_installed) {
+          formatter.success(`Clef App already installed on ${installData.installation.account}`);
+          const dashUrl = installData.dashboard_url;
+          if (dashUrl === null) {
+            formatter.info("Visit your dashboard at https://cloud.clef.sh/app");
+          } else if (opts.browser !== false) {
+            formatter.print("  Opening dashboard...");
+            await deps.openBrowser(dashUrl, runner);
+          } else {
+            formatter.hint(`Open your dashboard: ${dashUrl}`);
           }
-        } catch {
-          // Non-fatal — proceed to install
-        }
-
-        if (!alreadyInstalled) {
-          // Start install flow
-          const installData = await startInstall(creds.base_url, creds.session_token);
-
-          formatter.print("\n  Opening browser to install the bot...");
+        } else {
+          formatter.print("\n  Opening browser to install the Clef App...");
           formatter.print(`  If it doesn't open, go to: ${installData.install_url}\n`);
 
           if (opts.browser !== false) {
@@ -264,7 +265,9 @@ export function registerCloudCommands(program: Command, deps: CloudCliDeps): voi
             return;
           }
 
-          formatter.success(`Installation confirmed (id: ${installResult.installation!.id})`);
+          // Browser was redirected to the dashboard by the server's setup callback —
+          // do not open a second tab here.
+          formatter.success(`Clef App installed (id: ${installResult.installation!.id})`);
         }
 
         // Step 5: Scaffold policy file

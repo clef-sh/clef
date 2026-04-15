@@ -16,6 +16,7 @@ clef init [options]
 2. Generates an age key pair with a unique per-repo label stored in the OS keychain (or `~/.config/clef/keys/{label}/keys.txt`). No age binary required.
 3. Scaffolds an encrypted file for every namespace/environment cell
 4. Installs a pre-commit hook and SOPS merge driver (see [Merge Conflicts](/guide/merge-conflicts))
+5. Scaffolds `.clef/policy.yaml` (90-day rotation default) and a CI compliance workflow (auto-detected provider)
 
 `clef init` is safe to run at any time:
 
@@ -168,3 +169,5 @@ clef update
 - [`clef lint --fix`](/cli/lint) — scaffold missing matrix files after key generation
 - [`clef hooks install`](/cli/hooks) — reinstall the pre-commit hook
 - [`clef set`](/cli/set) — add your first secret after initialisation
+- [`clef policy init`](/cli/policy) — re-scaffold or customise `.clef/policy.yaml` and the CI workflow
+- [Compliance guide](/guide/compliance) — rotation policy concepts and CI/CD setup

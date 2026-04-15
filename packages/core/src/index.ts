@@ -114,3 +114,16 @@ export { ResetManager, describeScope, validateResetScope } from "./reset/manager
 export type { ResetScope, ResetOptions, ResetResult } from "./reset/manager";
 export { SyncManager } from "./sync";
 export type { SyncOptions, SyncPlan, SyncCellPlan, SyncResult } from "./sync";
+export { PolicyParser, CLEF_POLICY_FILENAME } from "./policy/parser";
+export { PolicyEvaluator } from "./policy/evaluator";
+export { DEFAULT_POLICY } from "./policy/types";
+export type {
+  PolicyDocument,
+  PolicyRotationConfig,
+  PolicyEnvironmentRotation,
+  FileRotationStatus,
+} from "./policy/types";
+export { ComplianceGenerator } from "./compliance/generator";
+export type { ComplianceDocument, ComplianceSummary, GenerateOptions } from "./compliance/types";
+export { runCompliance } from "./compliance/run";
+export type { RunComplianceOptions, RunComplianceResult } from "./compliance/run";
