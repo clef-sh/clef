@@ -42,9 +42,17 @@ export {
   markResolved,
   getPendingKeys,
   isPending,
+  recordRotation,
+  removeRotation,
+  getRotations,
   generateRandomValue,
 } from "./pending/metadata";
-export type { PendingKey, PendingMetadata } from "./pending/metadata";
+export type {
+  PendingKey,
+  RotationRecord,
+  CellMetadata,
+  PendingMetadata,
+} from "./pending/metadata";
 export { ImportRunner } from "./import";
 export type { ImportFormat, ImportOptions, ImportResult, ParsedImport } from "./import";
 export { parse, parseDotenv, parseJson, parseYaml, detectFormat } from "./import/parsers";
@@ -122,6 +130,7 @@ export type {
   PolicyRotationConfig,
   PolicyEnvironmentRotation,
   FileRotationStatus,
+  KeyRotationStatus,
 } from "./policy/types";
 export { ComplianceGenerator } from "./compliance/generator";
 export type { ComplianceDocument, ComplianceSummary, GenerateOptions } from "./compliance/types";
