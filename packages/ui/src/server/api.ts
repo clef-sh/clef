@@ -3,6 +3,7 @@ import * as path from "path";
 import * as os from "os";
 import { execFileSync, spawn } from "child_process";
 import { Router, Request, Response } from "express";
+import rateLimit, { MemoryStore } from "express-rate-limit";
 import * as YAML from "yaml";
 
 // On Linux, libuv creates socketpairs for child stdio. Go's os.Open on
@@ -158,6 +159,23 @@ export function createApiRouter(deps: ApiDeps): Router {
       Expires: "0",
     });
   }
+
+  // Defense-in-depth rate limit applied to every /api route.  This server
+  // binds to 127.0.0.1 only and gates /api on a session bearer token, so
+  // remote DoS is not the threat model — the limiter exists to bound a
+  // pathological local client (a buggy script, a runaway test loop) and to
+  // satisfy CodeQL's missing-rate-limit rule on file-system-touching routes.
+  // Per-instance store so each `createApiRouter()` call (i.e. each test) gets
+  // a fresh counter — no cross-test contamination.
+  const apiRateLimitStore = new MemoryStore();
+  const apiLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 1000,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    store: apiRateLimitStore,
+  });
+  router.use(apiLimiter);
 
   // GET /api/manifest
   router.get("/manifest", (_req: Request, res: Response) => {
