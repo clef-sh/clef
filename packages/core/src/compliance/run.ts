@@ -67,6 +67,13 @@ export interface RunComplianceOptions {
   now?: Date;
   /** Toggle individual checks.  All true by default. */
   include?: { scan?: boolean; lint?: boolean; rotation?: boolean };
+  /**
+   * Optional override for the sops binary path.  When omitted,
+   * {@link resolveSopsPath} chooses (CLEF_SOPS_PATH env, bundled package,
+   * then bare "sops" on PATH).  Callers that already resolved the path
+   * (the UI server, the CLI) can pass it through to skip re-resolution.
+   */
+  sopsPath?: string;
 }
 
 export interface RunComplianceResult {
@@ -107,7 +114,7 @@ export async function runCompliance(opts: RunComplianceOptions): Promise<RunComp
 
   // No age key — compliance is metadata-only.  SopsClient.getMetadata uses
   // `sops filestatus` (or falls back to YAML parsing) and never decrypts.
-  const sopsClient = new SopsClient(opts.runner);
+  const sopsClient = new SopsClient(opts.runner, undefined, undefined, opts.sopsPath);
   const matrixManager = new MatrixManager();
   const schemaValidator = new SchemaValidator();
 
@@ -135,12 +142,21 @@ export async function runCompliance(opts: RunComplianceOptions): Promise<RunComp
       : Promise.resolve(emptyLint()),
   ]);
 
+  // Compliance runs without decryption keys by design (see above).  The lint
+  // runner emits `severity: "error"` for every file it can't decrypt, which
+  // would fail the gate on a condition that's environmental, not a repo
+  // issue.  Downgrade those to `info` so they stay visible in the artifact
+  // but don't count toward `lint_errors`.  A real decrypt failure on a dev
+  // machine (where keys *should* be present) still surfaces as an error via
+  // `clef lint` directly — this adjustment is scoped to compliance only.
+  const adjustedLint = downgradeDecryptIssues(lintResult);
+
   const document = new ComplianceGenerator().generate({
     sha,
     repo,
     policy,
     scanResult,
-    lintResult,
+    lintResult: adjustedLint,
     files,
     now,
   });
@@ -201,6 +217,27 @@ function emptyScan(): ScanResult {
 
 function emptyLint(): LintResult {
   return { issues: [], fileCount: 0, pendingCount: 0 };
+}
+
+/**
+ * Reclassify `Failed to decrypt` lint errors as info-level.  Keeps the issue
+ * in the artifact (so reviewers can see which files weren't readable in this
+ * environment) without failing the compliance gate.
+ */
+function downgradeDecryptIssues(result: LintResult): LintResult {
+  return {
+    ...result,
+    issues: result.issues.map((issue) => {
+      if (issue.category === "sops" && issue.message.startsWith("Failed to decrypt")) {
+        return {
+          ...issue,
+          severity: "info" as const,
+          message: `File not decryptable in this environment (compliance runs without keys). Original check: ${issue.message}`,
+        };
+      }
+      return issue;
+    }),
+  };
 }
 
 /**

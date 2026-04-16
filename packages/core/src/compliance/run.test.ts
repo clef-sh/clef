@@ -401,6 +401,35 @@ describe("runCompliance", () => {
       expect(result.document.summary.lint_errors).toBeGreaterThan(0);
       expect(result.passed).toBe(false);
     });
+
+    it("downgrades 'Failed to decrypt' lint errors to info (compliance runs without keys)", async () => {
+      // Cells exist with valid SOPS metadata, but the mock sops binary can't
+      // decrypt — mirrors CI compliance runs that don't have age keys.
+      setupFs({
+        cells: {
+          "api/dev.enc.yaml": encFile("2026-04-10T00:00:00Z"),
+          "api/production.enc.yaml": encFile("2026-04-10T00:00:00Z"),
+        },
+      });
+
+      const result = await runCompliance({
+        runner: makeRunner(),
+        repoRoot: REPO_ROOT,
+        sha: "abc",
+        repo: "o/r",
+        now: NOW,
+        include: { rotation: false, scan: false, lint: true },
+      });
+
+      const sopsIssues = result.document.lint.issues.filter((i) => i.category === "sops");
+      expect(sopsIssues.length).toBeGreaterThan(0);
+      expect(sopsIssues.every((i) => i.severity === "info")).toBe(true);
+      expect(
+        sopsIssues.every((i) => i.message.includes("not decryptable in this environment")),
+      ).toBe(true);
+      expect(result.document.summary.lint_errors).toBe(0);
+      expect(result.passed).toBe(true);
+    });
   });
 
   describe("git context detection", () => {
