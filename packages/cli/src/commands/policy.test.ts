@@ -575,4 +575,71 @@ describe("clef policy init", () => {
     const printCalls = mockFormatter.print.mock.calls.map((c) => c[0]);
     expect(printCalls.some((s) => /exists/.test(String(s)))).toBe(true);
   });
+
+  it("forwards --dry-run to scaffoldPolicy", async () => {
+    const program = makeProgram();
+    await program.parseAsync([
+      "node",
+      "clef",
+      "policy",
+      "init",
+      "--dry-run",
+      "--force",
+      "--workflow-only",
+    ]);
+    expect(mockScaffoldPolicy).toHaveBeenCalledWith(
+      expect.objectContaining({ dryRun: true, force: true, workflowOnly: true }),
+    );
+  });
+
+  it("renders diff output for would_overwrite results", async () => {
+    mockScaffoldPolicy.mockReturnValueOnce({
+      policy: { path: ".clef/policy.yaml", status: "skipped_by_flag" },
+      workflow: {
+        path: ".github/workflows/clef-compliance.yml",
+        status: "would_overwrite",
+        diff: "--- current\n+++ new\n@@ -1 +1 @@\n-node: 20\n+node: 22\n",
+      },
+      provider: "github",
+      mergeInstruction: undefined,
+    });
+    const program = makeProgram();
+    await program.parseAsync([
+      "node",
+      "clef",
+      "policy",
+      "init",
+      "--dry-run",
+      "--force",
+      "--workflow-only",
+    ]);
+
+    // Status label surfaces the "update" verb for would_overwrite
+    const printCalls = mockFormatter.print.mock.calls.map((c) => c[0]);
+    expect(printCalls.some((s) => /update/.test(String(s)))).toBe(true);
+    // Diff body is forwarded verbatim to formatter.raw
+    expect(mockFormatter.raw).toHaveBeenCalledWith(expect.stringContaining("+node: 22"));
+  });
+
+  it("renders would_create / unchanged status labels", async () => {
+    mockScaffoldPolicy.mockReturnValueOnce({
+      policy: { path: ".clef/policy.yaml", status: "would_create" },
+      workflow: {
+        path: ".github/workflows/clef-compliance.yml",
+        status: "unchanged",
+      },
+      provider: "github",
+      mergeInstruction: undefined,
+    });
+    const program = makeProgram();
+    await program.parseAsync(["node", "clef", "policy", "init", "--dry-run", "--force"]);
+
+    const printCalls = mockFormatter.print.mock.calls.map((c) => String(c[0]));
+    expect(printCalls.some((s) => /create/.test(s))).toBe(true);
+    // Plain-mode label for "unchanged" is `[same]` — the test harness has
+    // isPlainMode() stubbed true, so we assert on that.
+    expect(printCalls.some((s) => /same/.test(s))).toBe(true);
+    // No diff was produced for these statuses
+    expect(mockFormatter.raw).not.toHaveBeenCalled();
+  });
 });

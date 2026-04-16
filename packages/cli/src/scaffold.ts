@@ -15,6 +15,7 @@
  */
 import * as fs from "fs";
 import * as path from "path";
+import { renderUnifiedDiff } from "./diff-print";
 
 export type Provider = "github" | "gitlab" | "bitbucket" | "circleci";
 export type Variant = "cli" | "native";
@@ -67,14 +68,32 @@ export interface ScaffoldOptions {
   policyOnly?: boolean;
   /** Only scaffold the workflow file. */
   workflowOnly?: boolean;
+  /**
+   * Preview mode — compute would-be changes and return diffs without
+   * writing anything.  Honors `force`: without it, existing files report
+   * `skipped_exists`; with it, they report `would_overwrite`.
+   */
+  dryRun?: boolean;
 }
 
-export type FileStatus = "created" | "skipped_exists" | "skipped_by_flag" | "skipped_no_provider";
+export type FileStatus =
+  | "created"
+  | "skipped_exists"
+  | "skipped_by_flag"
+  | "skipped_no_provider"
+  | "would_create"
+  | "would_overwrite"
+  | "unchanged";
 
 export interface ScaffoldFileResult {
   /** Repo-relative path where the file was (or would be) written. */
   path: string;
   status: FileStatus;
+  /**
+   * Unified diff of current-vs-template contents.  Populated only for
+   * dry-run `would_overwrite` results; empty otherwise.
+   */
+  diff?: string;
 }
 
 export interface ScaffoldResult {
@@ -108,16 +127,33 @@ export function scaffoldPolicy(opts: ScaffoldOptions): ScaffoldResult {
   // of "Workflow  (none)  [skipped]".
   const provider = opts.ci ?? detectProvider(opts.repoRoot);
 
+  const force = opts.force ?? false;
+  const dryRun = opts.dryRun ?? false;
+
   const policyResult = opts.workflowOnly
     ? { path: POLICY_PATH, status: "skipped_by_flag" as FileStatus }
-    : writePolicy(opts.repoRoot, opts.force ?? false);
+    : scaffoldFile(opts.repoRoot, POLICY_PATH, "policy.yaml", force, dryRun);
 
   const workflowResult = opts.policyOnly
     ? {
         path: WORKFLOW_PATHS[provider],
         status: "skipped_by_flag" as FileStatus,
       }
-    : writeWorkflow(opts.repoRoot, provider, opts.force ?? false);
+    : scaffoldFile(
+        opts.repoRoot,
+        WORKFLOW_PATHS[provider],
+        `workflows/${provider}/${TEMPLATE_VARIANT[provider]}.yml`,
+        force,
+        dryRun,
+      );
+
+  // Merge hints only fire when a workflow would actually land on disk —
+  // includes dry-run `would_create` / `would_overwrite` so preview output
+  // matches what the user will see after applying.
+  const workflowLanded =
+    workflowResult.status === "created" ||
+    workflowResult.status === "would_create" ||
+    workflowResult.status === "would_overwrite";
 
   return {
     policy: policyResult,
@@ -126,9 +162,7 @@ export function scaffoldPolicy(opts: ScaffoldOptions): ScaffoldResult {
     // explicitly opt out of any workflow consideration in the future.
     provider,
     mergeInstruction:
-      workflowResult.status === "created" && MERGE_INSTRUCTIONS[provider]
-        ? MERGE_INSTRUCTIONS[provider]
-        : undefined,
+      workflowLanded && MERGE_INSTRUCTIONS[provider] ? MERGE_INSTRUCTIONS[provider] : undefined,
   };
 }
 
@@ -159,25 +193,52 @@ export function detectProvider(repoRoot: string): Provider {
   return "github";
 }
 
-function writePolicy(repoRoot: string, force: boolean): ScaffoldFileResult {
-  const absolutePath = path.join(repoRoot, POLICY_PATH);
-  if (fs.existsSync(absolutePath) && !force) {
-    return { path: POLICY_PATH, status: "skipped_exists" };
-  }
-  const content = loadTemplate("policy.yaml");
-  ensureDir(path.dirname(absolutePath));
-  fs.writeFileSync(absolutePath, content, "utf-8");
-  return { path: POLICY_PATH, status: "created" };
-}
-
-function writeWorkflow(repoRoot: string, provider: Provider, force: boolean): ScaffoldFileResult {
-  const relPath = WORKFLOW_PATHS[provider];
+/**
+ * Core scaffold primitive — resolves the template, then either writes to
+ * disk (normal run) or returns the would-be status + diff (dry run).
+ *
+ * Decision table (`E` = file exists on disk, `I` = identical to template):
+ *
+ *   dryRun  force  E  I  → status            diff
+ *   ------  -----  -  -  -------------------  ----
+ *   false   *      F  *  created              —
+ *   false   false  T  *  skipped_exists       —
+ *   false   true   T  *  created              —       (overwrite)
+ *   true    *      F  *  would_create         —
+ *   true    false  T  *  skipped_exists       —
+ *   true    true   T  T  unchanged            —
+ *   true    true   T  F  would_overwrite      unified diff
+ */
+function scaffoldFile(
+  repoRoot: string,
+  relPath: string,
+  templateRelPath: string,
+  force: boolean,
+  dryRun: boolean,
+): ScaffoldFileResult {
   const absolutePath = path.join(repoRoot, relPath);
-  if (fs.existsSync(absolutePath) && !force) {
+  const content = loadTemplate(templateRelPath);
+  const exists = fs.existsSync(absolutePath);
+
+  if (exists && !force) {
     return { path: relPath, status: "skipped_exists" };
   }
-  const variant = TEMPLATE_VARIANT[provider];
-  const content = loadTemplate(`workflows/${provider}/${variant}.yml`);
+
+  if (dryRun) {
+    if (!exists) {
+      return { path: relPath, status: "would_create" };
+    }
+    const current = fs.readFileSync(absolutePath, "utf-8");
+    if (current === content) {
+      return { path: relPath, status: "unchanged" };
+    }
+    return {
+      path: relPath,
+      status: "would_overwrite",
+      diff: renderUnifiedDiff(relPath, current, content),
+    };
+  }
+
   ensureDir(path.dirname(absolutePath));
   fs.writeFileSync(absolutePath, content, "utf-8");
   return { path: relPath, status: "created" };

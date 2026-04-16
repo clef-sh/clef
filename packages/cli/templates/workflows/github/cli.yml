@@ -14,11 +14,11 @@ jobs:
   compliance:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install Clef CLI
         run: npm install -g @clef-sh/cli@^0.1
@@ -32,7 +32,7 @@ jobs:
 
       - name: Upload compliance artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: compliance
           path: compliance.json

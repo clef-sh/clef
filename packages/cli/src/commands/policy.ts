@@ -40,6 +40,7 @@ interface InitOptions {
   force?: boolean;
   policyOnly?: boolean;
   workflowOnly?: boolean;
+  dryRun?: boolean;
 }
 
 const VALID_PROVIDERS: Provider[] = ["github", "gitlab", "bitbucket", "circleci"];
@@ -64,6 +65,11 @@ export function registerPolicyCommand(program: Command, deps: { runner: Subproce
     .option("--force", "Overwrite existing files")
     .option("--policy-only", "Scaffold only .clef/policy.yaml, skip the CI workflow")
     .option("--workflow-only", "Scaffold only the CI workflow, skip .clef/policy.yaml")
+    .option(
+      "--dry-run",
+      "Preview the scaffold: print what would change without writing. " +
+        "Pair with --force to diff against existing files.",
+    )
     .action((options: InitOptions) => {
       try {
         if (options.ci && !VALID_PROVIDERS.includes(options.ci)) {
@@ -80,6 +86,7 @@ export function registerPolicyCommand(program: Command, deps: { runner: Subproce
           force: options.force,
           policyOnly: options.policyOnly,
           workflowOnly: options.workflowOnly,
+          dryRun: options.dryRun,
         });
 
         if (isJsonMode()) {
@@ -397,6 +404,15 @@ function printScaffoldResult(result: ScaffoldResult): void {
     formatter.print(pc.dim(`Provider: ${result.provider} (cli variant)`));
   }
 
+  // Render any diffs produced in dry-run mode.  `diff` is only populated
+  // for `would_overwrite` results, so we don't need to branch on status.
+  for (const file of [result.policy, result.workflow]) {
+    if (file.diff) {
+      formatter.print("");
+      formatter.raw(file.diff + "\n");
+    }
+  }
+
   if (result.mergeInstruction) {
     formatter.print("");
     formatter.hint(result.mergeInstruction);
@@ -407,6 +423,12 @@ function scaffoldStatusLabel(status: ScaffoldResult["policy"]["status"]): string
   switch (status) {
     case "created":
       return isPlainMode() ? "[created]" : pc.green(`${sym("success")} created`);
+    case "would_create":
+      return isPlainMode() ? "[+create]" : pc.green(`${sym("pending")} + create`);
+    case "would_overwrite":
+      return isPlainMode() ? "[~update]" : pc.yellow(`${sym("pending")} ~ update`);
+    case "unchanged":
+      return isPlainMode() ? "[same]   " : pc.dim(`${sym("success")} unchanged`);
     case "skipped_exists":
       return isPlainMode() ? "[exists] " : pc.dim(`${sym("info")}  exists  `);
     case "skipped_by_flag":
