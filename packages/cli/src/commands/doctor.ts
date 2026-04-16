@@ -29,6 +29,7 @@ interface DoctorJsonOutput {
   ageKey: { source: string | null; ok: boolean };
   scanner: { clefignoreFound: boolean; ok: boolean };
   mergeDriver: { gitConfig: boolean; gitattributes: boolean; ok: boolean };
+  metadataMergeDriver: { gitConfig: boolean; gitattributes: boolean; ok: boolean };
 }
 
 export function registerDoctorCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -141,18 +142,40 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
           : "run clef init or create manually — see https://docs.clef.sh/cli/scan#clefignore",
       });
 
-      // 9. merge driver
+      // 9. merge drivers — two independent registrations: the SOPS-aware
+      // driver for `.enc.*` files and the Clef metadata driver for
+      // `.clef-meta.yaml` sidecars.  The latter was added after the initial
+      // release, so repos that ran `clef hooks install` under an older
+      // version will have the SOPS driver but not the metadata one.
+      // `clef hooks install` is idempotent and registers both — so a
+      // single re-run brings stale installs up to date.
       const git = new GitIntegration(deps.runner);
       const mergeDriverStatus = await git.checkMergeDriver(repoRoot);
-      const mergeDriverOk = mergeDriverStatus.gitConfig && mergeDriverStatus.gitattributes;
-      const mergeDriverDetails: string[] = [];
-      if (!mergeDriverStatus.gitConfig) mergeDriverDetails.push("git config missing");
-      if (!mergeDriverStatus.gitattributes) mergeDriverDetails.push(".gitattributes missing");
+
+      const sopsOk = mergeDriverStatus.gitConfig && mergeDriverStatus.gitattributes;
+      const sopsDetails: string[] = [];
+      if (!mergeDriverStatus.gitConfig) sopsDetails.push("git config missing");
+      if (!mergeDriverStatus.gitattributes) sopsDetails.push(".gitattributes missing");
       checks.push({
-        name: "merge driver",
-        ok: mergeDriverOk,
-        detail: mergeDriverOk ? "SOPS merge driver configured" : mergeDriverDetails.join(", "),
-        hint: mergeDriverOk ? undefined : "run: clef hooks install",
+        name: "sops merge driver",
+        ok: sopsOk,
+        detail: sopsOk ? "Configured for .enc.yaml / .enc.json" : sopsDetails.join(", "),
+        hint: sopsOk ? undefined : "run: clef hooks install",
+      });
+
+      const metaOk = mergeDriverStatus.metadataGitConfig && mergeDriverStatus.metadataGitattributes;
+      const metaDetails: string[] = [];
+      if (!mergeDriverStatus.metadataGitConfig) metaDetails.push("git config missing");
+      if (!mergeDriverStatus.metadataGitattributes) metaDetails.push(".gitattributes missing");
+      checks.push({
+        name: "metadata merge driver",
+        ok: metaOk,
+        detail: metaOk
+          ? "Configured for .clef-meta.yaml"
+          : `${metaDetails.join(", ")} — rotation metadata won't auto-merge`,
+        hint: metaOk
+          ? undefined
+          : "run: clef hooks install (registers the new clef-metadata merge driver idempotently)",
       });
 
       // --fix: placeholder for future auto-fix logic
@@ -191,7 +214,12 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
           mergeDriver: {
             gitConfig: mergeDriverStatus.gitConfig,
             gitattributes: mergeDriverStatus.gitattributes,
-            ok: mergeDriverOk,
+            ok: sopsOk,
+          },
+          metadataMergeDriver: {
+            gitConfig: mergeDriverStatus.metadataGitConfig,
+            gitattributes: mergeDriverStatus.metadataGitattributes,
+            ok: metaOk,
           },
         };
 
