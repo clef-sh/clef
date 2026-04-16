@@ -76,6 +76,18 @@ export interface RunComplianceOptions {
    * (the UI server, the CLI) can pass it through to skip re-resolution.
    */
   sopsPath?: string;
+  /**
+   * Age key material — inline private key string.  When provided, the
+   * internal {@link SopsClient} uses it for decrypt-requiring checks
+   * (lint, schema validation).  When omitted, those checks run without
+   * keys and surface decrypt failures as `info`-level lint issues.
+   *
+   * KMS-encrypted files authenticate via ambient env (AWS_PROFILE, IMDS,
+   * etc.) — no parameter threading required.
+   */
+  ageKey?: string;
+  /** Age key file path.  Same semantics as {@link ageKey}. */
+  ageKeyFile?: string;
 }
 
 export interface RunComplianceResult {
@@ -114,9 +126,13 @@ export async function runCompliance(opts: RunComplianceOptions): Promise<RunComp
   const manifest = new ManifestParser().parse(manifestPath);
   const policy = opts.policy ?? new PolicyParser().load(policyPath);
 
-  // No age key — compliance is metadata-only.  SopsClient.getMetadata uses
-  // `sops filestatus` (or falls back to YAML parsing) and never decrypts.
-  const sopsClient = new SopsClient(opts.runner, undefined, undefined, opts.sopsPath);
+  // Metadata-only paths (getMetadata, readSopsKeyNames) never decrypt.
+  // Lint may decrypt for schema validation — accept optional age keys from
+  // the caller so local invocations with keys available produce clean
+  // output.  CI (no keys) still works: decrypt failures are downgraded to
+  // `info` below.  KMS files authenticate via ambient env and need no
+  // parameter threading.
+  const sopsClient = new SopsClient(opts.runner, opts.ageKeyFile, opts.ageKey, opts.sopsPath);
   const matrixManager = new MatrixManager();
   const schemaValidator = new SchemaValidator();
 
@@ -198,14 +214,7 @@ async function evaluateMatrix(args: EvaluateMatrixArgs): Promise<FileRotationSta
       // will separately flag the file as malformed).
       const keys = readSopsKeyNames(cell.filePath) ?? [];
       const rotations = await getRotations(cell.filePath);
-      return evaluator.evaluateFile(
-        relPath,
-        cell.environment,
-        metadata,
-        keys,
-        rotations,
-        args.now,
-      );
+      return evaluator.evaluateFile(relPath, cell.environment, metadata, keys, rotations, args.now);
     }),
   );
 }

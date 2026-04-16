@@ -683,6 +683,8 @@ export function createApiRouter(deps: ApiDeps): Router {
         runner: deps.runner,
         repoRoot: deps.repoRoot,
         sopsPath: deps.sopsPath,
+        ageKey: deps.ageKey,
+        ageKeyFile: deps.ageKeyFile,
         include: { rotation: true, scan: false, lint: false },
       });
       const unknownMetadata = result.document.files.filter((f) => !f.last_modified_known).length;

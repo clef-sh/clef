@@ -2,25 +2,69 @@ import React from "react";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { PolicyView } from "./PolicyView";
-import type { FileRotationStatus } from "@clef-sh/core";
+import type { FileRotationStatus, KeyRotationStatus } from "@clef-sh/core";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare let global: any;
 
-function makeFile(overrides: Partial<FileRotationStatus> = {}): FileRotationStatus {
+function okKey(name: string): KeyRotationStatus {
   return {
+    key: name,
+    last_rotated_at: "2026-01-01T00:00:00Z",
+    last_rotated_known: true,
+    rotated_by: "alice <alice@example.com>",
+    rotation_count: 1,
+    rotation_due: "2026-04-01T00:00:00Z",
+    rotation_overdue: false,
+    days_overdue: 0,
+    compliant: true,
+  };
+}
+
+function overdueKey(name: string, daysOverdue: number): KeyRotationStatus {
+  return {
+    key: name,
+    last_rotated_at: "2025-01-01T00:00:00Z",
+    last_rotated_known: true,
+    rotated_by: "alice <alice@example.com>",
+    rotation_count: 2,
+    rotation_due: "2025-04-01T00:00:00Z",
+    rotation_overdue: true,
+    days_overdue: daysOverdue,
+    compliant: false,
+  };
+}
+
+function unknownKey(name: string): KeyRotationStatus {
+  return {
+    key: name,
+    last_rotated_at: null,
+    last_rotated_known: false,
+    rotated_by: null,
+    rotation_count: 0,
+    rotation_due: null,
+    rotation_overdue: false,
+    days_overdue: 0,
+    compliant: false,
+  };
+}
+
+function makeFile(overrides: Partial<FileRotationStatus> = {}): FileRotationStatus {
+  const base: FileRotationStatus = {
     path: "database/dev.enc.yaml",
     environment: "dev",
     backend: "age",
     recipients: ["age1abc"],
     last_modified: "2026-01-01T00:00:00Z",
     last_modified_known: true,
-    rotation_due: "2026-04-01T00:00:00Z",
-    rotation_overdue: false,
-    days_overdue: 0,
+    keys: [okKey("DB_URL")],
     compliant: true,
-    ...overrides,
   };
+  const merged = { ...base, ...overrides };
+  if (!("compliant" in overrides)) {
+    merged.compliant = merged.keys.every((k) => k.compliant);
+  }
+  return merged;
 }
 
 const mixedResponse = {
@@ -28,21 +72,16 @@ const mixedResponse = {
     makeFile({
       path: "database/production.enc.yaml",
       environment: "production",
-      last_modified: "2025-01-01T00:00:00Z",
-      rotation_due: "2025-04-01T00:00:00Z",
-      rotation_overdue: true,
-      days_overdue: 380,
-      compliant: false,
+      keys: [overdueKey("DB_PROD_URL", 380)],
     }),
     makeFile({
       path: "payments/staging.enc.yaml",
       environment: "staging",
-      last_modified_known: false,
-      compliant: false,
+      keys: [unknownKey("STRIPE_KEY")],
     }),
-    makeFile({ path: "auth/dev.enc.yaml", environment: "dev" }),
+    makeFile({ path: "auth/dev.enc.yaml", environment: "dev", keys: [okKey("AUTH0_SECRET")] }),
   ],
-  summary: { total_files: 3, compliant: 1, rotation_overdue: 1, unknown_metadata: 1 },
+  summary: { total_files: 3, compliant: 1, rotation_overdue: 2, unknown_metadata: 1 },
   policy: { version: 1, rotation: { max_age_days: 90 } },
   source: "default" as const,
 };
@@ -124,7 +163,8 @@ describe("PolicyView", () => {
 
     expect(screen.getByTestId("all-compliant")).toBeInTheDocument();
     expect(screen.getByText("All compliant")).toBeInTheDocument();
-    expect(screen.getByText(/1 files within rotation window/)).toBeInTheDocument();
+    // Per-key summary: 1 key across 1 file. Regex matches "1 key within ..." with any suffix.
+    expect(screen.getByText(/1 key within rotation window across 1 file/)).toBeInTheDocument();
   });
 
   it("shows the source badge — 'Built-in default' when source is 'default'", async () => {
@@ -177,6 +217,39 @@ describe("PolicyView", () => {
 
     expect(setView).toHaveBeenCalledWith("editor");
     expect(setNs).toHaveBeenCalledWith("database");
+  });
+
+  it("extracts the namespace from the second-to-last path segment (nested paths)", async () => {
+    // Bot repo layout: secrets/<namespace>/<env>.enc.yaml.  The namespace is
+    // "github", not "secrets" — previously file.path.split("/")[0] was
+    // returning "secrets" and producing a wrong `clef set` hint.
+    const nested = {
+      files: [
+        makeFile({
+          path: "secrets/github/dev.enc.yaml",
+          environment: "dev",
+          keys: [unknownKey("GITHUB_CLIENT_SECRET")],
+        }),
+      ],
+      summary: { total_files: 1, compliant: 0, rotation_overdue: 1, unknown_metadata: 1 },
+      policy: { version: 1, rotation: { max_age_days: 90 } },
+      source: "default" as const,
+    };
+    mockFetchSequence(nested, policyShowResponse);
+    const setView = jest.fn();
+    const setNs = jest.fn();
+
+    await act(async () => {
+      render(<PolicyView setView={setView} setNs={setNs} />);
+    });
+
+    fireEvent.click(screen.getByTestId("file-ref-secrets/github/dev.enc.yaml"));
+
+    expect(setNs).toHaveBeenCalledWith("github");
+    // And the unknown-row hint should suggest the correct namespace too.
+    expect(
+      screen.getByText(/run clef set github\/dev GITHUB_CLIENT_SECRET to establish/),
+    ).toBeInTheDocument();
   });
 
   it("renders a per-environment override chip when policy has environments block", async () => {

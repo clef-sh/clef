@@ -409,7 +409,11 @@ describe("ImportRunner", () => {
 
       // Only CHANGED gets a rotation record. SAME was re-imported with the
       // same value → not a rotation.
-      expect(mockRecordRotation).toHaveBeenCalledWith(expect.any(String), ["CHANGED"], expect.any(String));
+      expect(mockRecordRotation).toHaveBeenCalledWith(
+        expect.any(String),
+        ["CHANGED"],
+        expect.any(String),
+      );
     });
 
     it("does not call recordRotation when rotatedBy is omitted", async () => {

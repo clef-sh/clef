@@ -240,6 +240,57 @@ describe("runCompliance", () => {
       expect(result.passed).toBe(false);
     });
 
+    it("threads ageKey through to the sops subprocess env when provided", async () => {
+      setupFs({
+        cells: {
+          "api/dev.enc.yaml": encFile("2026-04-10T00:00:00Z"),
+        },
+      });
+      const runner = makeRunner();
+      await runCompliance({
+        runner,
+        repoRoot: REPO_ROOT,
+        sha: "abc",
+        repo: "o/r",
+        now: NOW,
+        ageKey: "AGE-SECRET-KEY-TEST",
+        include: { lint: false, scan: false },
+      });
+
+      // The sops filestatus call on each cell should see SOPS_AGE_KEY in its
+      // env.  We check any sops call because filestatus/decrypt all go
+      // through the same buildSopsEnv path.
+      const sopsCallWithEnv = (runner.run as jest.Mock).mock.calls.find(
+        ([cmd, _args, opts]: [string, string[], { env?: Record<string, string> }]) =>
+          cmd === "sops" && opts?.env?.SOPS_AGE_KEY === "AGE-SECRET-KEY-TEST",
+      );
+      expect(sopsCallWithEnv).toBeDefined();
+    });
+
+    it("threads ageKeyFile through to the sops subprocess env when provided", async () => {
+      setupFs({
+        cells: {
+          "api/dev.enc.yaml": encFile("2026-04-10T00:00:00Z"),
+        },
+      });
+      const runner = makeRunner();
+      await runCompliance({
+        runner,
+        repoRoot: REPO_ROOT,
+        sha: "abc",
+        repo: "o/r",
+        now: NOW,
+        ageKeyFile: "/tmp/age-key.txt",
+        include: { lint: false, scan: false },
+      });
+
+      const sopsCallWithEnv = (runner.run as jest.Mock).mock.calls.find(
+        ([cmd, _args, opts]: [string, string[], { env?: Record<string, string> }]) =>
+          cmd === "sops" && opts?.env?.SOPS_AGE_KEY_FILE === "/tmp/age-key.txt",
+      );
+      expect(sopsCallWithEnv).toBeDefined();
+    });
+
     it("treats a cell with a key but no rotation record as a violation (unknown)", async () => {
       // The central design rule: unknown rotation state = violation.
       setupFs({

@@ -5,7 +5,7 @@ import { TopBar } from "../components/TopBar";
 import { Button } from "../components/Button";
 import { EnvBadge } from "../components/EnvBadge";
 import type { ViewName } from "../components/Sidebar";
-import type { PolicyDocument, FileRotationStatus } from "@clef-sh/core";
+import type { PolicyDocument, FileRotationStatus, KeyRotationStatus } from "@clef-sh/core";
 
 interface PolicyViewProps {
   setView: (view: ViewName) => void;
@@ -34,9 +34,21 @@ const STATUS_META = {
   ok: { color: theme.green, bg: theme.greenDim, label: "OK", icon: "\u2713" },
 } as const;
 
-function rowStatus(f: FileRotationStatus): "overdue" | "unknown" | "ok" {
-  if (f.rotation_overdue) return "overdue";
-  if (!f.last_modified_known) return "unknown";
+/**
+ * A flattened row — one per (file, key) pair.  The PolicyView renders these
+ * grouped by per-key status so users see the actual policy signal rather
+ * than a file-level aggregate.
+ */
+interface KeyRow {
+  key: KeyRotationStatus;
+  file: FileRotationStatus;
+}
+
+function keyRowStatus(k: KeyRotationStatus): "overdue" | "unknown" | "ok" {
+  // Unknown is checked before overdue because `rotation_overdue` is only
+  // meaningful when `last_rotated_known` is true.
+  if (!k.last_rotated_known) return "unknown";
+  if (k.rotation_overdue) return "overdue";
   return "ok";
 }
 
@@ -44,9 +56,11 @@ function ageInDays(iso: string): number {
   return Math.floor((Date.now() - new Date(iso).getTime()) / MS_PER_DAY);
 }
 
-function limitDays(file: FileRotationStatus): number {
-  const due = new Date(file.rotation_due).getTime();
-  const last = new Date(file.last_modified).getTime();
+/** Derive max_age_days for a key from its rotation_due vs last_rotated_at. */
+function keyLimitDays(k: KeyRotationStatus): number | null {
+  if (!k.last_rotated_at || !k.rotation_due) return null;
+  const due = new Date(k.rotation_due).getTime();
+  const last = new Date(k.last_rotated_at).getTime();
   return Math.round((due - last) / MS_PER_DAY);
 }
 
@@ -82,8 +96,18 @@ export function PolicyView({ setView, setNs }: PolicyViewProps) {
     loadPolicy();
   }, [loadPolicy]);
 
+  // Extract the namespace from a cell path.  The cell path is shaped like
+  // `{prefix...}/<namespace>/<environment>.enc.yaml` per the manifest's
+  // file_pattern — so the second-to-last segment is always the namespace,
+  // regardless of how many leading directories the repo uses.  Mirrors
+  // LintView's handleNavigate.
+  const namespaceFromPath = (filePath: string): string | undefined => {
+    const parts = filePath.split("/");
+    return parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+  };
+
   const handleNavigate = (file: FileRotationStatus) => {
-    const ns = file.path.split("/")[0];
+    const ns = namespaceFromPath(file.path);
     if (ns) {
       setNs(ns);
       setView("editor");
@@ -95,15 +119,33 @@ export function PolicyView({ setView, setNs }: PolicyViewProps) {
   const policy = data?.policy;
   const source = data?.source;
 
-  const visible = useMemo(
-    () => (filter === "all" ? files : files.filter((f) => rowStatus(f) === filter)),
-    [files, filter],
+  // Flatten (file, key) pairs so we can group by per-key status.  This is the
+  // authoritative view of rotation compliance — unknown rotation state on a
+  // single key fails the gate regardless of how many other keys are fresh.
+  const allRows: KeyRow[] = useMemo(
+    () => files.flatMap((f) => f.keys.map((k) => ({ file: f, key: k }))),
+    [files],
   );
 
-  const allCompliant =
-    (summary?.total_files ?? 0) > 0 &&
-    summary?.rotation_overdue === 0 &&
-    summary?.unknown_metadata === 0;
+  const visible = useMemo(
+    () => (filter === "all" ? allRows : allRows.filter((r) => keyRowStatus(r.key) === filter)),
+    [allRows, filter],
+  );
+
+  const counts = useMemo(() => {
+    let overdue = 0;
+    let unknown = 0;
+    let ok = 0;
+    for (const r of allRows) {
+      const s = keyRowStatus(r.key);
+      if (s === "overdue") overdue++;
+      else if (s === "unknown") unknown++;
+      else ok++;
+    }
+    return { overdue, unknown, ok, total: allRows.length };
+  }, [allRows]);
+
+  const allCompliant = counts.total > 0 && counts.overdue === 0 && counts.unknown === 0;
   const noFiles = !loading && files.length === 0;
 
   return (
@@ -233,8 +275,8 @@ export function PolicyView({ setView, setNs }: PolicyViewProps) {
         </div>
       )}
 
-      {/* Summary chips */}
-      {!loading && summary && summary.total_files > 0 && (
+      {/* Summary chips — per-key counts, not per-file */}
+      {!loading && counts.total > 0 && (
         <div
           style={{
             padding: "14px 24px",
@@ -249,26 +291,26 @@ export function PolicyView({ setView, setNs }: PolicyViewProps) {
           {[
             {
               key: "all" as const,
-              label: "All files",
-              count: summary.total_files,
+              label: "All keys",
+              count: counts.total,
               color: theme.textMuted,
             },
             {
               key: "overdue" as const,
               label: "Overdue",
-              count: summary.rotation_overdue,
+              count: counts.overdue,
               color: theme.red,
             },
             {
               key: "unknown" as const,
               label: "Unknown",
-              count: summary.unknown_metadata,
+              count: counts.unknown,
               color: theme.yellow,
             },
             {
               key: "ok" as const,
               label: "Compliant",
-              count: summary.compliant,
+              count: counts.ok,
               color: theme.green,
             },
           ].map((f) => (
@@ -436,19 +478,20 @@ export function PolicyView({ setView, setNs }: PolicyViewProps) {
                 color: theme.textMuted,
               }}
             >
-              {summary?.total_files ?? 0} files within rotation window
+              {counts.total} key{counts.total === 1 ? "" : "s"} within rotation window across{" "}
+              {summary?.total_files ?? 0} file{summary?.total_files === 1 ? "" : "s"}
             </div>
           </div>
         )}
 
-        {/* Grouped rotation rows */}
+        {/* Grouped per-key rows */}
         {!loading &&
           !allCompliant &&
           !noFiles &&
           policy &&
           (["overdue", "unknown", "ok"] as const).map((status) => {
             if (filter !== "all" && filter !== status) return null;
-            const group = visible.filter((f) => rowStatus(f) === status);
+            const group = visible.filter((r) => keyRowStatus(r.key) === status);
             if (!group.length) return null;
             const meta = STATUS_META[status];
 
@@ -513,17 +556,22 @@ export function PolicyView({ setView, setNs }: PolicyViewProps) {
                     overflow: "hidden",
                   }}
                 >
-                  {group.map((file, i) => {
-                    const limit = limitDays(file);
-                    const message = file.last_modified_known
-                      ? `Last modified ${ageInDays(file.last_modified)}d ago \u00B7 limit ${limit}d`
-                      : `No sops.lastmodified \u00B7 limit ${limit}d \u00B7 cannot verify rotation age`;
+                  {group.map((row, i) => {
+                    const { file, key } = row;
+                    const limit = keyLimitDays(key);
+                    const nsHint = namespaceFromPath(file.path) ?? "<namespace>";
+                    const message =
+                      status === "unknown"
+                        ? `No rotation record \u00B7 run clef set ${nsHint}/${file.environment} ${key.key} to establish`
+                        : key.last_rotated_at
+                          ? `Last rotated ${ageInDays(key.last_rotated_at)}d ago \u00B7 limit ${limit ?? "?"}d \u00B7 ${key.rotation_count} rotation${key.rotation_count === 1 ? "" : "s"}`
+                          : `Rotation state inconsistent`;
                     const statusTag =
-                      status === "overdue" ? `${meta.label} ${file.days_overdue}d` : meta.label;
+                      status === "overdue" ? `${meta.label} ${key.days_overdue}d` : meta.label;
 
                     return (
                       <div
-                        key={`${file.path}-${i}`}
+                        key={`${file.path}-${key.key}-${i}`}
                         style={{
                           display: "flex",
                           alignItems: "flex-start",
@@ -564,6 +612,26 @@ export function PolicyView({ setView, setNs }: PolicyViewProps) {
                             }}
                           >
                             <span
+                              data-testid={`key-ref-${key.key}`}
+                              style={{
+                                fontFamily: theme.mono,
+                                fontSize: 13,
+                                fontWeight: 700,
+                                color: theme.text,
+                              }}
+                            >
+                              {key.key}
+                            </span>
+                            <span
+                              style={{
+                                fontFamily: theme.mono,
+                                fontSize: 10,
+                                color: theme.textMuted,
+                              }}
+                            >
+                              {"\u2190"}
+                            </span>
+                            <span
                               data-testid={`file-ref-${file.path}`}
                               role="link"
                               tabIndex={0}
@@ -573,8 +641,8 @@ export function PolicyView({ setView, setNs }: PolicyViewProps) {
                               }}
                               style={{
                                 fontFamily: theme.mono,
-                                fontSize: 12,
-                                fontWeight: 600,
+                                fontSize: 11,
+                                fontWeight: 500,
                                 color: theme.accent,
                                 cursor: "pointer",
                                 textDecoration: "underline",
