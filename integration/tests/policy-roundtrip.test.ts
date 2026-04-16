@@ -241,6 +241,49 @@ describe("clef policy check (real SOPS metadata)", () => {
     expect(parsed.files.map((f: { environment: string }) => f.environment)).toEqual(["production"]);
   });
 
+  it("--strict exits 3 when a file is missing sops.lastmodified", () => {
+    // Snapshot + restore so this mutation doesn't leak to later tests.
+    const devPath = path.join(repo.dir, "payments", "dev.enc.yaml");
+    const original = fs.readFileSync(devPath, "utf-8");
+    try {
+      const doc = YAML.parse(original) as Record<string, unknown>;
+      const sops = doc.sops as Record<string, unknown>;
+      delete sops.lastmodified;
+      fs.writeFileSync(devPath, YAML.stringify(doc));
+
+      clef(["policy", "init"]);
+      const result = clef(["policy", "check", "--strict"], { allowFailure: true });
+      expect(result.exitCode).toBe(3);
+    } finally {
+      fs.writeFileSync(devPath, original);
+    }
+  });
+
+  it("--json reports unknown_metadata > 0 when lastmodified is absent", () => {
+    const devPath = path.join(repo.dir, "payments", "dev.enc.yaml");
+    const original = fs.readFileSync(devPath, "utf-8");
+    try {
+      const doc = YAML.parse(original) as Record<string, unknown>;
+      const sops = doc.sops as Record<string, unknown>;
+      delete sops.lastmodified;
+      fs.writeFileSync(devPath, YAML.stringify(doc));
+
+      clef(["policy", "init"]);
+      const result = clef(["--json", "policy", "check"], { allowFailure: true });
+      // Without --strict the exit code is 0 (no rotation overdue); the
+      // unknown-metadata count still flows through to the JSON summary.
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.summary.unknown_metadata).toBe(1);
+      const devEntry = parsed.files.find(
+        (f: { path: string }) => f.path === "payments/dev.enc.yaml",
+      );
+      expect(devEntry).toMatchObject({ last_modified_known: false });
+    } finally {
+      fs.writeFileSync(devPath, original);
+    }
+  });
+
   it("exits with a non-zero code when policy YAML is invalid", () => {
     fs.mkdirSync(path.join(repo.dir, ".clef"), { recursive: true });
     fs.writeFileSync(

@@ -79,6 +79,12 @@ test.describe("sidebar navigation", () => {
     await expect(page.getByTestId("scan-idle")).toBeVisible();
   });
 
+  test("[positive] Policy nav item opens the policy view", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-policy").click();
+    await expect(page.getByText("clef policy check")).toBeVisible();
+  });
+
   test("[positive] Import nav item opens the import view", async ({ page }) => {
     await page.goto(server.url);
     await page.getByTestId("nav-import").click();

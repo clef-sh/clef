@@ -121,3 +121,42 @@ export function scaffoldTestRepo(keys: AgeKeyPair, serviceIdentityKeys?: AgeKeyP
     },
   };
 }
+
+/**
+ * Write `.clef/policy.yaml` with the given policy document.  Creates the
+ * `.clef/` directory if missing.  Used by policy-ui e2e tests to switch
+ * between `source: "default"` and `source: "file"` without restarting the
+ * server — /api/policy and /api/policy/check compute on each request.
+ */
+export function writePolicyFile(repoDir: string, policy: Record<string, unknown>): void {
+  const policyDir = path.join(repoDir, ".clef");
+  fs.mkdirSync(policyDir, { recursive: true });
+  fs.writeFileSync(path.join(policyDir, "policy.yaml"), YAML.stringify(policy));
+}
+
+/**
+ * Delete `.clef/policy.yaml` if present.  No-op when the file is absent.
+ */
+export function removePolicyFile(repoDir: string): void {
+  const file = path.join(repoDir, ".clef", "policy.yaml");
+  if (fs.existsSync(file)) fs.unlinkSync(file);
+}
+
+/**
+ * Remove the `sops.lastmodified` key from an encrypted file's SOPS metadata
+ * block.  SOPS stores this timestamp in plaintext alongside the encrypted
+ * values, so we can mutate it without decrypting.  The result drives
+ * `last_modified_known: false` in the policy verdict — the "Unknown" bucket
+ * in the Policy screen.
+ *
+ * sops will treat the file as still encrypted; this is a surgical edit of a
+ * single metadata field, not a re-encryption.
+ */
+export function stripSopsLastmodified(filePath: string): void {
+  const raw = fs.readFileSync(filePath, "utf-8");
+  const doc = YAML.parse(raw) as Record<string, unknown>;
+  const sops = doc.sops as Record<string, unknown> | undefined;
+  if (!sops) throw new Error(`${filePath} is not a SOPS-encrypted file (no sops: block)`);
+  delete sops.lastmodified;
+  fs.writeFileSync(filePath, YAML.stringify(doc));
+}
