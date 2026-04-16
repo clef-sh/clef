@@ -1,7 +1,9 @@
+import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { execFileSync, spawn } from "child_process";
 import { Router, Request, Response } from "express";
+import * as YAML from "yaml";
 
 // On Linux, libuv creates socketpairs for child stdio. Go's os.Open on
 // /dev/stdin re-opens /proc/self/fd/0 which fails with ENXIO on socketpairs.
@@ -37,6 +39,10 @@ import {
   SyncManager,
   resolveBackendConfig,
   validateResetScope,
+  PolicyParser,
+  CLEF_POLICY_FILENAME,
+  PolicyValidationError,
+  runCompliance,
 } from "@clef-sh/core";
 import type { BackendType, ImportFormat, MigrationProgressEvent, ResetScope } from "@clef-sh/core";
 
@@ -619,6 +625,63 @@ export function createApiRouter(deps: ApiDeps): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to run lint fix";
       res.status(500).json({ error: message, code: "LINT_FIX_ERROR" });
+    }
+  });
+
+  function policyFilePath(): string {
+    return path.join(deps.repoRoot, CLEF_POLICY_FILENAME);
+  }
+
+  // GET /api/policy — resolved rotation policy + source.  Returns the built-in
+  // default when .clef/policy.yaml is absent (PolicyParser.load handles this
+  // — no throw on missing file).
+  router.get("/policy", (_req: Request, res: Response) => {
+    try {
+      const policyPath = policyFilePath();
+      const source = fs.existsSync(policyPath) ? "file" : "default";
+      const policy = new PolicyParser().load(policyPath);
+      res.json({
+        policy,
+        source,
+        path: CLEF_POLICY_FILENAME,
+        rawYaml: YAML.stringify(policy),
+      });
+    } catch (err) {
+      if (err instanceof PolicyValidationError) {
+        res.status(422).json({ error: err.message, code: "POLICY_INVALID" });
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Failed to load policy";
+      res.status(500).json({ error: message, code: "POLICY_LOAD_ERROR" });
+    }
+  });
+
+  // GET /api/policy/check — rotation status per matrix file, the same data
+  // `clef policy check --json` produces.  Mirrors the CLI's include flags so
+  // scan + lint are not re-run from this endpoint.
+  router.get("/policy/check", async (_req: Request, res: Response) => {
+    try {
+      const result = await runCompliance({
+        runner: deps.runner,
+        repoRoot: deps.repoRoot,
+        sopsPath: deps.sopsPath,
+        include: { rotation: true, scan: false, lint: false },
+      });
+      const unknownMetadata = result.document.files.filter((f) => !f.last_modified_known).length;
+      res.json({
+        files: result.document.files,
+        summary: {
+          total_files: result.document.summary.total_files,
+          compliant: result.document.summary.compliant,
+          rotation_overdue: result.document.summary.rotation_overdue,
+          unknown_metadata: unknownMetadata,
+        },
+        policy: result.document.policy_snapshot,
+        source: fs.existsSync(policyFilePath()) ? "file" : "default",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to evaluate policy";
+      res.status(500).json({ error: message, code: "POLICY_CHECK_ERROR" });
     }
   });
 

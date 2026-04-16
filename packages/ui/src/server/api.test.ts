@@ -1,7 +1,12 @@
 import express from "express";
 import request from "supertest";
 import { createApiRouter } from "./api";
-import { SubprocessRunner, SubprocessResult, markPendingWithRetry } from "@clef-sh/core";
+import {
+  SubprocessRunner,
+  SubprocessResult,
+  markPendingWithRetry,
+  CLEF_POLICY_FILENAME,
+} from "@clef-sh/core";
 import * as fs from "fs";
 import * as YAML from "yaml";
 
@@ -643,6 +648,134 @@ describe("API routes", () => {
       const res = await request(app).post("/api/lint/fix");
       expect(res.status).toBe(500);
       expect(res.body.code).toBe("LINT_FIX_ERROR");
+    });
+  });
+
+  // GET /api/policy
+  describe("GET /api/policy", () => {
+    function setupPolicyFs(opts: { policyExists: boolean; policyYaml?: string }): void {
+      mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
+        const s = String(p);
+        if (s.endsWith(CLEF_POLICY_FILENAME)) return opts.policyExists;
+        return true;
+      });
+      mockFs.readFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+        const s = String(p);
+        if (s.endsWith(CLEF_POLICY_FILENAME)) return opts.policyYaml ?? "";
+        return validManifestYaml;
+      });
+    }
+
+    it("returns built-in default with source: 'default' when policy file is absent", async () => {
+      setupPolicyFs({ policyExists: false });
+      const app = express();
+      app.use(express.json());
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
+
+      const res = await request(app).get("/api/policy");
+      expect(res.status).toBe(200);
+      expect(res.body.source).toBe("default");
+      expect(res.body.path).toBe(CLEF_POLICY_FILENAME);
+      expect(res.body.policy.version).toBe(1);
+      expect(typeof res.body.rawYaml).toBe("string");
+      expect(res.body.rawYaml).toContain("rotation");
+    });
+
+    it("returns the parsed file with source: 'file' when .clef/policy.yaml exists", async () => {
+      const policyYaml = "version: 1\nrotation:\n  max_age_days: 45\n";
+      setupPolicyFs({ policyExists: true, policyYaml });
+      const app = express();
+      app.use(express.json());
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
+
+      const res = await request(app).get("/api/policy");
+      expect(res.status).toBe(200);
+      expect(res.body.source).toBe("file");
+      expect(res.body.policy.rotation.max_age_days).toBe(45);
+    });
+
+    it("returns 422 with POLICY_INVALID when the policy file is malformed", async () => {
+      // Schema-invalid policy: missing version field.
+      setupPolicyFs({ policyExists: true, policyYaml: "rotation:\n  max_age_days: 30\n" });
+      const app = express();
+      app.use(express.json());
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
+
+      const res = await request(app).get("/api/policy");
+      expect(res.status).toBe(422);
+      expect(res.body.code).toBe("POLICY_INVALID");
+    });
+  });
+
+  // GET /api/policy/check
+  describe("GET /api/policy/check", () => {
+    it("returns rotation status, summary, policy, and source", async () => {
+      // SopsClient.getMetadata reads cell files via fs.readFileSync directly
+      // (not through the runner) when `sops filestatus` exit-codes 1.  Use a
+      // per-path mock so manifest reads return manifest YAML and cell reads
+      // return a real SOPS-shaped envelope.
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+        const s = String(p);
+        if (s.endsWith("clef.yaml")) return validManifestYaml;
+        if (s.endsWith(CLEF_POLICY_FILENAME)) return ""; // unused — existsSync→true but PolicyParser.load is robust
+        return sopsFileContent;
+      });
+      // Make the policy file appear absent so runCompliance falls back to
+      // DEFAULT_POLICY (90-day window).  The 2024-01-15 timestamp on
+      // sopsFileContent is well past 90 days from any 2026 wall-clock.
+      mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
+        const s = String(p);
+        if (s.endsWith(CLEF_POLICY_FILENAME)) return false;
+        return true;
+      });
+
+      const app = express();
+      app.use(express.json());
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
+
+      const res = await request(app).get("/api/policy/check");
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.files)).toBe(true);
+      expect(res.body.summary).toEqual(
+        expect.objectContaining({
+          total_files: expect.any(Number),
+          compliant: expect.any(Number),
+          rotation_overdue: expect.any(Number),
+          unknown_metadata: expect.any(Number),
+        }),
+      );
+      expect(res.body.policy.version).toBe(1);
+      expect(res.body.source).toBe("default");
+    });
+
+    it("returns 500 with POLICY_CHECK_ERROR when compliance throws", async () => {
+      mockFs.readFileSync.mockImplementation(() => {
+        throw new Error("manifest read failed");
+      });
+      const app = express();
+      app.use(express.json());
+      app.use(
+        "/api",
+        createApiRouter({ runner: makeRunner(), repoRoot: "/repo", sopsPath: "sops" }),
+      );
+
+      const res = await request(app).get("/api/policy/check");
+      expect(res.status).toBe(500);
+      expect(res.body.code).toBe("POLICY_CHECK_ERROR");
     });
   });
 

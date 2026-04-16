@@ -7,6 +7,7 @@ import { NamespaceEditor } from "./screens/NamespaceEditor";
 import { DiffView } from "./screens/DiffView";
 import { LintView } from "./screens/LintView";
 import { ScanScreen } from "./screens/ScanScreen";
+import { PolicyView } from "./screens/PolicyView";
 import { ImportScreen } from "./screens/ImportScreen";
 import { ManifestScreen } from "./screens/ManifestScreen";
 import { RecipientsScreen } from "./screens/RecipientsScreen";
@@ -26,6 +27,7 @@ export default function App() {
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [lintErrorCount, setLintErrorCount] = useState(0);
   const [scanIssueCount, setScanIssueCount] = useState(0);
+  const [policyOverdueCount, setPolicyOverdueCount] = useState(0);
 
   const loadManifest = useCallback(async () => {
     try {
@@ -93,13 +95,26 @@ export default function App() {
     }
   }, []);
 
+  const loadPolicyCount = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/policy/check");
+      if (res.ok) {
+        const data = await res.json();
+        setPolicyOverdueCount(data.summary?.rotation_overdue ?? 0);
+      }
+    } catch {
+      // Silently fail
+    }
+  }, []);
+
   useEffect(() => {
     loadManifest();
     loadMatrix();
     loadGitStatus();
     loadLintCount();
     loadScanCount();
-  }, [loadManifest, loadMatrix, loadGitStatus, loadLintCount, loadScanCount]);
+    loadPolicyCount();
+  }, [loadManifest, loadMatrix, loadGitStatus, loadLintCount, loadScanCount, loadPolicyCount]);
 
   // Refresh data on every view change — manifest and matrix are cheap (no decryption)
   useEffect(() => {
@@ -157,6 +172,7 @@ export default function App() {
         gitStatus={gitStatus}
         lintErrorCount={lintErrorCount}
         scanIssueCount={scanIssueCount}
+        policyOverdueCount={policyOverdueCount}
       />
 
       <div
@@ -183,6 +199,7 @@ export default function App() {
         {view === "diff" && <DiffView manifest={manifest} />}
         {view === "lint" && <LintView setView={setView} setNs={setActiveNs} />}
         {view === "scan" && <ScanScreen />}
+        {view === "policy" && <PolicyView setView={setView} setNs={setActiveNs} />}
         {view === "import" && <ImportScreen manifest={manifest} setView={setView} />}
         {view === "recipients" && <RecipientsScreen manifest={manifest} setView={setView} />}
         {view === "identities" && <ServiceIdentitiesScreen manifest={manifest} />}

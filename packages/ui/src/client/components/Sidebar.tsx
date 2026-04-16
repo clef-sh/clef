@@ -8,6 +8,7 @@ export type ViewName =
   | "diff"
   | "lint"
   | "scan"
+  | "policy"
   | "import"
   | "recipients"
   | "identities"
@@ -26,6 +27,7 @@ interface SidebarProps {
   gitStatus: GitStatusType | null;
   lintErrorCount: number;
   scanIssueCount: number;
+  policyOverdueCount: number;
 }
 
 export function Sidebar({
@@ -38,6 +40,7 @@ export function Sidebar({
   gitStatus,
   lintErrorCount,
   scanIssueCount,
+  policyOverdueCount,
 }: SidebarProps) {
   const uncommittedCount = gitStatus
     ? gitStatus.staged.length + gitStatus.unstaged.length + gitStatus.untracked.length
@@ -137,6 +140,14 @@ export function Sidebar({
           onClick={() => setView("scan")}
           badge={scanIssueCount > 0 ? String(scanIssueCount) : undefined}
           badgeColor={theme.yellow}
+        />
+        <NavItem
+          icon={"\u2696"}
+          label="Policy"
+          active={activeView === "policy"}
+          onClick={() => setView("policy")}
+          badge={policyOverdueCount > 0 ? String(policyOverdueCount) : undefined}
+          badgeColor={theme.red}
         />
         <NavItem
           icon={"\u2B06"}
