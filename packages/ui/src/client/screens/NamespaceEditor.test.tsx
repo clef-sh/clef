@@ -691,4 +691,101 @@ describe("NamespaceEditor", () => {
     // Key should still be there
     expect(screen.getByText("DB_HOST")).toBeInTheDocument();
   });
+
+  it("surfaces the server error when Save fails on a dirty tree", async () => {
+    // Route by method: all GETs (decrypt + lint) succeed; the PUT that
+    // handleSave issues rejects with a 500 (dirty-tree preflight failure).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fetchMock = jest.fn().mockImplementation((_url: string, init?: any) => {
+      if (init?.method === "PUT") {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () =>
+            Promise.resolve({
+              error: "Working tree has uncommitted changes. Refusing to mutate.",
+              code: "SET_ERROR",
+            }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(mockDecrypted),
+      } as Response);
+    });
+    global.fetch = fetchMock;
+
+    await act(async () => {
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
+    });
+
+    // Reveal + edit DB_HOST to produce a dirty row.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("eye-DB_HOST"));
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("value-input-DB_HOST"), {
+        target: { value: "rotated" },
+      });
+    });
+
+    // Click the Save button (rendered once a row is dirty).
+    await act(async () => {
+      fireEvent.click(screen.getByText("Save"));
+    });
+
+    // The server's error message reaches the user — no silent success.
+    expect(screen.getByText(/Working tree has uncommitted changes/)).toBeInTheDocument();
+    // Dirty indicator stays so the user can retry without re-typing.
+    expect(screen.getByTestId("dirty-dot")).toBeInTheDocument();
+  });
+
+  it("bails on first failure in a batch save without issuing further PUTs", async () => {
+    // All GETs succeed; every PUT 500s.  We expect handleSave to abort
+    // after the first PUT and never issue the second.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fetchMock = jest.fn().mockImplementation((_url: string, init?: any) => {
+      if (init?.method === "PUT") {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          json: () => Promise.resolve({ error: "boom" }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(mockDecrypted),
+      } as Response);
+    });
+    global.fetch = fetchMock;
+
+    await act(async () => {
+      render(<NamespaceEditor ns="database" manifest={manifest} />);
+    });
+
+    // Dirty both rows.
+    for (const key of ["DB_HOST", "DB_PORT"]) {
+      await act(async () => {
+        fireEvent.click(screen.getByTestId(`eye-${key}`));
+      });
+      await act(async () => {
+        fireEvent.change(screen.getByTestId(`value-input-${key}`), {
+          target: { value: `${key}-new` },
+        });
+      });
+    }
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Save"));
+    });
+
+    // Exactly one PUT was attempted — the second row was skipped after the
+    // first failure.  Initial GET + one PUT = 2 fetch calls total.
+    const putCalls = fetchMock.mock.calls.filter(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (c: any[]) => c[1]?.method === "PUT",
+    );
+    expect(putCalls).toHaveLength(1);
+    expect(screen.getByText("boom")).toBeInTheDocument();
+  });
 });

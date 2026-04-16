@@ -130,6 +130,7 @@ export function NamespaceEditor({ ns, initialEnv, manifest }: NamespaceEditorPro
     const dirtyRows = rows.filter((r) => r.edited);
     if (dirtyRows.length === 0) return;
     setSaving(true);
+    setError(null);
     try {
       // Each PUT auto-commits via the transaction manager, matching CLI
       // behavior where each `clef set` is its own commit. Serialize so
@@ -137,13 +138,24 @@ export function NamespaceEditor({ ns, initialEnv, manifest }: NamespaceEditorPro
       for (const row of dirtyRows) {
         const payload: Record<string, unknown> = { value: row.value };
         if (confirmed) payload.confirmed = true;
-        await apiFetch(`/api/namespace/${ns}/${env}/${row.key}`, {
+        const res = await apiFetch(`/api/namespace/${ns}/${env}/${row.key}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        if (!res.ok) {
+          // Bail on first failure — for dirty-tree / recipient errors the
+          // remaining PUTs will fail the same way, and piling errors on top
+          // of each other just obscures the root cause.  Local `edited`
+          // state stays intact so the user can retry without re-typing.
+          const data = await res.json().catch(() => ({}));
+          setError(data.error || `Failed to save ${row.key}`);
+          return;
+        }
       }
       await loadData();
+    } catch {
+      setError("Failed to save changes");
     } finally {
       setSaving(false);
     }
@@ -401,9 +413,12 @@ export function NamespaceEditor({ ns, initialEnv, manifest }: NamespaceEditorPro
           </div>
         )}
 
-        {!loading && !error && (
+        {!loading && (
           <>
-            {/* Keys table */}
+            {/* Keys table.  Rendered even when `error` is set so a failed
+                save still shows the dirty rows + Save button for retry.
+                On load failure `rows` is empty, so the table renders
+                gracefully with no row body. */}
             <div
               style={{
                 background: theme.surface,
