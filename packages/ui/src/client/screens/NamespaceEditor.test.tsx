@@ -692,7 +692,7 @@ describe("NamespaceEditor", () => {
     expect(screen.getByText("DB_HOST")).toBeInTheDocument();
   });
 
-  it("surfaces the server error when Save fails on a dirty tree", async () => {
+  it("surfaces the server error and resets UI to on-disk state on Save failure", async () => {
     // Route by method: all GETs (decrypt + lint) succeed; the PUT that
     // handleSave issues rejects with a 500 (dirty-tree preflight failure).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -736,8 +736,11 @@ describe("NamespaceEditor", () => {
 
     // The server's error message reaches the user — no silent success.
     expect(screen.getByText(/Working tree has uncommitted changes/)).toBeInTheDocument();
-    // Dirty indicator stays so the user can retry without re-typing.
-    expect(screen.getByTestId("dirty-dot")).toBeInTheDocument();
+    // UI resets to on-disk state: dirty indicator gone, value re-masked
+    // (value-input replaced by bullet-mask span), Save button hidden.
+    expect(screen.queryByTestId("dirty-dot")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("value-input-DB_HOST")).not.toBeInTheDocument();
+    expect(screen.queryByText("Save")).not.toBeInTheDocument();
   });
 
   it("bails on first failure in a batch save without issuing further PUTs", async () => {

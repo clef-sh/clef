@@ -135,6 +135,7 @@ export function NamespaceEditor({ ns, initialEnv, manifest }: NamespaceEditorPro
       // Each PUT auto-commits via the transaction manager, matching CLI
       // behavior where each `clef set` is its own commit. Serialize so
       // each transaction completes before the next starts.
+      let failure: string | null = null;
       for (const row of dirtyRows) {
         const payload: Record<string, unknown> = { value: row.value };
         if (confirmed) payload.confirmed = true;
@@ -146,15 +147,20 @@ export function NamespaceEditor({ ns, initialEnv, manifest }: NamespaceEditorPro
         if (!res.ok) {
           // Bail on first failure — for dirty-tree / recipient errors the
           // remaining PUTs will fail the same way, and piling errors on top
-          // of each other just obscures the root cause.  Local `edited`
-          // state stays intact so the user can retry without re-typing.
+          // of each other just obscures the root cause.
           const data = await res.json().catch(() => ({}));
-          setError(data.error || `Failed to save ${row.key}`);
-          return;
+          failure = data.error || `Failed to save ${row.key}`;
+          break;
         }
       }
+      // Always reload from disk — on success to pick up server-side state
+      // (lastModified, metadata), on failure to snap the UI back to the
+      // current on-disk values and re-mask the inputs rather than leaving
+      // unsaved plaintext edits visible in an illusory "pending" state.
       await loadData();
+      if (failure) setError(failure);
     } catch {
+      await loadData();
       setError("Failed to save changes");
     } finally {
       setSaving(false);
