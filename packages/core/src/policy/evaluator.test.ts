@@ -327,5 +327,31 @@ describe("PolicyEvaluator", () => {
       expect(result.keys[0].rotated_by).toBe("bob <bob@example.com>");
       expect(result.keys[0].rotation_count).toBe(7);
     });
+
+    it("uses the system clock when `now` is omitted (default-parameter path)", () => {
+      // Guard for the documented default on evaluateFile's `now` parameter.
+      // A record rotated ~1 second ago must be fresh against a 30-day window
+      // regardless of when this test runs, so we can assert compliance without
+      // pinning wall-clock time.  Coverage-wise this exercises the default
+      // value branch the other tests bypass by always passing NOW explicitly.
+      const policy: PolicyDocument = { version: 1, rotation: { max_age_days: 30 } };
+      const record: RotationRecord = {
+        key: "K",
+        lastRotatedAt: new Date(Date.now() - 1000),
+        rotatedBy: "alice",
+        rotationCount: 1,
+      };
+      const result = new PolicyEvaluator(policy).evaluateFile(
+        "api/dev.enc.yaml",
+        "dev",
+        metaAt(1),
+        ["K"],
+        [record],
+        // `now` intentionally omitted — triggers `new Date()` default.
+      );
+
+      expect(result.keys[0].compliant).toBe(true);
+      expect(result.keys[0].rotation_overdue).toBe(false);
+    });
   });
 });

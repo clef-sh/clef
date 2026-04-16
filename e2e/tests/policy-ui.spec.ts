@@ -24,6 +24,7 @@ import {
   writePolicyFile,
   removePolicyFile,
   removeRotationRecord,
+  resetTestRepo,
   type TestRepo,
 } from "../setup/repo";
 import { startClefUI, type ServerInfo } from "../setup/server";
@@ -32,25 +33,11 @@ let keys: AgeKeyPair;
 let repo: TestRepo;
 let server: ServerInfo;
 
-// Snapshot cell + metadata files after scaffold so we can restore them
-// between tests.  Each scenario mutates its own state (remove a rotation
-// record, tighten the policy) and the beforeEach hook reverts.
-let devSnapshot: string;
-let productionSnapshot: string;
-let devMetaSnapshot: string;
-let productionMetaSnapshot: string;
-const devFile = () => path.join(repo.dir, "payments", "dev.enc.yaml");
-const productionFile = () => path.join(repo.dir, "payments", "production.enc.yaml");
 const devMetaFile = () => path.join(repo.dir, "payments", "dev.clef-meta.yaml");
-const productionMetaFile = () => path.join(repo.dir, "payments", "production.clef-meta.yaml");
 
 test.beforeAll(async () => {
   keys = await generateAgeKey();
   repo = scaffoldTestRepo(keys);
-  devSnapshot = fs.readFileSync(devFile(), "utf-8");
-  productionSnapshot = fs.readFileSync(productionFile(), "utf-8");
-  devMetaSnapshot = fs.readFileSync(devMetaFile(), "utf-8");
-  productionMetaSnapshot = fs.readFileSync(productionMetaFile(), "utf-8");
   server = await startClefUI(repo.dir, keys.keyFilePath);
 });
 
@@ -67,13 +54,12 @@ test.afterAll(async () => {
 });
 
 test.beforeEach(() => {
-  // Reset to the fresh scaffold state before every test.  Each scenario
-  // applies its own mutations after this reset.
-  removePolicyFile(repo.dir);
-  fs.writeFileSync(devFile(), devSnapshot);
-  fs.writeFileSync(productionFile(), productionSnapshot);
-  fs.writeFileSync(devMetaFile(), devMetaSnapshot);
-  fs.writeFileSync(productionMetaFile(), productionMetaSnapshot);
+  // Reset to the scaffolded initial commit before every test — wipes any
+  // working-tree changes AND any test-introduced commits (e.g. from
+  // removeRotationRecord).  Leaves the UI server's repo view in a known
+  // clean state so `tx.run`-backed API calls don't false-trip the
+  // dirty-tree preflight due to prior-test drift.
+  resetTestRepo(repo);
 });
 
 test.describe.serial("clef policy → PolicyView: rotation verdicts", () => {
@@ -97,7 +83,11 @@ test.describe.serial("clef policy → PolicyView: rotation verdicts", () => {
 
     await expect(page.getByTestId("filter-unknown")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("filter-unknown")).toContainText("1");
-    // The affected key row shows the key name and the file path as secondary.
+    // Narrow to the Unknown bucket — the default "all" filter shows every
+    // key in every file, which matches multiple STRIPE_KEY rows (the prod
+    // copy is still compliant).  Clicking through matches the real user
+    // workflow for diagnosing violations.
+    await page.getByTestId("filter-unknown").click();
     await expect(page.getByTestId("key-ref-STRIPE_KEY")).toBeVisible();
     // allCompliant is suppressed when any key is non-compliant.
     await expect(page.getByTestId("all-compliant")).toHaveCount(0);

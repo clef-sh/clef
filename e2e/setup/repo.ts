@@ -7,6 +7,14 @@ import type { AgeKeyPair } from "./keys";
 
 export interface TestRepo {
   dir: string;
+  /**
+   * SHA of the initial commit produced by {@link scaffoldTestRepo}.  Tests
+   * that mutate the repo (file edits, injected commits from helpers like
+   * {@link removeRotationRecord}) can `git reset --hard` to this SHA in a
+   * `beforeEach` to get a deterministic clean-tree starting point for the
+   * next test without rescaffolding from scratch.
+   */
+  initialSha: string;
   cleanup: () => void;
 }
 
@@ -135,9 +143,11 @@ export function scaffoldTestRepo(keys: AgeKeyPair, serviceIdentityKeys?: AgeKeyP
   execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: dir, stdio: "pipe" });
   execFileSync("git", ["add", "."], { cwd: dir, stdio: "pipe" });
   execFileSync("git", ["commit", "-m", "initial"], { cwd: dir, stdio: "pipe" });
+  const initialSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
 
   return {
     dir,
+    initialSha,
     cleanup: () => {
       try {
         fs.rmSync(dir, { recursive: true, force: true });
@@ -146,6 +156,20 @@ export function scaffoldTestRepo(keys: AgeKeyPair, serviceIdentityKeys?: AgeKeyP
       }
     },
   };
+}
+
+/**
+ * Restore a test repo to its initial scaffolded state.  Wipes any
+ * test-introduced commits, working-tree changes, and untracked files.
+ * Intended for use in `beforeEach` when tests share a scaffolded repo
+ * but mutate different pieces of it.
+ */
+export function resetTestRepo(repo: TestRepo): void {
+  execFileSync("git", ["reset", "--hard", repo.initialSha], {
+    cwd: repo.dir,
+    stdio: "pipe",
+  });
+  execFileSync("git", ["clean", "-fd"], { cwd: repo.dir, stdio: "pipe" });
 }
 
 /**
@@ -189,6 +213,11 @@ export function stripSopsLastmodified(filePath: string): void {
  * (the file sibling to the encrypted cell).  Simulates "pre-feature" state
  * for that key — per-key policy will report it as `last_rotated_known: false`
  * and fail the compliance gate.
+ *
+ * The change is committed so the working tree stays clean.  Tests that
+ * follow up with UI PUT / DELETE calls run through `tx.run`, which
+ * preflight-refuses dirty trees — leaving the edit uncommitted would
+ * deterministically 500 those calls.
  */
 export function removeRotationRecord(metaFilePath: string, key: string): void {
   if (!fs.existsSync(metaFilePath)) return;
@@ -204,4 +233,17 @@ export function removeRotationRecord(metaFilePath: string, key: string): void {
     YAML.stringify({ version: doc.version, pending: doc.pending ?? [], rotations: doc.rotations }),
   ];
   fs.writeFileSync(metaFilePath, lines.join("\n"));
+
+  // Commit so the tree is clean for downstream `tx.run`-backed API calls.
+  // Use the file's own directory as the git root anchor — the sidecar
+  // lives inside the test repo, so its parent dir walks up to it.
+  // `git add -A` sweeps up any drift from the enclosing beforeEach
+  // (snapshot restores via writeFileSync) in the same commit so the
+  // resulting tree is fully clean.
+  const repoDir = path.dirname(path.dirname(metaFilePath));
+  execFileSync("git", ["add", "-A"], { cwd: repoDir, stdio: "pipe" });
+  execFileSync("git", ["commit", "-m", `test: remove rotation record for ${key}`], {
+    cwd: repoDir,
+    stdio: "pipe",
+  });
 }
