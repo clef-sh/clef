@@ -114,6 +114,8 @@ jest.mock("@clef-sh/core", () => {
     getPendingKeys: jest.fn().mockResolvedValue([]),
     markResolved: jest.fn().mockResolvedValue(undefined),
     markPendingWithRetry: jest.fn().mockResolvedValue(undefined),
+    recordRotation: jest.fn().mockResolvedValue(undefined),
+    removeRotation: jest.fn().mockResolvedValue(undefined),
     generateRandomValue: jest.fn().mockReturnValue("a".repeat(64)),
   };
 });
@@ -339,6 +341,38 @@ describe("API routes", () => {
       expect(res.body.value).toBeUndefined();
     });
 
+    it("records a rotation when a real (non-random) value is set via the UI", async () => {
+      // Regression: the UI PUT endpoint used to call markResolved only,
+      // which never wrote a rotation record — policy stayed red forever
+      // even after the user re-saved.  Now a real-value PUT must call
+      // recordRotation (which also strips pending internally).
+      const { recordRotation: mockRecordRotation } = jest.requireMock("@clef-sh/core");
+      const runner = makeRunner();
+      const app = createApp(runner);
+      const res = await request(app)
+        .put("/api/namespace/database/dev/DB_HOST")
+        .send({ value: "new-value" });
+
+      expect(res.status).toBe(200);
+      expect(mockRecordRotation).toHaveBeenCalledWith(
+        expect.stringContaining("database/dev.enc.yaml"),
+        ["DB_HOST"],
+        expect.stringContaining("clef ui"),
+      );
+    });
+
+    it("does NOT record a rotation on a random (pending) PUT", async () => {
+      const { recordRotation: mockRecordRotation } = jest.requireMock("@clef-sh/core");
+      const runner = makeRunner();
+      const app = createApp(runner);
+      const res = await request(app)
+        .put("/api/namespace/database/dev/PLACEHOLDER_KEY")
+        .send({ random: true });
+
+      expect(res.status).toBe(200);
+      expect(mockRecordRotation).not.toHaveBeenCalled();
+    });
+
     it("propagates markPendingWithRetry failures so the transaction can roll back", async () => {
       (markPendingWithRetry as jest.Mock).mockRejectedValueOnce(new Error("disk full"));
 
@@ -527,15 +561,20 @@ describe("API routes", () => {
 
   // POST /api/namespace/:ns/:env/:key/accept
   describe("POST /api/namespace/:ns/:env/:key/accept", () => {
-    it("should call markResolved and return success", async () => {
-      const { markResolved: mockMarkResolved } = jest.requireMock("@clef-sh/core");
+    it("should record rotation (accept-as-real) and return success", async () => {
+      // Accept is treated as a rotation event: the user is declaring the
+      // placeholder value to be the real one, establishing a point-in-time
+      // rotation record.  recordRotation strips the matching pending entry
+      // internally, so no separate markResolved is needed.
+      const { recordRotation: mockRecordRotation } = jest.requireMock("@clef-sh/core");
       const app = createApp();
       const res = await request(app).post("/api/namespace/database/dev/DB_HOST/accept");
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(mockMarkResolved).toHaveBeenCalledWith(
+      expect(mockRecordRotation).toHaveBeenCalledWith(
         expect.stringContaining("database/dev.enc.yaml"),
         ["DB_HOST"],
+        expect.stringContaining("clef ui"),
       );
     });
 

@@ -27,6 +27,8 @@ import {
   getPendingKeys,
   markResolved,
   markPendingWithRetry,
+  recordRotation,
+  removeRotation,
   generateRandomValue,
   ImportRunner,
   RecipientManager,
@@ -338,9 +340,11 @@ export function createApiRouter(deps: ApiDeps): Router {
                 // Schema load failed — skip validation, not fatal
               }
             }
-            // Resolve pending state if the key was pending
+            // Real value set is a rotation event.  recordRotation also
+            // strips any matching pending entry, so this one call replaces
+            // the old markResolved + implicit pending cleanup.
             try {
-              await markResolved(filePath, [key]);
+              await recordRotation(filePath, [key], "clef ui");
             } catch {
               // Metadata update failed — non-fatal
             }
@@ -416,8 +420,11 @@ export function createApiRouter(deps: ApiDeps): Router {
         const doWork = async (): Promise<void> => {
           delete decrypted.values[key];
           await sops.encrypt(filePath, decrypted.values, manifest, env);
+          // Strip both pending and rotation records — the key no longer
+          // exists, so stale metadata would mislead policy.
           try {
             await markResolved(filePath, [key]);
+            await removeRotation(filePath, [key]);
           } catch {
             // Best effort — orphaned metadata is annoying but not dangerous
           }
@@ -471,7 +478,12 @@ export function createApiRouter(deps: ApiDeps): Router {
           description: `clef ui: accept ${ns}/${env}/${key}`,
           paths: [relCellPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
           mutate: async () => {
-            await markResolved(filePath, [key]);
+            // Accept is an explicit user action declaring the current
+            // (placeholder) value to be the real value.  Treat as a
+            // rotation — it establishes a point-in-time "this is the
+            // current secret" assertion.  recordRotation also strips the
+            // pending entry.
+            await recordRotation(filePath, [key], "clef ui (accept)");
           },
         });
         res.json({ success: true, key, value });
@@ -539,10 +551,18 @@ export function createApiRouter(deps: ApiDeps): Router {
         paths: [relToPath, relToPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
         mutate: async () => {
           const dest = await sops.decrypt(toCell.filePath);
+          const valueChanged = dest.values[key] !== source.values[key];
           dest.values[key] = source.values[key];
           await sops.encrypt(toCell.filePath, dest.values, manifest, toCell.environment);
+          // Only a real value change is a rotation.  Copying an identical
+          // value re-encrypts the ciphertext but does not rotate — matches
+          // the import semantics agreed in the design.
           try {
-            await markResolved(toCell.filePath, [key]);
+            if (valueChanged) {
+              await recordRotation(toCell.filePath, [key], "clef ui (copy)");
+            } else {
+              await markResolved(toCell.filePath, [key]);
+            }
           } catch {
             // Non-fatal — destination may not have had pending state
           }

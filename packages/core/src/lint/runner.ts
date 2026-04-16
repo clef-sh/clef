@@ -10,7 +10,8 @@ import {
 import { MatrixManager } from "../matrix/manager";
 import { SchemaValidator } from "../schema/validator";
 import { EncryptionBackend } from "../types";
-import { getPendingKeys } from "../pending/metadata";
+import { getPendingKeys, loadMetadata } from "../pending/metadata";
+import { readSopsKeyNames } from "../sops/keys";
 
 /**
  * Runs matrix completeness, schema validation, SOPS integrity, and key-drift checks.
@@ -253,7 +254,67 @@ export class LintRunner {
       issues.push(...siIssues);
     }
 
+    // .clef-meta.yaml consistency checks — no decrypt required.  Catches:
+    //   1. Orphan rotation records (record for a key not in the cipher).
+    //   2. Dual-state entries (a key appears in both pending and rotations).
+    const metadataIssues = await this.lintMetadataConsistency(existingCells);
+    issues.push(...metadataIssues);
+
     return { issues, fileCount: fileCount + missingCells.length, pendingCount };
+  }
+
+  /**
+   * Cross-reference `.clef-meta.yaml` against the cipher's plaintext key
+   * names for each existing cell.  Reports orphan rotation records and
+   * dual-state (pending + rotation) inconsistencies.  Uses
+   * {@link readSopsKeyNames} (plaintext YAML parse) — no decryption.
+   */
+  private async lintMetadataConsistency(
+    cells: { namespace: string; environment: string; filePath: string }[],
+  ): Promise<LintIssue[]> {
+    const issues: LintIssue[] = [];
+
+    for (const cell of cells) {
+      const keysInCipher = readSopsKeyNames(cell.filePath);
+      if (keysInCipher === null) continue; // malformed file — sops lint category already flagged it
+      const cipherKeys = new Set(keysInCipher);
+      const metadata = await loadMetadata(cell.filePath);
+
+      // 1. Orphan rotation records — record for a key not in the cipher.
+      // Happens when a key was deleted manually (outside `clef delete`) or
+      // renamed.  Non-fatal; auto-cleaned by `clef delete` going forward.
+      for (const record of metadata.rotations) {
+        if (!cipherKeys.has(record.key)) {
+          issues.push({
+            severity: "warning",
+            category: "metadata",
+            file: cell.filePath,
+            key: record.key,
+            message: `Rotation record exists for key '${record.key}' but the key is not in this cell. Remove the orphan entry from .clef-meta.yaml or re-add the key via clef set.`,
+          });
+        }
+      }
+
+      // 2. Dual-state — key appears in both pending and rotations.  Should
+      // be impossible via clef code paths (recordRotation strips pending,
+      // markPending doesn't touch rotations); if it happens, the metadata
+      // file was hand-edited or a concurrent race corrupted it.
+      const pendingKeys = new Set(metadata.pending.map((p) => p.key));
+      for (const record of metadata.rotations) {
+        if (pendingKeys.has(record.key)) {
+          issues.push({
+            severity: "error",
+            category: "metadata",
+            file: cell.filePath,
+            key: record.key,
+            message: `Key '${record.key}' appears in both 'pending' and 'rotations' sections of .clef-meta.yaml. One of them is stale — likely a manual edit or a failed transaction. Re-run clef set to reconcile.`,
+            fixCommand: `clef set ${cell.namespace}/${cell.environment} ${record.key}`,
+          });
+        }
+      }
+    }
+
+    return issues;
   }
 
   /**
