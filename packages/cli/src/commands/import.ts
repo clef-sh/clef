@@ -150,8 +150,16 @@ export function registerImportCommand(program: Command, deps: { runner: Subproce
 
           const sopsClient = await createSopsClient(repoRoot, deps.runner);
           try {
-            const tx = new TransactionManager(new GitIntegration(deps.runner));
+            const git = new GitIntegration(deps.runner);
+            const tx = new TransactionManager(git);
             const importRunner = new ImportRunner(sopsClient, tx);
+
+            // Resolve the rotator identity for rotation records — git author
+            // config when set, null when absent (ImportRunner skips recording
+            // in that case, which matches the "no identity, no audit trail"
+            // rule other commands follow).
+            const identity = await git.getAuthorIdentity(repoRoot);
+            const rotatedBy = identity ? `${identity.name} <${identity.email}>` : undefined;
 
             let result;
             try {
@@ -161,6 +169,7 @@ export function registerImportCommand(program: Command, deps: { runner: Subproce
                 keys: keysFilter,
                 overwrite: opts.overwrite,
                 dryRun: opts.dryRun,
+                rotatedBy,
               });
             } catch (err) {
               // Re-throw dependency errors so the outer handler can format them

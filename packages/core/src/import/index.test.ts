@@ -1,9 +1,11 @@
 import { ImportRunner } from "./index";
 import { ClefManifest, DecryptedFile } from "../types";
 import { TransactionManager } from "../tx";
+import * as metadata from "../pending/metadata";
 
 const mockDecrypt = jest.fn();
 const mockEncrypt = jest.fn();
+const mockRecordRotation = jest.spyOn(metadata, "recordRotation").mockResolvedValue(undefined);
 
 // Create a fake SopsClient with mocked methods
 const fakeSopsClient = {
@@ -362,6 +364,101 @@ describe("ImportRunner", () => {
       await expect(
         runner.import("database/staging", null, "KEY=value\n", manifest, "/repo", {}),
       ).rejects.toThrow("no key");
+    });
+  });
+
+  describe("rotation recording", () => {
+    it("records rotation for brand-new keys", async () => {
+      mockDecrypt.mockResolvedValue({
+        values: {},
+        metadata: { backend: "age", recipients: ["age1test"], lastModified: new Date() },
+      });
+      const runner = makeRunner();
+
+      await runner.import(
+        "database/staging",
+        null,
+        "NEW_A=value_a\nNEW_B=value_b\n",
+        manifest,
+        "/repo",
+        { rotatedBy: "Alice <alice@example.com>" },
+      );
+
+      expect(mockRecordRotation).toHaveBeenCalledWith(
+        expect.stringContaining("database/staging.enc.yaml"),
+        ["NEW_A", "NEW_B"],
+        "Alice <alice@example.com>",
+      );
+    });
+
+    it("records rotation only for keys whose value actually changed on --overwrite", async () => {
+      mockDecrypt.mockResolvedValue({
+        values: { SAME: "unchanged", CHANGED: "old_value", UNTOUCHED: "still_there" },
+        metadata: { backend: "age", recipients: ["age1test"], lastModified: new Date() },
+      });
+      const runner = makeRunner();
+
+      await runner.import(
+        "database/staging",
+        null,
+        "SAME=unchanged\nCHANGED=new_value\n",
+        manifest,
+        "/repo",
+        { overwrite: true, rotatedBy: "Alice <alice@example.com>" },
+      );
+
+      // Only CHANGED gets a rotation record. SAME was re-imported with the
+      // same value → not a rotation.
+      expect(mockRecordRotation).toHaveBeenCalledWith(expect.any(String), ["CHANGED"], expect.any(String));
+    });
+
+    it("does not call recordRotation when rotatedBy is omitted", async () => {
+      mockDecrypt.mockResolvedValue({
+        values: {},
+        metadata: { backend: "age", recipients: ["age1test"], lastModified: new Date() },
+      });
+      const runner = makeRunner();
+
+      await runner.import("database/staging", null, "NEW=v\n", manifest, "/repo", {});
+
+      expect(mockRecordRotation).not.toHaveBeenCalled();
+    });
+
+    it("does not call recordRotation when every imported key re-imports the same value", async () => {
+      mockDecrypt.mockResolvedValue({
+        values: { A: "v", B: "w" },
+        metadata: { backend: "age", recipients: ["age1test"], lastModified: new Date() },
+      });
+      const runner = makeRunner();
+
+      await runner.import("database/staging", null, "A=v\nB=w\n", manifest, "/repo", {
+        overwrite: true,
+        rotatedBy: "Alice <a@example.com>",
+      });
+
+      // rotatedKeys is empty → recordRotation is skipped entirely even
+      // though ImportRunner "imported" the keys (re-wrote ciphertext).
+      expect(mockRecordRotation).not.toHaveBeenCalled();
+    });
+
+    it("stages the .clef-meta.yaml path alongside the cipher for atomic rollback", async () => {
+      mockDecrypt.mockResolvedValue({
+        values: {},
+        metadata: { backend: "age", recipients: ["age1test"], lastModified: new Date() },
+      });
+      const tx = makeStubTx();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const runner = new ImportRunner(fakeSopsClient as any, tx);
+
+      await runner.import("database/staging", null, "NEW=v\n", manifest, "/repo", {
+        rotatedBy: "Alice <a@example.com>",
+      });
+
+      const txRun = tx.run as jest.Mock;
+      const callArgs = txRun.mock.calls[0][1] as { paths: string[] };
+      expect(callArgs.paths).toEqual(
+        expect.arrayContaining(["database/staging.enc.yaml", "database/staging.clef-meta.yaml"]),
+      );
     });
   });
 });
