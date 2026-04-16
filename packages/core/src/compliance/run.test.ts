@@ -50,6 +50,28 @@ function encFile(lastModifiedISO: string): string {
   ].join("\n");
 }
 
+/**
+ * Build a `.clef-meta.yaml` sidecar with rotation records for the given
+ * keys.  Used by per-key compliance tests to simulate a cell where the
+ * values have genuinely been recorded as rotated at the given time.
+ */
+function metaFile(rotations: Array<{ key: string; rotatedAtISO: string }>): string {
+  const lines = [
+    "# Managed by Clef. Do not edit manually.",
+    "version: 1",
+    "pending: []",
+    "rotations:",
+    ...rotations.flatMap((r) => [
+      `  - key: ${r.key}`,
+      `    last_rotated_at: "${r.rotatedAtISO}"`,
+      `    rotated_by: "test"`,
+      `    rotation_count: 1`,
+    ]),
+    "",
+  ];
+  return lines.join("\n");
+}
+
 interface RunnerSpec {
   /** stdout for `git rev-parse HEAD`. */
   gitSha?: string;
@@ -169,8 +191,14 @@ describe("runCompliance", () => {
       setupFs({
         policy: "version: 1\nrotation:\n  max_age_days: 90\n",
         cells: {
-          "api/dev.enc.yaml": encFile("2026-03-15T00:00:00Z"), // 30d ago — compliant
-          "api/production.enc.yaml": encFile("2026-04-10T00:00:00Z"), // 4d ago — compliant
+          "api/dev.enc.yaml": encFile("2026-03-15T00:00:00Z"),
+          "api/dev.clef-meta.yaml": metaFile([
+            { key: "data", rotatedAtISO: "2026-03-15T00:00:00Z" },
+          ]),
+          "api/production.enc.yaml": encFile("2026-04-10T00:00:00Z"),
+          "api/production.clef-meta.yaml": metaFile([
+            { key: "data", rotatedAtISO: "2026-04-10T00:00:00Z" },
+          ]),
         },
       });
       const result = await runCompliance({
@@ -187,11 +215,15 @@ describe("runCompliance", () => {
       expect(result.passed).toBe(true);
     });
 
-    it("flags overdue files and marks the run failed", async () => {
+    it("flags overdue cells and marks the run failed (stale rotation record)", async () => {
       setupFs({
         policy: "version: 1\nrotation:\n  max_age_days: 30\n",
         cells: {
-          "api/dev.enc.yaml": encFile("2026-01-01T00:00:00Z"), // 103d > 30d
+          "api/dev.enc.yaml": encFile("2026-04-10T00:00:00Z"),
+          // Rotation record 103d old → past the 30d window → overdue.
+          "api/dev.clef-meta.yaml": metaFile([
+            { key: "data", rotatedAtISO: "2026-01-01T00:00:00Z" },
+          ]),
         },
       });
       const result = await runCompliance({
@@ -204,6 +236,31 @@ describe("runCompliance", () => {
       });
       expect(result.document.summary.rotation_overdue).toBe(1);
       expect(result.document.files[0].compliant).toBe(false);
+      expect(result.document.files[0].keys[0].rotation_overdue).toBe(true);
+      expect(result.passed).toBe(false);
+    });
+
+    it("treats a cell with a key but no rotation record as a violation (unknown)", async () => {
+      // The central design rule: unknown rotation state = violation.
+      setupFs({
+        policy: "version: 1\nrotation:\n  max_age_days: 90\n",
+        cells: {
+          "api/dev.enc.yaml": encFile("2026-04-10T00:00:00Z"),
+          // No .clef-meta.yaml — the `data` key has no rotation record.
+        },
+      });
+      const result = await runCompliance({
+        runner: makeRunner(),
+        repoRoot: REPO_ROOT,
+        sha: "abc",
+        repo: "o/r",
+        now: NOW,
+        include: { lint: false, scan: false },
+      });
+      expect(result.document.summary.rotation_overdue).toBe(1);
+      expect(result.document.files[0].compliant).toBe(false);
+      expect(result.document.files[0].keys[0].last_rotated_known).toBe(false);
+      expect(result.document.files[0].keys[0].compliant).toBe(false);
       expect(result.passed).toBe(false);
     });
   });

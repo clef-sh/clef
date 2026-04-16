@@ -28,6 +28,8 @@ import { LintResult, SubprocessRunner } from "../types";
 import { CLEF_POLICY_FILENAME, PolicyParser } from "../policy/parser";
 import { PolicyEvaluator } from "../policy/evaluator";
 import { FileRotationStatus, PolicyDocument } from "../policy/types";
+import { readSopsKeyNames } from "../sops/keys";
+import { getRotations } from "../pending/metadata";
 import { ComplianceGenerator } from "./generator";
 import { ComplianceDocument } from "./types";
 
@@ -190,7 +192,20 @@ async function evaluateMatrix(args: EvaluateMatrixArgs): Promise<FileRotationSta
     cells.map(async (cell) => {
       const metadata = await args.sopsClient.getMetadata(cell.filePath);
       const relPath = path.relative(args.repoRoot, cell.filePath).replace(/\\/g, "/");
-      return evaluator.evaluateFile(relPath, cell.environment, metadata, args.now);
+      // Enumerate plaintext key names without decrypting — SOPS stores them
+      // in plaintext at the top level.  `readSopsKeyNames` returns null on
+      // parse failure; treat as an empty cell for policy purposes (lint
+      // will separately flag the file as malformed).
+      const keys = readSopsKeyNames(cell.filePath) ?? [];
+      const rotations = await getRotations(cell.filePath);
+      return evaluator.evaluateFile(
+        relPath,
+        cell.environment,
+        metadata,
+        keys,
+        rotations,
+        args.now,
+      );
     }),
   );
 }
