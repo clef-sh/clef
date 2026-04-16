@@ -52,7 +52,11 @@ export function Sidebar({
     <div
       style={{
         width: 220,
-        minHeight: "100vh",
+        // Fixed viewport height (not minHeight) so the flex column can
+        // actually clip overflow.  Paired with overflowY: auto on the nav
+        // block below, this lets the middle section scroll when the list
+        // grows or the user zooms in, while the logo and footer stay pinned.
+        height: "100vh",
         background: theme.surface,
         borderRight: `1px solid ${theme.border}`,
         display: "flex",
@@ -112,7 +116,18 @@ export function Sidebar({
       </div>
 
       {/* Nav */}
-      <div style={{ padding: "12px 10px", flex: 1 }}>
+      <div
+        style={{
+          padding: "12px 10px",
+          flex: 1,
+          // minHeight: 0 is the standard flex quirk — without it, a flex
+          // child's scrollable content never shrinks below its intrinsic
+          // size, so overflowY: auto would never actually clip.
+          minHeight: 0,
+          overflowY: "auto",
+          overflowX: "hidden",
+        }}
+      >
         <NavItem
           icon={"\u229E"}
           label="Matrix"
