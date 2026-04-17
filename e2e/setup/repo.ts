@@ -99,6 +99,32 @@ export function scaffoldTestRepo(keys: AgeKeyPair, serviceIdentityKeys?: AgeKeyP
     "production",
   );
 
+  // Seed `.clef-meta.yaml` sidecars with fresh rotation records for every
+  // key we just encrypted.  Without these, per-key policy treats the keys
+  // as "unknown rotation state" (correct by design — the real sops CLI
+  // doesn't write clef metadata), which would fail the default-healthy
+  // expectations of every test that assumes a fresh scaffold is compliant.
+  // Tests that want to exercise the unknown/overdue paths mutate the
+  // metadata files directly via helpers exported below.
+  const writeMeta = (filename: string, keys: string[]): void => {
+    const metaContent = [
+      "# Managed by Clef. Do not edit manually.",
+      "version: 1",
+      "pending: []",
+      "rotations:",
+      ...keys.flatMap((k) => [
+        `  - key: ${k}`,
+        `    last_rotated_at: "${new Date().toISOString()}"`,
+        `    rotated_by: "scaffold"`,
+        `    rotation_count: 1`,
+      ]),
+      "",
+    ].join("\n");
+    fs.writeFileSync(path.join(dir, "payments", `${filename}.clef-meta.yaml`), metaContent);
+  };
+  writeMeta("dev", ["STRIPE_KEY", "STRIPE_WEBHOOK_SECRET"]);
+  writeMeta("production", ["STRIPE_KEY", "STRIPE_WEBHOOK_SECRET"]);
+
   // Init a git repo so the UI's git-status and git-log endpoints don't error.
   // Set user.name/user.email on the repo itself so TransactionManager's
   // preflight author-identity check finds them in CI (where there is no
@@ -144,13 +170,10 @@ export function removePolicyFile(repoDir: string): void {
 
 /**
  * Remove the `sops.lastmodified` key from an encrypted file's SOPS metadata
- * block.  SOPS stores this timestamp in plaintext alongside the encrypted
- * values, so we can mutate it without decrypting.  The result drives
- * `last_modified_known: false` in the policy verdict — the "Unknown" bucket
- * in the Policy screen.
- *
- * sops will treat the file as still encrypted; this is a surgical edit of a
- * single metadata field, not a re-encryption.
+ * block.  Retained for tests that need to exercise the raw-metadata path.
+ * Since per-key rotation tracking replaced file-level policy, this no
+ * longer drives a policy verdict on its own — use {@link removeRotationRecord}
+ * for "unknown" scenarios.
  */
 export function stripSopsLastmodified(filePath: string): void {
   const raw = fs.readFileSync(filePath, "utf-8");
@@ -159,4 +182,26 @@ export function stripSopsLastmodified(filePath: string): void {
   if (!sops) throw new Error(`${filePath} is not a SOPS-encrypted file (no sops: block)`);
   delete sops.lastmodified;
   fs.writeFileSync(filePath, YAML.stringify(doc));
+}
+
+/**
+ * Remove a specific key's rotation record from a `.clef-meta.yaml` sidecar
+ * (the file sibling to the encrypted cell).  Simulates "pre-feature" state
+ * for that key — per-key policy will report it as `last_rotated_known: false`
+ * and fail the compliance gate.
+ */
+export function removeRotationRecord(metaFilePath: string, key: string): void {
+  if (!fs.existsSync(metaFilePath)) return;
+  const raw = fs.readFileSync(metaFilePath, "utf-8");
+  const doc = YAML.parse(raw) as {
+    version: number;
+    pending?: unknown[];
+    rotations?: Array<{ key: string }>;
+  };
+  doc.rotations = (doc.rotations ?? []).filter((r) => r.key !== key);
+  const lines = [
+    "# Managed by Clef. Do not edit manually.",
+    YAML.stringify({ version: doc.version, pending: doc.pending ?? [], rotations: doc.rotations }),
+  ];
+  fs.writeFileSync(metaFilePath, lines.join("\n"));
 }

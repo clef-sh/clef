@@ -23,7 +23,7 @@ import {
   scaffoldTestRepo,
   writePolicyFile,
   removePolicyFile,
-  stripSopsLastmodified,
+  removeRotationRecord,
   type TestRepo,
 } from "../setup/repo";
 import { startClefUI, type ServerInfo } from "../setup/server";
@@ -32,19 +32,25 @@ let keys: AgeKeyPair;
 let repo: TestRepo;
 let server: ServerInfo;
 
-// Snapshot the two matrix files after scaffold so we can restore them between
-// tests.  Strip/restore-by-rewrite is the simplest path — the SOPS envelope
-// itself is unchanged, we only touch the plaintext `sops.lastmodified` field.
+// Snapshot cell + metadata files after scaffold so we can restore them
+// between tests.  Each scenario mutates its own state (remove a rotation
+// record, tighten the policy) and the beforeEach hook reverts.
 let devSnapshot: string;
 let productionSnapshot: string;
+let devMetaSnapshot: string;
+let productionMetaSnapshot: string;
 const devFile = () => path.join(repo.dir, "payments", "dev.enc.yaml");
 const productionFile = () => path.join(repo.dir, "payments", "production.enc.yaml");
+const devMetaFile = () => path.join(repo.dir, "payments", "dev.clef-meta.yaml");
+const productionMetaFile = () => path.join(repo.dir, "payments", "production.clef-meta.yaml");
 
 test.beforeAll(async () => {
   keys = await generateAgeKey();
   repo = scaffoldTestRepo(keys);
   devSnapshot = fs.readFileSync(devFile(), "utf-8");
   productionSnapshot = fs.readFileSync(productionFile(), "utf-8");
+  devMetaSnapshot = fs.readFileSync(devMetaFile(), "utf-8");
+  productionMetaSnapshot = fs.readFileSync(productionMetaFile(), "utf-8");
   server = await startClefUI(repo.dir, keys.keyFilePath);
 });
 
@@ -66,6 +72,8 @@ test.beforeEach(() => {
   removePolicyFile(repo.dir);
   fs.writeFileSync(devFile(), devSnapshot);
   fs.writeFileSync(productionFile(), productionSnapshot);
+  fs.writeFileSync(devMetaFile(), devMetaSnapshot);
+  fs.writeFileSync(productionMetaFile(), productionMetaSnapshot);
 });
 
 test.describe.serial("clef policy → PolicyView: rotation verdicts", () => {
@@ -78,22 +86,24 @@ test.describe.serial("clef policy → PolicyView: rotation verdicts", () => {
     await expect(page.getByTestId("policy-source")).toHaveText("Built-in default");
   });
 
-  test("[warnings] stripping sops.lastmodified surfaces the file in Unknown", async ({ page }) => {
-    stripSopsLastmodified(devFile());
+  test("[warnings] removing a key's rotation record surfaces it in Unknown", async ({ page }) => {
+    // Per-key semantics: unknown rotation state = violation.  Removing
+    // the record for STRIPE_KEY in dev simulates a pre-feature state for
+    // that one key; the other three keys in the scaffold stay compliant.
+    removeRotationRecord(devMetaFile(), "STRIPE_KEY");
 
     await page.goto(server.url);
     await page.getByTestId("nav-policy").click();
 
     await expect(page.getByTestId("filter-unknown")).toBeVisible({ timeout: 15_000 });
-    // The Unknown filter chip reports at least one file.
     await expect(page.getByTestId("filter-unknown")).toContainText("1");
-    // The affected file is linked from the Unknown group.
-    await expect(page.getByTestId("file-ref-payments/dev.enc.yaml")).toBeVisible();
-    // allCompliant is suppressed when unknown_metadata > 0.
+    // The affected key row shows the key name and the file path as secondary.
+    await expect(page.getByTestId("key-ref-STRIPE_KEY")).toBeVisible();
+    // allCompliant is suppressed when any key is non-compliant.
     await expect(page.getByTestId("all-compliant")).toHaveCount(0);
   });
 
-  test("[errors] policy max_age_days: 0.000001 puts both files in Overdue", async ({ page }) => {
+  test("[errors] policy max_age_days: 0.000001 puts every key in Overdue", async ({ page }) => {
     writePolicyFile(repo.dir, {
       version: 1,
       rotation: { max_age_days: 0.000001 }, // ~86ms window — anything older is overdue
@@ -103,10 +113,11 @@ test.describe.serial("clef policy → PolicyView: rotation verdicts", () => {
     await page.getByTestId("nav-policy").click();
 
     await expect(page.getByTestId("filter-overdue")).toBeVisible({ timeout: 15_000 });
-    // Both dev + production are past their rotation window.
-    await expect(page.getByTestId("filter-overdue")).toContainText("2");
-    await expect(page.getByTestId("file-ref-payments/dev.enc.yaml")).toBeVisible();
-    await expect(page.getByTestId("file-ref-payments/production.enc.yaml")).toBeVisible();
+    // All 4 keys (2 files × 2 keys) past their rotation window.
+    await expect(page.getByTestId("filter-overdue")).toContainText("4");
+    // Every key row is shown — verify at least one from each file.
+    await expect(page.getByTestId("file-ref-payments/dev.enc.yaml").first()).toBeVisible();
+    await expect(page.getByTestId("file-ref-payments/production.enc.yaml").first()).toBeVisible();
     // Source badge now says policy file, not built-in default.
     await expect(page.getByTestId("policy-source")).toHaveText(".clef/policy.yaml");
   });
@@ -120,8 +131,8 @@ test.describe.serial("clef policy → PolicyView: rotation verdicts", () => {
     await page.goto(server.url);
 
     // The overdue badge is computed by App.tsx's loadPolicyCount on mount.
-    // Scope the match to the Policy nav item so the sidebar's other badges
-    // (lint errors, scan issues) don't collide.
+    // App.tsx's loader reads summary.rotation_overdue (count of non-compliant
+    // CELLS, not keys).  Both cells have all their keys overdue → 2 cells.
     const policyNav = page.getByTestId("nav-policy");
     await expect(policyNav).toContainText("2", { timeout: 15_000 });
   });
@@ -178,5 +189,50 @@ test.describe("policy HTTP endpoints", () => {
     expect(body.summary.total_files).toBe(2);
     expect(body.summary.rotation_overdue).toBe(0);
     expect(body.files.every((f) => f.compliant)).toBe(true);
+  });
+
+  test("[positive] PUT /api/namespace/:ns/:env/:key records a rotation (fix regression)", async ({
+    request,
+  }) => {
+    // Regression: the UI PUT path used to call markResolved only, never
+    // recordRotation.  Policy stayed red even after the user re-saved a
+    // value in the UI.  This test locks in the fix end-to-end: start with
+    // an unknown state, hit the PUT endpoint, verify the key flips to
+    // compliant in the next /api/policy/check.
+    removeRotationRecord(devMetaFile(), "STRIPE_KEY");
+    const api = serverApi(server.url);
+
+    // Verify starting state: STRIPE_KEY unknown → not compliant.
+    const before = await request.get(`${api.base}/api/policy/check`, { headers: api.headers });
+    const beforeBody = (await before.json()) as {
+      files: Array<{
+        path: string;
+        keys: Array<{ key: string; last_rotated_known: boolean; compliant: boolean }>;
+      }>;
+    };
+    const devBefore = beforeBody.files.find((f) => f.path.includes("payments/dev"));
+    const stripeBefore = devBefore?.keys.find((k) => k.key === "STRIPE_KEY");
+    expect(stripeBefore?.last_rotated_known).toBe(false);
+    expect(stripeBefore?.compliant).toBe(false);
+
+    // Re-save the value through the same endpoint the UI namespace editor uses.
+    const put = await request.put(`${api.base}/api/namespace/payments/dev/STRIPE_KEY`, {
+      headers: { ...api.headers, "Content-Type": "application/json" },
+      data: { value: "sk_test_regression_fix" },
+    });
+    expect(put.status()).toBe(200);
+
+    // Now STRIPE_KEY should have a rotation record and be compliant.
+    const after = await request.get(`${api.base}/api/policy/check`, { headers: api.headers });
+    const afterBody = (await after.json()) as {
+      files: Array<{
+        path: string;
+        keys: Array<{ key: string; last_rotated_known: boolean; compliant: boolean }>;
+      }>;
+    };
+    const devAfter = afterBody.files.find((f) => f.path.includes("payments/dev"));
+    const stripeAfter = devAfter?.keys.find((k) => k.key === "STRIPE_KEY");
+    expect(stripeAfter?.last_rotated_known).toBe(true);
+    expect(stripeAfter?.compliant).toBe(true);
   });
 });
