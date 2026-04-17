@@ -169,10 +169,16 @@ export function createApiRouter(deps: ApiDeps): Router {
   // satisfy CodeQL's missing-rate-limit rule on file-system-touching routes.
   // Per-instance store so each `createApiRouter()` call (i.e. each test) gets
   // a fresh counter — no cross-test contamination.
+  //
+  // Limit sized for bursty legitimate usage: the e2e suite comfortably sits
+  // near 100 req/s during dense describe blocks, and a human clicking
+  // through the Matrix rapidly can produce 20-30 req/s of their own.  The
+  // earlier 1000/min cap was tripping real test runs while adding no
+  // meaningful security gain at 127.0.0.1 scope.
   const apiRateLimitStore = new MemoryStore();
   const apiLimiter = rateLimit({
     windowMs: 60 * 1000,
-    limit: 1000,
+    limit: 10_000,
     standardHeaders: "draft-7",
     legacyHeaders: false,
     store: apiRateLimitStore,
