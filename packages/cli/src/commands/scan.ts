@@ -27,68 +27,79 @@ export function registerScanCommand(program: Command, deps: { runner: Subprocess
       "Detection level: all (patterns+entropy) or high (patterns only)",
       "all",
     )
-    .action(async (paths: string[], options: { staged?: boolean; severity?: string }) => {
-      const repoRoot = (program.opts().dir as string) || process.cwd();
+    .option(
+      "--no-public-allowlist",
+      "Disable the built-in allowlist of public-by-design credential shapes (reCAPTCHA site keys, Stripe publishable keys). Entropy matches on these values are normally suppressed.",
+    )
+    .action(
+      async (
+        paths: string[],
+        // Commander stores --no-foo as `foo: false` (default true).
+        options: { staged?: boolean; severity?: string; publicAllowlist?: boolean },
+      ) => {
+        const repoRoot = (program.opts().dir as string) || process.cwd();
 
-      let manifest;
-      try {
-        const parser = new ManifestParser();
-        manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
-      } catch (err) {
-        if (
-          err instanceof ManifestValidationError ||
-          (err as Error).message?.includes("clef.yaml")
-        ) {
-          formatter.error("No clef.yaml found. Run 'clef init' to set up this repository.");
-        } else {
-          formatter.error((err as Error).message);
+        let manifest;
+        try {
+          const parser = new ManifestParser();
+          manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
+        } catch (err) {
+          if (
+            err instanceof ManifestValidationError ||
+            (err as Error).message?.includes("clef.yaml")
+          ) {
+            formatter.error("No clef.yaml found. Run 'clef init' to set up this repository.");
+          } else {
+            formatter.error((err as Error).message);
+          }
+          process.exit(2);
+          return;
         }
-        process.exit(2);
-        return;
-      }
 
-      if (options.severity && options.severity !== "all" && options.severity !== "high") {
-        formatter.error(`Invalid severity '${options.severity}'. Must be 'all' or 'high'.`);
-        process.exit(2);
-        return;
-      }
+        if (options.severity && options.severity !== "all" && options.severity !== "high") {
+          formatter.error(`Invalid severity '${options.severity}'. Must be 'all' or 'high'.`);
+          process.exit(2);
+          return;
+        }
 
-      const severity = options.severity === "high" ? "high" : "all";
-      const scanRunner = new ScanRunner(deps.runner);
+        const severity = options.severity === "high" ? "high" : "all";
+        const scanRunner = new ScanRunner(deps.runner);
 
-      formatter.print(pc.dim("Scanning repository for unencrypted secrets..."));
+        formatter.print(pc.dim("Scanning repository for unencrypted secrets..."));
 
-      let result: ScanResult;
-      try {
-        result = await scanRunner.scan(repoRoot, manifest, {
-          stagedOnly: options.staged,
-          paths: paths.length > 0 ? paths : undefined,
-          severity,
-        });
-      } catch (err) {
-        formatter.error(`Scan failed: ${(err as Error).message}`);
-        process.exit(2);
-        return;
-      }
+        let result: ScanResult;
+        try {
+          result = await scanRunner.scan(repoRoot, manifest, {
+            stagedOnly: options.staged,
+            paths: paths.length > 0 ? paths : undefined,
+            severity,
+            publicAllowlist: options.publicAllowlist,
+          });
+        } catch (err) {
+          formatter.error(`Scan failed: ${(err as Error).message}`);
+          process.exit(2);
+          return;
+        }
 
-      if (isJsonMode()) {
-        formatter.json({
-          matches: result.matches,
-          unencryptedMatrixFiles: result.unencryptedMatrixFiles,
-          filesScanned: result.filesScanned,
-          filesSkipped: result.filesSkipped,
-          durationMs: result.durationMs,
-        });
+        if (isJsonMode()) {
+          formatter.json({
+            matches: result.matches,
+            unencryptedMatrixFiles: result.unencryptedMatrixFiles,
+            filesScanned: result.filesScanned,
+            filesSkipped: result.filesSkipped,
+            durationMs: result.durationMs,
+          });
+          const hasIssues = result.matches.length > 0 || result.unencryptedMatrixFiles.length > 0;
+          process.exit(hasIssues ? 1 : 0);
+          return;
+        }
+
+        formatScanOutput(result);
+
         const hasIssues = result.matches.length > 0 || result.unencryptedMatrixFiles.length > 0;
         process.exit(hasIssues ? 1 : 0);
-        return;
-      }
-
-      formatScanOutput(result);
-
-      const hasIssues = result.matches.length > 0 || result.unencryptedMatrixFiles.length > 0;
-      process.exit(hasIssues ? 1 : 0);
-    });
+      },
+    );
 }
 
 function formatScanOutput(result: ScanResult): void {

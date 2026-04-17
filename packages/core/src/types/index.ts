@@ -247,7 +247,7 @@ export interface DiffResult {
 export type LintSeverity = "error" | "warning" | "info";
 
 /** Category of a lint issue. */
-export type LintCategory = "matrix" | "schema" | "sops" | "service-identity";
+export type LintCategory = "matrix" | "schema" | "sops" | "service-identity" | "metadata";
 
 /** A single issue reported by `LintRunner`. */
 export interface LintIssue {

@@ -6,7 +6,7 @@
 
 clef-compliance:
   stage: test
-  image: node:20-alpine
+  image: node:22-alpine
   script:
     - npm install -g @clef-sh/cli@^0.1
     - clef policy check

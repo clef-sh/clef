@@ -1,4 +1,10 @@
-import { shannonEntropy, isHighEntropy, matchPatterns, redactValue } from "./patterns";
+import {
+  shannonEntropy,
+  isHighEntropy,
+  matchPatterns,
+  matchPublicPrefix,
+  redactValue,
+} from "./patterns";
 
 describe("shannonEntropy", () => {
   it("returns 0 for an empty string", () => {
@@ -219,5 +225,47 @@ describe("matchPatterns", () => {
     expect(stripe).toBeDefined();
     expect(stripe!.preview).not.toContain(fullSecret);
     expect(stripe!.preview).not.toContain(fullSecret.slice(4));
+  });
+});
+
+describe("matchPublicPrefix", () => {
+  it("matches reCAPTCHA v3 site keys (6Lc prefix)", () => {
+    // Google's documented test site key for automated tests.
+    const key = "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI";
+    expect(matchPublicPrefix(key)).toEqual({ name: "reCAPTCHA site key" });
+  });
+
+  it("matches reCAPTCHA Enterprise site keys (6Ld prefix)", () => {
+    const key = "6LdR85YsAAAAAPKKZcOTyvtTdCMDXCFEZoiRGEw_";
+    expect(matchPublicPrefix(key)).toEqual({ name: "reCAPTCHA site key" });
+  });
+
+  it("matches Stripe publishable keys (live and test)", () => {
+    expect(matchPublicPrefix("pk_live_4eC39HqLyjWDarjtT1zdp7dc")).toEqual({
+      name: "Stripe publishable key",
+    });
+    expect(matchPublicPrefix("pk_test_4eC39HqLyjWDarjtT1zdp7dc")).toEqual({
+      name: "Stripe publishable key",
+    });
+  });
+
+  it("does not match Stripe secret keys (sk_ prefix)", () => {
+    expect(matchPublicPrefix("sk_live_4eC39HqLyjWDarjtT1zdp7dc")).toBeNull();
+    expect(matchPublicPrefix("sk_test_4eC39HqLyjWDarjtT1zdp7dc")).toBeNull();
+  });
+
+  it("does not match reCAPTCHA keys with wrong length (anchored regex)", () => {
+    expect(matchPublicPrefix("6LeIxAcTAAAA")).toBeNull(); // too short
+    expect(matchPublicPrefix("6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhIextra")).toBeNull();
+  });
+
+  it("does not match unrelated high-entropy strings", () => {
+    expect(matchPublicPrefix("4xK9mQ2pLv8nR3wZaT7cBhJqYdEsFgHu")).toBeNull();
+    expect(matchPublicPrefix("AKIAIOSFODNN7EXAMPLE")).toBeNull();
+  });
+
+  it("does not match substrings — the full value must conform", () => {
+    // A reCAPTCHA key concatenated with other characters must not match.
+    expect(matchPublicPrefix("prefix6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI")).toBeNull();
   });
 });

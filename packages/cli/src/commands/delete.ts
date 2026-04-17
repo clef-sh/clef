@@ -5,6 +5,7 @@ import {
   ManifestParser,
   MatrixManager,
   markResolved,
+  removeRotation,
   SubprocessRunner,
   TransactionManager,
 } from "@clef-sh/core";
@@ -87,10 +88,13 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
                       target.env,
                     );
                   }
+                  // Strip both pending and rotation records — the key no
+                  // longer exists, so stale metadata would mislead policy.
                   try {
                     await markResolved(target.filePath, [key]);
+                    await removeRotation(target.filePath, [key]);
                   } catch {
-                    // Non-fatal — file may not have had pending state
+                    // Non-fatal — file may not have had any metadata
                   }
                 }
               },
@@ -149,10 +153,13 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
                 const decrypted = await sopsClient.decrypt(filePath);
                 delete decrypted.values[key];
                 await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
+                // Strip both pending and rotation records — the key no
+                // longer exists, so stale metadata would mislead policy.
                 try {
                   await markResolved(filePath, [key]);
+                  await removeRotation(filePath, [key]);
                 } catch {
-                  // Non-fatal — file may not have had pending state
+                  // Non-fatal — file may not have had any metadata
                 }
               },
             });

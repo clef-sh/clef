@@ -35,10 +35,46 @@ export interface PolicyDocument {
 }
 
 /**
+ * Per-key rotation verdict inside a {@link FileRotationStatus}.  Each entry
+ * corresponds to one plaintext key present in the encrypted file.
+ *
+ * The authoritative signal is `last_rotated_at` from `.clef-meta.yaml`
+ * (recorded by `clef set` / `clef import` when a value actually changes).
+ * When no record exists, `last_rotated_known: false` and `compliant: false` —
+ * unknown rotation state is treated as a policy violation by design.
+ */
+export interface KeyRotationStatus {
+  /** Key name as it appears in the cipher (plaintext). */
+  key: string;
+  /** ISO 8601 of the last recorded rotation, or `null` when unknown. */
+  last_rotated_at: string | null;
+  /** Whether `.clef-meta.yaml` had a rotation record for this key. */
+  last_rotated_known: boolean;
+  /** Git identity that performed the last rotation, or `null` when unknown. */
+  rotated_by: string | null;
+  /** Monotonically increasing counter across rotations, or `0` when unknown. */
+  rotation_count: number;
+  /** `last_rotated_at + max_age_days`.  `null` when `last_rotated_known: false`. */
+  rotation_due: string | null;
+  /** `true` iff the rotation is known and past due. */
+  rotation_overdue: boolean;
+  /** `0` when not overdue or unknown. */
+  days_overdue: number;
+  /** `true` iff `last_rotated_known && !rotation_overdue`. */
+  compliant: boolean;
+}
+
+/**
  * Result of evaluating a single encrypted file against a {@link PolicyDocument}.
  *
  * Field names are part of the public compliance artifact contract — see the
  * notice at the top of this file.
+ *
+ * The policy gate is driven by per-key rotation state (`keys[*].compliant`).
+ * `compliant` on this struct is the AND of the per-key verdicts.  File-level
+ * rotation fields are intentionally absent — `sops.lastmodified` is a file
+ * freshness signal, not a value-rotation signal, and the two answer different
+ * questions (see the rotation policy docs for rationale).
  */
 export interface FileRotationStatus {
   /** Repo-relative or absolute path the evaluator was given. */
@@ -51,17 +87,13 @@ export interface FileRotationStatus {
   last_modified: string;
   /**
    * Whether the underlying SOPS file actually carried a `lastmodified` field.
-   * `false` means `last_modified` is a synthetic fallback and the rotation
-   * verdict should be treated with suspicion (tooling should surface this
-   * distinctly from a normal "compliant" verdict).
+   * `false` means `last_modified` is a synthetic fallback.  Kept as a raw
+   * signal for audit consumers; does not gate policy.
    */
   last_modified_known: boolean;
-  /** ISO 8601. Computed as `last_modified + max_age_days`. */
-  rotation_due: string;
-  rotation_overdue: boolean;
-  /** `0` when not overdue. */
-  days_overdue: number;
-  /** `false` if `rotation_overdue`; `true` otherwise. */
+  /** Per-key rotation verdicts.  Empty array only for cells that have no keys. */
+  keys: KeyRotationStatus[];
+  /** AND of `keys[*].compliant`.  `true` only when every key is compliant. */
   compliant: boolean;
 }
 

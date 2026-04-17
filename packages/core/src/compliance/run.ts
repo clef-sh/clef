@@ -28,6 +28,8 @@ import { LintResult, SubprocessRunner } from "../types";
 import { CLEF_POLICY_FILENAME, PolicyParser } from "../policy/parser";
 import { PolicyEvaluator } from "../policy/evaluator";
 import { FileRotationStatus, PolicyDocument } from "../policy/types";
+import { readSopsKeyNames } from "../sops/keys";
+import { getRotations } from "../pending/metadata";
 import { ComplianceGenerator } from "./generator";
 import { ComplianceDocument } from "./types";
 
@@ -67,6 +69,25 @@ export interface RunComplianceOptions {
   now?: Date;
   /** Toggle individual checks.  All true by default. */
   include?: { scan?: boolean; lint?: boolean; rotation?: boolean };
+  /**
+   * Optional override for the sops binary path.  When omitted,
+   * {@link resolveSopsPath} chooses (CLEF_SOPS_PATH env, bundled package,
+   * then bare "sops" on PATH).  Callers that already resolved the path
+   * (the UI server, the CLI) can pass it through to skip re-resolution.
+   */
+  sopsPath?: string;
+  /**
+   * Age key material — inline private key string.  When provided, the
+   * internal {@link SopsClient} uses it for decrypt-requiring checks
+   * (lint, schema validation).  When omitted, those checks run without
+   * keys and surface decrypt failures as `info`-level lint issues.
+   *
+   * KMS-encrypted files authenticate via ambient env (AWS_PROFILE, IMDS,
+   * etc.) — no parameter threading required.
+   */
+  ageKey?: string;
+  /** Age key file path.  Same semantics as {@link ageKey}. */
+  ageKeyFile?: string;
 }
 
 export interface RunComplianceResult {
@@ -105,9 +126,13 @@ export async function runCompliance(opts: RunComplianceOptions): Promise<RunComp
   const manifest = new ManifestParser().parse(manifestPath);
   const policy = opts.policy ?? new PolicyParser().load(policyPath);
 
-  // No age key — compliance is metadata-only.  SopsClient.getMetadata uses
-  // `sops filestatus` (or falls back to YAML parsing) and never decrypts.
-  const sopsClient = new SopsClient(opts.runner);
+  // Metadata-only paths (getMetadata, readSopsKeyNames) never decrypt.
+  // Lint may decrypt for schema validation — accept optional age keys from
+  // the caller so local invocations with keys available produce clean
+  // output.  CI (no keys) still works: decrypt failures are downgraded to
+  // `info` below.  KMS files authenticate via ambient env and need no
+  // parameter threading.
+  const sopsClient = new SopsClient(opts.runner, opts.ageKeyFile, opts.ageKey, opts.sopsPath);
   const matrixManager = new MatrixManager();
   const schemaValidator = new SchemaValidator();
 
@@ -135,12 +160,21 @@ export async function runCompliance(opts: RunComplianceOptions): Promise<RunComp
       : Promise.resolve(emptyLint()),
   ]);
 
+  // Compliance runs without decryption keys by design (see above).  The lint
+  // runner emits `severity: "error"` for every file it can't decrypt, which
+  // would fail the gate on a condition that's environmental, not a repo
+  // issue.  Downgrade those to `info` so they stay visible in the artifact
+  // but don't count toward `lint_errors`.  A real decrypt failure on a dev
+  // machine (where keys *should* be present) still surfaces as an error via
+  // `clef lint` directly — this adjustment is scoped to compliance only.
+  const adjustedLint = downgradeDecryptIssues(lintResult);
+
   const document = new ComplianceGenerator().generate({
     sha,
     repo,
     policy,
     scanResult,
-    lintResult,
+    lintResult: adjustedLint,
     files,
     now,
   });
@@ -174,7 +208,13 @@ async function evaluateMatrix(args: EvaluateMatrixArgs): Promise<FileRotationSta
     cells.map(async (cell) => {
       const metadata = await args.sopsClient.getMetadata(cell.filePath);
       const relPath = path.relative(args.repoRoot, cell.filePath).replace(/\\/g, "/");
-      return evaluator.evaluateFile(relPath, cell.environment, metadata, args.now);
+      // Enumerate plaintext key names without decrypting — SOPS stores them
+      // in plaintext at the top level.  `readSopsKeyNames` returns null on
+      // parse failure; treat as an empty cell for policy purposes (lint
+      // will separately flag the file as malformed).
+      const keys = readSopsKeyNames(cell.filePath) ?? [];
+      const rotations = await getRotations(cell.filePath);
+      return evaluator.evaluateFile(relPath, cell.environment, metadata, keys, rotations, args.now);
     }),
   );
 }
@@ -201,6 +241,27 @@ function emptyScan(): ScanResult {
 
 function emptyLint(): LintResult {
   return { issues: [], fileCount: 0, pendingCount: 0 };
+}
+
+/**
+ * Reclassify `Failed to decrypt` lint errors as info-level.  Keeps the issue
+ * in the artifact (so reviewers can see which files weren't readable in this
+ * environment) without failing the compliance gate.
+ */
+function downgradeDecryptIssues(result: LintResult): LintResult {
+  return {
+    ...result,
+    issues: result.issues.map((issue) => {
+      if (issue.category === "sops" && issue.message.startsWith("Failed to decrypt")) {
+        return {
+          ...issue,
+          severity: "info" as const,
+          message: `File not decryptable in this environment (compliance runs without keys). Original check: ${issue.message}`,
+        };
+      }
+      return issue;
+    }),
+  };
 }
 
 /**

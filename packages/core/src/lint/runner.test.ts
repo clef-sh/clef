@@ -7,6 +7,10 @@ import { ClefManifest, MatrixCell } from "../types";
 jest.mock("fs");
 jest.mock("../pending/metadata", () => ({
   getPendingKeys: jest.fn().mockResolvedValue([]),
+  loadMetadata: jest.fn().mockResolvedValue({ version: 1, pending: [], rotations: [] }),
+}));
+jest.mock("../sops/keys", () => ({
+  readSopsKeyNames: jest.fn().mockReturnValue(null),
 }));
 
 function testManifest(): ClefManifest {
@@ -754,6 +758,113 @@ describe("LintRunner", () => {
         testManifest(),
       );
       expect(result.fileCount).toBe(1);
+    });
+  });
+
+  describe("metadata consistency (.clef-meta.yaml)", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const metadataMock = require("../pending/metadata") as {
+      loadMetadata: jest.Mock;
+    };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const keysMock = require("../sops/keys") as { readSopsKeyNames: jest.Mock };
+
+    function cellAt(path: string): MatrixCell {
+      return { namespace: "database", environment: "dev", filePath: path, exists: true };
+    }
+
+    beforeEach(() => {
+      // Default: every cell decrypts + validates cleanly.  Individual
+      // tests override the metadata/key mocks.
+      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
+      sopsClient.decrypt = jest.fn().mockResolvedValue({
+        values: {},
+        metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
+      });
+      jest.spyOn(schemaValidator, "loadSchema").mockReturnValue(undefined as never);
+    });
+
+    it("reports a warning for an orphan rotation record (key not in cipher)", async () => {
+      const cell = cellAt("/repo/database/dev.enc.yaml");
+      jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue([cell]);
+
+      keysMock.readSopsKeyNames.mockReturnValue(["LIVE_KEY"]);
+      metadataMock.loadMetadata.mockResolvedValue({
+        version: 1,
+        pending: [],
+        rotations: [
+          {
+            key: "DELETED_KEY", // no longer in the cipher
+            lastRotatedAt: new Date("2026-01-01"),
+            rotatedBy: "alice",
+            rotationCount: 3,
+          },
+          {
+            key: "LIVE_KEY",
+            lastRotatedAt: new Date("2026-04-01"),
+            rotatedBy: "alice",
+            rotationCount: 1,
+          },
+        ],
+      });
+
+      const result = await runner.run(testManifest(), "/repo");
+      const orphan = result.issues.find(
+        (i) => i.category === "metadata" && i.key === "DELETED_KEY",
+      );
+      expect(orphan).toBeDefined();
+      expect(orphan?.severity).toBe("warning");
+      expect(orphan?.message).toMatch(/not in this cell/);
+    });
+
+    it("reports an error for dual-state (key in both pending and rotations)", async () => {
+      const cell = cellAt("/repo/database/dev.enc.yaml");
+      jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue([cell]);
+
+      keysMock.readSopsKeyNames.mockReturnValue(["CORRUPT_KEY"]);
+      metadataMock.loadMetadata.mockResolvedValue({
+        version: 1,
+        pending: [{ key: "CORRUPT_KEY", since: new Date(), setBy: "alice" }],
+        rotations: [
+          {
+            key: "CORRUPT_KEY",
+            lastRotatedAt: new Date(),
+            rotatedBy: "bob",
+            rotationCount: 1,
+          },
+        ],
+      });
+
+      const result = await runner.run(testManifest(), "/repo");
+      const dual = result.issues.find((i) => i.category === "metadata" && i.key === "CORRUPT_KEY");
+      expect(dual).toBeDefined();
+      expect(dual?.severity).toBe("error");
+      expect(dual?.fixCommand).toContain("clef set");
+    });
+
+    it("skips the metadata check for files that fail plaintext key enumeration", async () => {
+      const cell = cellAt("/repo/database/dev.enc.yaml");
+      jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue([cell]);
+
+      // Malformed YAML → readSopsKeyNames returns null → metadata check
+      // is skipped (the sops category already flags the file).
+      keysMock.readSopsKeyNames.mockReturnValue(null);
+      metadataMock.loadMetadata.mockResolvedValue({
+        version: 1,
+        pending: [],
+        rotations: [
+          {
+            key: "WHATEVER",
+            lastRotatedAt: new Date(),
+            rotatedBy: "alice",
+            rotationCount: 1,
+          },
+        ],
+      });
+
+      const result = await runner.run(testManifest(), "/repo");
+      const metadataIssues = result.issues.filter((i) => i.category === "metadata");
+      expect(metadataIssues).toEqual([]);
     });
   });
 });

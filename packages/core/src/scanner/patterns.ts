@@ -44,6 +44,40 @@ const PATTERNS: PatternDef[] = [
   { name: "Database URL", regex: /(?:postgres|mysql|mongodb|redis):\/\/[^:]+:[^@]+@/ },
 ];
 
+interface PublicPrefixDef {
+  name: string;
+  regex: RegExp;
+}
+
+// Credential-shaped values that are public by design.  These ship to the
+// browser in HTML/JS — flagging them as leaked secrets is a false positive.
+// Kept narrow on purpose: each entry must be unambiguous that it is client-
+// facing, not a backend secret.
+const PUBLIC_PREFIX_PATTERNS: PublicPrefixDef[] = [
+  // reCAPTCHA v2, v3, and Enterprise site keys are exactly 40 chars and
+  // begin with 6L[c-f]. Site keys are designed to be embedded in HTML.
+  // https://developers.google.com/recaptcha/docs/faq
+  { name: "reCAPTCHA site key", regex: /^6L[c-f][0-9A-Za-z_-]{37}$/ },
+  // Stripe publishable keys (client-side, distinct from sk_live_/sk_test_).
+  { name: "Stripe publishable key", regex: /^pk_(?:live|test)_[0-9a-zA-Z]{24,}$/ },
+];
+
+/**
+ * Returns a matching public-prefix definition if the value is a known
+ * client-facing credential shape (reCAPTCHA site key, Stripe publishable
+ * key, etc.).  `null` when the value is not recognized as public.
+ *
+ * Used by the entropy detector to avoid false positives on strings that are
+ * public by design.  The check is intentionally conservative — patterns are
+ * anchored (`^...$`) so partial matches do not qualify.
+ */
+export function matchPublicPrefix(value: string): { name: string } | null {
+  for (const def of PUBLIC_PREFIX_PATTERNS) {
+    if (def.regex.test(value)) return { name: def.name };
+  }
+  return null;
+}
+
 /**
  * Calculate Shannon entropy (bits per character) of a string.
  */
