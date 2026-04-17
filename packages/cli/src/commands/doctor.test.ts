@@ -65,7 +65,7 @@ describe("clef doctor", () => {
       if (pathStr.includes(".clef/config.yaml"))
         return "age_key_file: /mock/keys.txt\nage_keychain_label: mock-label\n";
       if (pathStr.includes(".gitattributes"))
-        return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n";
+        return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n*.clef-meta.yaml merge=clef-metadata\n";
       return "version: 1\nsops:\n  default_backend: age\n";
     });
   });
@@ -265,7 +265,7 @@ describe("clef doctor", () => {
       if (pathStr.includes(".clef/config.yaml"))
         return "age_key_file: /custom/clef/keys.txt\nage_keychain_label: coral-tiger\n";
       if (pathStr.includes(".gitattributes"))
-        return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n";
+        return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n*.clef-meta.yaml merge=clef-metadata\n";
       return "version: 1\nsops:\n  default_backend: age\n";
     });
 
@@ -397,5 +397,106 @@ describe("clef doctor", () => {
     expect(parsed.ageKey.ok).toBe(true);
 
     if (origKey !== undefined) process.env.CLEF_AGE_KEY = origKey;
+  });
+
+  describe("metadata merge driver check (stale-install detection)", () => {
+    function staleInstallRunner(): SubprocessRunner {
+      // Simulates a repo that ran `clef hooks install` under a pre-
+      // metadata-merge version of clef.  merge.sops is configured but
+      // merge.clef-metadata is not.
+      return {
+        run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
+          if (cmd === "sops") return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+          if (cmd === "git" && args[0] === "config" && args[1] === "--get") {
+            const key = args[2];
+            if (key === "merge.sops.driver") {
+              return { stdout: "clef merge-driver %O %A %B", stderr: "", exitCode: 0 };
+            }
+            if (key === "merge.clef-metadata.driver") {
+              return { stdout: "", stderr: "", exitCode: 1 }; // not configured
+            }
+          }
+          if (cmd === "git") return { stdout: "git version 2.43.0", stderr: "", exitCode: 0 };
+          return { stdout: "", stderr: "", exitCode: 127 };
+        }),
+      };
+    }
+
+    it("reports the metadata driver as missing and tells the user to run clef hooks", async () => {
+      // .gitattributes carries only the old SOPS entries — no clef-metadata.
+      mockFs.readFileSync.mockImplementation((p: unknown) => {
+        const pathStr = String(p);
+        if (pathStr.includes(".clef/config.yaml"))
+          return "age_key_file: /mock/keys.txt\nage_keychain_label: mock-label\n";
+        if (pathStr.includes(".gitattributes"))
+          return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n";
+        return "version: 1\nsops:\n  default_backend: age\n";
+      });
+
+      const program = makeProgram(staleInstallRunner());
+      try {
+        await program.parseAsync(["node", "clef", "doctor"]);
+      } catch {
+        // exit 1 via exitOverride
+      }
+
+      // Diagnostic output should call out the metadata driver specifically
+      // and tell the user the exact fix.
+      const printCalls = mockFormatter.print.mock.calls.map((c) => String(c[0]));
+      const metaLine = printCalls.find((l) => l.includes("metadata merge driver"));
+      expect(metaLine).toBeDefined();
+      expect(metaLine).toMatch(/rotation metadata won't auto-merge/);
+
+      const hintCalls = mockFormatter.hint.mock.calls.map((c) => String(c[0]));
+      const metaHint = hintCalls.find((h) => h.includes("clef-metadata"));
+      expect(metaHint).toBeDefined();
+      expect(metaHint).toMatch(/clef hooks install/);
+
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+
+    it("reports ok in JSON when both drivers are configured", async () => {
+      (isJsonMode as jest.Mock).mockReturnValue(true);
+      const program = makeProgram(allGoodRunner());
+
+      try {
+        await program.parseAsync(["node", "clef", "doctor"]);
+      } catch {
+        // exit 0 via exitOverride
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const json = mockFormatter.json.mock.calls[0][0] as any;
+      expect(json.mergeDriver.ok).toBe(true);
+      expect(json.metadataMergeDriver.ok).toBe(true);
+      (isJsonMode as jest.Mock).mockReturnValue(false);
+    });
+
+    it("reports metadataMergeDriver.ok=false in JSON on a stale install", async () => {
+      (isJsonMode as jest.Mock).mockReturnValue(true);
+      mockFs.readFileSync.mockImplementation((p: unknown) => {
+        const pathStr = String(p);
+        if (pathStr.includes(".clef/config.yaml"))
+          return "age_key_file: /mock/keys.txt\nage_keychain_label: mock-label\n";
+        if (pathStr.includes(".gitattributes"))
+          return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n";
+        return "version: 1\nsops:\n  default_backend: age\n";
+      });
+
+      const program = makeProgram(staleInstallRunner());
+      try {
+        await program.parseAsync(["node", "clef", "doctor"]);
+      } catch {
+        // exit 1 via exitOverride
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const json = mockFormatter.json.mock.calls[0][0] as any;
+      expect(json.mergeDriver.ok).toBe(true); // old driver still fine
+      expect(json.metadataMergeDriver.ok).toBe(false); // new driver missing
+      expect(json.metadataMergeDriver.gitConfig).toBe(false);
+      expect(json.metadataMergeDriver.gitattributes).toBe(false);
+      (isJsonMode as jest.Mock).mockReturnValue(false);
+    });
   });
 });

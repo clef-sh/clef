@@ -8,7 +8,7 @@ import {
   TransactionManager,
   generateRandomValue,
   markPendingWithRetry,
-  markResolved,
+  recordRotation,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
@@ -112,8 +112,9 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                   };
                 });
 
-              const pendingErrors: string[] = [];
-              const tx = new TransactionManager(new GitIntegration(deps.runner));
+              const git = new GitIntegration(deps.runner);
+              const rotatedBy = await resolveRotatedBy(git, repoRoot);
+              const tx = new TransactionManager(git);
               await tx.run(repoRoot, {
                 description: allPending
                   ? `clef set --random --all-envs: ${namespace}/${key}`
@@ -134,25 +135,20 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                     );
                   }
 
+                  // Metadata writes happen inside the same transaction.
+                  // Any failure here aborts the whole set — better to roll
+                  // back cleanly than to leave ciphertext without tracking.
                   if (allPending) {
                     for (const target of targets) {
-                      try {
-                        await markPendingWithRetry(
-                          target.filePath,
-                          [key],
-                          "clef set --random --all-envs",
-                        );
-                      } catch {
-                        pendingErrors.push(target.env);
-                      }
+                      await markPendingWithRetry(
+                        target.filePath,
+                        [key],
+                        "clef set --random --all-envs",
+                      );
                     }
                   } else {
                     for (const target of targets) {
-                      try {
-                        await markResolved(target.filePath, [key]);
-                      } catch {
-                        // Non-fatal — file may not have had pending state
-                      }
+                      await recordRotation(target.filePath, [key], rotatedBy);
                     }
                   }
                 },
@@ -175,11 +171,6 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                 formatter.print(
                   `   ${sym("pending")}  Marked as pending — replace with real values before deploying`,
                 );
-                if (pendingErrors.length > 0) {
-                  formatter.warn(
-                    `Pending metadata could not be written for: ${pendingErrors.join(", ")}`,
-                  );
-                }
                 formatter.hint(`clef set ${namespace}/<env> ${key}  # for each environment`);
               } else {
                 if (isJsonMode()) {
@@ -236,15 +227,17 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
               .replace("{environment}", environment);
             const filePath = path.join(repoRoot, relCellPath);
 
-            // Single-cell set wraps both the encrypt and the pending-metadata
-            // write in one transaction. Either both land or both roll back —
+            // Single-cell set wraps both the encrypt and the metadata write
+            // in one transaction. Either both land or both roll back —
             // no more "encrypted but pending tracking lost" footgun.
-            const tx = new TransactionManager(new GitIntegration(deps.runner));
+            const git = new GitIntegration(deps.runner);
+            const rotatedBy = await resolveRotatedBy(git, repoRoot);
+            const tx = new TransactionManager(git);
             await tx.run(repoRoot, {
               description: isPendingValue
                 ? `clef set --random ${namespace}/${environment} ${key}`
                 : `clef set ${namespace}/${environment} ${key}`,
-              // Stage both the encrypted cell and its sibling pending-metadata
+              // Stage both the encrypted cell and its sibling metadata
               // file. The metadata file may not exist yet, but git add tolerates
               // that and tx.run rolls back any new metadata file via git clean.
               paths: [relCellPath, relCellPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
@@ -254,14 +247,13 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                 await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
 
                 if (isPendingValue) {
+                  // --random generates a placeholder — not a rotation.  Track
+                  // as pending; the real rotation lands on the next `clef set`.
                   await markPendingWithRetry(filePath, [key], "clef set --random");
                 } else {
-                  // Normal set resolves any pending state for this key
-                  try {
-                    await markResolved(filePath, [key]);
-                  } catch {
-                    // Non-fatal — file may not have had pending state
-                  }
+                  // Real value change = rotation.  recordRotation also strips
+                  // any matching pending entry, so no separate markResolved.
+                  await recordRotation(filePath, [key], rotatedBy);
                 }
               },
             });
@@ -291,4 +283,19 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
         }
       },
     );
+}
+
+/**
+ * Resolve the rotator identity for {@link recordRotation}.  Uses the git
+ * author identity when set (the same identity TransactionManager requires
+ * for commits), falling back to the command name if not configured.
+ *
+ * TransactionManager preflights author identity separately and errors out
+ * if it's missing, so the fallback is defensive — in practice this always
+ * returns "Name <email>".
+ */
+async function resolveRotatedBy(git: GitIntegration, repoRoot: string): Promise<string> {
+  const identity = await git.getAuthorIdentity(repoRoot);
+  if (identity) return `${identity.name} <${identity.email}>`;
+  return "clef set";
 }

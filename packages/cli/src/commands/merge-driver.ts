@@ -10,6 +10,7 @@ import {
   SopsDecryptionError,
   SopsMissingError,
   SubprocessRunner,
+  mergeMetadataFiles,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 import { resolveAgeCredential, prepareSopsClientArgs } from "../age-credential";
@@ -62,6 +63,21 @@ export function registerMergeDriverCommand(
     .argument("<theirs>", "Path to incoming branch file (%B)")
     .action(async (basePath: string, oursPath: string, theirsPath: string) => {
       try {
+        // Dispatch by file extension — the same CLI entry point serves
+        // both .enc.* (SOPS-aware, decrypt/merge/re-encrypt) and
+        // .clef-meta.yaml (plaintext, auto-resolving via timestamps).
+        if (oursPath.endsWith(".clef-meta.yaml")) {
+          try {
+            mergeMetadataFiles(basePath, oursPath, theirsPath);
+            process.exit(0);
+            return;
+          } catch (err) {
+            formatter.error(`Metadata merge failed: ${(err as Error).message}. Resolve manually.`);
+            process.exit(1);
+            return;
+          }
+        }
+
         const repoRoot =
           (program.opts().dir as string) || (await findRepoRoot(oursPath, deps.runner));
         const credential = await resolveAgeCredential(repoRoot, deps.runner);

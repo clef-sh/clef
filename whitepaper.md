@@ -144,6 +144,33 @@ There is no `clef rollback` command. A proprietary rollback mechanism would intr
 
 This is a cleaner rollback story than centralized vault architectures, where restoring a previous secret version requires calling a vendor API, hoping client-side caches pick up the change, and manually verifying that all consumers are serving the correct version. With Clef, the PR diff shows exactly what changed, the merge triggers redeployment, and the agent's revision tracking confirms convergence.
 
+### 3.5 Per-Key Rotation Policy
+
+Rotation is a credential-security control: its purpose is to bound the blast radius of a leaked secret by limiting how long the leaked value is valid. The only thing that invalidates a leaked copy is changing the value at the source system. Re-encrypting the same value with a new recipient, or migrating to a different KMS backend, does nothing for that threat — the leaked value is still live.
+
+Clef records rotation state **per key**, not per file. Each matrix cell has a `.clef-meta.yaml` sidecar (committed to git alongside the `.enc.yaml`) that carries one rotation record per key:
+
+```yaml
+# {namespace}/{environment}.clef-meta.yaml
+version: 1
+pending: []
+rotations:
+  - key: STRIPE_KEY
+    last_rotated_at: "2026-03-15T09:11:02.000Z"
+    rotated_by: "alice <alice@example.com>"
+    rotation_count: 4
+```
+
+The record is written or bumped only when a plaintext value actually changes. `clef set ns/env KEY value` records a rotation; `clef delete` removes the record; `clef import` records only when the imported value differs from the existing one. Re-encryption operations — `clef rotate` (key-pair rotation), `clef recipients add`, `clef migrate-backend` — deliberately do not touch rotation records. They also bump `sops.lastmodified` on the encrypted file, which is surfaced in compliance output as a separate raw signal, but that signal is informational: it answers "when was the file last written?", not "when was the secret last rotated?"
+
+`clef policy check` evaluates compliance **per key**. A key with no rotation record is treated as a violation — the policy can't claim a secret is compliant without a record of when its value last changed. `clef set` establishes the record honestly; there is no auto-backfill subcommand that would fabricate timestamps.
+
+The two metadata files — the SOPS-encrypted cell and the plaintext `.clef-meta.yaml` — are always written atomically in the same transaction. Either both land in the commit or `TransactionManager` rolls back both via `git reset --hard`. Re-encryption operations write only the cell, leaving the rotation record intact. This is an explicit design choice: there is no sync logic between the two files because neither owner reads the other's data.
+
+**What this does not protect against.** A user who bypasses Clef — running raw `sops edit` on a cell — changes the plaintext value without updating the rotation record. The next `clef policy check` will report the key as compliant based on a stale record. The mitigation is the same as with any manual-edit bypass: lint runs on CI, code review on the `.enc.yaml` commit, and treating the repository as an access-controlled surface (Section 2.3). Clef does not attempt cryptographic binding between rotation records and ciphertext because it would require decryption at policy-check time (defeating the keyless-compliance property) and leak equality of values across environments via matching hashes.
+
+**Merge behavior.** When two branches rotate the same key or move the same key between `pending` and `rotations`, Clef provides a dedicated merge driver (`merge=clef-metadata` in `.gitattributes`, registered by `clef hooks install`) that auto-resolves without user intervention. The rule: for rotation records, the later `last_rotated_at` wins and `rotation_count` becomes `max + 1` to record the merge itself; for pending entries, a resolution on either side (the key moved to `rotations` on one branch) supersedes any lingering pending entry on the other. This is distinct from the SOPS merge driver for encrypted values, which cannot auto-resolve because ciphertext values are not ordered.
+
 ---
 
 ## 4. CI/CD: Pack and Distribute

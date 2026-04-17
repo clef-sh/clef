@@ -4,7 +4,8 @@ import pc from "picocolors";
 import * as YAML from "yaml";
 import { Command } from "commander";
 import { CLEF_POLICY_FILENAME, PolicyParser, SubprocessRunner, runCompliance } from "@clef-sh/core";
-import type { FileRotationStatus, RunComplianceResult } from "@clef-sh/core";
+import type { FileRotationStatus, KeyRotationStatus, RunComplianceResult } from "@clef-sh/core";
+import { resolveAgeCredential, prepareSopsClientArgs } from "../age-credential";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym, isPlainMode } from "../output/symbols";
@@ -15,7 +16,11 @@ const MS_PER_DAY = 86_400_000;
 interface CheckOptions {
   namespace?: string[];
   environment?: string[];
-  strict?: boolean;
+  // Commander stores --per-key / --per-file as a single `perKey?: boolean`
+  // when declared as `--no-per-key`; here we use two explicit booleans so
+  // the default (undefined / undefined) resolves to per-key output.
+  perKey?: boolean;
+  perFile?: boolean;
 }
 
 interface ReportOptions {
@@ -35,6 +40,7 @@ interface InitOptions {
   force?: boolean;
   policyOnly?: boolean;
   workflowOnly?: boolean;
+  dryRun?: boolean;
 }
 
 const VALID_PROVIDERS: Provider[] = ["github", "gitlab", "bitbucket", "circleci"];
@@ -59,6 +65,11 @@ export function registerPolicyCommand(program: Command, deps: { runner: Subproce
     .option("--force", "Overwrite existing files")
     .option("--policy-only", "Scaffold only .clef/policy.yaml, skip the CI workflow")
     .option("--workflow-only", "Scaffold only the CI workflow, skip .clef/policy.yaml")
+    .option(
+      "--dry-run",
+      "Preview the scaffold: print what would change without writing. " +
+        "Pair with --force to diff against existing files.",
+    )
     .action((options: InitOptions) => {
       try {
         if (options.ci && !VALID_PROVIDERS.includes(options.ci)) {
@@ -75,6 +86,7 @@ export function registerPolicyCommand(program: Command, deps: { runner: Subproce
           force: options.force,
           policyOnly: options.policyOnly,
           workflowOnly: options.workflowOnly,
+          dryRun: options.dryRun,
         });
 
         if (isJsonMode()) {
@@ -126,22 +138,30 @@ export function registerPolicyCommand(program: Command, deps: { runner: Subproce
   policyCmd
     .command("check")
     .description(
-      "Evaluate the matrix against the rotation policy and print a verdict per cell.\n\n" +
+      "Evaluate the matrix against the rotation policy.  Per-key verdicts by\n" +
+        "default (the primary policy signal); use --per-file for a file-level\n" +
+        "summary.  Unknown rotation state is always a violation — per design,\n" +
+        "we don't claim a secret is compliant unless we have a record of when\n" +
+        "its value last changed.\n\n" +
         "Exit codes:\n" +
-        "  0  All evaluated cells compliant\n" +
-        "  1  One or more cells overdue\n" +
-        "  2  Configuration error (missing manifest, invalid policy)\n" +
-        "  3  --strict and one or more cells have unknown lastmodified",
+        "  0  All evaluated keys compliant\n" +
+        "  1  One or more keys overdue or of unknown rotation state\n" +
+        "  2  Configuration error (missing manifest, invalid policy)",
     )
     .option("-n, --namespace <ns...>", "Limit evaluation to these namespaces (repeatable)")
     .option("-e, --environment <env...>", "Limit evaluation to these environments (repeatable)")
-    .option("--strict", "Treat files without sops.lastmodified as failures (exit 3)")
+    .option("--per-key", "Print a row per key (default)")
+    .option("--per-file", "Print a row per cell with a roll-up status")
     .action(async (options: CheckOptions) => {
       try {
         const repoRoot = (program.opts().dir as string) || process.cwd();
+        const credential = await resolveAgeCredential(repoRoot, deps.runner);
+        const { ageKey, ageKeyFile } = prepareSopsClientArgs(credential);
         const result = await runCompliance({
           runner: deps.runner,
           repoRoot,
+          ageKey,
+          ageKeyFile,
           filter: {
             namespaces: options.namespace,
             environments: options.environment,
@@ -161,13 +181,18 @@ export function registerPolicyCommand(program: Command, deps: { runner: Subproce
             },
             passed: result.passed,
           });
-          process.exit(exitCodeForCheck(result, options.strict ?? false));
+          process.exit(exitCodeForCheck(result));
           return;
         }
 
-        printCheckTable(result.document.files);
+        const mode = options.perFile ? "per-file" : "per-key";
+        if (mode === "per-key") {
+          printCheckPerKey(result.document.files);
+        } else {
+          printCheckPerFile(result.document.files);
+        }
         printCheckSummary(result.document.files);
-        process.exit(exitCodeForCheck(result, options.strict ?? false));
+        process.exit(exitCodeForCheck(result));
       } catch (err) {
         handleCommandError(err);
       }
@@ -192,9 +217,13 @@ export function registerPolicyCommand(program: Command, deps: { runner: Subproce
     .action(async (options: ReportOptions) => {
       try {
         const repoRoot = (program.opts().dir as string) || process.cwd();
+        const credential = await resolveAgeCredential(repoRoot, deps.runner);
+        const { ageKey, ageKeyFile } = prepareSopsClientArgs(credential);
         const result = await runCompliance({
           runner: deps.runner,
           repoRoot,
+          ageKey,
+          ageKeyFile,
           sha: options.sha,
           repo: options.repo,
           filter: {
@@ -234,18 +263,42 @@ export function registerPolicyCommand(program: Command, deps: { runner: Subproce
     });
 }
 
+/** Count cells that have at least one key of unknown rotation state. */
 function countUnknown(files: FileRotationStatus[]): number {
-  return files.filter((f) => !f.last_modified_known).length;
+  return files.filter((f) => f.keys.some((k) => !k.last_rotated_known)).length;
 }
 
-function exitCodeForCheck(result: RunComplianceResult, strict: boolean): number {
-  const overdue = result.document.summary.rotation_overdue;
-  if (overdue > 0) return 1;
-  if (strict && countUnknown(result.document.files) > 0) return 3;
-  return 0;
+function exitCodeForCheck(result: RunComplianceResult): number {
+  // Unified gate: any non-compliant cell (overdue keys or unknown keys) →
+  // exit 1.  No separate --strict path for unknown lastmodified — the raw
+  // SOPS timestamp no longer drives the policy verdict.
+  return result.passed ? 0 : 1;
 }
 
-function printCheckTable(files: FileRotationStatus[]): void {
+function printCheckPerKey(files: FileRotationStatus[]): void {
+  const rows: string[][] = [];
+  for (const f of files) {
+    for (const k of f.keys) {
+      rows.push([
+        k.key,
+        f.path,
+        f.environment,
+        keyAgeCol(k),
+        `${maxAgeDaysFor(k)}d`,
+        formatKeyStatus(k),
+      ]);
+    }
+  }
+
+  if (rows.length === 0) {
+    formatter.info("No keys found in the evaluated cells.");
+    return;
+  }
+
+  formatter.table(rows, ["KEY", "FILE", "ENV", "AGE", "LIMIT", "STATUS"]);
+}
+
+function printCheckPerFile(files: FileRotationStatus[]): void {
   if (files.length === 0) {
     formatter.info("No matrix files matched the filter.");
     return;
@@ -254,50 +307,83 @@ function printCheckTable(files: FileRotationStatus[]): void {
   const rows = files.map((f) => {
     const lastMod = new Date(f.last_modified);
     const ageDays = Math.floor((Date.now() - lastMod.getTime()) / MS_PER_DAY);
-    const ageStr = f.last_modified_known ? `${ageDays}d` : "—";
-    const status = formatStatus(f);
-    return [f.path, f.environment, ageStr, `${policyMaxAge(f)}d`, status];
+    const ageStr = f.last_modified_known ? `${ageDays}d` : "\u2014";
+    return [f.path, f.environment, ageStr, `${f.keys.length}`, formatFileStatus(f)];
   });
 
-  formatter.table(rows, ["FILE", "ENV", "AGE", "LIMIT", "STATUS"]);
+  formatter.table(rows, ["FILE", "ENV", "LAST WRITTEN", "KEYS", "STATUS"]);
 }
 
-function policyMaxAge(f: FileRotationStatus): number {
-  // rotation_due === last_modified + max_age_days, so max_age_days falls
-  // out as the difference rounded to whole days.
-  const due = new Date(f.rotation_due).getTime();
-  const last = new Date(f.last_modified).getTime();
+/** Render the AGE column for a per-key row: days since last rotation, or "—" when unknown. */
+function keyAgeCol(k: KeyRotationStatus): string {
+  if (!k.last_rotated_known || !k.last_rotated_at) return "\u2014";
+  const ageDays = Math.floor((Date.now() - new Date(k.last_rotated_at).getTime()) / MS_PER_DAY);
+  return `${ageDays}d`;
+}
+
+/** Derive max_age_days for a key from its rotation_due vs last_rotated_at. */
+function maxAgeDaysFor(k: KeyRotationStatus): number {
+  if (!k.last_rotated_at || !k.rotation_due) return 0;
+  const due = new Date(k.rotation_due).getTime();
+  const last = new Date(k.last_rotated_at).getTime();
   return Math.round((due - last) / MS_PER_DAY);
 }
 
-function formatStatus(f: FileRotationStatus): string {
-  if (!f.last_modified_known) {
+function formatKeyStatus(k: KeyRotationStatus): string {
+  if (!k.last_rotated_known) {
     const tag = `${sym("warning")} unknown`;
     return isPlainMode() ? tag : pc.yellow(tag);
   }
-  if (f.rotation_overdue) {
-    const tag = `${sym("failure")} overdue ${f.days_overdue}d`;
+  if (k.rotation_overdue) {
+    const tag = `${sym("failure")} overdue ${k.days_overdue}d`;
     return isPlainMode() ? tag : pc.red(tag);
   }
   const tag = `${sym("success")} ok`;
   return isPlainMode() ? tag : pc.green(tag);
 }
 
+function formatFileStatus(f: FileRotationStatus): string {
+  const overdue = f.keys.filter((k) => k.last_rotated_known && k.rotation_overdue).length;
+  const unknown = f.keys.filter((k) => !k.last_rotated_known).length;
+
+  if (overdue === 0 && unknown === 0) {
+    const tag = `${sym("success")} all compliant`;
+    return isPlainMode() ? tag : pc.green(tag);
+  }
+  const parts: string[] = [];
+  if (overdue > 0) parts.push(`${overdue} overdue`);
+  if (unknown > 0) parts.push(`${unknown} unknown`);
+  const tag = `${sym("failure")} ${parts.join(", ")}`;
+  return isPlainMode() ? tag : pc.red(tag);
+}
+
 function printCheckSummary(files: FileRotationStatus[]): void {
-  const compliant = files.filter((f) => f.compliant).length;
-  const overdue = files.filter((f) => f.rotation_overdue).length;
-  const unknown = countUnknown(files);
+  const compliantCells = files.filter((f) => f.compliant).length;
+  let overdueKeys = 0;
+  let unknownKeys = 0;
+  let totalKeys = 0;
+  for (const f of files) {
+    for (const k of f.keys) {
+      totalKeys++;
+      if (!k.last_rotated_known) unknownKeys++;
+      else if (k.rotation_overdue) overdueKeys++;
+    }
+  }
 
   formatter.print("");
   const parts: string[] = [
-    `${files.length} file${files.length !== 1 ? "s" : ""}`,
-    isPlainMode() ? `${compliant} compliant` : pc.green(`${compliant} compliant`),
+    `${files.length} file${files.length !== 1 ? "s" : ""} \u00B7 ${totalKeys} key${
+      totalKeys !== 1 ? "s" : ""
+    }`,
+    isPlainMode()
+      ? `${compliantCells} compliant`
+      : pc.green(`${compliantCells} compliant cell${compliantCells !== 1 ? "s" : ""}`),
   ];
-  if (overdue > 0) {
-    parts.push(isPlainMode() ? `${overdue} overdue` : pc.red(`${overdue} overdue`));
+  if (overdueKeys > 0) {
+    parts.push(isPlainMode() ? `${overdueKeys} overdue` : pc.red(`${overdueKeys} overdue`));
   }
-  if (unknown > 0) {
-    parts.push(isPlainMode() ? `${unknown} unknown` : pc.yellow(`${unknown} unknown`));
+  if (unknownKeys > 0) {
+    parts.push(isPlainMode() ? `${unknownKeys} unknown` : pc.yellow(`${unknownKeys} unknown`));
   }
   formatter.print(parts.join(" \u00B7 "));
 }
@@ -318,6 +404,15 @@ function printScaffoldResult(result: ScaffoldResult): void {
     formatter.print(pc.dim(`Provider: ${result.provider} (cli variant)`));
   }
 
+  // Render any diffs produced in dry-run mode.  `diff` is only populated
+  // for `would_overwrite` results, so we don't need to branch on status.
+  for (const file of [result.policy, result.workflow]) {
+    if (file.diff) {
+      formatter.print("");
+      formatter.raw(file.diff + "\n");
+    }
+  }
+
   if (result.mergeInstruction) {
     formatter.print("");
     formatter.hint(result.mergeInstruction);
@@ -328,6 +423,12 @@ function scaffoldStatusLabel(status: ScaffoldResult["policy"]["status"]): string
   switch (status) {
     case "created":
       return isPlainMode() ? "[created]" : pc.green(`${sym("success")} created`);
+    case "would_create":
+      return isPlainMode() ? "[+create]" : pc.green(`${sym("pending")} + create`);
+    case "would_overwrite":
+      return isPlainMode() ? "[~update]" : pc.yellow(`${sym("pending")} ~ update`);
+    case "unchanged":
+      return isPlainMode() ? "[same]   " : pc.dim(`${sym("success")} unchanged`);
     case "skipped_exists":
       return isPlainMode() ? "[exists] " : pc.dim(`${sym("info")}  exists  `);
     case "skipped_by_flag":

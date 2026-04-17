@@ -9,6 +9,9 @@ import {
   markResolved,
   getPendingKeys,
   isPending,
+  recordRotation,
+  removeRotation,
+  getRotations,
   generateRandomValue,
 } from "./metadata";
 
@@ -82,7 +85,7 @@ describe("loadMetadata", () => {
 
     const result = await loadMetadata("database/dev.enc.yaml");
 
-    expect(result).toEqual({ version: 1, pending: [] });
+    expect(result).toEqual({ version: 1, pending: [], rotations: [] });
     expect(mockedFs.readFileSync).not.toHaveBeenCalled();
   });
 
@@ -92,7 +95,7 @@ describe("loadMetadata", () => {
 
     const result = await loadMetadata("database/dev.enc.yaml");
 
-    expect(result).toEqual({ version: 1, pending: [] });
+    expect(result).toEqual({ version: 1, pending: [], rotations: [] });
   });
 
   it("should return empty pending array when parsed content has no pending array", async () => {
@@ -101,7 +104,7 @@ describe("loadMetadata", () => {
 
     const result = await loadMetadata("database/dev.enc.yaml");
 
-    expect(result).toEqual({ version: 1, pending: [] });
+    expect(result).toEqual({ version: 1, pending: [], rotations: [] });
   });
 
   it("should return empty pending array when readFileSync throws", async () => {
@@ -112,7 +115,7 @@ describe("loadMetadata", () => {
 
     const result = await loadMetadata("database/dev.enc.yaml");
 
-    expect(result).toEqual({ version: 1, pending: [] });
+    expect(result).toEqual({ version: 1, pending: [], rotations: [] });
   });
 });
 
@@ -124,6 +127,7 @@ describe("saveMetadata", () => {
     const metadata = {
       version: 1 as const,
       pending: [{ key: "SECRET", since: new Date("2026-03-10T00:00:00.000Z"), setBy: "charlie" }],
+      rotations: [],
     };
 
     await saveMetadata("app/config.enc.yaml", metadata);
@@ -149,7 +153,7 @@ describe("saveMetadata", () => {
     mockedFs.mkdirSync.mockImplementation(() => undefined as unknown as string);
     mockedFs.writeFileSync.mockImplementation(() => undefined);
 
-    const metadata = { version: 1 as const, pending: [] };
+    const metadata = { version: 1 as const, pending: [], rotations: [] };
 
     await saveMetadata("deep/nested/dir/secrets.enc.yaml", metadata);
 
@@ -415,5 +419,241 @@ describe("markPendingWithRetry", () => {
     const parsed = YAML.parse(writtenContent);
     expect(parsed.pending[0].key).toBe("SECRET_KEY");
     expect(parsed.pending[0].setBy).toBe("clef ui");
+  });
+});
+
+describe("recordRotation", () => {
+  it("creates a new rotation record with rotation_count: 1 on first rotation", async () => {
+    mockedFs.existsSync.mockReturnValue(false);
+    mockedFs.writeFileSync.mockImplementation(() => undefined);
+    const now = new Date("2026-04-10T12:00:00.000Z");
+
+    await recordRotation("app/dev.enc.yaml", ["STRIPE_KEY"], "alice@example.com", now);
+
+    const writtenContent = mockedFs.writeFileSync.mock.calls[0][1] as string;
+    const parsed = YAML.parse(writtenContent);
+    expect(parsed.rotations).toHaveLength(1);
+    expect(parsed.rotations[0]).toMatchObject({
+      key: "STRIPE_KEY",
+      last_rotated_at: "2026-04-10T12:00:00.000Z",
+      rotated_by: "alice@example.com",
+      rotation_count: 1,
+    });
+  });
+
+  it("bumps rotation_count and updates timestamp on subsequent rotations", async () => {
+    mockedFs.existsSync.mockReturnValue(true);
+    mockedFs.readFileSync.mockReturnValue(
+      YAML.stringify({
+        version: 1,
+        pending: [],
+        rotations: [
+          {
+            key: "STRIPE_KEY",
+            last_rotated_at: "2026-03-01T00:00:00.000Z",
+            rotated_by: "alice@example.com",
+            rotation_count: 2,
+          },
+        ],
+      }),
+    );
+    mockedFs.writeFileSync.mockImplementation(() => undefined);
+
+    const now = new Date("2026-04-14T09:00:00.000Z");
+    await recordRotation("app/dev.enc.yaml", ["STRIPE_KEY"], "bob@example.com", now);
+
+    const writtenContent = mockedFs.writeFileSync.mock.calls[0][1] as string;
+    const parsed = YAML.parse(writtenContent);
+    expect(parsed.rotations).toHaveLength(1);
+    expect(parsed.rotations[0]).toMatchObject({
+      key: "STRIPE_KEY",
+      last_rotated_at: "2026-04-14T09:00:00.000Z",
+      rotated_by: "bob@example.com",
+      rotation_count: 3,
+    });
+  });
+
+  it("removes the matching pending entry when a rotation resolves it", async () => {
+    mockedFs.existsSync.mockReturnValue(true);
+    mockedFs.readFileSync.mockReturnValue(
+      YAML.stringify({
+        version: 1,
+        pending: [{ key: "API_KEY", since: "2026-04-01T00:00:00.000Z", setBy: "alice" }],
+        rotations: [],
+      }),
+    );
+    mockedFs.writeFileSync.mockImplementation(() => undefined);
+
+    await recordRotation(
+      "app/dev.enc.yaml",
+      ["API_KEY"],
+      "bob@example.com",
+      new Date("2026-04-10T00:00:00.000Z"),
+    );
+
+    const writtenContent = mockedFs.writeFileSync.mock.calls[0][1] as string;
+    const parsed = YAML.parse(writtenContent);
+    expect(parsed.pending).toHaveLength(0);
+    expect(parsed.rotations).toHaveLength(1);
+    expect(parsed.rotations[0].key).toBe("API_KEY");
+  });
+
+  it("records multiple keys in a single call", async () => {
+    mockedFs.existsSync.mockReturnValue(false);
+    mockedFs.writeFileSync.mockImplementation(() => undefined);
+    const now = new Date("2026-04-10T00:00:00.000Z");
+
+    await recordRotation("app/dev.enc.yaml", ["KEY_A", "KEY_B"], "alice", now);
+
+    const writtenContent = mockedFs.writeFileSync.mock.calls[0][1] as string;
+    const parsed = YAML.parse(writtenContent);
+    expect(parsed.rotations).toHaveLength(2);
+    expect(parsed.rotations.map((r: { key: string }) => r.key)).toEqual(["KEY_A", "KEY_B"]);
+    expect(parsed.rotations.every((r: { rotation_count: number }) => r.rotation_count === 1)).toBe(
+      true,
+    );
+  });
+});
+
+describe("removeRotation", () => {
+  it("removes a rotation record and leaves others intact", async () => {
+    mockedFs.existsSync.mockReturnValue(true);
+    mockedFs.readFileSync.mockReturnValue(
+      YAML.stringify({
+        version: 1,
+        pending: [],
+        rotations: [
+          {
+            key: "KEY_A",
+            last_rotated_at: "2026-03-01T00:00:00.000Z",
+            rotated_by: "alice",
+            rotation_count: 1,
+          },
+          {
+            key: "KEY_B",
+            last_rotated_at: "2026-03-02T00:00:00.000Z",
+            rotated_by: "alice",
+            rotation_count: 1,
+          },
+        ],
+      }),
+    );
+    mockedFs.writeFileSync.mockImplementation(() => undefined);
+
+    await removeRotation("app/dev.enc.yaml", ["KEY_A"]);
+
+    const writtenContent = mockedFs.writeFileSync.mock.calls[0][1] as string;
+    const parsed = YAML.parse(writtenContent);
+    expect(parsed.rotations).toHaveLength(1);
+    expect(parsed.rotations[0].key).toBe("KEY_B");
+  });
+
+  it("is a no-op when removing a key that has no record", async () => {
+    mockedFs.existsSync.mockReturnValue(false);
+    mockedFs.writeFileSync.mockImplementation(() => undefined);
+
+    await removeRotation("app/dev.enc.yaml", ["GHOST"]);
+
+    const writtenContent = mockedFs.writeFileSync.mock.calls[0][1] as string;
+    const parsed = YAML.parse(writtenContent);
+    expect(parsed.rotations).toEqual([]);
+  });
+});
+
+describe("getRotations", () => {
+  it("returns the current rotation records", async () => {
+    mockedFs.existsSync.mockReturnValue(true);
+    mockedFs.readFileSync.mockReturnValue(
+      YAML.stringify({
+        version: 1,
+        pending: [],
+        rotations: [
+          {
+            key: "STRIPE_KEY",
+            last_rotated_at: "2026-03-15T00:00:00.000Z",
+            rotated_by: "alice",
+            rotation_count: 4,
+          },
+        ],
+      }),
+    );
+
+    const rotations = await getRotations("app/dev.enc.yaml");
+    expect(rotations).toHaveLength(1);
+    expect(rotations[0]).toMatchObject({
+      key: "STRIPE_KEY",
+      rotatedBy: "alice",
+      rotationCount: 4,
+    });
+    expect(rotations[0].lastRotatedAt).toEqual(new Date("2026-03-15T00:00:00.000Z"));
+  });
+
+  it("returns empty array when no metadata file exists", async () => {
+    mockedFs.existsSync.mockReturnValue(false);
+    const rotations = await getRotations("app/dev.enc.yaml");
+    expect(rotations).toEqual([]);
+  });
+
+  it("tolerates malformed rotation entries by filtering them out", async () => {
+    mockedFs.existsSync.mockReturnValue(true);
+    mockedFs.readFileSync.mockReturnValue(
+      YAML.stringify({
+        version: 1,
+        pending: [],
+        rotations: [
+          {
+            key: "GOOD",
+            last_rotated_at: "2026-03-01T00:00:00.000Z",
+            rotated_by: "alice",
+            rotation_count: 1,
+          },
+          { key: "BAD", last_rotated_at: "not-a-date" }, // missing rotated_by/count
+          { notAnEntry: true },
+        ],
+      }),
+    );
+
+    const rotations = await getRotations("app/dev.enc.yaml");
+    expect(rotations).toHaveLength(1);
+    expect(rotations[0].key).toBe("GOOD");
+  });
+});
+
+describe("loadMetadata with rotations", () => {
+  it("loads both pending and rotations sections", async () => {
+    mockedFs.existsSync.mockReturnValue(true);
+    mockedFs.readFileSync.mockReturnValue(
+      YAML.stringify({
+        version: 1,
+        pending: [{ key: "P", since: "2026-04-01T00:00:00.000Z", setBy: "alice" }],
+        rotations: [
+          {
+            key: "R",
+            last_rotated_at: "2026-03-01T00:00:00.000Z",
+            rotated_by: "bob",
+            rotation_count: 2,
+          },
+        ],
+      }),
+    );
+
+    const result = await loadMetadata("app/dev.enc.yaml");
+    expect(result.pending).toHaveLength(1);
+    expect(result.rotations).toHaveLength(1);
+    expect(result.rotations[0].rotationCount).toBe(2);
+  });
+
+  it("loads pending-only files (legacy format) with empty rotations", async () => {
+    mockedFs.existsSync.mockReturnValue(true);
+    mockedFs.readFileSync.mockReturnValue(
+      YAML.stringify({
+        version: 1,
+        pending: [{ key: "P", since: "2026-04-01T00:00:00.000Z", setBy: "alice" }],
+      }),
+    );
+
+    const result = await loadMetadata("app/dev.enc.yaml");
+    expect(result.pending).toHaveLength(1);
+    expect(result.rotations).toEqual([]);
   });
 });

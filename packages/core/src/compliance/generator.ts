@@ -83,10 +83,14 @@ export class ComplianceGenerator {
     lint: LintResult,
     files: FileRotationStatus[],
   ): ComplianceSummary {
+    // A cell counts as "rotation_overdue" in the summary when ANY key in it
+    // is either overdue or of unknown rotation state — both classes fail the
+    // per-key gate and therefore the cell's `compliant` flag.
+    const rotationOverdue = files.filter((f) => !f.compliant).length;
     return {
       total_files: files.length,
       compliant: files.filter((f) => f.compliant).length,
-      rotation_overdue: files.filter((f) => f.rotation_overdue).length,
+      rotation_overdue: rotationOverdue,
       scan_violations: scan.matches.length,
       lint_errors: lint.issues.filter((i) => i.severity === "error").length,
     };

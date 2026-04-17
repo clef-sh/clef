@@ -241,6 +241,50 @@ describe("clef policy check (real SOPS metadata)", () => {
     expect(parsed.files.map((f: { environment: string }) => f.environment)).toEqual(["production"]);
   });
 
+  it("still passes when sops.lastmodified is absent but rotation records exist", () => {
+    // Stripping sops.lastmodified no longer drives the policy verdict —
+    // per-key rotation records in .clef-meta.yaml are the source of truth.
+    const devPath = path.join(repo.dir, "payments", "dev.enc.yaml");
+    const original = fs.readFileSync(devPath, "utf-8");
+    try {
+      const doc = YAML.parse(original) as Record<string, unknown>;
+      const sops = doc.sops as Record<string, unknown>;
+      delete sops.lastmodified;
+      fs.writeFileSync(devPath, YAML.stringify(doc));
+
+      clef(["policy", "init"]);
+      const result = clef(["policy", "check"], { allowFailure: true });
+      expect(result.exitCode).toBe(0);
+    } finally {
+      fs.writeFileSync(devPath, original);
+    }
+  });
+
+  it("--json reports last_modified_known: false when sops.lastmodified is absent", () => {
+    const devPath = path.join(repo.dir, "payments", "dev.enc.yaml");
+    const original = fs.readFileSync(devPath, "utf-8");
+    try {
+      const doc = YAML.parse(original) as Record<string, unknown>;
+      const sops = doc.sops as Record<string, unknown>;
+      delete sops.lastmodified;
+      fs.writeFileSync(devPath, YAML.stringify(doc));
+
+      clef(["policy", "init"]);
+      const result = clef(["--json", "policy", "check"], { allowFailure: true });
+      // Rotation records are present, so all keys are compliant.  The
+      // missing sops.lastmodified surfaces as last_modified_known: false
+      // on the file entry but does not affect the policy verdict.
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      const devEntry = parsed.files.find(
+        (f: { path: string }) => f.path === "payments/dev.enc.yaml",
+      );
+      expect(devEntry).toMatchObject({ last_modified_known: false, compliant: true });
+    } finally {
+      fs.writeFileSync(devPath, original);
+    }
+  });
+
   it("exits with a non-zero code when policy YAML is invalid", () => {
     fs.mkdirSync(path.join(repo.dir, ".clef"), { recursive: true });
     fs.writeFileSync(
@@ -307,11 +351,12 @@ describe("clef policy report (full ComplianceDocument)", () => {
         recipients: expect.any(Array),
         last_modified_known: true,
         compliant: true,
-        rotation_overdue: false,
       });
       expect(f.path).toMatch(/^payments\/(dev|production)\.enc\.yaml$/);
       expect(f.last_modified).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-      expect(f.rotation_due).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      for (const k of f.keys) {
+        expect(k.rotation_due).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      }
     }
 
     // Document must round-trip through JSON unchanged (no Date / undefined

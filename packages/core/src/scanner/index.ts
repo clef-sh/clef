@@ -1,12 +1,25 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { ClefManifest, SubprocessRunner } from "../types";
-import { matchPatterns, isHighEntropy, shannonEntropy, redactValue, ScanMatch } from "./patterns";
+import {
+  matchPatterns,
+  isHighEntropy,
+  shannonEntropy,
+  redactValue,
+  matchPublicPrefix,
+  ScanMatch,
+} from "./patterns";
 import { loadIgnoreRules, shouldIgnoreFile, shouldIgnoreMatch } from "./ignore";
 
 export type { ScanMatch } from "./patterns";
 export type { ClefIgnoreRules } from "./ignore";
-export { shannonEntropy, isHighEntropy, matchPatterns, redactValue } from "./patterns";
+export {
+  shannonEntropy,
+  isHighEntropy,
+  matchPatterns,
+  matchPublicPrefix,
+  redactValue,
+} from "./patterns";
 export { loadIgnoreRules, shouldIgnoreFile, shouldIgnoreMatch, parseIgnoreContent } from "./ignore";
 
 export interface ScanResult {
@@ -21,6 +34,14 @@ export interface ScanOptions {
   stagedOnly?: boolean;
   paths?: string[];
   severity?: "all" | "high";
+  /**
+   * When `true` (default) the entropy detector skips values that match known
+   * public-by-design credential shapes — reCAPTCHA site keys, Stripe
+   * publishable keys, etc.  Set to `false` (via `--no-public-allowlist`) to
+   * report every high-entropy value regardless of shape.  Pattern matches
+   * are unaffected — a leaked AWS/Stripe secret key is still flagged.
+   */
+  publicAllowlist?: boolean;
 }
 
 const ALWAYS_SKIP_EXTENSIONS = [".enc.yaml", ".enc.json"] as const;
@@ -149,7 +170,8 @@ export class ScanRunner {
 
         // Entropy detection (skip when severity === 'high')
         if (options.severity !== "high") {
-          const entropyHit = this.detectEntropy(line, lineNum, relPath);
+          const allowPublic = options.publicAllowlist !== false;
+          const entropyHit = this.detectEntropy(line, lineNum, relPath, allowPublic);
           if (entropyHit && !shouldIgnoreMatch(entropyHit, ignoreRules)) {
             matches.push(entropyHit);
           }
@@ -194,7 +216,12 @@ export class ScanRunner {
     }
   }
 
-  private detectEntropy(line: string, lineNum: number, filePath: string): ScanMatch | null {
+  private detectEntropy(
+    line: string,
+    lineNum: number,
+    filePath: string,
+    allowPublic: boolean,
+  ): ScanMatch | null {
     // Look for values appearing after = or : (assignment positions)
     const valuePattern = /(?:=|:\s*)["']?([A-Za-z0-9+/=_-]{20,})["']?/;
     const match = valuePattern.exec(line);
@@ -204,6 +231,7 @@ export class ScanRunner {
     const entropy = shannonEntropy(value);
 
     if (!isHighEntropy(value)) return null;
+    if (allowPublic && matchPublicPrefix(value)) return null;
 
     // Extract variable name for the preview
     const varMatch = /(\w+)\s*(?:=|:)/.exec(line);

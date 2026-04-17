@@ -1,7 +1,10 @@
+import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { execFileSync, spawn } from "child_process";
 import { Router, Request, Response } from "express";
+import rateLimit, { MemoryStore } from "express-rate-limit";
+import * as YAML from "yaml";
 
 // On Linux, libuv creates socketpairs for child stdio. Go's os.Open on
 // /dev/stdin re-opens /proc/self/fd/0 which fails with ENXIO on socketpairs.
@@ -24,6 +27,8 @@ import {
   getPendingKeys,
   markResolved,
   markPendingWithRetry,
+  recordRotation,
+  removeRotation,
   generateRandomValue,
   ImportRunner,
   RecipientManager,
@@ -37,6 +42,10 @@ import {
   SyncManager,
   resolveBackendConfig,
   validateResetScope,
+  PolicyParser,
+  CLEF_POLICY_FILENAME,
+  PolicyValidationError,
+  runCompliance,
 } from "@clef-sh/core";
 import type { BackendType, ImportFormat, MigrationProgressEvent, ResetScope } from "@clef-sh/core";
 
@@ -152,6 +161,29 @@ export function createApiRouter(deps: ApiDeps): Router {
       Expires: "0",
     });
   }
+
+  // Defense-in-depth rate limit applied to every /api route.  This server
+  // binds to 127.0.0.1 only and gates /api on a session bearer token, so
+  // remote DoS is not the threat model — the limiter exists to bound a
+  // pathological local client (a buggy script, a runaway test loop) and to
+  // satisfy CodeQL's missing-rate-limit rule on file-system-touching routes.
+  // Per-instance store so each `createApiRouter()` call (i.e. each test) gets
+  // a fresh counter — no cross-test contamination.
+  //
+  // Limit sized for bursty legitimate usage: the e2e suite comfortably sits
+  // near 100 req/s during dense describe blocks, and a human clicking
+  // through the Matrix rapidly can produce 20-30 req/s of their own.  The
+  // earlier 1000/min cap was tripping real test runs while adding no
+  // meaningful security gain at 127.0.0.1 scope.
+  const apiRateLimitStore = new MemoryStore();
+  const apiLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 10_000,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    store: apiRateLimitStore,
+  });
+  router.use(apiLimiter);
 
   // GET /api/manifest
   router.get("/manifest", (_req: Request, res: Response) => {
@@ -314,9 +346,11 @@ export function createApiRouter(deps: ApiDeps): Router {
                 // Schema load failed — skip validation, not fatal
               }
             }
-            // Resolve pending state if the key was pending
+            // Real value set is a rotation event.  recordRotation also
+            // strips any matching pending entry, so this one call replaces
+            // the old markResolved + implicit pending cleanup.
             try {
-              await markResolved(filePath, [key]);
+              await recordRotation(filePath, [key], "clef ui");
             } catch {
               // Metadata update failed — non-fatal
             }
@@ -392,8 +426,11 @@ export function createApiRouter(deps: ApiDeps): Router {
         const doWork = async (): Promise<void> => {
           delete decrypted.values[key];
           await sops.encrypt(filePath, decrypted.values, manifest, env);
+          // Strip both pending and rotation records — the key no longer
+          // exists, so stale metadata would mislead policy.
           try {
             await markResolved(filePath, [key]);
+            await removeRotation(filePath, [key]);
           } catch {
             // Best effort — orphaned metadata is annoying but not dangerous
           }
@@ -447,7 +484,12 @@ export function createApiRouter(deps: ApiDeps): Router {
           description: `clef ui: accept ${ns}/${env}/${key}`,
           paths: [relCellPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
           mutate: async () => {
-            await markResolved(filePath, [key]);
+            // Accept is an explicit user action declaring the current
+            // (placeholder) value to be the real value.  Treat as a
+            // rotation — it establishes a point-in-time "this is the
+            // current secret" assertion.  recordRotation also strips the
+            // pending entry.
+            await recordRotation(filePath, [key], "clef ui (accept)");
           },
         });
         res.json({ success: true, key, value });
@@ -515,10 +557,18 @@ export function createApiRouter(deps: ApiDeps): Router {
         paths: [relToPath, relToPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
         mutate: async () => {
           const dest = await sops.decrypt(toCell.filePath);
+          const valueChanged = dest.values[key] !== source.values[key];
           dest.values[key] = source.values[key];
           await sops.encrypt(toCell.filePath, dest.values, manifest, toCell.environment);
+          // Only a real value change is a rotation.  Copying an identical
+          // value re-encrypts the ciphertext but does not rotate — matches
+          // the import semantics agreed in the design.
           try {
-            await markResolved(toCell.filePath, [key]);
+            if (valueChanged) {
+              await recordRotation(toCell.filePath, [key], "clef ui (copy)");
+            } else {
+              await markResolved(toCell.filePath, [key]);
+            }
           } catch {
             // Non-fatal — destination may not have had pending state
           }
@@ -619,6 +669,65 @@ export function createApiRouter(deps: ApiDeps): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to run lint fix";
       res.status(500).json({ error: message, code: "LINT_FIX_ERROR" });
+    }
+  });
+
+  function policyFilePath(): string {
+    return path.join(deps.repoRoot, CLEF_POLICY_FILENAME);
+  }
+
+  // GET /api/policy — resolved rotation policy + source.  Returns the built-in
+  // default when .clef/policy.yaml is absent (PolicyParser.load handles this
+  // — no throw on missing file).
+  router.get("/policy", (_req: Request, res: Response) => {
+    try {
+      const policyPath = policyFilePath();
+      const source = fs.existsSync(policyPath) ? "file" : "default";
+      const policy = new PolicyParser().load(policyPath);
+      res.json({
+        policy,
+        source,
+        path: CLEF_POLICY_FILENAME,
+        rawYaml: YAML.stringify(policy),
+      });
+    } catch (err) {
+      if (err instanceof PolicyValidationError) {
+        res.status(422).json({ error: err.message, code: "POLICY_INVALID" });
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Failed to load policy";
+      res.status(500).json({ error: message, code: "POLICY_LOAD_ERROR" });
+    }
+  });
+
+  // GET /api/policy/check — rotation status per matrix file, the same data
+  // `clef policy check --json` produces.  Mirrors the CLI's include flags so
+  // scan + lint are not re-run from this endpoint.
+  router.get("/policy/check", async (_req: Request, res: Response) => {
+    try {
+      const result = await runCompliance({
+        runner: deps.runner,
+        repoRoot: deps.repoRoot,
+        sopsPath: deps.sopsPath,
+        ageKey: deps.ageKey,
+        ageKeyFile: deps.ageKeyFile,
+        include: { rotation: true, scan: false, lint: false },
+      });
+      const unknownMetadata = result.document.files.filter((f) => !f.last_modified_known).length;
+      res.json({
+        files: result.document.files,
+        summary: {
+          total_files: result.document.summary.total_files,
+          compliant: result.document.summary.compliant,
+          rotation_overdue: result.document.summary.rotation_overdue,
+          unknown_metadata: unknownMetadata,
+        },
+        policy: result.document.policy_snapshot,
+        source: fs.existsSync(policyFilePath()) ? "file" : "default",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to evaluate policy";
+      res.status(500).json({ error: message, code: "POLICY_CHECK_ERROR" });
     }
   });
 

@@ -2,7 +2,7 @@
 #
 # Sequential job pipeline:
 #
-#   prepare  →  build-sea-bins  →  publish
+#   prepare → build-sea-bins → publish → publish-lambda-layers → update-release-notes-layers
 #
 #   1. prepare        Computes the next version for every package, creates
 #                     a git tag at the SHA CI tested, and creates a draft
@@ -16,6 +16,13 @@
 #   3. publish        Re-stamps package.json files, builds, runs tests,
 #                     publishes 9 packages to GitHub Packages, commits
 #                     the version stamps back to the branch.
+#
+#   4. publish-lambda-layers  Publishes agent Lambda layer ZIPs (x64 +
+#                             arm64) to AWS as clef-agent-x64-beta /
+#                             clef-agent-arm64-beta. Staging only.
+#
+#   5. update-release-notes-layers  Appends a Lambda Layers ARN table
+#                                   to the draft pre-release notes.
 #
 # dev     → alpha packages → GitHub Packages (restricted, internal only)
 # staging → beta packages  → GitHub Packages (public) + GitHub pre-release
@@ -43,6 +50,7 @@ permissions:
   contents: write # tag + create GitHub releases on staging + commit version stamps
   packages: write # publish to GitHub Packages
   actions: write # dispatch build-sea via gh workflow run + poll for completion
+  id-token: write # OIDC for AWS Lambda layer publish
 
 concurrency:
   group: prerelease-${{ github.event.workflow_run.head_branch || github.ref_name }}
@@ -605,3 +613,178 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Registry:** GitHub Packages (\`npm.pkg.github.com\`)" >> "$GITHUB_STEP_SUMMARY"
           echo "**Dist-tag:** \`${{ needs.prepare.outputs.dist_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── 4. Publish beta Lambda layers to AWS ─────────────────────────────
+  #
+  # Staging only. Publishes agent Lambda layer ZIPs as -beta layers so
+  # beta testers can reference an ARN without self-publishing.
+  #
+  # Prerequisites:
+  #   - vars.AWS_LAMBDA_LAYER_ROLE_ARN must be set on the repo (IAM role
+  #     trusted for both environment:prod and environment:staging).
+
+  publish-lambda-layers:
+    name: Publish Lambda layer beta (${{ matrix.region }})
+    needs: [prepare, build-sea-bins, publish]
+    if: (github.event.workflow_run.head_branch || github.ref_name) == 'staging'
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        region: [us-east-1, ca-central-1]
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_LAMBDA_LAYER_ROLE_ARN }}
+          aws-region: ${{ matrix.region }}
+
+      - name: Download layer ZIPs from GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ needs.prepare.outputs.cli_version }}"
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "clef-agent-lambda-*.zip" \
+            --dir ./layers
+          ls -lh ./layers/
+
+      - name: Publish x64 beta layer
+        id: publish_x64
+        run: |
+          AGENT_VER="${{ needs.prepare.outputs.agent_version }}"
+          RESULT=$(aws lambda publish-layer-version \
+            --layer-name clef-agent-x64-beta \
+            --description "Clef agent Lambda extension v${AGENT_VER} (x86_64, beta)" \
+            --zip-file fileb://layers/clef-agent-lambda-x64.zip \
+            --compatible-architectures x86_64 \
+            --output json)
+          ARN=$(echo "$RESULT" | jq -r '.LayerVersionArn')
+          VERSION=$(echo "$RESULT" | jq -r '.Version')
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Published x64 beta layer: $ARN"
+
+      - name: Make x64 beta layer public
+        run: |
+          aws lambda add-layer-version-permission \
+            --layer-name clef-agent-x64-beta \
+            --version-number ${{ steps.publish_x64.outputs.version }} \
+            --statement-id public-access \
+            --action lambda:GetLayerVersion \
+            --principal "*" 2>/dev/null \
+          || echo "Permission already set (idempotent)"
+
+      - name: Publish arm64 beta layer
+        id: publish_arm64
+        run: |
+          AGENT_VER="${{ needs.prepare.outputs.agent_version }}"
+          RESULT=$(aws lambda publish-layer-version \
+            --layer-name clef-agent-arm64-beta \
+            --description "Clef agent Lambda extension v${AGENT_VER} (arm64, beta)" \
+            --zip-file fileb://layers/clef-agent-lambda-arm64.zip \
+            --compatible-architectures arm64 \
+            --output json)
+          ARN=$(echo "$RESULT" | jq -r '.LayerVersionArn')
+          VERSION=$(echo "$RESULT" | jq -r '.Version')
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Published arm64 beta layer: $ARN"
+
+      - name: Make arm64 beta layer public
+        run: |
+          aws lambda add-layer-version-permission \
+            --layer-name clef-agent-arm64-beta \
+            --version-number ${{ steps.publish_arm64.outputs.version }} \
+            --statement-id public-access \
+            --action lambda:GetLayerVersion \
+            --principal "*" 2>/dev/null \
+          || echo "Permission already set (idempotent)"
+
+      - name: Save ARNs as artifact
+        run: |
+          mkdir -p arns
+          cat > arns/${{ matrix.region }}.json <<'ARNS_EOF'
+          {
+            "region": "${{ matrix.region }}",
+            "x64": "${{ steps.publish_x64.outputs.arn }}",
+            "arm64": "${{ steps.publish_arm64.outputs.arn }}"
+          }
+          ARNS_EOF
+
+      - name: Upload ARN artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-layer-arns-${{ matrix.region }}
+          path: arns/
+
+      - name: Job summary
+        run: |
+          echo "## Lambda Layers beta (${{ matrix.region }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Architecture | Layer ARN |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| x86_64 | \`${{ steps.publish_x64.outputs.arn }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| arm64 | \`${{ steps.publish_arm64.outputs.arn }}\` |" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── 5. Append beta Lambda layer ARNs to pre-release notes ───────────
+
+  update-release-notes-layers:
+    name: Update pre-release notes with layer ARNs
+    needs: [prepare, publish-lambda-layers]
+    if: (github.event.workflow_run.head_branch || github.ref_name) == 'staging'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all ARN artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lambda-layer-arns-*
+          path: arns/
+          merge-multiple: true
+
+      - name: Append layer ARNs to pre-release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ needs.prepare.outputs.cli_version }}"
+
+          EXISTING=$(gh release view "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json body \
+            --jq '.body')
+
+          {
+            echo ""
+            echo "## Lambda Layers (beta)"
+            echo ""
+            echo "Pre-published beta layers — attach to your Lambda function by ARN."
+            echo ""
+            echo "| Region | Architecture | Layer ARN |"
+            echo "|---|---|---|"
+            for f in arns/*.json; do
+              REGION=$(jq -r '.region' "$f")
+              X64=$(jq -r '.x64' "$f")
+              ARM64=$(jq -r '.arm64' "$f")
+              echo "| ${REGION} | x86_64 | \`${X64}\` |"
+              echo "| ${REGION} | arm64 | \`${ARM64}\` |"
+            done
+          } > /tmp/layer-table.md
+
+          if echo "$EXISTING" | grep -q "## Lambda Layers"; then
+            echo "Layer ARN table already present in pre-release notes — skipping"
+            exit 0
+          fi
+
+          UPDATED=$(printf '%s\n%s' "$EXISTING" "$(cat /tmp/layer-table.md)")
+
+          gh release edit "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --notes "$UPDATED"
+          echo "Appended beta Lambda layer ARNs to pre-release notes for $TAG"

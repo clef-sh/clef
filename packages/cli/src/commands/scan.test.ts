@@ -248,6 +248,45 @@ describe("clef scan --severity high", () => {
   });
 });
 
+describe("clef scan --no-public-allowlist", () => {
+  it("passes publicAllowlist: false to ScanRunner when the flag is set", async () => {
+    const scanMock = jest.fn().mockResolvedValue({
+      matches: [],
+      unencryptedMatrixFiles: [],
+      filesScanned: 3,
+      filesSkipped: 0,
+      durationMs: 20,
+    });
+    getCoreMock().ScanRunner.mockImplementation(
+      () => ({ scan: scanMock }) as unknown as { scan: jest.Mock },
+    );
+
+    await runScan(["--no-public-allowlist"]);
+    expect(scanMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Object),
+      expect.objectContaining({ publicAllowlist: false }),
+    );
+  });
+
+  it("omits publicAllowlist (default) when the flag is absent — allowlist stays on", async () => {
+    const scanMock = jest.fn().mockResolvedValue({
+      matches: [],
+      unencryptedMatrixFiles: [],
+      filesScanned: 3,
+      filesSkipped: 0,
+      durationMs: 20,
+    });
+    getCoreMock().ScanRunner.mockImplementation(
+      () => ({ scan: scanMock }) as unknown as { scan: jest.Mock },
+    );
+
+    await runScan([]);
+    const passedOptions = scanMock.mock.calls[0][2];
+    expect(passedOptions.publicAllowlist).not.toBe(false);
+  });
+});
+
 describe("clef scan --json", () => {
   it("outputs valid JSON including durationMs", async () => {
     getCoreMock().ScanRunner.mockImplementation(
