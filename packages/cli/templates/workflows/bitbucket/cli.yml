@@ -4,7 +4,7 @@
 #
 # Docs: https://docs.clef.sh/policy
 
-image: node:20
+image: node:22
 
 definitions:
   steps:

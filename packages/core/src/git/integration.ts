@@ -386,73 +386,97 @@ export class GitIntegration {
    * @throws {@link GitOperationError} On failure.
    */
   async installMergeDriver(repoRoot: string): Promise<void> {
-    // 1. Configure git merge driver in local config
-    const configResult = await this.runner.run(
-      "git",
-      ["config", "merge.sops.name", "SOPS-aware merge driver"],
-      { cwd: repoRoot },
-    );
-    if (configResult.exitCode !== 0) {
-      throw new GitOperationError(
-        `Failed to configure merge driver name: ${configResult.stderr.trim()}`,
-        "Ensure you are inside a git repository.",
+    // Register two separately-named drivers that both dispatch to the same
+    // CLI entry point (`clef merge-driver`).  The CLI branches by file
+    // extension: `.enc.*` → SOPS decrypt/merge/re-encrypt; `.clef-meta.yaml`
+    // → plaintext three-way merge.  Two driver names rather than one
+    // reused name keeps `.gitattributes` honest (no file claiming to use
+    // a "sops" driver when it's really metadata merging).
+    const drivers: Array<{ config: string; friendly: string }> = [
+      { config: "merge.sops", friendly: "SOPS-aware merge driver" },
+      { config: "merge.clef-metadata", friendly: "Clef metadata merge driver" },
+    ];
+
+    for (const driver of drivers) {
+      const nameResult = await this.runner.run(
+        "git",
+        ["config", `${driver.config}.name`, driver.friendly],
+        { cwd: repoRoot },
       );
+      if (nameResult.exitCode !== 0) {
+        throw new GitOperationError(
+          `Failed to configure merge driver name: ${nameResult.stderr.trim()}`,
+          "Ensure you are inside a git repository.",
+        );
+      }
+
+      const driverResult = await this.runner.run(
+        "git",
+        ["config", `${driver.config}.driver`, "clef merge-driver %O %A %B"],
+        { cwd: repoRoot },
+      );
+      if (driverResult.exitCode !== 0) {
+        throw new GitOperationError(
+          `Failed to configure merge driver command: ${driverResult.stderr.trim()}`,
+          "Ensure you are inside a git repository.",
+        );
+      }
     }
 
-    const driverResult = await this.runner.run(
-      "git",
-      ["config", "merge.sops.driver", "clef merge-driver %O %A %B"],
-      { cwd: repoRoot },
-    );
-    if (driverResult.exitCode !== 0) {
-      throw new GitOperationError(
-        `Failed to configure merge driver command: ${driverResult.stderr.trim()}`,
-        "Ensure you are inside a git repository.",
-      );
-    }
-
-    // 2. Ensure .gitattributes contains the rule
     await this.ensureGitattributes(repoRoot);
   }
 
   /**
-   * Check whether the SOPS merge driver is configured in both
-   * `.git/config` and `.gitattributes`.
-   *
-   * @param repoRoot - Absolute path to the repository root.
-   * @returns An object indicating which parts are configured.
+   * Check whether both Clef merge drivers are configured in `.git/config`
+   * and `.gitattributes`.  Reports separately on the SOPS driver
+   * (`merge=sops` for `.enc.*`) and the metadata driver
+   * (`merge=clef-metadata` for `.clef-meta.yaml`) so `clef doctor` can
+   * prompt the user to run `clef hooks` when only the SOPS driver is
+   * installed (older install, pre-metadata-merge).
    */
-  async checkMergeDriver(
-    repoRoot: string,
-  ): Promise<{ gitConfig: boolean; gitattributes: boolean }> {
-    // Check git config
-    const configResult = await this.runner.run("git", ["config", "--get", "merge.sops.driver"], {
+  async checkMergeDriver(repoRoot: string): Promise<{
+    gitConfig: boolean;
+    gitattributes: boolean;
+    metadataGitConfig: boolean;
+    metadataGitattributes: boolean;
+  }> {
+    const sopsConfig = await this.runner.run("git", ["config", "--get", "merge.sops.driver"], {
       cwd: repoRoot,
     });
-    const gitConfig = configResult.exitCode === 0 && configResult.stdout.trim().length > 0;
+    const gitConfig = sopsConfig.exitCode === 0 && sopsConfig.stdout.trim().length > 0;
 
-    // Check .gitattributes
+    const metaConfig = await this.runner.run(
+      "git",
+      ["config", "--get", "merge.clef-metadata.driver"],
+      { cwd: repoRoot },
+    );
+    const metadataGitConfig = metaConfig.exitCode === 0 && metaConfig.stdout.trim().length > 0;
+
     const attrFilePath = path.join(repoRoot, ".gitattributes");
     const attrContent = fs.existsSync(attrFilePath) ? fs.readFileSync(attrFilePath, "utf-8") : "";
     const gitattributes = attrContent.includes("merge=sops");
+    const metadataGitattributes = attrContent.includes("merge=clef-metadata");
 
-    return { gitConfig, gitattributes };
+    return { gitConfig, gitattributes, metadataGitConfig, metadataGitattributes };
   }
 
   private async ensureGitattributes(repoRoot: string): Promise<void> {
     const attrPath = path.join(repoRoot, ".gitattributes");
-    const mergeRule = "*.enc.yaml merge=sops\n*.enc.json merge=sops";
-
-    // Read existing content
     const existing = fs.existsSync(attrPath) ? fs.readFileSync(attrPath, "utf-8") : "";
 
-    if (existing.includes("merge=sops")) {
-      return; // Already configured
+    // Append whichever rule blocks are missing; idempotent across runs
+    // and survives users adding their own entries between our blocks.
+    let newContent = existing;
+    if (!existing.includes("merge=sops")) {
+      const block = `# Clef: SOPS-aware merge driver for encrypted files\n*.enc.yaml merge=sops\n*.enc.json merge=sops\n`;
+      newContent = newContent.trimEnd() ? `${newContent.trimEnd()}\n\n${block}` : block;
+    }
+    if (!newContent.includes("merge=clef-metadata")) {
+      const block = `# Clef: rotation-aware merge driver for metadata sidecars\n*.clef-meta.yaml merge=clef-metadata\n`;
+      newContent = newContent.trimEnd() ? `${newContent.trimEnd()}\n\n${block}` : block;
     }
 
-    const newContent = existing.trimEnd()
-      ? `${existing.trimEnd()}\n\n# Clef: SOPS-aware merge driver for encrypted files\n${mergeRule}\n`
-      : `# Clef: SOPS-aware merge driver for encrypted files\n${mergeRule}\n`;
+    if (newContent === existing) return; // already fully configured
 
     try {
       fs.writeFileSync(attrPath, newContent, "utf-8");

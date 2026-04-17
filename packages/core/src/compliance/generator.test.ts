@@ -28,9 +28,7 @@ function statusOf(overrides: Partial<FileRotationStatus> = {}): FileRotationStat
     recipients: ["age1abc"],
     last_modified: "2026-03-01T00:00:00.000Z",
     last_modified_known: true,
-    rotation_due: "2026-05-30T00:00:00.000Z",
-    rotation_overdue: false,
-    days_overdue: 0,
+    keys: [],
     compliant: true,
     ...overrides,
   };
@@ -209,9 +207,12 @@ describe("ComplianceGenerator", () => {
   describe("summary", () => {
     it("counts compliant and overdue files", () => {
       const files = [
-        statusOf({ compliant: true, rotation_overdue: false }),
-        statusOf({ compliant: true, rotation_overdue: false }),
-        statusOf({ compliant: false, rotation_overdue: true, days_overdue: 5 }),
+        statusOf({ compliant: true }),
+        statusOf({ compliant: true }),
+        // Non-compliant cell → counted in rotation_overdue summary (the
+        // cell-level summary now tracks "any non-compliant cell" rather
+        // than the old file-level rotation_overdue flag).
+        statusOf({ compliant: false }),
       ];
       const doc = generator.generate({
         sha: "abc",

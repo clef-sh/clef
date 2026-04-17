@@ -5,7 +5,7 @@ import { registerSetCommand } from "./set";
 import {
   SubprocessRunner,
   markPendingWithRetry,
-  markResolved,
+  recordRotation,
   generateRandomValue,
 } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
@@ -17,8 +17,13 @@ jest.mock("@clef-sh/core", () => {
     ...actual,
     markPendingWithRetry: jest.fn().mockResolvedValue(undefined),
     markResolved: jest.fn().mockResolvedValue(undefined),
+    recordRotation: jest.fn().mockResolvedValue(undefined),
     generateRandomValue: jest.fn().mockReturnValue("a".repeat(64)),
-    GitIntegration: jest.fn().mockImplementation(() => ({})),
+    GitIntegration: jest.fn().mockImplementation(() => ({
+      getAuthorIdentity: jest
+        .fn()
+        .mockResolvedValue({ name: "Test User", email: "test@example.com" }),
+    })),
     TransactionManager: jest.fn().mockImplementation(() => ({
       run: jest
         .fn()
@@ -229,15 +234,19 @@ describe("clef set", () => {
     expect(mockFormatter.hint).toHaveBeenCalledWith("clef set payments/dev API_KEY");
   });
 
-  it("should call markResolved on normal set", async () => {
+  it("should record rotation with author identity on normal set", async () => {
     const runner = sopsRunner();
     const program = makeProgram(runner);
 
     await program.parseAsync(["node", "clef", "set", "payments/dev", "STRIPE_KEY", "sk_live_real"]);
 
-    expect(markResolved).toHaveBeenCalledWith(expect.stringContaining("payments/dev.enc.yaml"), [
-      "STRIPE_KEY",
-    ]);
+    // Normal set is a rotation: we record it and the author identity
+    // flows from git config through to the stored `rotated_by`.
+    expect(recordRotation).toHaveBeenCalledWith(
+      expect.stringContaining("payments/dev.enc.yaml"),
+      ["STRIPE_KEY"],
+      "Test User <test@example.com>",
+    );
   });
 
   it("should reject --random with an explicit value", async () => {

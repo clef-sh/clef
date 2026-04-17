@@ -1,22 +1,34 @@
 # Release workflow — strips prerelease suffix, publishes to npm, creates one
-# umbrella GitHub release, and triggers the SEA binary build.
+# umbrella GitHub release, triggers the SEA binary build, and publishes
+# pre-built Lambda layers to AWS.
 #
 # Sequential job pipeline (mirrors publish-prerelease.yml):
 #
-#   prepare  →  build-sea-bins  →  publish
+#   prepare → build-sea-bins → publish → publish-lambda-layers → update-release-notes-layers
 #
-#   1. prepare        Strips -beta.N from every package version, commits
-#                     the stamped versions to main, creates per-package git
-#                     tags + an umbrella git tag, then creates a DRAFT
-#                     umbrella GitHub release attached to the umbrella tag.
+#   1. prepare                  Strips -beta.N from every package version,
+#                               commits the stamped versions to main, creates
+#                               per-package git tags + an umbrella git tag,
+#                               then creates a DRAFT umbrella GitHub release
+#                               attached to the umbrella tag.
 #
-#   2. build-sea-bins Dispatches build-sea.yml against the umbrella tag and
-#                     polls until SEA bins are attached to the draft.
+#   2. build-sea-bins           Dispatches build-sea.yml against the umbrella
+#                               tag and polls until SEA bins are attached to
+#                               the draft.
 #
-#   3. publish        Re-checks out main (which now has the stamped versions
-#                     committed by prepare), builds, runs tests, publishes
-#                     9 packages to npm with provenance, then flips the
-#                     draft umbrella release to published.
+#   3. publish                  Re-checks out main (which now has the stamped
+#                               versions committed by prepare), builds, runs
+#                               tests, publishes 9 packages to npm with
+#                               provenance, then flips the draft umbrella
+#                               release to published.
+#
+#   4. publish-lambda-layers    Publishes the agent Lambda layer ZIPs (x64 +
+#                               arm64) to AWS in each target region. Requires
+#                               vars.AWS_LAMBDA_LAYER_ROLE_ARN to be set.
+#
+#   5. update-release-notes-layers  Appends a Lambda Layers ARN table to the
+#                                   umbrella release notes (runs once after
+#                                   all region matrix legs complete).
 #
 # By the time code reaches main (via staging merge), package.json versions
 # are already stamped as e.g. 0.1.8-beta.52. This workflow strips the
@@ -484,3 +496,186 @@ jobs:
             --draft=false \
             --latest
           echo "Published umbrella release: $TAG"
+
+  # ── 4. Publish Lambda layers to AWS ────────────────────────────────
+  #
+  # Publishes the agent Lambda layer ZIPs (already attached to the GitHub
+  # release by build-sea) to AWS Lambda in each target region, then makes
+  # them publicly accessible. Each region runs as a separate matrix leg.
+  #
+  # Prerequisites:
+  #   - vars.AWS_LAMBDA_LAYER_ROLE_ARN must be set on the repo (IAM role
+  #     with lambda:PublishLayerVersion + lambda:AddLayerVersionPermission,
+  #     trusted via OIDC for repo:clef-sh/clef:environment:prod).
+
+  publish-lambda-layers:
+    name: Publish Lambda layer (${{ matrix.region }})
+    needs: [prepare, build-sea-bins, publish]
+    if: needs.prepare.outputs.agent_released == 'true'
+    runs-on: ubuntu-latest
+    environment: prod
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        region: [us-east-1, ca-central-1]
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_LAMBDA_LAYER_ROLE_ARN }}
+          aws-region: ${{ matrix.region }}
+
+      - name: Download layer ZIPs from GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ needs.prepare.outputs.cli_version }}"
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "clef-agent-lambda-*.zip" \
+            --dir ./layers
+          ls -lh ./layers/
+
+      - name: Publish x64 layer
+        id: publish_x64
+        run: |
+          AGENT_VER="${{ needs.prepare.outputs.agent_version }}"
+          RESULT=$(aws lambda publish-layer-version \
+            --layer-name clef-agent-x64 \
+            --description "Clef agent Lambda extension v${AGENT_VER} (x86_64)" \
+            --zip-file fileb://layers/clef-agent-lambda-x64.zip \
+            --compatible-architectures x86_64 \
+            --output json)
+          ARN=$(echo "$RESULT" | jq -r '.LayerVersionArn')
+          VERSION=$(echo "$RESULT" | jq -r '.Version')
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Published x64 layer: $ARN"
+
+      - name: Make x64 layer public
+        run: |
+          aws lambda add-layer-version-permission \
+            --layer-name clef-agent-x64 \
+            --version-number ${{ steps.publish_x64.outputs.version }} \
+            --statement-id public-access \
+            --action lambda:GetLayerVersion \
+            --principal "*" 2>/dev/null \
+          || echo "Permission already set (idempotent)"
+
+      - name: Publish arm64 layer
+        id: publish_arm64
+        run: |
+          AGENT_VER="${{ needs.prepare.outputs.agent_version }}"
+          RESULT=$(aws lambda publish-layer-version \
+            --layer-name clef-agent-arm64 \
+            --description "Clef agent Lambda extension v${AGENT_VER} (arm64)" \
+            --zip-file fileb://layers/clef-agent-lambda-arm64.zip \
+            --compatible-architectures arm64 \
+            --output json)
+          ARN=$(echo "$RESULT" | jq -r '.LayerVersionArn')
+          VERSION=$(echo "$RESULT" | jq -r '.Version')
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Published arm64 layer: $ARN"
+
+      - name: Make arm64 layer public
+        run: |
+          aws lambda add-layer-version-permission \
+            --layer-name clef-agent-arm64 \
+            --version-number ${{ steps.publish_arm64.outputs.version }} \
+            --statement-id public-access \
+            --action lambda:GetLayerVersion \
+            --principal "*" 2>/dev/null \
+          || echo "Permission already set (idempotent)"
+
+      - name: Save ARNs as artifact
+        run: |
+          mkdir -p arns
+          cat > arns/${{ matrix.region }}.json <<'ARNS_EOF'
+          {
+            "region": "${{ matrix.region }}",
+            "x64": "${{ steps.publish_x64.outputs.arn }}",
+            "arm64": "${{ steps.publish_arm64.outputs.arn }}"
+          }
+          ARNS_EOF
+
+      - name: Upload ARN artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-layer-arns-${{ matrix.region }}
+          path: arns/
+
+      - name: Job summary
+        run: |
+          echo "## Lambda Layers (${{ matrix.region }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Architecture | Layer ARN |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| x86_64 | \`${{ steps.publish_x64.outputs.arn }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| arm64 | \`${{ steps.publish_arm64.outputs.arn }}\` |" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── 5. Append Lambda layer ARNs to release notes ────────────────────
+  #
+  # Runs once after all region matrix legs complete. Downloads ARN
+  # artifacts from each leg and appends a consolidated table to the
+  # umbrella release notes.
+
+  update-release-notes-layers:
+    name: Update release notes with layer ARNs
+    needs: [prepare, publish-lambda-layers]
+    if: needs.prepare.outputs.agent_released == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all ARN artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lambda-layer-arns-*
+          path: arns/
+          merge-multiple: true
+
+      - name: Append layer ARNs to release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ needs.prepare.outputs.cli_version }}"
+
+          EXISTING=$(gh release view "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json body \
+            --jq '.body')
+
+          # Build the layer table from all region artifacts.
+          {
+            echo ""
+            echo "## Lambda Layers"
+            echo ""
+            echo "Pre-published layers — attach to your Lambda function by ARN."
+            echo ""
+            echo "| Region | Architecture | Layer ARN |"
+            echo "|---|---|---|"
+            for f in arns/*.json; do
+              REGION=$(jq -r '.region' "$f")
+              X64=$(jq -r '.x64' "$f")
+              ARM64=$(jq -r '.arm64' "$f")
+              echo "| ${REGION} | x86_64 | \`${X64}\` |"
+              echo "| ${REGION} | arm64 | \`${ARM64}\` |"
+            done
+          } > /tmp/layer-table.md
+
+          # Append only if not already present (idempotent on re-run).
+          if echo "$EXISTING" | grep -q "## Lambda Layers"; then
+            echo "Layer ARN table already present in release notes — skipping"
+            exit 0
+          fi
+
+          UPDATED=$(printf '%s\n%s' "$EXISTING" "$(cat /tmp/layer-table.md)")
+
+          gh release edit "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --notes "$UPDATED"
+          echo "Appended Lambda layer ARNs to release notes for $TAG"

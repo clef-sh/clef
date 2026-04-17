@@ -168,6 +168,94 @@ describe("ScanRunner.scan", () => {
       expect(entropyMatches.length).toBeGreaterThan(0);
     });
 
+    it("suppresses entropy matches for public-by-design credentials (reCAPTCHA, Stripe publishable)", async () => {
+      const runner = makeRunner([], [".env.test", "static/index.html"]);
+      const scanner = new ScanRunner(runner);
+      const manifest = makeManifest();
+
+      mockFs.existsSync.mockImplementation((p: unknown) => {
+        const s = String(p);
+        if (s === path.join(REPO_ROOT, "database/dev.enc.yaml")) return false;
+        if (s === path.join(REPO_ROOT, ".env.test")) return true;
+        if (s === path.join(REPO_ROOT, "static/index.html")) return true;
+        return false;
+      });
+      mockFs.statSync.mockReturnValue({ size: 200, isDirectory: () => false } as fs.Stats);
+      mockFs.openSync.mockReturnValue(3);
+      mockFs.readSync.mockReturnValue(0);
+      mockFs.closeSync.mockReturnValue(undefined);
+      mockFs.readFileSync.mockImplementation((p: unknown, _enc: unknown) => {
+        const s = String(p);
+        if (s === path.join(REPO_ROOT, ".env.test")) {
+          // Google's documented public test key.
+          return "RECAPTCHA_SITE_KEY=6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI\n";
+        }
+        if (s === path.join(REPO_ROOT, "static/index.html")) {
+          return '<script src="https://www.google.com/recaptcha/enterprise.js?render=6LdR85YsAAAAAPKKZcOTyvtTdCMDXCFEZoiRGEw_"></script>\n';
+        }
+        return "";
+      });
+
+      const result = await scanner.scan(REPO_ROOT, manifest, {});
+      const entropyMatches = result.matches.filter((m) => m.matchType === "entropy");
+      expect(entropyMatches).toHaveLength(0);
+    });
+
+    it("reports public-by-design credentials when --no-public-allowlist is set", async () => {
+      const runner = makeRunner([], [".env.test"]);
+      const scanner = new ScanRunner(runner);
+      const manifest = makeManifest();
+
+      mockFs.existsSync.mockImplementation((p: unknown) => {
+        const s = String(p);
+        if (s === path.join(REPO_ROOT, "database/dev.enc.yaml")) return false;
+        if (s === path.join(REPO_ROOT, ".env.test")) return true;
+        return false;
+      });
+      mockFs.statSync.mockReturnValue({ size: 100, isDirectory: () => false } as fs.Stats);
+      mockFs.openSync.mockReturnValue(3);
+      mockFs.readSync.mockReturnValue(0);
+      mockFs.closeSync.mockReturnValue(undefined);
+      mockFs.readFileSync.mockImplementation((p: unknown, _enc: unknown) => {
+        if (String(p) === path.join(REPO_ROOT, ".env.test")) {
+          return "RECAPTCHA_SITE_KEY=6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI\n";
+        }
+        return "";
+      });
+
+      const result = await scanner.scan(REPO_ROOT, manifest, { publicAllowlist: false });
+      const entropyMatches = result.matches.filter((m) => m.matchType === "entropy");
+      expect(entropyMatches.length).toBeGreaterThan(0);
+    });
+
+    it("still reports real secrets (non-public high-entropy values) with allowlist on", async () => {
+      const runner = makeRunner([], ["config/.env"]);
+      const scanner = new ScanRunner(runner);
+      const manifest = makeManifest();
+
+      mockFs.existsSync.mockImplementation((p: unknown) => {
+        const s = String(p);
+        if (s === path.join(REPO_ROOT, "database/dev.enc.yaml")) return false;
+        if (s === path.join(REPO_ROOT, "config/.env")) return true;
+        return false;
+      });
+      mockFs.statSync.mockReturnValue({ size: 100, isDirectory: () => false } as fs.Stats);
+      mockFs.openSync.mockReturnValue(3);
+      mockFs.readSync.mockReturnValue(0);
+      mockFs.closeSync.mockReturnValue(undefined);
+      mockFs.readFileSync.mockImplementation((p: unknown, _enc: unknown) => {
+        if (String(p) === path.join(REPO_ROOT, "config/.env")) {
+          // A high-entropy value that is NOT a public credential shape.
+          return "API_SECRET=4xK9mQ2pLv8nR3wZaT7cBhJqYdEsFgHu\n";
+        }
+        return "";
+      });
+
+      const result = await scanner.scan(REPO_ROOT, manifest, {});
+      const entropyMatches = result.matches.filter((m) => m.matchType === "entropy");
+      expect(entropyMatches.length).toBeGreaterThan(0);
+    });
+
     it("suppresses entropy matches in high severity mode", async () => {
       const runner = makeRunner([], ["config/.env"]);
       const scanner = new ScanRunner(runner);

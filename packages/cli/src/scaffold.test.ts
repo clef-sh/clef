@@ -230,6 +230,63 @@ describe("scaffoldPolicy", () => {
       expect(result.workflow.path).toBe(".gitlab/clef-compliance.yml");
     });
   });
+
+  describe("dry-run", () => {
+    it("returns would_create for both files on a clean tree and writes nothing", () => {
+      const result = scaffoldPolicy({ repoRoot: tmp, dryRun: true });
+      expect(result.policy.status).toBe("would_create");
+      expect(result.workflow.status).toBe("would_create");
+      expect(result.policy.diff).toBeUndefined();
+      expect(result.workflow.diff).toBeUndefined();
+      expect(fs.existsSync(path.join(tmp, POLICY_PATH))).toBe(false);
+      expect(fs.existsSync(path.join(tmp, ".github/workflows/clef-compliance.yml"))).toBe(false);
+    });
+
+    it("without --force, reports skipped_exists for files already on disk", () => {
+      fs.mkdirSync(path.join(tmp, ".clef"));
+      fs.writeFileSync(path.join(tmp, POLICY_PATH), "# existing\n");
+      const result = scaffoldPolicy({ repoRoot: tmp, dryRun: true });
+      expect(result.policy.status).toBe("skipped_exists");
+      // Unchanged file on disk
+      expect(fs.readFileSync(path.join(tmp, POLICY_PATH), "utf-8")).toBe("# existing\n");
+    });
+
+    it("with --force, returns would_overwrite + diff when contents differ", () => {
+      fs.mkdirSync(path.join(tmp, ".clef"));
+      fs.writeFileSync(path.join(tmp, POLICY_PATH), "# stale\n");
+      const result = scaffoldPolicy({ repoRoot: tmp, dryRun: true, force: true });
+      expect(result.policy.status).toBe("would_overwrite");
+      expect(result.policy.diff).toBeDefined();
+      // Patch header carries the repo-relative path; body surfaces the new
+      // template content as additions.
+      expect(result.policy.diff).toMatch(/\.clef\/policy\.yaml/);
+      expect(result.policy.diff).toMatch(/\+.*max_age_days/);
+      // Disk is untouched.
+      expect(fs.readFileSync(path.join(tmp, POLICY_PATH), "utf-8")).toBe("# stale\n");
+    });
+
+    it("with --force, returns unchanged (no diff) when disk matches the template", () => {
+      // Pre-seed with the live template contents.
+      const template = loadTemplate("policy.yaml");
+      fs.mkdirSync(path.join(tmp, ".clef"));
+      fs.writeFileSync(path.join(tmp, POLICY_PATH), template);
+      const result = scaffoldPolicy({ repoRoot: tmp, dryRun: true, force: true });
+      expect(result.policy.status).toBe("unchanged");
+      expect(result.policy.diff).toBeUndefined();
+    });
+
+    it("honors --workflow-only in dry-run (policy reports skipped_by_flag)", () => {
+      const result = scaffoldPolicy({ repoRoot: tmp, dryRun: true, workflowOnly: true });
+      expect(result.policy.status).toBe("skipped_by_flag");
+      expect(result.workflow.status).toBe("would_create");
+    });
+
+    it("surfaces merge instruction for non-github providers when workflow would land", () => {
+      const result = scaffoldPolicy({ repoRoot: tmp, dryRun: true, ci: "gitlab" });
+      expect(result.workflow.status).toBe("would_create");
+      expect(result.mergeInstruction).toMatch(/include:/);
+    });
+  });
 });
 
 describe("loadTemplate", () => {

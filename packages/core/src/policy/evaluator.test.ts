@@ -1,11 +1,13 @@
 import { SopsMetadata } from "../types";
+import { RotationRecord } from "../pending/metadata";
 import { PolicyEvaluator } from "./evaluator";
 import { PolicyDocument } from "./types";
 
 const NOW = new Date("2026-04-14T00:00:00Z");
+const MS_PER_DAY = 86_400_000;
 
 function metaAt(daysAgo: number, overrides: Partial<SopsMetadata> = {}): SopsMetadata {
-  const lastModified = new Date(NOW.getTime() - daysAgo * 86_400_000);
+  const lastModified = new Date(NOW.getTime() - daysAgo * MS_PER_DAY);
   return {
     backend: "age",
     recipients: ["age1abc"],
@@ -15,41 +17,199 @@ function metaAt(daysAgo: number, overrides: Partial<SopsMetadata> = {}): SopsMet
   };
 }
 
+function rotation(key: string, daysAgo: number, count = 1): RotationRecord {
+  return {
+    key,
+    lastRotatedAt: new Date(NOW.getTime() - daysAgo * MS_PER_DAY),
+    rotatedBy: "alice@example.com",
+    rotationCount: count,
+  };
+}
+
 describe("PolicyEvaluator", () => {
-  describe("compliant cases", () => {
-    it("marks a freshly modified file compliant", () => {
+  describe("per-key compliance", () => {
+    it("marks a key compliant when rotated within max_age_days", () => {
       const policy: PolicyDocument = { version: 1, rotation: { max_age_days: 90 } };
       const result = new PolicyEvaluator(policy).evaluateFile(
         "api/dev.enc.yaml",
         "dev",
         metaAt(30),
+        ["STRIPE_KEY"],
+        [rotation("STRIPE_KEY", 30)],
         NOW,
       );
 
       expect(result.compliant).toBe(true);
-      expect(result.rotation_overdue).toBe(false);
-      expect(result.days_overdue).toBe(0);
-      expect(result.last_modified_known).toBe(true);
+      expect(result.keys).toHaveLength(1);
+      expect(result.keys[0]).toMatchObject({
+        key: "STRIPE_KEY",
+        last_rotated_known: true,
+        rotation_overdue: false,
+        days_overdue: 0,
+        compliant: true,
+      });
     });
 
-    it("returns ISO 8601 strings for date fields", () => {
+    it("marks a key overdue when rotated past max_age_days", () => {
+      const policy: PolicyDocument = { version: 1, rotation: { max_age_days: 30 } };
+      const result = new PolicyEvaluator(policy).evaluateFile(
+        "api/dev.enc.yaml",
+        "dev",
+        metaAt(1),
+        ["OLD_KEY"],
+        [rotation("OLD_KEY", 40)],
+        NOW,
+      );
+
+      expect(result.keys[0].rotation_overdue).toBe(true);
+      expect(result.keys[0].days_overdue).toBe(10);
+      expect(result.keys[0].compliant).toBe(false);
+      expect(result.compliant).toBe(false);
+    });
+
+    it("marks a key unknown (violation) when no rotation record exists", () => {
       const policy: PolicyDocument = { version: 1, rotation: { max_age_days: 90 } };
       const result = new PolicyEvaluator(policy).evaluateFile(
         "api/dev.enc.yaml",
         "dev",
-        metaAt(30),
+        metaAt(1),
+        ["UNTRACKED"],
+        [], // no records
         NOW,
       );
 
-      expect(result.last_modified).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
-      expect(result.rotation_due).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
-      // rotation_due === last_modified + 90 days
-      const due = new Date(result.rotation_due).getTime();
-      const lastMod = new Date(result.last_modified).getTime();
-      expect(due - lastMod).toBe(90 * 86_400_000);
+      expect(result.keys[0]).toMatchObject({
+        key: "UNTRACKED",
+        last_rotated_at: null,
+        last_rotated_known: false,
+        rotation_due: null,
+        rotation_overdue: false,
+        compliant: false, // unknown = violation
+      });
+      expect(result.compliant).toBe(false);
     });
 
-    it("propagates path, environment, backend, and recipients verbatim", () => {
+    it("cell compliant iff every key is compliant (AND semantics)", () => {
+      const policy: PolicyDocument = { version: 1, rotation: { max_age_days: 30 } };
+      const result = new PolicyEvaluator(policy).evaluateFile(
+        "api/dev.enc.yaml",
+        "dev",
+        metaAt(1),
+        ["FRESH", "STALE"],
+        [rotation("FRESH", 5), rotation("STALE", 40)],
+        NOW,
+      );
+
+      expect(result.keys.find((k) => k.key === "FRESH")?.compliant).toBe(true);
+      expect(result.keys.find((k) => k.key === "STALE")?.compliant).toBe(false);
+      expect(result.compliant).toBe(false); // AND → one stale key fails the cell
+    });
+
+    it("cell with no keys is vacuously compliant", () => {
+      const policy: PolicyDocument = { version: 1 };
+      const result = new PolicyEvaluator(policy).evaluateFile(
+        "api/dev.enc.yaml",
+        "dev",
+        metaAt(1),
+        [],
+        [],
+        NOW,
+      );
+
+      expect(result.keys).toEqual([]);
+      expect(result.compliant).toBe(true);
+    });
+
+    it("ignores rotation records for keys not in the cipher (orphans)", () => {
+      const policy: PolicyDocument = { version: 1, rotation: { max_age_days: 90 } };
+      const result = new PolicyEvaluator(policy).evaluateFile(
+        "api/dev.enc.yaml",
+        "dev",
+        metaAt(1),
+        ["LIVE_KEY"],
+        [rotation("LIVE_KEY", 10), rotation("DELETED_KEY", 5)],
+        NOW,
+      );
+
+      // Orphan "DELETED_KEY" record does not appear in the output.
+      expect(result.keys).toHaveLength(1);
+      expect(result.keys[0].key).toBe("LIVE_KEY");
+    });
+  });
+
+  describe("per-environment overrides", () => {
+    it("applies per-env max_age_days to a given cell", () => {
+      const policy: PolicyDocument = {
+        version: 1,
+        rotation: {
+          max_age_days: 90,
+          environments: { production: { max_age_days: 30 } },
+        },
+      };
+      const evaluator = new PolicyEvaluator(policy);
+      const record = rotation("KEY", 40);
+
+      const prod = evaluator.evaluateFile(
+        "api/prod.enc.yaml",
+        "production",
+        metaAt(1),
+        ["KEY"],
+        [record],
+        NOW,
+      );
+      const dev = evaluator.evaluateFile(
+        "api/dev.enc.yaml",
+        "dev",
+        metaAt(1),
+        ["KEY"],
+        [record],
+        NOW,
+      );
+
+      // Same rotation age (40 days); production window is 30d → overdue.
+      // Dev window is 90d → compliant.
+      expect(prod.keys[0].rotation_overdue).toBe(true);
+      expect(prod.keys[0].days_overdue).toBe(10);
+      expect(dev.keys[0].rotation_overdue).toBe(false);
+    });
+
+    it("falls back to default 90-day window when policy omits rotation block", () => {
+      const policy: PolicyDocument = { version: 1 };
+      const result = new PolicyEvaluator(policy).evaluateFile(
+        "api/dev.enc.yaml",
+        "dev",
+        metaAt(1),
+        ["KEY"],
+        [rotation("KEY", 89)],
+        NOW,
+      );
+
+      expect(result.keys[0].rotation_overdue).toBe(false);
+    });
+
+    it("falls back to top-level max_age_days for envs without an override", () => {
+      const policy: PolicyDocument = {
+        version: 1,
+        rotation: {
+          max_age_days: 60,
+          environments: { production: { max_age_days: 7 } },
+        },
+      };
+      const result = new PolicyEvaluator(policy).evaluateFile(
+        "api/staging.enc.yaml",
+        "staging",
+        metaAt(1),
+        ["KEY"],
+        [rotation("KEY", 50)],
+        NOW,
+      );
+
+      expect(result.keys[0].rotation_overdue).toBe(false); // 50d < 60d top-level
+    });
+  });
+
+  describe("propagated raw fields", () => {
+    it("echoes path, environment, backend, and recipients verbatim", () => {
       const policy: PolicyDocument = { version: 1 };
       const meta = metaAt(1, {
         backend: "awskms",
@@ -59,6 +219,8 @@ describe("PolicyEvaluator", () => {
         "billing/prod.enc.yaml",
         "prod",
         meta,
+        [],
+        [],
         NOW,
       );
 
@@ -67,165 +229,129 @@ describe("PolicyEvaluator", () => {
       expect(result.backend).toBe("awskms");
       expect(result.recipients).toEqual(["arn:aws:kms:us-east-1:123:key/abc"]);
     });
-  });
 
-  describe("overdue cases", () => {
-    it("marks a file past max_age_days as overdue and counts days_overdue", () => {
-      const policy: PolicyDocument = { version: 1, rotation: { max_age_days: 90 } };
-      const result = new PolicyEvaluator(policy).evaluateFile(
-        "api/dev.enc.yaml",
-        "dev",
-        metaAt(100),
-        NOW,
-      );
-
-      expect(result.rotation_overdue).toBe(true);
-      expect(result.compliant).toBe(false);
-      expect(result.days_overdue).toBe(10);
-    });
-
-    it("treats a file exactly at max_age_days as still compliant", () => {
-      // rotation_due === lastModified + 90d.  At exactly 90d, now === due,
-      // and `now > due` is false → compliant.
-      const policy: PolicyDocument = { version: 1, rotation: { max_age_days: 90 } };
-      const result = new PolicyEvaluator(policy).evaluateFile(
-        "api/dev.enc.yaml",
-        "dev",
-        metaAt(90),
-        NOW,
-      );
-      expect(result.compliant).toBe(true);
-      expect(result.days_overdue).toBe(0);
-    });
-
-    it("flags a file 1 ms past due as overdue with 0 days_overdue", () => {
-      const policy: PolicyDocument = { version: 1, rotation: { max_age_days: 90 } };
-      const lastModified = new Date(NOW.getTime() - 90 * 86_400_000 - 1);
-      const meta: SopsMetadata = {
-        backend: "age",
-        recipients: ["age1"],
-        lastModified,
-        lastModifiedPresent: true,
-      };
-      const result = new PolicyEvaluator(policy).evaluateFile("a/dev.enc.yaml", "dev", meta, NOW);
-      expect(result.rotation_overdue).toBe(true);
-      expect(result.days_overdue).toBe(0);
-    });
-  });
-
-  describe("environment overrides", () => {
-    it("applies a tighter per-env max_age_days", () => {
-      const policy: PolicyDocument = {
-        version: 1,
-        rotation: {
-          max_age_days: 90,
-          environments: { production: { max_age_days: 30 } },
-        },
-      };
-      const evaluator = new PolicyEvaluator(policy);
-
-      // 31 days old in production → overdue (override applies)
-      const prodResult = evaluator.evaluateFile("a/prod.enc.yaml", "production", metaAt(31), NOW);
-      expect(prodResult.rotation_overdue).toBe(true);
-      expect(prodResult.days_overdue).toBe(1);
-
-      // Same age in dev → still compliant (top-level 90d applies)
-      const devResult = evaluator.evaluateFile("a/dev.enc.yaml", "dev", metaAt(31), NOW);
-      expect(devResult.rotation_overdue).toBe(false);
-    });
-
-    it("applies a looser per-env max_age_days", () => {
-      const policy: PolicyDocument = {
-        version: 1,
-        rotation: {
-          max_age_days: 30,
-          environments: { dev: { max_age_days: 365 } },
-        },
-      };
-      const result = new PolicyEvaluator(policy).evaluateFile(
-        "a/dev.enc.yaml",
-        "dev",
-        metaAt(100),
-        NOW,
-      );
-      expect(result.compliant).toBe(true);
-    });
-
-    it("falls through to top-level max_age_days for unmapped environments", () => {
-      const policy: PolicyDocument = {
-        version: 1,
-        rotation: {
-          max_age_days: 90,
-          environments: { production: { max_age_days: 30 } },
-        },
-      };
-      const result = new PolicyEvaluator(policy).evaluateFile(
-        "a/staging.enc.yaml",
-        "staging",
-        metaAt(31),
-        NOW,
-      );
-      expect(result.compliant).toBe(true);
-    });
-  });
-
-  describe("default behavior", () => {
-    it("uses 90-day default when policy has no rotation block", () => {
+    it("echoes last_modified from the sops metadata (no policy dependency)", () => {
       const policy: PolicyDocument = { version: 1 };
-      const overdue = new PolicyEvaluator(policy).evaluateFile(
-        "a/dev.enc.yaml",
+      const meta = metaAt(100); // far older than any window
+      const result = new PolicyEvaluator(policy).evaluateFile(
+        "api/dev.enc.yaml",
         "dev",
-        metaAt(91),
+        meta,
+        [],
+        [],
         NOW,
       );
-      expect(overdue.rotation_overdue).toBe(true);
 
-      const fresh = new PolicyEvaluator(policy).evaluateFile(
-        "a/dev.enc.yaml",
-        "dev",
-        metaAt(89),
-        NOW,
-      );
-      expect(fresh.compliant).toBe(true);
+      expect(result.last_modified).toBe(meta.lastModified.toISOString());
+      expect(result.last_modified_known).toBe(true);
+      // File-level rotation fields are intentionally absent — cell is
+      // vacuously compliant because it has no keys.
+      expect(result.compliant).toBe(true);
     });
 
-    it("defaults `now` to current time when not injected", () => {
-      const policy: PolicyDocument = { version: 1, rotation: { max_age_days: 90 } };
-      const meta = metaAt(0); // last modified at NOW reference
-      const result = new PolicyEvaluator(policy).evaluateFile("a/dev.enc.yaml", "dev", meta);
-      // metaAt() built lastModified relative to NOW, but real `now` is later;
-      // a 0-day-old file (relative to a fixed past NOW) is still compliant
-      // because real-now is < lastModified + 90d.
-      expect(result.compliant).toBe(true);
+    it("reflects last_modified_known: false when sops metadata lacks the field", () => {
+      const policy: PolicyDocument = { version: 1 };
+      const meta = metaAt(1, { lastModifiedPresent: false });
+      const result = new PolicyEvaluator(policy).evaluateFile(
+        "api/dev.enc.yaml",
+        "dev",
+        meta,
+        [],
+        [],
+        NOW,
+      );
+
+      expect(result.last_modified_known).toBe(false);
     });
   });
 
-  describe("metadata trustworthiness", () => {
-    it("treats missing lastModifiedPresent as last_modified_known: true (back-compat)", () => {
-      const policy: PolicyDocument = { version: 1, rotation: { max_age_days: 90 } };
-      // Hand-rolled metadata without lastModifiedPresent — assumed trustworthy.
-      const meta: SopsMetadata = {
-        backend: "age",
-        recipients: ["age1"],
-        lastModified: new Date(NOW.getTime() - 30 * 86_400_000),
+  describe("boundary cases", () => {
+    it("flags 1ms past due as overdue with 0 days_overdue", () => {
+      const policy: PolicyDocument = { version: 1, rotation: { max_age_days: 30 } };
+      const record: RotationRecord = {
+        key: "K",
+        lastRotatedAt: new Date(NOW.getTime() - 30 * MS_PER_DAY - 1),
+        rotatedBy: "alice",
+        rotationCount: 1,
       };
-      const result = new PolicyEvaluator(policy).evaluateFile("a/dev.enc.yaml", "dev", meta, NOW);
-      expect(result.last_modified_known).toBe(true);
+      const result = new PolicyEvaluator(policy).evaluateFile(
+        "api/dev.enc.yaml",
+        "dev",
+        metaAt(1),
+        ["K"],
+        [record],
+        NOW,
+      );
+
+      expect(result.keys[0].rotation_overdue).toBe(true);
+      expect(result.keys[0].days_overdue).toBe(0);
     });
 
-    it("surfaces last_modified_known: false when metadata lacks lastmodified", () => {
-      const policy: PolicyDocument = { version: 1, rotation: { max_age_days: 90 } };
-      const meta: SopsMetadata = {
-        backend: "age",
-        recipients: ["age1"],
-        lastModified: new Date(NOW.getTime() - 1000), // synthetic fallback
-        lastModifiedPresent: false,
+    it("treats exactly max_age_days as not yet overdue", () => {
+      const policy: PolicyDocument = { version: 1, rotation: { max_age_days: 30 } };
+      const record: RotationRecord = {
+        key: "K",
+        lastRotatedAt: new Date(NOW.getTime() - 30 * MS_PER_DAY),
+        rotatedBy: "alice",
+        rotationCount: 1,
       };
-      const result = new PolicyEvaluator(policy).evaluateFile("a/dev.enc.yaml", "dev", meta, NOW);
-      expect(result.last_modified_known).toBe(false);
-      // The verdict still reflects the (fallback) timestamp — caller decides
-      // whether to surface unknown metadata distinctly from a real "compliant".
-      expect(result.compliant).toBe(true);
+      const result = new PolicyEvaluator(policy).evaluateFile(
+        "api/dev.enc.yaml",
+        "dev",
+        metaAt(1),
+        ["K"],
+        [record],
+        NOW,
+      );
+
+      expect(result.keys[0].rotation_overdue).toBe(false);
+    });
+
+    it("exposes rotation_count and rotated_by from the record", () => {
+      const policy: PolicyDocument = { version: 1 };
+      const record: RotationRecord = {
+        key: "K",
+        lastRotatedAt: new Date(NOW.getTime() - MS_PER_DAY),
+        rotatedBy: "bob <bob@example.com>",
+        rotationCount: 7,
+      };
+      const result = new PolicyEvaluator(policy).evaluateFile(
+        "api/dev.enc.yaml",
+        "dev",
+        metaAt(1),
+        ["K"],
+        [record],
+        NOW,
+      );
+
+      expect(result.keys[0].rotated_by).toBe("bob <bob@example.com>");
+      expect(result.keys[0].rotation_count).toBe(7);
+    });
+
+    it("uses the system clock when `now` is omitted (default-parameter path)", () => {
+      // Guard for the documented default on evaluateFile's `now` parameter.
+      // A record rotated ~1 second ago must be fresh against a 30-day window
+      // regardless of when this test runs, so we can assert compliance without
+      // pinning wall-clock time.  Coverage-wise this exercises the default
+      // value branch the other tests bypass by always passing NOW explicitly.
+      const policy: PolicyDocument = { version: 1, rotation: { max_age_days: 30 } };
+      const record: RotationRecord = {
+        key: "K",
+        lastRotatedAt: new Date(Date.now() - 1000),
+        rotatedBy: "alice",
+        rotationCount: 1,
+      };
+      const result = new PolicyEvaluator(policy).evaluateFile(
+        "api/dev.enc.yaml",
+        "dev",
+        metaAt(1),
+        ["K"],
+        [record],
+        // `now` intentionally omitted — triggers `new Date()` default.
+      );
+
+      expect(result.keys[0].compliant).toBe(true);
+      expect(result.keys[0].rotation_overdue).toBe(false);
     });
   });
 });

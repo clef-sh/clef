@@ -382,4 +382,53 @@ describe("clef merge-driver", () => {
     }
     expect(mockFormatter.hint).toHaveBeenCalledWith(expect.stringContaining("Resolve conflicts"));
   });
+
+  describe("dispatch by file extension", () => {
+    it("dispatches .clef-meta.yaml to the metadata merge driver and exits 0", async () => {
+      // Metadata files don't go through SOPS — they're plaintext YAML.
+      // Feed a pair with divergent rotation counts and verify the merged
+      // output is written back to `ours` by the metadata driver.
+      const ours =
+        "version: 1\npending: []\nrotations:\n  - key: K\n    last_rotated_at: '2026-04-14T00:00:00.000Z'\n    rotated_by: alice\n    rotation_count: 2\n";
+      const theirs =
+        "version: 1\npending: []\nrotations:\n  - key: K\n    last_rotated_at: '2026-04-15T00:00:00.000Z'\n    rotated_by: bob\n    rotation_count: 2\n";
+
+      mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
+        const s = String(p);
+        return s.endsWith("ours.clef-meta.yaml") || s.endsWith("theirs.clef-meta.yaml");
+      });
+      mockFs.readFileSync.mockImplementation(((p: fs.PathOrFileDescriptor) => {
+        const s = p.toString();
+        if (s.endsWith("ours.clef-meta.yaml")) return ours;
+        if (s.endsWith("theirs.clef-meta.yaml")) return theirs;
+        return "";
+      }) as typeof fs.readFileSync);
+
+      const runner = makeMockRunner(() => ({}));
+      const program = makeProgram(runner);
+      try {
+        await program.parseAsync([
+          "node",
+          "clef",
+          "merge-driver",
+          "base.clef-meta.yaml",
+          "ours.clef-meta.yaml",
+          "theirs.clef-meta.yaml",
+        ]);
+      } catch {
+        // Commander throws on process.exit(0) via exitOverride
+      }
+
+      expect(mockExit).toHaveBeenCalledWith(0);
+      // Written result must contain the later timestamp + bumped count.
+      const calls = mockFs.writeFileSync.mock.calls as unknown as Array<
+        [fs.PathOrFileDescriptor, unknown, ...unknown[]]
+      >;
+      const write = calls.find(([p]) => String(p).endsWith("ours.clef-meta.yaml"));
+      expect(write).toBeDefined();
+      const written = String(write![1]);
+      expect(written).toContain("2026-04-15T00:00:00.000Z");
+      expect(written).toContain("rotation_count: 3"); // max(2,2)+1
+    });
+  });
 });

@@ -3,6 +3,7 @@ import { ClefManifest } from "../types";
 import { EncryptionBackend } from "../types";
 import { parse, ImportFormat } from "./parsers";
 import { TransactionManager } from "../tx";
+import { recordRotation } from "../pending/metadata";
 export type { ImportFormat, ParsedImport } from "./parsers";
 
 export interface ImportOptions {
@@ -12,6 +13,13 @@ export interface ImportOptions {
   overwrite?: boolean;
   dryRun?: boolean;
   stdin?: boolean;
+  /**
+   * Identity to record on rotations performed by this import (e.g. `"Name
+   * <email>"`).  When omitted, imported keys are still written to ciphertext
+   * but no rotation record is created — appropriate for callers that have
+   * their own bookkeeping.
+   */
+  rotatedBy?: string;
 }
 
 export interface ImportResult {
@@ -118,13 +126,21 @@ export class ImportRunner {
     const decrypted = await this.sopsClient.decrypt(filePath);
     const newValues: Record<string, string> = { ...decrypted.values };
 
+    // Rotation tracking: only keys whose value actually changes count as
+    // rotations.  A re-import of the same value is not a rotation per the
+    // design rule ("rotation = plaintext value changed").
+    const rotatedKeys: string[] = [];
+
     for (const [key, value] of candidates) {
-      if (key in decrypted.values && !options.overwrite) {
+      const existed = key in decrypted.values;
+      if (existed && !options.overwrite) {
         skipped.push(key);
         continue;
       }
+      const valueChanged = !existed || decrypted.values[key] !== value;
       newValues[key] = value;
       imported.push(key);
+      if (valueChanged) rotatedKeys.push(key);
     }
 
     if (imported.length === 0) {
@@ -132,11 +148,19 @@ export class ImportRunner {
       return { imported, skipped, failed, warnings, dryRun: false };
     }
 
+    const relCellPath = path.relative(repoRoot, filePath);
+    const relMetaPath = relCellPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml");
+
     await this.tx.run(repoRoot, {
       description: `clef import ${target}: ${imported.length} key(s)`,
-      paths: [path.relative(repoRoot, filePath)],
+      // Include the metadata path so rotation records created in the mutate
+      // callback are staged and rolled back atomically with the ciphertext.
+      paths: [relCellPath, relMetaPath],
       mutate: async () => {
         await this.sopsClient.encrypt(filePath, newValues, manifest, env);
+        if (options.rotatedBy && rotatedKeys.length > 0) {
+          await recordRotation(filePath, rotatedKeys, options.rotatedBy);
+        }
       },
     });
 

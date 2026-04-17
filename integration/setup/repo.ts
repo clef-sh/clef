@@ -136,6 +136,30 @@ export function scaffoldTestRepo(keys: AgeKeyPair, options?: ScaffoldOptions): T
   fs.unlinkSync(prodPlaintextFile);
   fs.writeFileSync(path.join(dir, "payments", "production.enc.yaml"), prodEncrypted);
 
+  // Seed `.clef-meta.yaml` sidecars with fresh rotation records for every
+  // key we just encrypted.  Without these, per-key policy treats the keys
+  // as "unknown rotation state" (correct by design — the real sops CLI
+  // doesn't write clef metadata), which would fail the default-healthy
+  // expectations of any test that assumes a fresh scaffold is compliant.
+  const writeMeta = (filename: string, keyNames: string[]): void => {
+    const metaContent = [
+      "# Managed by Clef. Do not edit manually.",
+      "version: 1",
+      "pending: []",
+      "rotations:",
+      ...keyNames.flatMap((k) => [
+        `  - key: ${k}`,
+        `    last_rotated_at: "${new Date().toISOString()}"`,
+        `    rotated_by: "scaffold"`,
+        `    rotation_count: 1`,
+      ]),
+      "",
+    ].join("\n");
+    fs.writeFileSync(path.join(dir, "payments", `${filename}.clef-meta.yaml`), metaContent);
+  };
+  writeMeta("dev", ["STRIPE_KEY", "STRIPE_WEBHOOK_SECRET"]);
+  writeMeta("production", ["STRIPE_KEY", "STRIPE_WEBHOOK_SECRET"]);
+
   // Init git repo for git operations. Set user.name/user.email on the repo
   // itself so TransactionManager's preflight author-identity check finds
   // them in CI (where there is no global git config). Locally this is a

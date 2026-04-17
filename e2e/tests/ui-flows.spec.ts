@@ -79,6 +79,12 @@ test.describe("sidebar navigation", () => {
     await expect(page.getByTestId("scan-idle")).toBeVisible();
   });
 
+  test("[positive] Policy nav item opens the policy view", async ({ page }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-policy").click();
+    await expect(page.getByText("clef policy check")).toBeVisible();
+  });
+
   test("[positive] Import nav item opens the import view", async ({ page }) => {
     await page.goto(server.url);
     await page.getByTestId("nav-import").click();
@@ -1084,11 +1090,29 @@ test.describe("clef namespace add → ManifestScreen: create namespace flow", ()
 
 // ── clef namespace edit → ManifestScreen: rename + edit flow ─────────────────
 
-test.describe("clef namespace edit → ManifestScreen: edit + rename flow", () => {
+test.describe.serial("clef namespace edit → ManifestScreen: edit + rename flow", () => {
+  // Self-sufficient: create e2e-add-ns directly via the API before the
+  // rename test runs.  Previously this describe depended on the `namespace
+  // add` describe having run first — fragile under --grep, under partial
+  // runs, and when non-namespace tests between the two describes mutate
+  // the manifest in ways that make the create test's side effect unstable.
+  test.beforeAll(async ({ request }) => {
+    const api = serverApi(server.url);
+    // Wipe any leftover state from a prior run of this describe or the
+    // peer add-describe so the create call is deterministic.
+    for (const name of ["e2e-add-ns", "e2e-renamed-ns"]) {
+      await request.delete(`${api.base}/api/namespaces/${name}`, { headers: api.headers });
+    }
+    const res = await request.post(`${api.base}/api/namespaces`, {
+      headers: { ...api.headers, "Content-Type": "application/json" },
+      data: { name: "e2e-add-ns", description: "for edit tests" },
+    });
+    expect(res.status(), `POST /api/namespaces failed: ${await res.text()}`).toBe(201);
+  });
+
   test("[positive] rename moves the namespace and the new row appears", async ({ page }) => {
     await page.goto(server.url);
     await page.getByTestId("nav-manifest").click();
-    // Edit the e2e-add-ns created earlier
     await page.getByTestId("namespace-row-e2e-add-ns-edit").click();
     await page.getByTestId("namespace-rename-input").fill("e2e-renamed-ns");
     await page.getByTestId("namespace-edit-submit").click();
@@ -1109,7 +1133,21 @@ test.describe("clef namespace edit → ManifestScreen: edit + rename flow", () =
 
 // ── clef namespace remove → ManifestScreen: delete flow ──────────────────────
 
-test.describe("clef namespace remove → ManifestScreen: delete flow", () => {
+test.describe.serial("clef namespace remove → ManifestScreen: delete flow", () => {
+  // Self-sufficient setup — ensure e2e-renamed-ns exists via the API
+  // regardless of whether the peer edit-describe populated it.
+  test.beforeAll(async ({ request }) => {
+    const api = serverApi(server.url);
+    for (const name of ["e2e-add-ns", "e2e-renamed-ns"]) {
+      await request.delete(`${api.base}/api/namespaces/${name}`, { headers: api.headers });
+    }
+    const res = await request.post(`${api.base}/api/namespaces`, {
+      headers: { ...api.headers, "Content-Type": "application/json" },
+      data: { name: "e2e-renamed-ns", description: "for delete tests" },
+    });
+    expect(res.status(), `POST /api/namespaces failed: ${await res.text()}`).toBe(201);
+  });
+
   test("[positive] confirm modal requires typing the name to enable submit", async ({ page }) => {
     await page.goto(server.url);
     await page.getByTestId("nav-manifest").click();

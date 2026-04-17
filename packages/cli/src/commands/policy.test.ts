@@ -5,6 +5,7 @@ import { SubprocessRunner } from "@clef-sh/core";
 import type {
   ComplianceDocument,
   FileRotationStatus,
+  KeyRotationStatus,
   RunComplianceOptions,
   RunComplianceResult,
 } from "@clef-sh/core";
@@ -70,20 +71,39 @@ function makeProgram(): Command {
   return program;
 }
 
-function file(overrides: Partial<FileRotationStatus> = {}): FileRotationStatus {
+function key(overrides: Partial<KeyRotationStatus> = {}): KeyRotationStatus {
   return {
-    path: "api/dev.enc.yaml",
-    environment: "dev",
-    backend: "age",
-    recipients: ["age1abc"],
-    last_modified: "2026-03-15T00:00:00.000Z",
-    last_modified_known: true,
+    key: "API_KEY",
+    last_rotated_at: "2026-03-15T00:00:00.000Z",
+    last_rotated_known: true,
+    rotated_by: "alice <alice@example.com>",
+    rotation_count: 1,
     rotation_due: "2026-06-13T00:00:00.000Z",
     rotation_overdue: false,
     days_overdue: 0,
     compliant: true,
     ...overrides,
   };
+}
+
+function file(overrides: Partial<FileRotationStatus> = {}): FileRotationStatus {
+  const base: FileRotationStatus = {
+    path: "api/dev.enc.yaml",
+    environment: "dev",
+    backend: "age",
+    recipients: ["age1abc"],
+    last_modified: "2026-03-15T00:00:00.000Z",
+    last_modified_known: true,
+    keys: [key()],
+    compliant: true,
+  };
+  const merged = { ...base, ...overrides };
+  // Keep cell compliant flag consistent with key verdicts when the test
+  // only overrides one or the other — this matches the real evaluator.
+  if (!("compliant" in overrides)) {
+    merged.compliant = merged.keys.every((k) => k.compliant);
+  }
+  return merged;
 }
 
 function doc(files: FileRotationStatus[]): ComplianceDocument {
@@ -97,7 +117,7 @@ function doc(files: FileRotationStatus[]): ComplianceDocument {
     summary: {
       total_files: files.length,
       compliant: files.filter((f) => f.compliant).length,
-      rotation_overdue: files.filter((f) => f.rotation_overdue).length,
+      rotation_overdue: files.filter((f) => !f.compliant).length,
       scan_violations: 0,
       lint_errors: 0,
     },
@@ -164,9 +184,14 @@ describe("clef policy check", () => {
     expect(mockExit).toHaveBeenCalledWith(0);
   });
 
-  it("exits 1 when any file overdue", async () => {
+  it("exits 1 when any key is overdue", async () => {
     mockRunCompliance.mockResolvedValue({
-      document: doc([file(), file({ rotation_overdue: true, compliant: false, days_overdue: 5 })]),
+      document: doc([
+        file(),
+        file({
+          keys: [key({ rotation_overdue: true, compliant: false, days_overdue: 5 })],
+        }),
+      ]),
       passed: false,
       durationMs: 5,
     });
@@ -176,39 +201,27 @@ describe("clef policy check", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
-  it("exits 0 when files have unknown metadata but --strict is not set", async () => {
-    mockRunCompliance.mockResolvedValue({
-      document: doc([file({ last_modified_known: false })]),
-      passed: true,
-      durationMs: 5,
-    });
-    const program = makeProgram();
-    await program.parseAsync(["node", "clef", "policy", "check"]);
-    expect(mockExit).toHaveBeenCalledWith(0);
-  });
-
-  it("exits 3 when --strict and any file has unknown metadata", async () => {
-    mockRunCompliance.mockResolvedValue({
-      document: doc([file({ last_modified_known: false })]),
-      passed: true,
-      durationMs: 5,
-    });
-    const program = makeProgram();
-    await program.parseAsync(["node", "clef", "policy", "check", "--strict"]);
-    expect(mockExit).toHaveBeenCalledWith(3);
-  });
-
-  it("--strict + overdue still exits 1 (overdue takes precedence)", async () => {
+  it("exits 1 when any key has unknown rotation (unknown = violation by design)", async () => {
     mockRunCompliance.mockResolvedValue({
       document: doc([
-        file({ last_modified_known: false }),
-        file({ rotation_overdue: true, compliant: false, days_overdue: 1 }),
+        file({
+          keys: [
+            key({
+              last_rotated_at: null,
+              last_rotated_known: false,
+              rotated_by: null,
+              rotation_count: 0,
+              rotation_due: null,
+              compliant: false,
+            }),
+          ],
+        }),
       ]),
       passed: false,
       durationMs: 5,
     });
     const program = makeProgram();
-    await program.parseAsync(["node", "clef", "policy", "check", "--strict"]);
+    await program.parseAsync(["node", "clef", "policy", "check"]);
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
@@ -247,7 +260,9 @@ describe("clef policy check", () => {
     });
     const program = makeProgram();
     await program.parseAsync(["node", "clef", "policy", "check"]);
-    expect(mockFormatter.info).toHaveBeenCalledWith(expect.stringMatching(/No matrix files/));
+    // Default per-key mode shows the "no keys" message; --per-file shows
+    // "No matrix files matched the filter."
+    expect(mockFormatter.info).toHaveBeenCalledWith(expect.stringMatching(/No keys found/));
   });
 
   it("--json mode emits a structured payload", async () => {
@@ -258,8 +273,23 @@ describe("clef policy check", () => {
 
     mockRunCompliance.mockResolvedValue({
       document: doc([
-        file({ last_modified_known: false }),
-        file({ rotation_overdue: true, compliant: false, days_overdue: 5 }),
+        // Cell with a key of unknown rotation state — violates the gate.
+        file({
+          keys: [
+            key({
+              last_rotated_at: null,
+              last_rotated_known: false,
+              rotated_by: null,
+              rotation_count: 0,
+              rotation_due: null,
+              compliant: false,
+            }),
+          ],
+        }),
+        // Cell with a key that is overdue.
+        file({
+          keys: [key({ rotation_overdue: true, compliant: false, days_overdue: 5 })],
+        }),
       ]),
       passed: false,
       durationMs: 5,
@@ -271,14 +301,41 @@ describe("clef policy check", () => {
       expect.objectContaining({
         summary: expect.objectContaining({
           total_files: 2,
-          compliant: 1,
-          rotation_overdue: 1,
+          // Both cells non-compliant → rotation_overdue counts both (one
+          // unknown-violation, one literally overdue).
+          rotation_overdue: 2,
           unknown_metadata: 1,
         }),
         passed: false,
       }),
     );
     expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it("--per-file output uses the file-level table headers", async () => {
+    mockRunCompliance.mockResolvedValue({
+      document: doc([file()]),
+      passed: true,
+      durationMs: 1,
+    });
+    const program = makeProgram();
+    await program.parseAsync(["node", "clef", "policy", "check", "--per-file"]);
+
+    const tableCall = mockFormatter.table.mock.calls[0] as [string[][], string[]];
+    expect(tableCall[1]).toEqual(["FILE", "ENV", "LAST WRITTEN", "KEYS", "STATUS"]);
+  });
+
+  it("--per-key output uses the per-key table headers (default)", async () => {
+    mockRunCompliance.mockResolvedValue({
+      document: doc([file()]),
+      passed: true,
+      durationMs: 1,
+    });
+    const program = makeProgram();
+    await program.parseAsync(["node", "clef", "policy", "check"]);
+
+    const tableCall = mockFormatter.table.mock.calls[0] as [string[][], string[]];
+    expect(tableCall[1]).toEqual(["KEY", "FILE", "ENV", "AGE", "LIMIT", "STATUS"]);
   });
 });
 
@@ -377,7 +434,12 @@ describe("clef policy report", () => {
 
   it("does not exit nonzero on policy violations (artifact production succeeded)", async () => {
     mockRunCompliance.mockResolvedValue({
-      document: doc([file({ rotation_overdue: true, compliant: false })]),
+      document: doc([
+        file({
+          keys: [key({ rotation_overdue: true, compliant: false, days_overdue: 3 })],
+          compliant: false,
+        }),
+      ]),
       passed: false,
       durationMs: 1,
     });
@@ -389,7 +451,12 @@ describe("clef policy report", () => {
 
   it("output file summary shows 'failed' when not passed", async () => {
     mockRunCompliance.mockResolvedValue({
-      document: doc([file({ rotation_overdue: true, compliant: false })]),
+      document: doc([
+        file({
+          keys: [key({ rotation_overdue: true, compliant: false, days_overdue: 3 })],
+          compliant: false,
+        }),
+      ]),
       passed: false,
       durationMs: 5,
     });
@@ -507,5 +574,72 @@ describe("clef policy init", () => {
     // Status label contains "exists" text
     const printCalls = mockFormatter.print.mock.calls.map((c) => c[0]);
     expect(printCalls.some((s) => /exists/.test(String(s)))).toBe(true);
+  });
+
+  it("forwards --dry-run to scaffoldPolicy", async () => {
+    const program = makeProgram();
+    await program.parseAsync([
+      "node",
+      "clef",
+      "policy",
+      "init",
+      "--dry-run",
+      "--force",
+      "--workflow-only",
+    ]);
+    expect(mockScaffoldPolicy).toHaveBeenCalledWith(
+      expect.objectContaining({ dryRun: true, force: true, workflowOnly: true }),
+    );
+  });
+
+  it("renders diff output for would_overwrite results", async () => {
+    mockScaffoldPolicy.mockReturnValueOnce({
+      policy: { path: ".clef/policy.yaml", status: "skipped_by_flag" },
+      workflow: {
+        path: ".github/workflows/clef-compliance.yml",
+        status: "would_overwrite",
+        diff: "--- current\n+++ new\n@@ -1 +1 @@\n-node: 20\n+node: 22\n",
+      },
+      provider: "github",
+      mergeInstruction: undefined,
+    });
+    const program = makeProgram();
+    await program.parseAsync([
+      "node",
+      "clef",
+      "policy",
+      "init",
+      "--dry-run",
+      "--force",
+      "--workflow-only",
+    ]);
+
+    // Status label surfaces the "update" verb for would_overwrite
+    const printCalls = mockFormatter.print.mock.calls.map((c) => c[0]);
+    expect(printCalls.some((s) => /update/.test(String(s)))).toBe(true);
+    // Diff body is forwarded verbatim to formatter.raw
+    expect(mockFormatter.raw).toHaveBeenCalledWith(expect.stringContaining("+node: 22"));
+  });
+
+  it("renders would_create / unchanged status labels", async () => {
+    mockScaffoldPolicy.mockReturnValueOnce({
+      policy: { path: ".clef/policy.yaml", status: "would_create" },
+      workflow: {
+        path: ".github/workflows/clef-compliance.yml",
+        status: "unchanged",
+      },
+      provider: "github",
+      mergeInstruction: undefined,
+    });
+    const program = makeProgram();
+    await program.parseAsync(["node", "clef", "policy", "init", "--dry-run", "--force"]);
+
+    const printCalls = mockFormatter.print.mock.calls.map((c) => String(c[0]));
+    expect(printCalls.some((s) => /create/.test(s))).toBe(true);
+    // Plain-mode label for "unchanged" is `[same]` — the test harness has
+    // isPlainMode() stubbed true, so we assert on that.
+    expect(printCalls.some((s) => /same/.test(s))).toBe(true);
+    // No diff was produced for these statuses
+    expect(mockFormatter.raw).not.toHaveBeenCalled();
   });
 });

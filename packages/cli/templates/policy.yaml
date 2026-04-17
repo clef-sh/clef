@@ -3,7 +3,7 @@
 # Run `clef policy check` locally to evaluate the current matrix.
 # The companion CI workflow enforces this on every PR and merge.
 #
-# Docs: https://docs.clef.sh/policy
+# Docs: https://docs.clef.sh/cli/policy
 
 version: 1
 

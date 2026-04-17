@@ -9,7 +9,7 @@ version: 2.1
 jobs:
   clef-compliance:
     docker:
-      - image: cimg/node:20.11
+      - image: cimg/node:22.11
     steps:
       - checkout
       - run:
