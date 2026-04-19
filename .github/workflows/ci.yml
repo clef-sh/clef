@@ -195,6 +195,11 @@ jobs:
           curl -Lo /usr/local/bin/sops https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64
           chmod +x /usr/local/bin/sops
           sops --version
+      # SoftHSM2 + OpenSC provide the PKCS#11 token that hsm-roundtrip.test.ts
+      # provisions against. clef-keyservice is pulled in via npm ci as an
+      # optionalDependency of @clef-sh/cli (platform: linux-x64).
+      - name: Install SoftHSM2 + OpenSC
+        run: sudo apt-get update && sudo apt-get install -y softhsm2 opensc
       - run: npm ci
       - run: npm run build --workspace=packages/core
       - run: npm run build --workspace=packages/ui
@@ -209,32 +214,6 @@ jobs:
         run: npx jest --config packages/broker/jest.integration.config.js
       - name: Broker E2E
         run: npx tsx --test packages/broker/e2e/broker.e2e.test.ts
-
-  # HSM integration tests — exercise the full CLI → SOPS → clef-keyservice
-  # → SoftHSM2 path. The keyservice binary is resolved from the
-  # @clef-sh/keyservice-linux-x64 optionalDependency that `npm ci` installs
-  # on the Linux x64 runner (pinned in packages/cli/package.json).
-  hsm-integration-test:
-    name: HSM Integration Tests
-    needs: integration-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
-      - name: Install SOPS
-        run: |
-          SOPS_VERSION=$(node -p "require('./sops-version.json').version")
-          curl -Lo /usr/local/bin/sops https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64
-          chmod +x /usr/local/bin/sops
-      - name: Install SoftHSM2 + OpenSC
-        run: sudo apt-get update && sudo apt-get install -y softhsm2 opensc
-      - run: npm ci
-      - run: npm run build --workspaces
-      - name: Run HSM integration tests
-        run: npx jest --config integration/jest.config.js --testPathPattern=hsm-
 
   # Agent smoke: single SEA+Linux on every PR for fast feedback.
   agent-e2e-smoke:
