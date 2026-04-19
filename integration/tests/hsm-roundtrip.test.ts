@@ -112,28 +112,43 @@ async function seedHsmEncryptedFile(filePath: string): Promise<void> {
   try {
     const arn = pkcs11UriToSyntheticArn(hsm.pkcs11Uri);
     const configPath = process.platform === "win32" ? "NUL" : "/dev/null";
-    const ciphertext = execFileSync(
-      "sops",
-      [
-        "--config",
-        configPath,
-        "encrypt",
-        "--enable-local-keyservice=false",
-        "--keyservice",
-        `tcp://127.0.0.1:${port}`,
-        "--kms",
-        arn,
-        "--input-type",
-        "yaml",
-        "--output-type",
-        "yaml",
-        "--filename-override",
-        filePath,
-        "/dev/stdin",
-      ],
-      { input: "{}\n", stdio: ["pipe", "pipe", "pipe"] },
-    );
-    fs.writeFileSync(filePath, ciphertext);
+    // Write plaintext as a real file and pass its path to sops. `/dev/stdin`
+    // works on macOS dev boxes but fails in GHA runners with
+    // "open /dev/stdin: no such device or address" — SOPS opens the arg as
+    // a regular file and the stdin pipe Node wires up isn't addressable
+    // there. The age integration scaffold uses the same file-based trick.
+    const plaintextPath = filePath + ".plain";
+    fs.writeFileSync(plaintextPath, "{}\n");
+    try {
+      const ciphertext = execFileSync(
+        "sops",
+        [
+          "--config",
+          configPath,
+          "encrypt",
+          "--enable-local-keyservice=false",
+          "--keyservice",
+          `tcp://127.0.0.1:${port}`,
+          "--kms",
+          arn,
+          "--input-type",
+          "yaml",
+          "--output-type",
+          "yaml",
+          "--filename-override",
+          filePath,
+          plaintextPath,
+        ],
+        { stdio: ["ignore", "pipe", "pipe"] },
+      );
+      fs.writeFileSync(filePath, ciphertext);
+    } finally {
+      try {
+        fs.unlinkSync(plaintextPath);
+      } catch {
+        // best-effort cleanup
+      }
+    }
   } finally {
     child.kill("SIGTERM");
   }
