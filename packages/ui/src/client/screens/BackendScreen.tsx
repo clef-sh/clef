@@ -45,6 +45,7 @@ const BACKEND_LABELS: Record<BackendType, string> = {
   gcpkms: "GCP KMS",
   azurekv: "Azure Key Vault",
   pgp: "PGP",
+  hsm: "HSM (PKCS#11)",
 };
 
 const KEY_PLACEHOLDERS: Record<string, string> = {
@@ -52,9 +53,10 @@ const KEY_PLACEHOLDERS: Record<string, string> = {
   gcpkms: "projects/.../locations/.../keyRings/.../cryptoKeys/...",
   azurekv: "https://vault-name.vault.azure.net/keys/key-name/version",
   pgp: "PGP fingerprint",
+  hsm: "pkcs11:slot=0;label=clef-dek-wrapper",
 };
 
-const ALL_BACKENDS: BackendType[] = ["age", "awskms", "gcpkms", "azurekv", "pgp"];
+const ALL_BACKENDS: BackendType[] = ["age", "awskms", "gcpkms", "azurekv", "pgp", "hsm"];
 export function BackendScreen({ manifest, setView, reloadManifest }: BackendScreenProps) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [config, setConfig] = useState<BackendConfigResponse | null>(null);

@@ -27,7 +27,15 @@ import { validateAgePublicKey } from "../recipients/validator";
  */
 export const CLEF_MANIFEST_FILENAME = "clef.yaml";
 
-const VALID_BACKENDS = ["age", "awskms", "gcpkms", "azurekv", "pgp"] as const;
+const VALID_BACKENDS = ["age", "awskms", "gcpkms", "azurekv", "pgp", "hsm"] as const;
+/**
+ * Minimum PKCS#11 URI shape required at parse time. Loose by design — full
+ * RFC 7512 grammar varies per HSM vendor, and clef-keyservice owns the
+ * authoritative parse via miekg/pkcs11. We just guard against obvious typos
+ * (wrong scheme, no attributes) so that misconfigured manifests fail at
+ * `clef lint` instead of at first encrypt.
+ */
+const PKCS11_URI_PATTERN = /^pkcs11:[a-zA-Z][a-zA-Z0-9_-]*=[^;]+/;
 const VALID_TOP_LEVEL_KEYS = [
   "version",
   "environments",
@@ -212,6 +220,21 @@ export class ManifestParser {
             "environments",
           );
         }
+        if (backend === "hsm") {
+          if (typeof sopsOverride.pkcs11_uri !== "string") {
+            throw new ManifestValidationError(
+              `Environment '${envObj.name}' uses 'hsm' backend but is missing 'pkcs11_uri'.`,
+              "environments",
+            );
+          }
+          if (!PKCS11_URI_PATTERN.test(sopsOverride.pkcs11_uri)) {
+            throw new ManifestValidationError(
+              `Environment '${envObj.name}' has an invalid 'pkcs11_uri' '${sopsOverride.pkcs11_uri}'. ` +
+                "Must start with 'pkcs11:' and contain at least one attribute (e.g. 'pkcs11:slot=0;label=clef-dek-wrapper').",
+              "environments",
+            );
+          }
+        }
 
         result.sops = {
           backend,
@@ -226,6 +249,9 @@ export class ManifestParser {
             : {}),
           ...(typeof sopsOverride.pgp_fingerprint === "string"
             ? { pgp_fingerprint: sopsOverride.pgp_fingerprint }
+            : {}),
+          ...(typeof sopsOverride.pkcs11_uri === "string"
+            ? { pkcs11_uri: sopsOverride.pkcs11_uri }
             : {}),
         };
       }
@@ -372,7 +398,7 @@ export class ManifestParser {
     const sopsObj = obj.sops as Record<string, unknown>;
     if (!sopsObj.default_backend || typeof sopsObj.default_backend !== "string") {
       throw new ManifestValidationError(
-        "Field 'sops.default_backend' is required and must be one of: age, awskms, gcpkms, azurekv, pgp.",
+        `Field 'sops.default_backend' is required and must be one of: ${VALID_BACKENDS.join(", ")}.`,
         "sops.default_backend",
       );
     }
@@ -405,6 +431,27 @@ export class ManifestParser {
         }
       : {};
 
+    // Optional global pkcs11_uri — required iff default_backend is hsm.
+    if (sopsObj.pkcs11_uri !== undefined && typeof sopsObj.pkcs11_uri !== "string") {
+      throw new ManifestValidationError(
+        "Field 'sops.pkcs11_uri' must be a string.",
+        "sops.pkcs11_uri",
+      );
+    }
+    if (typeof sopsObj.pkcs11_uri === "string" && !PKCS11_URI_PATTERN.test(sopsObj.pkcs11_uri)) {
+      throw new ManifestValidationError(
+        `Field 'sops.pkcs11_uri' has invalid format '${sopsObj.pkcs11_uri}'. ` +
+          "Must start with 'pkcs11:' and contain at least one attribute (e.g. 'pkcs11:slot=0;label=clef-dek-wrapper').",
+        "sops.pkcs11_uri",
+      );
+    }
+    if (sopsObj.default_backend === "hsm" && typeof sopsObj.pkcs11_uri !== "string") {
+      throw new ManifestValidationError(
+        "Field 'sops.pkcs11_uri' is required when sops.default_backend is 'hsm'.",
+        "sops.pkcs11_uri",
+      );
+    }
+
     const sopsConfig = {
       default_backend: sopsObj.default_backend as (typeof VALID_BACKENDS)[number],
       ...parsedAge,
@@ -416,6 +463,7 @@ export class ManifestParser {
       ...(typeof sopsObj.pgp_fingerprint === "string"
         ? { pgp_fingerprint: sopsObj.pgp_fingerprint }
         : {}),
+      ...(typeof sopsObj.pkcs11_uri === "string" ? { pkcs11_uri: sopsObj.pkcs11_uri } : {}),
     };
 
     // Post-processing: validate per-env recipients are only used with age backend

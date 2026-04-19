@@ -160,50 +160,60 @@ export function registerResetCommand(program: Command, deps: { runner: Subproces
         // Encrypt-only SOPS client: reset never decrypts, so the age key
         // (if any) is only needed if the new backend is age and the env
         // already has age recipients. createSopsClient handles both cases.
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const schemaValidator = new SchemaValidator();
-        const tx = new TransactionManager(new GitIntegration(deps.runner));
-        const manager = new ResetManager(matrixManager, sopsClient, schemaValidator, tx);
-
-        const resetOpts: ResetOptions = {
-          scope,
-          backend,
-          key,
-          keys: explicitKeys,
-        };
-
-        const result = await manager.reset(resetOpts, manifest, repoRoot);
-
-        if (isJsonMode()) {
-          formatter.json({
-            scope: scopeLabel,
-            scaffoldedCells: result.scaffoldedCells,
-            pendingKeysByCell: result.pendingKeysByCell,
-            backendChanged: result.backendChanged,
-            affectedEnvironments: result.affectedEnvironments,
-          });
-          return;
-        }
-
-        formatter.success(
-          `Reset ${scopeLabel}: scaffolded ${result.scaffoldedCells.length} cell(s). ${sym("locked")}`,
+        const { client: sopsClient, cleanup } = await createSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
         );
-        if (result.backendChanged) {
-          formatter.info(`Backend override written for: ${result.affectedEnvironments.join(", ")}`);
-        }
+        try {
+          const schemaValidator = new SchemaValidator();
+          const tx = new TransactionManager(new GitIntegration(deps.runner));
+          const manager = new ResetManager(matrixManager, sopsClient, schemaValidator, tx);
 
-        const pendingCells = Object.keys(result.pendingKeysByCell);
-        if (pendingCells.length > 0) {
-          const totalPending = Object.values(result.pendingKeysByCell).reduce(
-            (sum, keys) => sum + keys.length,
-            0,
+          const resetOpts: ResetOptions = {
+            scope,
+            backend,
+            key,
+            keys: explicitKeys,
+          };
+
+          const result = await manager.reset(resetOpts, manifest, repoRoot);
+
+          if (isJsonMode()) {
+            formatter.json({
+              scope: scopeLabel,
+              scaffoldedCells: result.scaffoldedCells,
+              pendingKeysByCell: result.pendingKeysByCell,
+              backendChanged: result.backendChanged,
+              affectedEnvironments: result.affectedEnvironments,
+            });
+            return;
+          }
+
+          formatter.success(
+            `Reset ${scopeLabel}: scaffolded ${result.scaffoldedCells.length} cell(s). ${sym("locked")}`,
           );
-          formatter.info(
-            `${totalPending} pending placeholder(s) across ${pendingCells.length} cell(s).`,
-          );
-          formatter.hint("Run 'clef set' to replace placeholders with real values.");
-        } else {
-          formatter.hint("Cells are empty. Run 'clef set' to populate them.");
+          if (result.backendChanged) {
+            formatter.info(
+              `Backend override written for: ${result.affectedEnvironments.join(", ")}`,
+            );
+          }
+
+          const pendingCells = Object.keys(result.pendingKeysByCell);
+          if (pendingCells.length > 0) {
+            const totalPending = Object.values(result.pendingKeysByCell).reduce(
+              (sum, keys) => sum + keys.length,
+              0,
+            );
+            formatter.info(
+              `${totalPending} pending placeholder(s) across ${pendingCells.length} cell(s).`,
+            );
+            formatter.hint("Run 'clef set' to replace placeholders with real values.");
+          } else {
+            formatter.hint("Cells are empty. Run 'clef set' to populate them.");
+          }
+        } finally {
+          await cleanup();
         }
       } catch (err) {
         handleCommandError(err);

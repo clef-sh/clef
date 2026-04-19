@@ -13,7 +13,10 @@ const mockRemoveNamespace = jest.fn();
 const mockManifestParse = jest.fn();
 
 jest.mock("../age-credential", () => ({
-  createSopsClient: jest.fn().mockResolvedValue({}),
+  createSopsClient: jest.fn().mockResolvedValue({
+    client: {},
+    cleanup: jest.fn().mockResolvedValue(undefined),
+  }),
 }));
 
 jest.mock("@clef-sh/core", () => {

@@ -105,100 +105,108 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           }
 
           const matrixManager = new MatrixManager();
-          const sopsClient = await createSopsClient(repoRoot, deps.runner);
-          const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
-
-          formatter.print(`${sym("working")}  Creating service identity '${name}'...`);
-
-          const result = await manager.create(
-            name,
-            namespaces,
-            opts.description || name,
-            manifest,
+          const { client: sopsClient, cleanup } = await createSopsClient(
             repoRoot,
-            {
-              kmsEnvConfigs,
-              sharedRecipient,
-              packOnly: isRuntime,
-            },
+            deps.runner,
+            manifest,
           );
+          try {
+            const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
 
-          if (isJsonMode()) {
-            formatter.json({
-              action: "created",
-              identity: result.identity.name,
-              namespaces: result.identity.namespaces,
-              environments: Object.keys(result.identity.environments),
-              privateKeys: result.privateKeys,
-              sharedRecipient: result.sharedRecipient,
-              packOnly: result.identity.pack_only ?? false,
-            });
-            return;
-          }
+            formatter.print(`${sym("working")}  Creating service identity '${name}'...`);
 
-          formatter.success(`Service identity '${name}' created.`);
-          formatter.print(`\n  Namespaces: ${result.identity.namespaces.join(", ")}`);
-          formatter.print(
-            `  Environments: ${Object.keys(result.identity.environments).join(", ")}`,
-          );
-          if (isRuntime) {
-            formatter.print("  Mode: runtime (keys are not registered on encrypted files)\n");
-          } else {
-            formatter.print("  Mode: CI (keys registered on encrypted files)\n");
-          }
+            const result = await manager.create(
+              name,
+              namespaces,
+              opts.description || name,
+              manifest,
+              repoRoot,
+              {
+                kmsEnvConfigs,
+                sharedRecipient,
+                packOnly: isRuntime,
+              },
+            );
 
-          if (Object.keys(result.privateKeys).length > 0) {
-            if (result.sharedRecipient) {
-              // All age envs share the same private key — display it once.
-              const sharedKey = Object.values(result.privateKeys)[0];
-              const ageEnvs = Object.keys(result.privateKeys).join(", ");
-              const block = sharedKey;
-              const copied = copyToClipboard(block);
+            if (isJsonMode()) {
+              formatter.json({
+                action: "created",
+                identity: result.identity.name,
+                namespaces: result.identity.namespaces,
+                environments: Object.keys(result.identity.environments),
+                privateKeys: result.privateKeys,
+                sharedRecipient: result.sharedRecipient,
+                packOnly: result.identity.pack_only ?? false,
+              });
+              return;
+            }
 
-              if (copied) {
-                formatter.warn(
-                  `Shared private key copied to clipboard. It decrypts: ${ageEnvs}. Store it securely.\n`,
-                );
-                formatter.print(`  CLEF_AGE_KEY: ${maskedPlaceholder()}`);
-                formatter.print("");
-              } else {
-                formatter.warn(
-                  `Shared private key shown ONCE. It decrypts: ${ageEnvs}. Store it securely.\n`,
-                );
-                formatter.print(`  CLEF_AGE_KEY:`);
-                formatter.print(`    ${sharedKey}\n`);
-              }
+            formatter.success(`Service identity '${name}' created.`);
+            formatter.print(`\n  Namespaces: ${result.identity.namespaces.join(", ")}`);
+            formatter.print(
+              `  Environments: ${Object.keys(result.identity.environments).join(", ")}`,
+            );
+            if (isRuntime) {
+              formatter.print("  Mode: runtime (keys are not registered on encrypted files)\n");
             } else {
-              const entries = Object.entries(result.privateKeys);
-              const block = entries.map(([env, key]) => `${env}: ${key}`).join("\n");
-              const copied = copyToClipboard(block);
+              formatter.print("  Mode: CI (keys registered on encrypted files)\n");
+            }
 
-              if (copied) {
-                formatter.warn("Private keys copied to clipboard. Store them securely.\n");
-                for (const [envName] of entries) {
-                  formatter.print(`  ${envName}: ${maskedPlaceholder()}`);
+            if (Object.keys(result.privateKeys).length > 0) {
+              if (result.sharedRecipient) {
+                // All age envs share the same private key — display it once.
+                const sharedKey = Object.values(result.privateKeys)[0];
+                const ageEnvs = Object.keys(result.privateKeys).join(", ");
+                const block = sharedKey;
+                const copied = copyToClipboard(block);
+
+                if (copied) {
+                  formatter.warn(
+                    `Shared private key copied to clipboard. It decrypts: ${ageEnvs}. Store it securely.\n`,
+                  );
+                  formatter.print(`  CLEF_AGE_KEY: ${maskedPlaceholder()}`);
+                  formatter.print("");
+                } else {
+                  formatter.warn(
+                    `Shared private key shown ONCE. It decrypts: ${ageEnvs}. Store it securely.\n`,
+                  );
+                  formatter.print(`  CLEF_AGE_KEY:`);
+                  formatter.print(`    ${sharedKey}\n`);
                 }
-                formatter.print("");
               } else {
-                formatter.warn(
-                  "Private keys are shown ONCE. Store them securely (e.g. AWS Secrets Manager, Vault).\n",
-                );
-                for (const [envName, privateKey] of entries) {
-                  formatter.print(`  ${envName}:`);
-                  formatter.print(`    ${privateKey}\n`);
+                const entries = Object.entries(result.privateKeys);
+                const block = entries.map(([env, key]) => `${env}: ${key}`).join("\n");
+                const copied = copyToClipboard(block);
+
+                if (copied) {
+                  formatter.warn("Private keys copied to clipboard. Store them securely.\n");
+                  for (const [envName] of entries) {
+                    formatter.print(`  ${envName}: ${maskedPlaceholder()}`);
+                  }
+                  formatter.print("");
+                } else {
+                  formatter.warn(
+                    "Private keys are shown ONCE. Store them securely (e.g. AWS Secrets Manager, Vault).\n",
+                  );
+                  for (const [envName, privateKey] of entries) {
+                    formatter.print(`  ${envName}:`);
+                    formatter.print(`    ${privateKey}\n`);
+                  }
                 }
               }
+              for (const k of Object.keys(result.privateKeys)) result.privateKeys[k] = "";
             }
-            for (const k of Object.keys(result.privateKeys)) result.privateKeys[k] = "";
-          }
 
-          // Report KMS environments
-          for (const [envName, envConfig] of Object.entries(result.identity.environments)) {
-            if (isKmsEnvelope(envConfig)) {
-              formatter.print(
-                `  ${envName}: KMS envelope (${envConfig.kms.provider}) — no age keys generated.`,
-              );
+            // Report KMS environments
+            for (const [envName, envConfig] of Object.entries(result.identity.environments)) {
+              if (isKmsEnvelope(envConfig)) {
+                formatter.print(
+                  `  ${envName}: KMS envelope (${envConfig.kms.provider}) — no age keys generated.`,
+                );
+              }
             }
+          } finally {
+            await cleanup();
           }
         } catch (err) {
           handleCommandError(err);
@@ -217,34 +225,42 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
         const matrixManager = new MatrixManager();
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
+        const { client: sopsClient, cleanup } = await createSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
+        try {
+          const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
 
-        const identities = manager.list(manifest);
+          const identities = manager.list(manifest);
 
-        if (isJsonMode()) {
-          formatter.json(identities);
-          return;
+          if (isJsonMode()) {
+            formatter.json(identities);
+            return;
+          }
+
+          if (identities.length === 0) {
+            formatter.info("No service identities configured.");
+            return;
+          }
+
+          const rows = identities.map((si) => {
+            const envStr = Object.entries(si.environments)
+              .map(([e, cfg]) =>
+                isKmsEnvelope(cfg)
+                  ? `${e}: KMS (${cfg.kms.provider})`
+                  : `${e}: ${keyPreview(cfg.recipient!)}`,
+              )
+              .join(", ");
+            const nameCol = si.pack_only ? `${si.name} (runtime)` : si.name;
+            return [nameCol, si.namespaces.join(", "), envStr];
+          });
+
+          formatter.table(rows, ["Name", "Namespaces", "Environments"]);
+        } finally {
+          await cleanup();
         }
-
-        if (identities.length === 0) {
-          formatter.info("No service identities configured.");
-          return;
-        }
-
-        const rows = identities.map((si) => {
-          const envStr = Object.entries(si.environments)
-            .map(([e, cfg]) =>
-              isKmsEnvelope(cfg)
-                ? `${e}: KMS (${cfg.kms.provider})`
-                : `${e}: ${keyPreview(cfg.recipient!)}`,
-            )
-            .join(", ");
-          const nameCol = si.pack_only ? `${si.name} (runtime)` : si.name;
-          return [nameCol, si.namespaces.join(", "), envStr];
-        });
-
-        formatter.table(rows, ["Name", "Namespaces", "Environments"]);
       } catch (err) {
         handleCommandError(err);
       }
@@ -261,38 +277,46 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
         const matrixManager = new MatrixManager();
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
+        const { client: sopsClient, cleanup } = await createSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
+        try {
+          const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
 
-        const identity = manager.get(manifest, name);
-        if (!identity) {
-          formatter.error(`Service identity '${name}' not found.`);
-          process.exit(1);
-          return;
-        }
-
-        if (isJsonMode()) {
-          formatter.json(identity);
-          return;
-        }
-
-        formatter.print(`\nService Identity: ${identity.name}`);
-        formatter.print(`Description: ${identity.description}`);
-        if (identity.pack_only) {
-          formatter.print("Mode: runtime (not registered on encrypted files)");
-        }
-        formatter.print(`Namespaces: ${identity.namespaces.join(", ")}\n`);
-
-        for (const [envName, envConfig] of Object.entries(identity.environments)) {
-          if (isKmsEnvelope(envConfig)) {
-            formatter.print(
-              `  ${envName}: KMS (${envConfig.kms.provider}) — ${envConfig.kms.keyId}`,
-            );
-          } else {
-            formatter.print(`  ${envName}: ${keyPreview(envConfig.recipient!)}`);
+          const identity = manager.get(manifest, name);
+          if (!identity) {
+            formatter.error(`Service identity '${name}' not found.`);
+            process.exit(1);
+            return;
           }
+
+          if (isJsonMode()) {
+            formatter.json(identity);
+            return;
+          }
+
+          formatter.print(`\nService Identity: ${identity.name}`);
+          formatter.print(`Description: ${identity.description}`);
+          if (identity.pack_only) {
+            formatter.print("Mode: runtime (not registered on encrypted files)");
+          }
+          formatter.print(`Namespaces: ${identity.namespaces.join(", ")}\n`);
+
+          for (const [envName, envConfig] of Object.entries(identity.environments)) {
+            if (isKmsEnvelope(envConfig)) {
+              formatter.print(
+                `  ${envName}: KMS (${envConfig.kms.provider}) — ${envConfig.kms.keyId}`,
+              );
+            } else {
+              formatter.print(`  ${envName}: ${keyPreview(envConfig.recipient!)}`);
+            }
+          }
+          formatter.print("");
+        } finally {
+          await cleanup();
         }
-        formatter.print("");
       } catch (err) {
         handleCommandError(err);
       }
@@ -309,44 +333,52 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
         const matrixManager = new MatrixManager();
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
+        const { client: sopsClient, cleanup } = await createSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
+        try {
+          const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
 
-        const issues = await manager.validate(manifest, repoRoot);
+          const issues = await manager.validate(manifest, repoRoot);
 
-        if (isJsonMode()) {
-          formatter.json({ issues });
-          process.exit(issues.length > 0 ? 1 : 0);
-          return;
-        }
-
-        if (issues.length === 0) {
-          formatter.success("All service identities are valid.");
-          return;
-        }
-
-        for (const issue of issues) {
-          const prefix =
-            issue.type === "namespace_not_found" || issue.type === "missing_environment"
-              ? sym("failure")
-              : sym("warning");
-          formatter.print(`  ${prefix} [${issue.type}] ${issue.message}`);
-          if (issue.fixCommand) {
-            formatter.print(`    fix: ${issue.fixCommand}`);
+          if (isJsonMode()) {
+            formatter.json({ issues });
+            process.exit(issues.length > 0 ? 1 : 0);
+            return;
           }
-        }
 
-        const errorCount = issues.filter(
-          (i) => i.type === "namespace_not_found" || i.type === "missing_environment",
-        ).length;
-        const warnCount = issues.length - errorCount;
+          if (issues.length === 0) {
+            formatter.success("All service identities are valid.");
+            return;
+          }
 
-        formatter.print("");
-        if (errorCount > 0) {
-          formatter.error(`${errorCount} error(s), ${warnCount} warning(s)`);
-          process.exit(1);
-        } else {
-          formatter.warn(`${warnCount} warning(s)`);
+          for (const issue of issues) {
+            const prefix =
+              issue.type === "namespace_not_found" || issue.type === "missing_environment"
+                ? sym("failure")
+                : sym("warning");
+            formatter.print(`  ${prefix} [${issue.type}] ${issue.message}`);
+            if (issue.fixCommand) {
+              formatter.print(`    fix: ${issue.fixCommand}`);
+            }
+          }
+
+          const errorCount = issues.filter(
+            (i) => i.type === "namespace_not_found" || i.type === "missing_environment",
+          ).length;
+          const warnCount = issues.length - errorCount;
+
+          formatter.print("");
+          if (errorCount > 0) {
+            formatter.error(`${errorCount} error(s), ${warnCount} warning(s)`);
+            process.exit(1);
+          } else {
+            formatter.warn(`${warnCount} warning(s)`);
+          }
+        } finally {
+          await cleanup();
         }
       } catch (err) {
         handleCommandError(err);
@@ -381,28 +413,36 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         const kmsEnvConfigs = parseKmsEnvMappings(opts.kmsEnv);
 
         const matrixManager = new MatrixManager();
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
+        const { client: sopsClient, cleanup } = await createSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
+        try {
+          const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
 
-        formatter.print(`${sym("working")}  Updating service identity '${name}'...`);
+          formatter.print(`${sym("working")}  Updating service identity '${name}'...`);
 
-        await manager.updateEnvironments(name, kmsEnvConfigs, manifest, repoRoot);
+          await manager.updateEnvironments(name, kmsEnvConfigs, manifest, repoRoot);
 
-        if (isJsonMode()) {
-          formatter.json({
-            action: "updated",
-            identity: name,
-            changed: Object.entries(kmsEnvConfigs).map(([env, cfg]) => ({
-              environment: env,
-              provider: cfg.provider,
-            })),
-          });
-          return;
-        }
+          if (isJsonMode()) {
+            formatter.json({
+              action: "updated",
+              identity: name,
+              changed: Object.entries(kmsEnvConfigs).map(([env, cfg]) => ({
+                environment: env,
+                provider: cfg.provider,
+              })),
+            });
+            return;
+          }
 
-        formatter.success(`Service identity '${name}' updated.`);
-        for (const [envName, kmsConfig] of Object.entries(kmsEnvConfigs)) {
-          formatter.print(`  ${envName}: switched to KMS envelope (${kmsConfig.provider})`);
+          formatter.success(`Service identity '${name}' updated.`);
+          for (const [envName, kmsConfig] of Object.entries(kmsEnvConfigs)) {
+            formatter.print(`  ${envName}: switched to KMS envelope (${kmsConfig.provider})`);
+          }
+        } finally {
+          await cleanup();
         }
       } catch (err) {
         handleCommandError(err);
@@ -469,58 +509,66 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         }
 
         const matrixManager = new MatrixManager();
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
-
-        formatter.print(
-          `${sym("working")}  Adding ${environment} to service identity '${name}'...`,
-        );
-        const result = await manager.addEnvironmentToScope(
-          name,
-          environment,
-          manifest,
+        const { client: sopsClient, cleanup } = await createSopsClient(
           repoRoot,
-          kmsConfig,
+          deps.runner,
+          manifest,
         );
+        try {
+          const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
 
-        if (isJsonMode()) {
-          formatter.json({
-            action: "env-added",
-            identity: name,
+          formatter.print(
+            `${sym("working")}  Adding ${environment} to service identity '${name}'...`,
+          );
+          const result = await manager.addEnvironmentToScope(
+            name,
             environment,
-            backend: kmsConfig ? "kms" : "age",
-            ...(result.privateKey ? { privateKey: result.privateKey } : {}),
-          });
-          if (result.privateKey) result.privateKey = "";
-          return;
-        }
+            manifest,
+            repoRoot,
+            kmsConfig,
+          );
 
-        formatter.success(`Added '${environment}' to service identity '${name}'.`);
-
-        if (result.privateKey) {
-          const block = `${environment}: ${result.privateKey}`;
-          let copied = false;
-          try {
-            copied = copyToClipboard(block);
-          } catch {
-            // Clipboard unavailable — fall through to printing
+          if (isJsonMode()) {
+            formatter.json({
+              action: "env-added",
+              identity: name,
+              environment,
+              backend: kmsConfig ? "kms" : "age",
+              ...(result.privateKey ? { privateKey: result.privateKey } : {}),
+            });
+            if (result.privateKey) result.privateKey = "";
+            return;
           }
 
-          if (copied) {
-            formatter.warn(
-              "New private key copied to clipboard. Store it securely — it will not be shown again.\n",
-            );
-            formatter.print(`  ${environment}: ${maskedPlaceholder()}`);
-            formatter.print("");
+          formatter.success(`Added '${environment}' to service identity '${name}'.`);
+
+          if (result.privateKey) {
+            const block = `${environment}: ${result.privateKey}`;
+            let copied = false;
+            try {
+              copied = copyToClipboard(block);
+            } catch {
+              // Clipboard unavailable — fall through to printing
+            }
+
+            if (copied) {
+              formatter.warn(
+                "New private key copied to clipboard. Store it securely — it will not be shown again.\n",
+              );
+              formatter.print(`  ${environment}: ${maskedPlaceholder()}`);
+              formatter.print("");
+            } else {
+              formatter.warn("New private key shown ONCE. Store it securely.\n");
+              formatter.print(`  ${environment}:`);
+              formatter.print(`    ${result.privateKey}\n`);
+            }
+            // Clear the secret from memory so it doesn't linger in the result object
+            result.privateKey = "";
           } else {
-            formatter.warn("New private key shown ONCE. Store it securely.\n");
-            formatter.print(`  ${environment}:`);
-            formatter.print(`    ${result.privateKey}\n`);
+            formatter.print(`  ${environment}: KMS envelope (${kmsConfig!.provider})`);
           }
-          // Clear the secret from memory so it doesn't linger in the result object
-          result.privateKey = "";
-        } else {
-          formatter.print(`  ${environment}: KMS envelope (${kmsConfig!.provider})`);
+        } finally {
+          await cleanup();
         }
       } catch (err) {
         handleCommandError(err);
@@ -554,18 +602,26 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         }
 
         const matrixManager = new MatrixManager();
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
+        const { client: sopsClient, cleanup } = await createSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
+        try {
+          const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
 
-        formatter.print(`${sym("working")}  Deleting service identity '${name}'...`);
+          formatter.print(`${sym("working")}  Deleting service identity '${name}'...`);
 
-        await manager.delete(name, manifest, repoRoot);
+          await manager.delete(name, manifest, repoRoot);
 
-        if (isJsonMode()) {
-          formatter.json({ action: "deleted", identity: name });
-          return;
+          if (isJsonMode()) {
+            formatter.json({ action: "deleted", identity: name });
+            return;
+          }
+          formatter.success(`Service identity '${name}' deleted.`);
+        } finally {
+          await cleanup();
         }
-        formatter.success(`Service identity '${name}' deleted.`);
       } catch (err) {
         handleCommandError(err);
       }
@@ -583,69 +639,77 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
         const matrixManager = new MatrixManager();
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
+        const { client: sopsClient, cleanup } = await createSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
+        try {
+          const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
 
-        // Check for protected environments
-        const identity = manager.get(manifest, name);
-        if (!identity) {
-          formatter.error(`Service identity '${name}' not found.`);
-          process.exit(1);
-          return;
-        }
-
-        const envsToRotate = opts.environment
-          ? [opts.environment]
-          : Object.keys(identity.environments);
-        const protectedEnvs = manifest.environments
-          .filter((e) => e.protected && envsToRotate.includes(e.name))
-          .map((e) => e.name);
-
-        if (protectedEnvs.length > 0) {
-          const confirmed = await formatter.confirm(
-            `This will rotate keys in protected environment(s): ${protectedEnvs.join(", ")}. Continue?`,
-          );
-          if (!confirmed) {
-            formatter.error("Aborted.");
+          // Check for protected environments
+          const identity = manager.get(manifest, name);
+          if (!identity) {
+            formatter.error(`Service identity '${name}' not found.`);
             process.exit(1);
             return;
           }
-        }
 
-        formatter.print(`${sym("working")}  Rotating key for '${name}'...`);
+          const envsToRotate = opts.environment
+            ? [opts.environment]
+            : Object.keys(identity.environments);
+          const protectedEnvs = manifest.environments
+            .filter((e) => e.protected && envsToRotate.includes(e.name))
+            .map((e) => e.name);
 
-        const newKeys = await manager.rotateKey(name, manifest, repoRoot, opts.environment);
-
-        if (isJsonMode()) {
-          formatter.json({
-            action: "rotated",
-            identity: name,
-            environments: Object.keys(newKeys),
-            privateKeys: newKeys,
-          });
-          return;
-        }
-
-        formatter.success(`Key rotated for '${name}'.`);
-
-        const entries = Object.entries(newKeys);
-        const block = entries.map(([env, key]) => `${env}: ${key}`).join("\n");
-        const copied = copyToClipboard(block);
-
-        if (copied) {
-          formatter.warn("New private keys copied to clipboard. Store them securely.\n");
-          for (const [envName] of entries) {
-            formatter.print(`  ${envName}: ${maskedPlaceholder()}`);
+          if (protectedEnvs.length > 0) {
+            const confirmed = await formatter.confirm(
+              `This will rotate keys in protected environment(s): ${protectedEnvs.join(", ")}. Continue?`,
+            );
+            if (!confirmed) {
+              formatter.error("Aborted.");
+              process.exit(1);
+              return;
+            }
           }
-          formatter.print("");
-        } else {
-          formatter.warn("New private keys are shown ONCE. Store them securely.\n");
-          for (const [envName, privateKey] of entries) {
-            formatter.print(`  ${envName}:`);
-            formatter.print(`    ${privateKey}\n`);
+
+          formatter.print(`${sym("working")}  Rotating key for '${name}'...`);
+
+          const newKeys = await manager.rotateKey(name, manifest, repoRoot, opts.environment);
+
+          if (isJsonMode()) {
+            formatter.json({
+              action: "rotated",
+              identity: name,
+              environments: Object.keys(newKeys),
+              privateKeys: newKeys,
+            });
+            return;
           }
+
+          formatter.success(`Key rotated for '${name}'.`);
+
+          const entries = Object.entries(newKeys);
+          const block = entries.map(([env, key]) => `${env}: ${key}`).join("\n");
+          const copied = copyToClipboard(block);
+
+          if (copied) {
+            formatter.warn("New private keys copied to clipboard. Store them securely.\n");
+            for (const [envName] of entries) {
+              formatter.print(`  ${envName}: ${maskedPlaceholder()}`);
+            }
+            formatter.print("");
+          } else {
+            formatter.warn("New private keys are shown ONCE. Store them securely.\n");
+            for (const [envName, privateKey] of entries) {
+              formatter.print(`  ${envName}:`);
+              formatter.print(`    ${privateKey}\n`);
+            }
+          }
+          for (const k of Object.keys(newKeys)) newKeys[k] = "";
+        } finally {
+          await cleanup();
         }
-        for (const k of Object.keys(newKeys)) newKeys[k] = "";
       } catch (err) {
         handleCommandError(err);
       }

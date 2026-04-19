@@ -1251,6 +1251,194 @@ sops:
         "age1prodkey00000000000000000000000000000000000000000000000000",
       );
     });
+
+    it("should pass --kms with a synthetic ARN for hsm backend", async () => {
+      const runFn = jest.fn(async (command: string, _args: string[]) => {
+        if (command === "sops") return { stdout: "encrypted", stderr: "", exitCode: 0 };
+        return { stdout: "", stderr: "", exitCode: 0 };
+      });
+
+      const client = new SopsClient({ run: runFn });
+      const manifest: ClefManifest = {
+        ...testManifest(),
+        sops: {
+          default_backend: "hsm",
+          pkcs11_uri: "pkcs11:slot=0;label=clef-dek-wrapper",
+        },
+      };
+
+      await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest);
+
+      const sopsCall = runFn.mock.calls.find(
+        (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
+      );
+      const kmsIdx = (sopsCall![1] as string[]).indexOf("--kms");
+      expect(kmsIdx).toBeGreaterThan(-1);
+      const arn = (sopsCall![1] as string[])[kmsIdx + 1];
+      expect(arn).toBe(
+        "arn:aws:kms:us-east-1:000000000000:alias/clef-hsm/v1/cGtjczExOnNsb3Q9MDtsYWJlbD1jbGVmLWRlay13cmFwcGVy",
+      );
+    });
+  });
+});
+
+describe("SopsClient — keyservice address wiring", () => {
+  it("injects --enable-local-keyservice=false and --keyservice <addr> into decrypt", async () => {
+    const runFn = jest.fn(async (command: string, _args: string[]) => {
+      if (command === "sops") return { stdout: "KEY: value\n", stderr: "", exitCode: 0 };
+      return { stdout: "", stderr: "", exitCode: 0 };
+    });
+
+    const client = new SopsClient(
+      { run: runFn },
+      undefined,
+      undefined,
+      undefined,
+      "tcp://127.0.0.1:54321",
+    );
+
+    // Stub filestatus + parseMetadataFromFile via a fake encrypted file payload
+    runFn.mockImplementation(async (command: string, args: string[]) => {
+      if (command === "sops" && args[0] === "decrypt") {
+        return { stdout: "KEY: value\n", stderr: "", exitCode: 0 };
+      }
+      if (command === "sops" && args[0] === "filestatus") {
+        return { stdout: "", stderr: "", exitCode: 1 };
+      }
+      return { stdout: "", stderr: "", exitCode: 0 };
+    });
+
+    // We don't care about the metadata read failing — only the args we passed.
+    await client.decrypt("file.enc.yaml").catch(() => undefined);
+
+    const decryptCall = runFn.mock.calls.find(
+      (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[])[0] === "decrypt",
+    );
+    expect(decryptCall![1]).toContain("--enable-local-keyservice=false");
+    expect(decryptCall![1]).toContain("--keyservice");
+    expect(decryptCall![1]).toContain("tcp://127.0.0.1:54321");
+  });
+
+  it("places --keyservice flags AFTER the subcommand (SOPS silently ignores them before)", async () => {
+    const runFn = jest.fn(async (command: string, _args: string[]) => {
+      if (command === "sops") return { stdout: "encrypted", stderr: "", exitCode: 0 };
+      return { stdout: "", stderr: "", exitCode: 0 };
+    });
+
+    const client = new SopsClient(
+      { run: runFn },
+      undefined,
+      undefined,
+      undefined,
+      "tcp://127.0.0.1:54321",
+    );
+
+    const manifest: ClefManifest = {
+      ...testManifest(),
+      sops: { default_backend: "age", age: { recipients: ["age1abc"] } },
+    };
+    await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest);
+
+    const encryptCall = runFn.mock.calls.find(
+      (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
+    );
+    const args = encryptCall![1] as string[];
+    const encryptIdx = args.indexOf("encrypt");
+    const keyserviceIdx = args.indexOf("--keyservice");
+    expect(keyserviceIdx).toBeGreaterThan(encryptIdx);
+  });
+
+  it("emits NO --keyservice flags when no address is supplied", async () => {
+    const runFn = jest.fn(async (command: string, _args: string[]) => {
+      if (command === "sops") return { stdout: "encrypted", stderr: "", exitCode: 0 };
+      return { stdout: "", stderr: "", exitCode: 0 };
+    });
+
+    const client = new SopsClient({ run: runFn });
+    const manifest: ClefManifest = {
+      ...testManifest(),
+      sops: { default_backend: "age", age: { recipients: ["age1abc"] } },
+    };
+    await client.encrypt("file.enc.yaml", { KEY: "val" }, manifest);
+
+    const encryptCall = runFn.mock.calls.find(
+      (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
+    );
+    expect(encryptCall![1]).not.toContain("--keyservice");
+    expect(encryptCall![1]).not.toContain("--enable-local-keyservice=false");
+  });
+});
+
+describe("SopsClient — HSM backend metadata", () => {
+  // Reach into the private helpers via a thin surface. Avoids fragile
+  // round-trips through encrypt/decrypt for what is pure parsing logic.
+  function makeClient(): SopsClient {
+    const noop = jest.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 }));
+    return new SopsClient({ run: noop });
+  }
+
+  it("detectBackend classifies sops.kms entries with Clef HSM ARNs as 'hsm'", () => {
+    const client = makeClient();
+    const detect = (
+      client as unknown as { detectBackend(s: Record<string, unknown>): string }
+    ).detectBackend.bind(client);
+
+    const sopsBlock = {
+      kms: [
+        {
+          arn: "arn:aws:kms:us-east-1:000000000000:alias/clef-hsm/v1/cGtjczExOnNsb3Q9MA",
+        },
+      ],
+    };
+    expect(detect(sopsBlock)).toBe("hsm");
+  });
+
+  it("detectBackend still classifies real AWS KMS ARNs as 'awskms'", () => {
+    const client = makeClient();
+    const detect = (
+      client as unknown as { detectBackend(s: Record<string, unknown>): string }
+    ).detectBackend.bind(client);
+
+    const sopsBlock = {
+      kms: [{ arn: "arn:aws:kms:us-east-1:111122223333:key/abc-123" }],
+    };
+    expect(detect(sopsBlock)).toBe("awskms");
+  });
+
+  it("extractRecipients decodes Clef HSM ARNs back to pkcs11 URIs", () => {
+    const client = makeClient();
+    const extract = (
+      client as unknown as {
+        extractRecipients(s: Record<string, unknown>, b: string): string[];
+      }
+    ).extractRecipients.bind(client);
+
+    const sopsBlock = {
+      kms: [
+        {
+          arn: "arn:aws:kms:us-east-1:000000000000:alias/clef-hsm/v1/cGtjczExOnNsb3Q9MDtsYWJlbD1jbGVmLWRlay13cmFwcGVy",
+        },
+      ],
+    };
+    expect(extract(sopsBlock, "hsm")).toEqual(["pkcs11:slot=0;label=clef-dek-wrapper"]);
+  });
+
+  it("extractRecipients falls back to raw ARN when payload fails to decode", () => {
+    // Defensive: a malformed Clef ARN should not crash extraction —
+    // surface the raw value so policy/lint can flag it.
+    const client = makeClient();
+    const extract = (
+      client as unknown as {
+        extractRecipients(s: Record<string, unknown>, b: string): string[];
+      }
+    ).extractRecipients.bind(client);
+
+    const malformed = {
+      kms: [{ arn: "arn:aws:kms:us-east-1:000000000000:alias/clef-hsm/v1/AAAA" }],
+    };
+    expect(extract(malformed, "hsm")).toEqual([
+      "arn:aws:kms:us-east-1:000000000000:alias/clef-hsm/v1/AAAA",
+    ]);
   });
 });
 
