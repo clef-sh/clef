@@ -1,7 +1,15 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as YAML from "yaml";
-import { ClefLocalConfig, SopsClient, SubprocessRunner } from "@clef-sh/core";
+import {
+  ClefLocalConfig,
+  ClefManifest,
+  SopsClient,
+  SubprocessRunner,
+  resolveKeyservicePath,
+  spawnKeyservice,
+  type KeyserviceHandle,
+} from "@clef-sh/core";
 import { getKeychainKey } from "./keychain";
 import { formatter } from "./output/formatter";
 
@@ -118,16 +126,95 @@ export function prepareSopsClientArgs(credential: AgeCredential | null): {
 }
 
 /**
+ * Handle returned by {@link createSopsClient}. Always call `cleanup()`
+ * in a `finally` block — when the manifest declares an HSM backend, this
+ * tears down the `clef-keyservice` sidecar that was spawned alongside
+ * the client. Without `cleanup()`, the sidecar can outlive the CLI on
+ * Linux (orphaned to init) and hold the HSM session open.
+ */
+export interface SopsClientHandle {
+  client: SopsClient;
+  cleanup: () => Promise<void>;
+}
+
+/**
  * Resolve credentials and create a SopsClient in one step.
- * Convenience wrapper used by most CLI commands.
+ *
+ * When `manifest` is provided AND its effective backend is `hsm` (either
+ * `default_backend` or any per-env override), spawns the clef-keyservice
+ * sidecar with the configured PKCS#11 module + PIN and wires its address
+ * into the SopsClient via `--keyservice`. The returned `cleanup`
+ * gracefully terminates the sidecar.
+ *
+ * When `manifest` is omitted or doesn't use HSM, `cleanup` is a no-op.
  */
 export async function createSopsClient(
   repoRoot: string,
   runner: SubprocessRunner,
-): Promise<SopsClient> {
+  manifest?: ClefManifest,
+): Promise<SopsClientHandle> {
   const credential = await resolveAgeCredential(repoRoot, runner);
   const { ageKeyFile, ageKey } = prepareSopsClientArgs(credential);
-  return new SopsClient(runner, ageKeyFile, ageKey);
+
+  const handle = manifest ? await maybeSpawnKeyservice(repoRoot, manifest) : undefined;
+  const client = new SopsClient(runner, ageKeyFile, ageKey, undefined, handle?.addr);
+
+  return {
+    client,
+    cleanup: async () => {
+      if (handle) await handle.kill();
+    },
+  };
+}
+
+/** Read PKCS#11 PIN from env → env-file → .clef/config.yaml. Throws when absent. */
+function resolvePkcs11PinSources(repoRoot: string): {
+  pin?: string;
+  pinFile?: string;
+} {
+  const pin = process.env.CLEF_PKCS11_PIN;
+  if (pin) return { pin };
+  const envPinFile = process.env.CLEF_PKCS11_PIN_FILE;
+  if (envPinFile) return { pinFile: envPinFile };
+  const config = readLocalConfig(repoRoot);
+  if (config?.pkcs11_pin_file) return { pinFile: config.pkcs11_pin_file };
+  throw new Error(
+    "HSM backend requires a PIN. Set CLEF_PKCS11_PIN, CLEF_PKCS11_PIN_FILE, " +
+      "or pkcs11_pin_file in .clef/config.yaml.",
+  );
+}
+
+/** Read PKCS#11 module path from env → .clef/config.yaml. Throws when absent. */
+function resolvePkcs11Module(repoRoot: string): string {
+  const envModule = process.env.CLEF_PKCS11_MODULE;
+  if (envModule) return envModule;
+  const config = readLocalConfig(repoRoot);
+  if (config?.pkcs11_module) return config.pkcs11_module;
+  throw new Error(
+    "HSM backend requires a PKCS#11 module path. Set CLEF_PKCS11_MODULE or " +
+      "pkcs11_module in .clef/config.yaml (e.g. /usr/lib/softhsm/libsofthsm2.so).",
+  );
+}
+
+/** Spawn the keyservice iff the manifest's effective backend is `hsm`. */
+async function maybeSpawnKeyservice(
+  repoRoot: string,
+  manifest: ClefManifest,
+): Promise<KeyserviceHandle | undefined> {
+  const usesHsm =
+    manifest.sops.default_backend === "hsm" ||
+    manifest.environments.some((e) => e.sops?.backend === "hsm");
+  if (!usesHsm) return undefined;
+
+  const binaryPath = resolveKeyservicePath().path;
+  const modulePath = resolvePkcs11Module(repoRoot);
+  const pinSources = resolvePkcs11PinSources(repoRoot);
+
+  return spawnKeyservice({
+    binaryPath,
+    modulePath,
+    ...pinSources,
+  });
 }
 
 const AGE_SECRET_KEY_RE = /^(AGE-SECRET-KEY-\S+)/m;

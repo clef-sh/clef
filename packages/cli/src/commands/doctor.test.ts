@@ -499,4 +499,124 @@ describe("clef doctor", () => {
       (isJsonMode as jest.Mock).mockReturnValue(false);
     });
   });
+
+  describe("HSM backend checks", () => {
+    const HSM_MANIFEST =
+      "version: 1\n" +
+      "environments:\n  - name: dev\n    description: D\n" +
+      "namespaces:\n  - name: app\n    description: A\n" +
+      "sops:\n  default_backend: hsm\n  pkcs11_uri: pkcs11:slot=0;label=clef-dek-wrapper\n" +
+      "file_pattern: '{namespace}/{environment}.enc.yaml'\n";
+
+    function hsmManifestRunner(): SubprocessRunner {
+      return allGoodRunner();
+    }
+
+    afterEach(() => {
+      delete process.env.CLEF_PKCS11_PIN;
+      delete process.env.CLEF_PKCS11_PIN_FILE;
+      delete process.env.CLEF_PKCS11_MODULE;
+      delete process.env.CLEF_KEYSERVICE_PATH;
+    });
+
+    it("skips HSM checks entirely when manifest does not declare hsm backend", async () => {
+      // Default mock manifest is age-only. No HSM-named checks should appear.
+      (isJsonMode as jest.Mock).mockReturnValue(false);
+      const program = makeProgram(allGoodRunner());
+      await program.parseAsync(["node", "clef", "doctor"]);
+
+      const lines = mockFormatter.print.mock.calls.flat().join("\n");
+      expect(lines).not.toContain("clef-keyservice");
+      expect(lines).not.toContain("pkcs11");
+      (isJsonMode as jest.Mock).mockReturnValue(false);
+    });
+
+    it("reports all HSM checks ok when env+module+pin are configured", async () => {
+      process.env.CLEF_PKCS11_PIN = "1234";
+      process.env.CLEF_PKCS11_MODULE = "/mock/lib/softhsm.so";
+      mockFs.readFileSync.mockImplementation((p: unknown) => {
+        const pathStr = String(p);
+        if (pathStr.endsWith("clef.yaml")) return HSM_MANIFEST;
+        if (pathStr.includes(".clef/config.yaml"))
+          return "age_key_file: /mock/keys.txt\nage_keychain_label: mock-label\n";
+        if (pathStr.includes(".gitattributes"))
+          return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n*.clef-meta.yaml merge=clef-metadata\n";
+        return "";
+      });
+
+      const program = makeProgram(hsmManifestRunner());
+      await program.parseAsync(["node", "clef", "doctor"]);
+
+      const printed = mockFormatter.print.mock.calls.flat().join("\n");
+      expect(printed).toMatch(/clef-keyservice/);
+      expect(printed).toMatch(/pkcs11 module.*\/mock\/lib\/softhsm\.so/);
+      expect(printed).toMatch(/pkcs11 pin.*configured \(CLEF_PKCS11_PIN env\)/);
+    });
+
+    it("flags missing PIN with a fixable hint", async () => {
+      process.env.CLEF_PKCS11_MODULE = "/mock/lib/softhsm.so";
+      mockFs.readFileSync.mockImplementation((p: unknown) => {
+        const pathStr = String(p);
+        if (pathStr.endsWith("clef.yaml")) return HSM_MANIFEST;
+        if (pathStr.includes(".clef/config.yaml"))
+          return "age_key_file: /mock/keys.txt\nage_keychain_label: mock-label\n";
+        if (pathStr.includes(".gitattributes"))
+          return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n*.clef-meta.yaml merge=clef-metadata\n";
+        return "";
+      });
+
+      const program = makeProgram(hsmManifestRunner());
+      await program.parseAsync(["node", "clef", "doctor"]);
+
+      expect(mockFormatter.hint).toHaveBeenCalledWith(expect.stringContaining("CLEF_PKCS11_PIN"));
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+
+    it("flags missing PKCS#11 module with a fixable hint", async () => {
+      process.env.CLEF_PKCS11_PIN = "1234";
+      mockFs.readFileSync.mockImplementation((p: unknown) => {
+        const pathStr = String(p);
+        if (pathStr.endsWith("clef.yaml")) return HSM_MANIFEST;
+        if (pathStr.includes(".clef/config.yaml"))
+          return "age_key_file: /mock/keys.txt\nage_keychain_label: mock-label\n";
+        if (pathStr.includes(".gitattributes"))
+          return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n*.clef-meta.yaml merge=clef-metadata\n";
+        return "";
+      });
+
+      const program = makeProgram(hsmManifestRunner());
+      await program.parseAsync(["node", "clef", "doctor"]);
+
+      expect(mockFormatter.hint).toHaveBeenCalledWith(
+        expect.stringContaining("CLEF_PKCS11_MODULE"),
+      );
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+
+    it("flags PIN file that does not exist on disk", async () => {
+      process.env.CLEF_PKCS11_PIN_FILE = "/nonexistent/pin";
+      process.env.CLEF_PKCS11_MODULE = "/mock/lib/softhsm.so";
+      mockFs.readFileSync.mockImplementation((p: unknown) => {
+        const pathStr = String(p);
+        if (pathStr.endsWith("clef.yaml")) return HSM_MANIFEST;
+        if (pathStr.includes(".clef/config.yaml"))
+          return "age_key_file: /mock/keys.txt\nage_keychain_label: mock-label\n";
+        if (pathStr.includes(".gitattributes"))
+          return "*.enc.yaml merge=sops\n*.enc.json merge=sops\n*.clef-meta.yaml merge=clef-metadata\n";
+        return "";
+      });
+      // Existence check returns false specifically for the pin file.
+      mockFs.existsSync.mockImplementation((p: unknown) => {
+        if (String(p) === "/nonexistent/pin") return false;
+        return true;
+      });
+
+      const program = makeProgram(hsmManifestRunner());
+      await program.parseAsync(["node", "clef", "doctor"]);
+
+      const printed = mockFormatter.print.mock.calls.flat().join("\n");
+      expect(printed).toContain("not readable");
+      expect(mockExit).toHaveBeenCalledWith(1);
+    });
+  });
 });

@@ -33,7 +33,11 @@ export function registerLintCommand(program: Command, deps: { runner: Subprocess
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
+        const { client: sopsClient, cleanup } = await createSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
         try {
           const matrixManager = new MatrixManager();
           const schemaValidator = new SchemaValidator();
@@ -75,7 +79,7 @@ export function registerLintCommand(program: Command, deps: { runner: Subprocess
           const hasErrors = result.issues.some((i) => i.severity === "error");
           process.exit(hasErrors ? 1 : 0);
         } finally {
-          // no cleanup needed
+          await cleanup();
         }
       } catch (err) {
         handleCommandError(err);

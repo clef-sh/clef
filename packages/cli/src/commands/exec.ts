@@ -80,7 +80,11 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
             formatter.warn(`Executing in protected environment '${environment}'.`);
           }
 
-          const sopsClient = await createSopsClient(repoRoot, deps.runner);
+          const { client: sopsClient, cleanup } = await createSopsClient(
+            repoRoot,
+            deps.runner,
+            manifest,
+          );
           try {
             // Decrypt primary target
             const primaryFilePath = path.join(
@@ -140,7 +144,7 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
             const exitCode = await spawnChild(childCommand, childCommandArgs, childEnv);
             process.exit(exitCode);
           } finally {
-            // no cleanup needed
+            await cleanup();
           }
         } catch (err) {
           handleCommandError(err);

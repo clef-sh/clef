@@ -116,92 +116,105 @@ export function registerMigrateBackendCommand(
           }
         }
 
-        const decryptClient = await createSopsClient(repoRoot, deps.runner);
-        const encryptClient = await createSopsClient(repoRoot, deps.runner);
-        const tx = new TransactionManager(new GitIntegration(deps.runner));
-        const migrator = new BackendMigrator(decryptClient, matrixManager, tx, encryptClient);
-
-        const result = await migrator.migrate(
-          manifest,
+        const { client: decryptClient, cleanup: decryptCleanup } = await createSopsClient(
           repoRoot,
-          {
-            target,
-            environment: opts.environment,
-            dryRun: opts.dryRun,
-            skipVerify: opts.skipVerify,
-          },
-          (event) => {
-            switch (event.type) {
-              case "skip":
-                formatter.info(`${sym("skipped")}  ${event.message}`);
-                break;
-              case "migrate":
-                formatter.print(`${sym("working")}  ${event.message}`);
-                break;
-              case "verify":
-                formatter.print(`${sym("working")}  ${event.message}`);
-                break;
-              case "warn":
-                formatter.warn(event.message);
-                break;
-              case "info":
-                formatter.info(event.message);
-                break;
-            }
-          },
+          deps.runner,
+          manifest,
         );
+        const { client: encryptClient, cleanup: encryptCleanup } = await createSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
+        try {
+          const tx = new TransactionManager(new GitIntegration(deps.runner));
+          const migrator = new BackendMigrator(decryptClient, matrixManager, tx, encryptClient);
 
-        if (isJsonMode()) {
-          formatter.json({
-            backend: target.backend,
-            migratedFiles: result.migratedFiles,
-            skippedFiles: result.skippedFiles,
-            verifiedFiles: result.verifiedFiles,
-            warnings: result.warnings,
-            rolledBack: result.rolledBack,
-            error: result.error ?? null,
-            dryRun: opts.dryRun ?? false,
-          });
-          process.exit(result.rolledBack ? 1 : 0);
-          return;
-        }
-
-        if (result.rolledBack) {
-          formatter.error(`Migration failed: ${result.error}`);
-          formatter.info("All changes have been rolled back.");
-          process.exit(1);
-          return;
-        }
-
-        // Report results
-        if (opts.dryRun) {
-          formatter.info("\nDry run complete. No files were modified.");
-        } else {
-          if (result.migratedFiles.length > 0) {
-            formatter.success(
-              `Migrated ${result.migratedFiles.length} file(s) to ${target.backend}. ${sym("locked")}`,
-            );
-          }
-          if (result.skippedFiles.length > 0) {
-            formatter.info(`Skipped ${result.skippedFiles.length} file(s) (already on target).`);
-          }
-          if (result.verifiedFiles.length > 0) {
-            formatter.success(
-              `Verified ${result.verifiedFiles.length}/${result.migratedFiles.length} file(s).`,
-            );
-          }
-        }
-
-        for (const warning of result.warnings) {
-          formatter.warn(warning);
-        }
-
-        if (!opts.dryRun && result.migratedFiles.length > 0) {
-          formatter.hint(
-            'git add clef.yaml secrets/ && git commit -m "chore: migrate backend to ' +
-              target.backend +
-              '"',
+          const result = await migrator.migrate(
+            manifest,
+            repoRoot,
+            {
+              target,
+              environment: opts.environment,
+              dryRun: opts.dryRun,
+              skipVerify: opts.skipVerify,
+            },
+            (event) => {
+              switch (event.type) {
+                case "skip":
+                  formatter.info(`${sym("skipped")}  ${event.message}`);
+                  break;
+                case "migrate":
+                  formatter.print(`${sym("working")}  ${event.message}`);
+                  break;
+                case "verify":
+                  formatter.print(`${sym("working")}  ${event.message}`);
+                  break;
+                case "warn":
+                  formatter.warn(event.message);
+                  break;
+                case "info":
+                  formatter.info(event.message);
+                  break;
+              }
+            },
           );
+
+          if (isJsonMode()) {
+            formatter.json({
+              backend: target.backend,
+              migratedFiles: result.migratedFiles,
+              skippedFiles: result.skippedFiles,
+              verifiedFiles: result.verifiedFiles,
+              warnings: result.warnings,
+              rolledBack: result.rolledBack,
+              error: result.error ?? null,
+              dryRun: opts.dryRun ?? false,
+            });
+            process.exit(result.rolledBack ? 1 : 0);
+            return;
+          }
+
+          if (result.rolledBack) {
+            formatter.error(`Migration failed: ${result.error}`);
+            formatter.info("All changes have been rolled back.");
+            process.exit(1);
+            return;
+          }
+
+          // Report results
+          if (opts.dryRun) {
+            formatter.info("\nDry run complete. No files were modified.");
+          } else {
+            if (result.migratedFiles.length > 0) {
+              formatter.success(
+                `Migrated ${result.migratedFiles.length} file(s) to ${target.backend}. ${sym("locked")}`,
+              );
+            }
+            if (result.skippedFiles.length > 0) {
+              formatter.info(`Skipped ${result.skippedFiles.length} file(s) (already on target).`);
+            }
+            if (result.verifiedFiles.length > 0) {
+              formatter.success(
+                `Verified ${result.verifiedFiles.length}/${result.migratedFiles.length} file(s).`,
+              );
+            }
+          }
+
+          for (const warning of result.warnings) {
+            formatter.warn(warning);
+          }
+
+          if (!opts.dryRun && result.migratedFiles.length > 0) {
+            formatter.hint(
+              'git add clef.yaml secrets/ && git commit -m "chore: migrate backend to ' +
+                target.backend +
+                '"',
+            );
+          }
+        } finally {
+          await decryptCleanup();
+          await encryptCleanup();
         }
       } catch (err) {
         handleCommandError(err);

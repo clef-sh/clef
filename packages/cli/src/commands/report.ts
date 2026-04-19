@@ -1,7 +1,9 @@
+import * as path from "path";
 import pc from "picocolors";
 import { Command } from "commander";
 import {
   ClefReport,
+  ManifestParser,
   MatrixManager,
   ReportGenerator,
   SchemaValidator,
@@ -56,61 +58,73 @@ export function registerReportCommand(program: Command, deps: { runner: Subproce
           }
 
           // ── Generate HEAD report (used by default, --push, --since) ─────
-          const sopsClient = await createSopsClient(repoRoot, deps.runner);
-          const matrixManager = new MatrixManager();
-          const schemaValidator = new SchemaValidator();
-          const generator = new ReportGenerator(
+          const parser = new ManifestParser();
+          const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
+          const { client: sopsClient, cleanup } = await createSopsClient(
+            repoRoot,
             deps.runner,
-            sopsClient,
-            matrixManager,
-            schemaValidator,
+            manifest,
           );
+          try {
+            const matrixManager = new MatrixManager();
+            const schemaValidator = new SchemaValidator();
+            const generator = new ReportGenerator(
+              deps.runner,
+              sopsClient,
+              matrixManager,
+              schemaValidator,
+            );
 
-          const headReport = await generator.generate(repoRoot, cliVersion, {
-            namespaceFilter: options.namespace,
-            environmentFilter: options.environment,
-          });
+            const headReport = await generator.generate(repoRoot, cliVersion, {
+              namespaceFilter: options.namespace,
+              environmentFilter: options.environment,
+            });
 
-          // ── --push: checkpoint + gap-fill + push ──────────────────────
-          if (options.push) {
-            await pushWithGapFill(repoRoot, headReport, deps.runner);
-            outputReport(headReport);
-            return;
-          }
+            // ── --push: checkpoint + gap-fill + push ──────────────────────
+            if (options.push) {
+              await pushWithGapFill(repoRoot, headReport, deps.runner);
+              outputReport(headReport);
+              return;
+            }
 
-          // ── --since <sha>: range of reports ─────────────────────────────
-          if (options.since) {
-            const commits = await listCommitRange(repoRoot, options.since, deps.runner);
-            const headSha = await getHeadSha(repoRoot, deps.runner);
+            // ── --since <sha>: range of reports ─────────────────────────────
+            if (options.since) {
+              const commits = await listCommitRange(repoRoot, options.since, deps.runner);
+              const headSha = await getHeadSha(repoRoot, deps.runner);
 
-            const reports: ClefReport[] = [];
-            for (const sha of commits) {
-              if (sha === headSha) {
-                reports.push(headReport);
+              const reports: ClefReport[] = [];
+              for (const sha of commits) {
+                if (sha === headSha) {
+                  reports.push(headReport);
+                } else {
+                  reports.push(
+                    await generateReportAtCommit(repoRoot, sha, cliVersion, deps.runner),
+                  );
+                }
+              }
+
+              if (isJsonMode()) {
+                formatter.json(reports);
               } else {
-                reports.push(await generateReportAtCommit(repoRoot, sha, cliVersion, deps.runner));
+                formatter.print(
+                  `Generated ${reports.length} report(s) for commits since ${options.since.slice(0, 8)}`,
+                );
+                for (const r of reports) {
+                  const sha = r.repoIdentity.commitSha.slice(0, 8);
+                  const errors = r.policy.issueCount.error;
+                  const status = errors > 0 ? pc.red(`${errors} error(s)`) : pc.green("clean");
+                  formatter.print(`  ${pc.dim(sha)}  ${status}`);
+                }
               }
+              process.exit(reports.some((r) => r.policy.issueCount.error > 0) ? 1 : 0);
+              return;
             }
 
-            if (isJsonMode()) {
-              formatter.json(reports);
-            } else {
-              formatter.print(
-                `Generated ${reports.length} report(s) for commits since ${options.since.slice(0, 8)}`,
-              );
-              for (const r of reports) {
-                const sha = r.repoIdentity.commitSha.slice(0, 8);
-                const errors = r.policy.issueCount.error;
-                const status = errors > 0 ? pc.red(`${errors} error(s)`) : pc.green("clean");
-                formatter.print(`  ${pc.dim(sha)}  ${status}`);
-              }
-            }
-            process.exit(reports.some((r) => r.policy.issueCount.error > 0) ? 1 : 0);
-            return;
+            // ── Default: output single report ───────────────────────────────
+            outputReport(headReport);
+          } finally {
+            await cleanup();
           }
-
-          // ── Default: output single report ───────────────────────────────
-          outputReport(headReport);
         } catch (err) {
           handleCommandError(err);
         }

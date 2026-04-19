@@ -36,6 +36,10 @@
     "@clef-sh/ui": ">=0.1.0"
   },
   "optionalDependencies": {
+    "@clef-sh/keyservice-darwin-arm64": "^0.1.8",
+    "@clef-sh/keyservice-darwin-x64": "^0.1.8",
+    "@clef-sh/keyservice-linux-arm64": "^0.1.8",
+    "@clef-sh/keyservice-linux-x64": "^0.1.8",
     "@clef-sh/sops-darwin-arm64": "3.9.4",
     "@clef-sh/sops-darwin-x64": "3.9.4",
     "@clef-sh/sops-linux-arm64": "3.9.4",

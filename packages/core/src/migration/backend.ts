@@ -59,6 +59,7 @@ export const BACKEND_KEY_FIELDS: Record<BackendType, keyof EnvironmentSopsOverri
   gcpkms: "gcp_kms_resource_id",
   azurekv: "azure_kv_url",
   pgp: "pgp_fingerprint",
+  hsm: "pkcs11_uri",
 };
 
 const ALL_KEY_FIELDS = Object.values(BACKEND_KEY_FIELDS).filter(

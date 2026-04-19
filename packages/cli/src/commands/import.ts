@@ -148,7 +148,11 @@ export function registerImportCommand(program: Command, deps: { runner: Subproce
             formatter.print(`Importing to ${namespace}/${environment} from ${sourceLabel}...\n`);
           }
 
-          const sopsClient = await createSopsClient(repoRoot, deps.runner);
+          const { client: sopsClient, cleanup } = await createSopsClient(
+            repoRoot,
+            deps.runner,
+            manifest,
+          );
           try {
             const git = new GitIntegration(deps.runner);
             const tx = new TransactionManager(git);
@@ -243,7 +247,7 @@ export function registerImportCommand(program: Command, deps: { runner: Subproce
               }
             }
           } finally {
-            // no cleanup needed
+            await cleanup();
           }
         } catch (err) {
           handleCommandError(err);

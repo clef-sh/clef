@@ -1,6 +1,7 @@
 import * as path from "path";
 import { Command } from "commander";
 import {
+  ClefManifest,
   GitIntegration,
   ManifestParser,
   MatrixManager,
@@ -16,11 +17,12 @@ import { createSopsClient } from "../age-credential";
 async function makeStructureManager(
   repoRoot: string,
   runner: SubprocessRunner,
-): Promise<StructureManager> {
-  const sopsClient = await createSopsClient(repoRoot, runner);
+  manifest?: ClefManifest,
+): Promise<{ structure: StructureManager; cleanup: () => Promise<void> }> {
+  const { client: sopsClient, cleanup } = await createSopsClient(repoRoot, runner, manifest);
   const matrixManager = new MatrixManager();
   const tx = new TransactionManager(new GitIntegration(runner));
-  return new StructureManager(matrixManager, sopsClient, tx);
+  return { structure: new StructureManager(matrixManager, sopsClient, tx), cleanup };
 }
 
 export function registerEnvCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -71,49 +73,56 @@ export function registerEnvCommand(program: Command, deps: { runner: SubprocessR
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-          const structure = await makeStructureManager(repoRoot, deps.runner);
-
-          // Translate the two boolean flags into the StructureManager's
-          // single tri-state `protected` option (undefined / true / false).
-          const protectedFlag = opts.protect ? true : opts.unprotect ? false : undefined;
-
-          await structure.editEnvironment(
-            name,
-            {
-              rename: opts.rename,
-              description: opts.description,
-              protected: protectedFlag,
-            },
-            manifest,
+          const { structure, cleanup } = await makeStructureManager(
             repoRoot,
+            deps.runner,
+            manifest,
           );
+          try {
+            // Translate the two boolean flags into the StructureManager's
+            // single tri-state `protected` option (undefined / true / false).
+            const protectedFlag = opts.protect ? true : opts.unprotect ? false : undefined;
 
-          if (isJsonMode()) {
-            formatter.json({
-              action: "edited",
-              kind: "environment",
-              name: opts.rename ?? name,
-              previousName: opts.rename ? name : undefined,
-              changes: {
-                ...(opts.rename ? { rename: opts.rename } : {}),
-                ...(opts.description !== undefined ? { description: opts.description } : {}),
-                ...(protectedFlag !== undefined ? { protected: protectedFlag } : {}),
+            await structure.editEnvironment(
+              name,
+              {
+                rename: opts.rename,
+                description: opts.description,
+                protected: protectedFlag,
               },
-            });
-            return;
-          }
+              manifest,
+              repoRoot,
+            );
 
-          const finalName = opts.rename ?? name;
-          if (opts.rename) {
-            formatter.success(`Renamed environment '${name}' → '${finalName}'`);
-          }
-          if (opts.description !== undefined) {
-            formatter.success(`Updated description on environment '${finalName}'`);
-          }
-          if (protectedFlag === true) {
-            formatter.success(`Marked environment '${finalName}' as protected`);
-          } else if (protectedFlag === false) {
-            formatter.success(`Removed protected flag from environment '${finalName}'`);
+            if (isJsonMode()) {
+              formatter.json({
+                action: "edited",
+                kind: "environment",
+                name: opts.rename ?? name,
+                previousName: opts.rename ? name : undefined,
+                changes: {
+                  ...(opts.rename ? { rename: opts.rename } : {}),
+                  ...(opts.description !== undefined ? { description: opts.description } : {}),
+                  ...(protectedFlag !== undefined ? { protected: protectedFlag } : {}),
+                },
+              });
+              return;
+            }
+
+            const finalName = opts.rename ?? name;
+            if (opts.rename) {
+              formatter.success(`Renamed environment '${name}' → '${finalName}'`);
+            }
+            if (opts.description !== undefined) {
+              formatter.success(`Updated description on environment '${finalName}'`);
+            }
+            if (protectedFlag === true) {
+              formatter.success(`Marked environment '${finalName}' as protected`);
+            } else if (protectedFlag === false) {
+              formatter.success(`Removed protected flag from environment '${finalName}'`);
+            }
+          } finally {
+            await cleanup();
           }
         } catch (err) {
           handleCommandError(err);
@@ -139,30 +148,34 @@ export function registerEnvCommand(program: Command, deps: { runner: SubprocessR
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const structure = await makeStructureManager(repoRoot, deps.runner);
-        await structure.addEnvironment(
-          name,
-          { description: opts.description, protected: opts.protect },
-          manifest,
-          repoRoot,
-        );
-
-        if (isJsonMode()) {
-          formatter.json({
-            action: "added",
-            kind: "environment",
+        const { structure, cleanup } = await makeStructureManager(repoRoot, deps.runner, manifest);
+        try {
+          await structure.addEnvironment(
             name,
-            cellsScaffolded: manifest.namespaces.length,
-            protected: opts.protect ?? false,
-          });
-          return;
-        }
+            { description: opts.description, protected: opts.protect },
+            manifest,
+            repoRoot,
+          );
 
-        formatter.success(
-          `Added environment '${name}' (${manifest.namespaces.length} cell${manifest.namespaces.length === 1 ? "" : "s"} scaffolded)`,
-        );
-        if (opts.protect) {
-          formatter.print(`  Marked as protected.`);
+          if (isJsonMode()) {
+            formatter.json({
+              action: "added",
+              kind: "environment",
+              name,
+              cellsScaffolded: manifest.namespaces.length,
+              protected: opts.protect ?? false,
+            });
+            return;
+          }
+
+          formatter.success(
+            `Added environment '${name}' (${manifest.namespaces.length} cell${manifest.namespaces.length === 1 ? "" : "s"} scaffolded)`,
+          );
+          if (opts.protect) {
+            formatter.print(`  Marked as protected.`);
+          }
+        } finally {
+          await cleanup();
         }
       } catch (err) {
         handleCommandError(err);
@@ -198,14 +211,18 @@ export function registerEnvCommand(program: Command, deps: { runner: SubprocessR
           }
         }
 
-        const structure = await makeStructureManager(repoRoot, deps.runner);
-        await structure.removeEnvironment(name, manifest, repoRoot);
+        const { structure, cleanup } = await makeStructureManager(repoRoot, deps.runner, manifest);
+        try {
+          await structure.removeEnvironment(name, manifest, repoRoot);
 
-        if (isJsonMode()) {
-          formatter.json({ action: "removed", kind: "environment", name });
-          return;
+          if (isJsonMode()) {
+            formatter.json({ action: "removed", kind: "environment", name });
+            return;
+          }
+          formatter.success(`Removed environment '${name}'`);
+        } finally {
+          await cleanup();
         }
-        formatter.success(`Removed environment '${name}'`);
       } catch (err) {
         handleCommandError(err);
       }

@@ -34,7 +34,11 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
+        const { client: sopsClient, cleanup } = await createSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
         try {
           const matrixManager = new MatrixManager();
 
@@ -171,7 +175,7 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
             formatter.success(`Deleted '${key}' from ${namespace}/${environment}`);
           }
         } finally {
-          // no cleanup needed
+          await cleanup();
         }
       } catch (err) {
         handleCommandError(err);
