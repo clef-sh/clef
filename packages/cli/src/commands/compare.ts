@@ -50,7 +50,11 @@ export function registerCompareCommand(program: Command, deps: { runner: Subproc
           compareValue = value;
         }
 
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
+        const { client: sopsClient, cleanup } = await createSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
         try {
           const decrypted = await sopsClient.decrypt(filePath);
 
@@ -89,7 +93,7 @@ export function registerCompareCommand(program: Command, deps: { runner: Subproc
             process.exit(1);
           }
         } finally {
-          // no cleanup needed
+          await cleanup();
         }
       } catch (err) {
         handleCommandError(err);

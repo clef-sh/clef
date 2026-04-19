@@ -195,6 +195,11 @@ jobs:
           curl -Lo /usr/local/bin/sops https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64
           chmod +x /usr/local/bin/sops
           sops --version
+      # SoftHSM2 + OpenSC provide the PKCS#11 token that hsm-roundtrip.test.ts
+      # provisions against. clef-keyservice is pulled in via npm ci as an
+      # optionalDependency of @clef-sh/cli (platform: linux-x64).
+      - name: Install SoftHSM2 + OpenSC
+        run: sudo apt-get update && sudo apt-get install -y softhsm2 opensc
       - run: npm ci
       - run: npm run build --workspace=packages/core
       - run: npm run build --workspace=packages/ui

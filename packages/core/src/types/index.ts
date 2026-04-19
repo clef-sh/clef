@@ -42,7 +42,7 @@ export interface ClefManifest {
 }
 
 /** Supported SOPS encryption backend identifiers. */
-export type BackendType = "age" | "awskms" | "gcpkms" | "azurekv" | "pgp";
+export type BackendType = "age" | "awskms" | "gcpkms" | "azurekv" | "pgp" | "hsm";
 
 /** Per-environment SOPS backend override. */
 export interface EnvironmentSopsOverride {
@@ -51,6 +51,8 @@ export interface EnvironmentSopsOverride {
   gcp_kms_resource_id?: string;
   azure_kv_url?: string;
   pgp_fingerprint?: string;
+  /** PKCS#11 URI identifying the wrap keypair on the HSM (RFC 7512). Required when backend === "hsm". */
+  pkcs11_uri?: string;
 }
 
 /** A single deployment environment declared in the manifest. */
@@ -81,6 +83,7 @@ export function resolveBackendConfig(
     gcp_kms_resource_id: manifest.sops.gcp_kms_resource_id,
     azure_kv_url: manifest.sops.azure_kv_url,
     pgp_fingerprint: manifest.sops.pgp_fingerprint,
+    pkcs11_uri: manifest.sops.pkcs11_uri,
   };
 }
 
@@ -116,6 +119,8 @@ export interface SopsConfig {
   gcp_kms_resource_id?: string;
   azure_kv_url?: string;
   pgp_fingerprint?: string;
+  /** PKCS#11 URI identifying the wrap keypair on the HSM (RFC 7512). Required when default_backend === "hsm". */
+  pkcs11_uri?: string;
 }
 
 /**
@@ -135,6 +140,18 @@ export interface ClefLocalConfig {
   age_key_storage?: "keychain" | "file";
   /** Label identifying this repo's age key in the OS keychain or filesystem. */
   age_keychain_label?: string;
+  /**
+   * Path to a 0600 file containing the HSM user PIN. Used when the manifest
+   * declares an `hsm` backend and neither `CLEF_PKCS11_PIN` nor
+   * `CLEF_PKCS11_PIN_FILE` is set. Never commit a PIN itself — only its path.
+   */
+  pkcs11_pin_file?: string;
+  /**
+   * Optional override for the vendor PKCS#11 module path (e.g.
+   * `/opt/homebrew/lib/softhsm/libsofthsm2.so`). Falls back to
+   * `CLEF_PKCS11_MODULE` then to vendor-default discovery in the keyservice.
+   */
+  pkcs11_module?: string;
 }
 
 /** User-scoped Cloud credentials stored in ~/.clef/credentials.yaml. */

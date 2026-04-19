@@ -26,8 +26,21 @@ export {
 } from "./tx";
 export type { TransactionOptions, TransactionResult } from "./tx";
 export { SopsClient } from "./sops/client";
+export { isClefHsmArn, pkcs11UriToSyntheticArn, syntheticArnToPkcs11Uri } from "./sops/hsm-arn";
 export { resolveSopsPath, resetSopsResolution } from "./sops/resolver";
 export type { SopsResolution, SopsSource } from "./sops/resolver";
+export {
+  resolveKeyservicePath,
+  resetKeyserviceResolution,
+  spawnKeyservice,
+  tryBundledKeyservice,
+} from "./hsm";
+export type {
+  KeyserviceHandle,
+  KeyserviceResolution,
+  KeyserviceSource,
+  SpawnKeyserviceOptions,
+} from "./hsm";
 export { LintRunner } from "./lint/runner";
 export { ConsumptionClient } from "./consumption/client";
 export { checkDependency, checkAll, assertSops, REQUIREMENTS } from "./dependencies/checker";

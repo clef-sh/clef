@@ -38,7 +38,11 @@ export function registerDiffCommand(program: Command, deps: { runner: Subprocess
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-          const sopsClient = await createSopsClient(repoRoot, deps.runner);
+          const { client: sopsClient, cleanup } = await createSopsClient(
+            repoRoot,
+            deps.runner,
+            manifest,
+          );
           try {
             const diffEngine = new DiffEngine();
 
@@ -91,7 +95,7 @@ export function registerDiffCommand(program: Command, deps: { runner: Subprocess
             const hasDiffs = result.rows.some((r) => r.status !== "identical");
             process.exit(hasDiffs ? 1 : 0);
           } finally {
-            // no cleanup needed
+            await cleanup();
           }
         } catch (err) {
           handleCommandError(err);

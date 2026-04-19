@@ -36,7 +36,11 @@ export function registerGetCommand(program: Command, deps: { runner: SubprocessR
             .replace("{environment}", environment),
         );
 
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
+        const { client: sopsClient, cleanup } = await createSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
         try {
           const decrypted = await sopsClient.decrypt(filePath);
 
@@ -62,7 +66,7 @@ export function registerGetCommand(program: Command, deps: { runner: SubprocessR
             }
           }
         } finally {
-          // no cleanup needed
+          await cleanup();
         }
       } catch (err) {
         handleCommandError(err);

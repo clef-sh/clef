@@ -339,6 +339,125 @@ describe("ManifestParser", () => {
       );
     });
 
+    // ── HSM backend ────────────────────────────────────────────────────
+    it("should accept default_backend hsm with global pkcs11_uri", () => {
+      const manifest = {
+        ...validManifest(),
+        sops: {
+          default_backend: "hsm",
+          pkcs11_uri: "pkcs11:slot=0;label=clef-dek-wrapper",
+        },
+      };
+      const result = parser.validate(manifest);
+      expect(result.sops.default_backend).toBe("hsm");
+      expect(result.sops.pkcs11_uri).toBe("pkcs11:slot=0;label=clef-dek-wrapper");
+    });
+
+    it("should reject default_backend hsm without pkcs11_uri", () => {
+      const manifest = {
+        ...validManifest(),
+        sops: { default_backend: "hsm" },
+      };
+      expect(() => parser.validate(manifest)).toThrow(/sops.pkcs11_uri.*required.*hsm/);
+    });
+
+    it("should reject pkcs11_uri that does not start with pkcs11:", () => {
+      const manifest = {
+        ...validManifest(),
+        sops: {
+          default_backend: "hsm",
+          pkcs11_uri: "file:///etc/keys/wrap.pem",
+        },
+      };
+      expect(() => parser.validate(manifest)).toThrow(/invalid format/);
+    });
+
+    it("should reject pkcs11_uri without any attributes", () => {
+      const manifest = {
+        ...validManifest(),
+        sops: {
+          default_backend: "hsm",
+          pkcs11_uri: "pkcs11:",
+        },
+      };
+      expect(() => parser.validate(manifest)).toThrow(/invalid format/);
+    });
+
+    it("should reject non-string pkcs11_uri", () => {
+      const manifest = {
+        ...validManifest(),
+        sops: {
+          default_backend: "age",
+          pkcs11_uri: 42,
+        },
+      };
+      expect(() => parser.validate(manifest)).toThrow(/must be a string/);
+    });
+
+    it("should accept per-env sops override with hsm backend", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: {
+              backend: "hsm",
+              pkcs11_uri: "pkcs11:slot=0;label=prod-wrapper",
+            },
+          },
+          { name: "dev", description: "Dev" },
+        ],
+      };
+      const result = parser.validate(manifest);
+      expect(result.environments[0].sops?.backend).toBe("hsm");
+      expect(result.environments[0].sops?.pkcs11_uri).toBe("pkcs11:slot=0;label=prod-wrapper");
+    });
+
+    it("should reject per-env hsm backend without pkcs11_uri", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: { backend: "hsm" },
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(
+        /Environment 'production' uses 'hsm' backend but is missing 'pkcs11_uri'/,
+      );
+    });
+
+    it("should reject per-env hsm pkcs11_uri with invalid format", () => {
+      const manifest = {
+        ...validManifest(),
+        environments: [
+          {
+            name: "production",
+            description: "Prod",
+            sops: {
+              backend: "hsm",
+              pkcs11_uri: "not-a-pkcs11-uri",
+            },
+          },
+        ],
+      };
+      expect(() => parser.validate(manifest)).toThrow(/invalid 'pkcs11_uri'/);
+    });
+
+    it("should accept hsm in valid backends list", () => {
+      const manifest = {
+        ...validManifest(),
+        sops: {
+          default_backend: "hsm",
+          pkcs11_uri: "pkcs11:slot=0;label=x",
+        },
+      };
+      expect(() => parser.validate(manifest)).not.toThrow();
+    });
+
     it("should parse sops.age.recipients with string entries", () => {
       const manifest = {
         ...validManifest(),

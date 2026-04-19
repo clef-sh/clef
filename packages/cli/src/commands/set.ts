@@ -54,7 +54,11 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
           const repoRoot = (program.opts().dir as string) || process.cwd();
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
-          const sopsClient = await createSopsClient(repoRoot, deps.runner);
+          const { client: sopsClient, cleanup } = await createSopsClient(
+            repoRoot,
+            deps.runner,
+            manifest,
+          );
           try {
             if (opts.allEnvs) {
               const namespace = target.includes("/") ? target.split("/")[0] : target;
@@ -276,7 +280,7 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
               formatter.success(`${key} set in ${namespace}/${environment}`);
             }
           } finally {
-            // no cleanup needed
+            await cleanup();
           }
         } catch (err) {
           handleCommandError(err);
