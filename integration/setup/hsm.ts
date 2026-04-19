@@ -96,17 +96,17 @@ function resolveKeyserviceBinary(): string | null {
 }
 
 /**
- * Provision a SoftHSM2 token + RSA-2048 wrap keypair in a throwaway directory.
- * Returns either a fully-resolved fixture or an unavailable marker — never throws
- * on missing prerequisites (so callers can branch instead of crashing the suite).
+ * Cheap synchronous check — confirms prerequisites exist without spending
+ * the ~500ms required to provision a SoftHSM2 token. Call at module load
+ * time to gate `describe` vs `describe.skip`; Jest decides which tests to
+ * register before any `beforeAll` runs, so deferring this check to setup
+ * time means misconfigured environments crash instead of skip.
  */
-export function setupSoftHsm(): HsmFixture | HsmFixtureUnavailable {
+export function checkHsmPrerequisites(): { available: true } | HsmFixtureUnavailable {
   if (process.platform === "win32") {
     return { available: false, reason: "HSM backend is not supported on Windows" };
   }
-
-  const modulePath = findSoftHsmModule();
-  if (!modulePath) {
+  if (!findSoftHsmModule()) {
     return {
       available: false,
       reason: `libsofthsm2.so not found in any of: ${SOFTHSM_MODULE_CANDIDATES.join(", ")}`,
@@ -118,8 +118,7 @@ export function setupSoftHsm(): HsmFixture | HsmFixtureUnavailable {
   if (!findOnPath("pkcs11-tool")) {
     return { available: false, reason: "pkcs11-tool (OpenSC) not on PATH" };
   }
-  const keyservicePath = resolveKeyserviceBinary();
-  if (!keyservicePath) {
+  if (!resolveKeyserviceBinary()) {
     return {
       available: false,
       reason:
@@ -127,6 +126,20 @@ export function setupSoftHsm(): HsmFixture | HsmFixtureUnavailable {
         "@clef-sh/keyservice-{platform}-{arch}, or place clef-keyservice on PATH.",
     };
   }
+  return { available: true };
+}
+
+/**
+ * Provision a SoftHSM2 token + RSA-2048 wrap keypair in a throwaway directory.
+ * Returns either a fully-resolved fixture or an unavailable marker — never throws
+ * on missing prerequisites (so callers can branch instead of crashing the suite).
+ */
+export function setupSoftHsm(): HsmFixture | HsmFixtureUnavailable {
+  const prereqs = checkHsmPrerequisites();
+  if (!prereqs.available) return prereqs;
+
+  const modulePath = findSoftHsmModule()!;
+  const keyservicePath = resolveKeyserviceBinary()!;
 
   const tokenDir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-softhsm-"));
   const confPath = path.join(tokenDir, "softhsm2.conf");

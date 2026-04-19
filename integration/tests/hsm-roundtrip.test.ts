@@ -17,45 +17,50 @@
  * NOT covered here — they share the decrypt path with case 1, and SoftHSM2
  * setup is expensive (~500ms per token init).
  */
-import { execFileSync } from "child_process";
+import { execFileSync, spawn } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import * as readline from "readline";
 import * as YAML from "yaml";
-import { setupSoftHsm, type HsmFixture } from "../setup/hsm";
+import { checkHsmPrerequisites, setupSoftHsm, type HsmFixture } from "../setup/hsm";
+
+/**
+ * Same base64url encoding the CLI uses — duplicated here instead of
+ * imported because the integration tests build against the packaged
+ * CLI bundle rather than the core source tree.
+ */
+function pkcs11UriToSyntheticArn(uri: string): string {
+  const payload = Buffer.from(uri, "utf8").toString("base64url");
+  return `arn:aws:kms:us-east-1:000000000000:alias/clef-hsm/v1/${payload}`;
+}
 
 const clefBin = path.resolve(__dirname, "../../packages/cli/dist/index.cjs");
 
+// Module-load-time prereq check — Jest decides test registration before any
+// beforeAll runs, so we must decide `describe` vs `describe.skip` here rather
+// than in setup. Full provisioning still happens in beforeAll below.
+const PREREQS = checkHsmPrerequisites();
+const describeHsm = PREREQS.available ? describe : describe.skip;
+if (!PREREQS.available) {
+  console.log(`[hsm-roundtrip] SKIPPED — ${PREREQS.reason}`);
+}
+
 let hsm: HsmFixture | null = null;
-let skipReason: string | null = null;
 
-beforeAll(() => {
-  const result = setupSoftHsm();
-  if (!result.available) {
-    skipReason = result.reason;
-    return;
-  }
-  hsm = result;
-});
+if (PREREQS.available) {
+  beforeAll(() => {
+    const result = setupSoftHsm();
+    if (!result.available) {
+      // Should not happen after the module-load prereq check unless the
+      // environment mutated between registration and beforeAll.
+      throw new Error(`HSM setup failed: ${result.reason}`);
+    }
+    hsm = result;
+  });
 
-afterAll(() => {
-  hsm?.cleanup();
-});
-
-/**
- * Skip-aware describe: registers tests but skips them when SoftHSM2 +
- * keyservice aren't available, with the specific reason in the test name.
- */
-function describeWithHsm(name: string, body: () => void): void {
-  // Wrap the suite name with the skip reason post-hoc so CI surface tells
-  // the operator exactly why HSM tests didn't run.
-  describe(name, () => {
-    beforeEach(function (this: { skip?: () => void }) {
-      if (skipReason !== null) {
-        this.skip?.();
-      }
-    });
-    body();
+  afterAll(() => {
+    hsm?.cleanup();
   });
 }
 
@@ -64,11 +69,83 @@ interface RepoFixture {
   cleanup: () => void;
 }
 
-function scaffoldHsmRepo(opts: {
+/**
+ * Pre-encrypt an empty `{}` document directly via sops + a short-lived
+ * keyservice. The CLI's `clef set` decrypts the existing file to merge
+ * new values in, so every HSM env we exercise needs a seeded file to
+ * already exist. Mirrors what the age scaffold does with `sops` CLI —
+ * just harder because we need the keyservice hop.
+ */
+async function seedHsmEncryptedFile(filePath: string): Promise<void> {
+  if (!hsm) throw new Error("HSM fixture not initialized");
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+
+  // Spawn keyservice, read PORT
+  const child = spawn(
+    hsm.keyservicePath,
+    ["--addr", "127.0.0.1:0", "--pkcs11-module", hsm.modulePath],
+    {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, ...hsm.extraEnv, CLEF_PKCS11_PIN: hsm.pin },
+    },
+  );
+  const port = await new Promise<number>((resolve, reject) => {
+    const rl = readline.createInterface({ input: child.stdout! });
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("keyservice did not report PORT= within 5s"));
+    }, 5000);
+    rl.on("line", (line) => {
+      const m = /^PORT=(\d+)$/.exec(line);
+      if (m) {
+        clearTimeout(timer);
+        rl.close();
+        resolve(parseInt(m[1], 10));
+      }
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      reject(new Error(`keyservice exited with ${code}`));
+    });
+  });
+
+  try {
+    const arn = pkcs11UriToSyntheticArn(hsm.pkcs11Uri);
+    const configPath = process.platform === "win32" ? "NUL" : "/dev/null";
+    const ciphertext = execFileSync(
+      "sops",
+      [
+        "--config",
+        configPath,
+        "encrypt",
+        "--enable-local-keyservice=false",
+        "--keyservice",
+        `tcp://127.0.0.1:${port}`,
+        "--kms",
+        arn,
+        "--input-type",
+        "yaml",
+        "--output-type",
+        "yaml",
+        "--filename-override",
+        filePath,
+        "/dev/stdin",
+      ],
+      { input: "{}\n", stdio: ["pipe", "pipe", "pipe"] },
+    );
+    fs.writeFileSync(filePath, ciphertext);
+  } finally {
+    child.kill("SIGTERM");
+  }
+}
+
+async function scaffoldHsmRepo(opts: {
   defaultBackend: "hsm" | "age";
   /** When set, adds a per-env hsm override on this environment. */
   hsmOverrideEnv?: string;
-}): RepoFixture {
+  /** Namespace × environment pairs to pre-encrypt with empty content. */
+  seed?: Array<{ namespace: string; environment: string }>;
+}): Promise<RepoFixture> {
   if (!hsm) throw new Error("HSM fixture not initialized");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-hsm-repo-"));
 
@@ -96,6 +173,14 @@ function scaffoldHsmRepo(opts: {
 
   fs.writeFileSync(path.join(dir, "clef.yaml"), YAML.stringify(manifest));
   fs.mkdirSync(path.join(dir, "app"), { recursive: true });
+
+  // Seed HSM-encrypted files for cells we'll mutate. `clef set` decrypts
+  // the existing file first to merge new values, so a non-existent file
+  // makes the command fail before it can bootstrap — same pattern as the
+  // age scaffold, which pre-encrypts via `sops` CLI directly.
+  for (const { namespace, environment } of opts.seed ?? []) {
+    await seedHsmEncryptedFile(path.join(dir, namespace, `${environment}.enc.yaml`));
+  }
 
   // Init git so transactional commands have a repo to operate on.
   execFileSync("git", ["init"], { cwd: dir, stdio: "pipe" });
@@ -131,9 +216,12 @@ function clef(repo: RepoFixture, args: string[]): string {
   }).toString();
 }
 
-describeWithHsm("HSM encrypt roundtrip", () => {
-  it("encrypts via keyservice and decrypts back to plaintext", () => {
-    const repo = scaffoldHsmRepo({ defaultBackend: "hsm" });
+describeHsm("HSM encrypt roundtrip", () => {
+  it("encrypts via keyservice and decrypts back to plaintext", async () => {
+    const repo = await scaffoldHsmRepo({
+      defaultBackend: "hsm",
+      seed: [{ namespace: "app", environment: "dev" }],
+    });
     try {
       clef(repo, ["set", "app/dev", "API_KEY", "round-trip-value"]);
 
@@ -155,9 +243,12 @@ describeWithHsm("HSM encrypt roundtrip", () => {
   });
 });
 
-describeWithHsm("HSM rotate roundtrip", () => {
-  it("survives back-to-back decrypt+encrypt in a single set against existing file", () => {
-    const repo = scaffoldHsmRepo({ defaultBackend: "hsm" });
+describeHsm("HSM rotate roundtrip", () => {
+  it("survives back-to-back decrypt+encrypt in a single set against existing file", async () => {
+    const repo = await scaffoldHsmRepo({
+      defaultBackend: "hsm",
+      seed: [{ namespace: "app", environment: "dev" }],
+    });
     try {
       clef(repo, ["set", "app/dev", "FIRST", "v1"]);
       // Second set decrypts the existing file, mutates, re-encrypts —
@@ -174,14 +265,14 @@ describeWithHsm("HSM rotate roundtrip", () => {
   });
 });
 
-describeWithHsm("HSM migrate-backend roundtrip", () => {
-  it("migrates an age-encrypted file to the hsm backend losslessly", () => {
+describeHsm("HSM migrate-backend roundtrip", () => {
+  it("migrates an age-encrypted file to the hsm backend losslessly", async () => {
     // Bootstrap an age repo (the migrate command needs source to migrate FROM).
     // We can't easily generate an age key inline here without bringing in the
     // full setup — defer to the future when we either inline keygen or add a
     // helper. For now this test is structured but requires a follow-up.
     // Marking this as a documented hole rather than a bogus pass.
-    const repo = scaffoldHsmRepo({ defaultBackend: "age" });
+    const repo = await scaffoldHsmRepo({ defaultBackend: "age" });
     try {
       // TODO: requires age key plumbing similar to the existing age roundtrip
       // tests. Wire up once we agree on a shared age-key fixture for HSM tests.
@@ -192,15 +283,16 @@ describeWithHsm("HSM migrate-backend roundtrip", () => {
   });
 });
 
-describeWithHsm("HSM multi-env (mixed backends)", () => {
-  it("only spawns the keyservice when an HSM env is touched", () => {
+describeHsm("HSM multi-env (mixed backends)", () => {
+  it("only spawns the keyservice when an HSM env is touched", async () => {
     // Manifest: default_backend=age, production env overrides to hsm.
     // Operating on `production` should round-trip via the keyservice; ops
     // on `dev` would use age (not exercised here — we don't want to make
     // this test depend on the age key fixture).
-    const repo = scaffoldHsmRepo({
+    const repo = await scaffoldHsmRepo({
       defaultBackend: "age",
       hsmOverrideEnv: "production",
+      seed: [{ namespace: "app", environment: "production" }],
     });
     try {
       // Per-env hsm requires per-env recipients to be unset (which they are
@@ -210,12 +302,15 @@ describeWithHsm("HSM multi-env (mixed backends)", () => {
       const value = clef(repo, ["get", "app/production", "PROD_TOKEN", "--raw"]).trim();
       expect(value).toBe("prod-value");
 
-      // The encrypted file should carry the Clef HSM ARN, not an age recipient.
+      // The encrypted file should carry the Clef HSM ARN, with no age
+      // recipients bound. SOPS may stamp an empty `age: []` array even
+      // when the backend is hsm — the semantic check is "no age
+      // recipients", not "no age field".
       const raw = YAML.parse(
         fs.readFileSync(path.join(repo.dir, "app", "production.enc.yaml"), "utf-8"),
       );
       expect(raw.sops?.kms?.[0]?.arn).toMatch(/alias\/clef-hsm\/v1\//);
-      expect(raw.sops?.age).toBeUndefined();
+      expect(raw.sops?.age ?? []).toHaveLength(0);
     } finally {
       repo.cleanup();
     }
