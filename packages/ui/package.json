@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/ui",
-  "version": "0.1.18",
+  "version": "0.1.19-alpha.117",
   "description": "Local web UI for Clef — git-native secrets management",
   "repository": {
     "type": "git",
