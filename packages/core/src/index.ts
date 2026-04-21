@@ -102,6 +102,13 @@ export { resolveIdentitySecrets } from "./artifact/resolve";
 export type { ResolvedSecrets } from "./artifact/resolve";
 export { ArtifactPacker } from "./artifact/packer";
 export { FilePackOutput, MemoryPackOutput } from "./artifact/output";
+export {
+  isPackedArtifact,
+  validatePackedArtifact,
+  assertPackedArtifact,
+  InvalidArtifactError,
+} from "./artifact/guards";
+export type { ValidationResult } from "./artifact/guards";
 export type {
   PackedArtifact,
   PackConfig,

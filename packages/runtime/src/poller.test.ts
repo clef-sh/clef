@@ -227,7 +227,7 @@ describe("ArtifactPoller", () => {
         cache,
       });
 
-      await expect(poller.fetchAndDecrypt()).rejects.toThrow("Unsupported artifact version");
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("unsupported version");
     });
 
     it("should throw when age-only artifact has no private key", async () => {
@@ -325,7 +325,7 @@ describe("ArtifactPoller", () => {
         cache,
       });
 
-      await expect(poller.fetchAndDecrypt()).rejects.toThrow("incomplete envelope fields");
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("invalid 'envelope'");
     });
 
     it("should reject envelope missing iv and authTag", async () => {
@@ -354,7 +354,7 @@ describe("ArtifactPoller", () => {
         cache,
       });
 
-      await expect(poller.fetchAndDecrypt()).rejects.toThrow("incomplete envelope fields");
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("invalid 'envelope'");
     });
 
     it("should call onRefresh callback on successful cache swap", async () => {
@@ -849,11 +849,11 @@ describe("ArtifactPoller", () => {
         telemetry: telemetry as unknown as TelemetryEmitter,
       });
 
-      await expect(poller.fetchAndDecrypt()).rejects.toThrow("Unsupported artifact version");
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow("unsupported version");
 
       expect(telemetry.artifactInvalid).toHaveBeenCalledWith({
         reason: "unsupported_version",
-        error: expect.stringContaining("Unsupported artifact version"),
+        error: expect.stringContaining("unsupported version"),
       });
     });
 
@@ -874,11 +874,11 @@ describe("ArtifactPoller", () => {
         telemetry: telemetry as unknown as TelemetryEmitter,
       });
 
-      await expect(poller.fetchAndDecrypt()).rejects.toThrow("missing required fields");
+      await expect(poller.fetchAndDecrypt()).rejects.toThrow(/missing or invalid/);
 
       expect(telemetry.artifactInvalid).toHaveBeenCalledWith({
-        reason: "missing_fields",
-        error: expect.stringContaining("missing required fields"),
+        reason: "invalid_shape",
+        error: expect.stringContaining("missing or invalid"),
       });
     });
 
