@@ -4,7 +4,7 @@
   "description": "AWS CDK L2 constructs for delivering Clef-managed secrets to AWS resources",
   "repository": {
     "type": "git",
-    "url": "https://github.com/clef-sh/clef",
+    "url": "git+https://github.com/clef-sh/clef.git",
     "directory": "packages/cdk"
   },
   "main": "dist/index.js",
@@ -13,7 +13,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "test": "jest",
     "test:coverage": "jest --coverage"
   },
