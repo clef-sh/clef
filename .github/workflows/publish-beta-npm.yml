@@ -38,6 +38,13 @@ jobs:
 
       - run: npm ci
 
+      # Defensive: staging should already have pins from publish-prerelease's
+      # commit-back, but if this workflow is invoked against a branch where
+      # that didn't happen, pin now so loose `*` specifiers don't leak to
+      # npm. Not committed — this workflow never writes back.
+      - name: Pin internal dep versions
+        run: node scripts/stamp-internal-deps.mjs
+
       - name: Build all packages
         run: npm run build
 
@@ -121,12 +128,14 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      # No NODE_AUTH_TOKEN: @clef-sh/cdk uses npm trusted-publisher + OIDC
+      # after its manual first-publish (--provenance) from a maintainer
+      # machine. The id-token:write permission at the top of this workflow
+      # is what lets `npm publish` authenticate here.
       - name: Publish @clef-sh/cdk
         continue-on-error: true
         working-directory: packages/cdk
-        run: npm publish --tag beta --access public || echo "::warning::@clef-sh/cdk publish failed (may already exist)"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --tag beta --access public --provenance || echo "::warning::@clef-sh/cdk publish failed (may already exist)"
 
       # Tag the promoted commit so it's traceable from npm back to source
       - name: Tag promoted commit

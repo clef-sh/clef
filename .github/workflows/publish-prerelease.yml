@@ -413,6 +413,13 @@ jobs:
           stamp packages/client    "${{ needs.prepare.outputs.client_version }}"
           stamp packages/cdk       "${{ needs.prepare.outputs.cdk_version }}"
 
+      # Pin every in-monorepo `@clef-sh/*` dep to the exact version just
+      # stamped above. Without this, published prerelease packages carry
+      # loose specifiers (`*`, `>=0.1.0`) that npm resolves to latest-
+      # stable at install time, masking prerelease fixes.
+      - name: Pin internal dep versions
+        run: node scripts/stamp-internal-deps.mjs
+
       - name: Build all packages
         run: npm run build
 

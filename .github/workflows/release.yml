@@ -150,6 +150,13 @@ jobs:
           echo "::error::Either bump cli on staging before merging, or run release.yml manually with a fresh staging promotion."
           exit 1
 
+      # Pin every in-monorepo `@clef-sh/*` dep to the matching stable
+      # version so the single commit below captures both version strip
+      # and dep pin. Keeps published stable packages internally
+      # consistent (e.g. cli@0.1.8 depends on core@0.1.8, not `*`).
+      - name: Pin internal dep versions
+        run: node scripts/stamp-internal-deps.mjs
+
       - name: Commit stable versions
         run: |
           git config user.name "github-actions[bot]"
@@ -476,13 +483,15 @@ jobs:
         working-directory: packages/client
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/client publish failed (may already exist)"
 
+      # No NODE_AUTH_TOKEN: @clef-sh/cdk uses npm trusted-publisher + OIDC
+      # after its manual first-publish from a maintainer machine. The
+      # id-token:write permission at the top of this workflow is what
+      # lets `npm publish --provenance` authenticate.
       - name: Publish @clef-sh/cdk
         if: needs.prepare.outputs.cdk_released == 'true'
         continue-on-error: true
         working-directory: packages/cdk
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/cdk publish failed (may already exist)"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # ── Flip draft to published ─────────────────────────────────────────
       #
