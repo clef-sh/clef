@@ -297,6 +297,92 @@ describe("clef pack", () => {
     expect(mockFormatter.error).not.toHaveBeenCalled();
   });
 
+  it("should accept --backend-opt key=value and succeed", async () => {
+    const runner = makeRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync([
+      "node",
+      "clef",
+      "pack",
+      "api-gateway",
+      "dev",
+      "--output",
+      "/tmp/artifact.json",
+      "--backend-opt",
+      "arbitrary=value",
+    ]);
+
+    expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Artifact packed"));
+    expect(mockFormatter.error).not.toHaveBeenCalled();
+  });
+
+  it("should accept multiple --backend-opt flags", async () => {
+    const runner = makeRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync([
+      "node",
+      "clef",
+      "pack",
+      "api-gateway",
+      "dev",
+      "--output",
+      "/tmp/artifact.json",
+      "--backend-opt",
+      "path=secret/app",
+      "--backend-opt",
+      "namespace=team-a",
+      "--backend-opt",
+      "mount=kv2",
+    ]);
+
+    expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Artifact packed"));
+    expect(mockFormatter.error).not.toHaveBeenCalled();
+  });
+
+  it("should error cleanly when --backend-opt is malformed", async () => {
+    const runner = makeRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync([
+      "node",
+      "clef",
+      "pack",
+      "api-gateway",
+      "dev",
+      "--output",
+      "/tmp/artifact.json",
+      "--backend-opt",
+      "missing-equals",
+    ]);
+
+    expect(mockFormatter.error).toHaveBeenCalledWith(
+      expect.stringContaining("Invalid --backend-opt format"),
+    );
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it("should preserve '=' within --backend-opt values", async () => {
+    const runner = makeRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync([
+      "node",
+      "clef",
+      "pack",
+      "api-gateway",
+      "dev",
+      "--output",
+      "/tmp/artifact.json",
+      "--backend-opt",
+      "query=a=1&b=2",
+    ]);
+
+    expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Artifact packed"));
+    expect(mockFormatter.error).not.toHaveBeenCalled();
+  });
+
   it("should error cleanly when --backend is unknown", async () => {
     const runner = makeRunner();
     const program = makeProgram(runner);

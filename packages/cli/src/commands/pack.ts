@@ -6,7 +6,7 @@ import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
-import { createPackBackendRegistry } from "../pack-backends";
+import { createPackBackendRegistry, parseBackendOptions } from "../pack-backends";
 
 export function registerPackCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -21,6 +21,15 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
         "  # aws s3 cp ./artifact.json s3://my-bucket/clef/api-gateway/production.json",
     )
     .option("-b, --backend <id>", "Pack backend id", "json-envelope")
+    .option(
+      "--backend-opt <keyval>",
+      "Backend option key=value (repeatable). Passed through to the backend.",
+      (val: string, acc: string[]) => {
+        acc.push(val);
+        return acc;
+      },
+      [] as string[],
+    )
     .option("-o, --output <path>", "Output file path for the artifact JSON")
     .option("--ttl <seconds>", "Artifact TTL — embeds an expiresAt timestamp in the envelope")
     .option(
@@ -37,6 +46,7 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
         environment: string,
         opts: {
           backend?: string;
+          backendOpt?: string[];
           output?: string;
           ttl?: string;
           signingKey?: string;
@@ -67,12 +77,15 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
           const outputPath = opts.output ? path.resolve(opts.output) : undefined;
 
           // Backend owns option validation (mutually exclusive signing keys, required
-          // outputs, etc.). Run it before any expensive setup.
+          // outputs, etc.). Run it before any expensive setup. Named flags take
+          // precedence over --backend-opt when both set the same key; unknown keys
+          // from --backend-opt flow through unchanged for plugin backends.
           const backendOptions: Record<string, unknown> = {
-            outputPath,
-            signingKey,
-            signingKmsKeyId,
+            ...parseBackendOptions(opts.backendOpt ?? []),
           };
+          if (outputPath !== undefined) backendOptions.outputPath = outputPath;
+          if (signingKey !== undefined) backendOptions.signingKey = signingKey;
+          if (signingKmsKeyId !== undefined) backendOptions.signingKmsKeyId = signingKmsKeyId;
           backend.validateOptions?.(backendOptions);
 
           const { client: sopsClient, cleanup } = await createSopsClient(
