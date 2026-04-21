@@ -55,7 +55,7 @@ describe("applyTemplate", () => {
 });
 
 describe("applyShape", () => {
-  it("produces a mapped object with literals and substitutions", () => {
+  it("produces a mapped object with literals and substitutions (Record shape)", () => {
     const result = applyShape(
       {
         region: "us-east-1",
@@ -75,8 +75,21 @@ describe("applyShape", () => {
     });
   });
 
-  it("returns an empty object for an empty shape", () => {
+  it("returns an empty object for an empty Record shape", () => {
     expect(applyShape({}, { X: "y" })).toEqual({});
+  });
+
+  it("returns a plain string when shape is a string template", () => {
+    const result = applyShape("postgres://${USER}:${PASS}@${HOST}:5432/app", {
+      USER: "app",
+      PASS: "hunter2",
+      HOST: "db.internal",
+    });
+    expect(result).toBe("postgres://app:hunter2@db.internal:5432/app");
+  });
+
+  it("returns the string literally when shape has no refs", () => {
+    expect(applyShape("static-value", {})).toBe("static-value");
   });
 });
 
@@ -184,12 +197,55 @@ describe("validateShape", () => {
     }
   });
 
-  it("rejects non-string values in the shape map", () => {
+  it("rejects non-string values in the Record shape map", () => {
     expect(() =>
       validateShape({
         ...baseArgs,
         shape: { port: 5432 as unknown as string },
       }),
     ).toThrow(/shape\['port'\] must be a string/);
+  });
+
+  describe("string shape", () => {
+    it("passes when every reference in the string resolves", () => {
+      expect(() =>
+        validateShape({
+          ...baseArgs,
+          shape: "postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@${DATABASE_HOST}",
+        }),
+      ).not.toThrow();
+    });
+
+    it("passes for a pure literal string", () => {
+      expect(() =>
+        validateShape({
+          ...baseArgs,
+          shape: "us-east-1",
+        }),
+      ).not.toThrow();
+    });
+
+    it("throws with a <value> location pointer when an unknown ref appears", () => {
+      try {
+        validateShape({
+          ...baseArgs,
+          shape: "postgres://${DATABSAE_HOST}",
+        });
+        fail("expected throw");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        expect(msg).toMatch(/<value> references unknown Clef key: \$\{DATABSAE_HOST\}/);
+        expect(msg).toMatch(/Did you mean \$\{DATABASE_HOST\}/);
+      }
+    });
+  });
+
+  it("rejects a shape that is neither string nor object", () => {
+    expect(() =>
+      validateShape({
+        ...baseArgs,
+        shape: 42 as unknown as string,
+      }),
+    ).toThrow(/shape must be a string or an object of strings/);
   });
 });

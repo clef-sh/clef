@@ -3,7 +3,7 @@ import * as os from "os";
 import * as path from "path";
 import { App, Stack, aws_lambda as lambda } from "aws-cdk-lib";
 import { Template, Match } from "aws-cdk-lib/assertions";
-import { ClefAwsSecretsManager } from "./aws-secrets-manager";
+import { ClefSecret } from "./secret";
 
 jest.mock("./pack-invoker");
 import { invokePackHelper } from "./pack-invoker";
@@ -61,12 +61,12 @@ function ageEnvelopeResult(identity: string, environment: string, keys: string[]
   };
 }
 
-describe("ClefAwsSecretsManager", () => {
+describe("ClefSecret", () => {
   let tmpRoot: string;
   let manifestPath: string;
 
   beforeEach(() => {
-    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "clef-cdk-asm-"));
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "clef-cdk-secret-"));
     manifestPath = writeManifest(tmpRoot);
     mockInvokePackHelper.mockReset();
   });
@@ -84,7 +84,7 @@ describe("ClefAwsSecretsManager", () => {
 
       expect(
         () =>
-          new ClefAwsSecretsManager(stack, "Secrets", {
+          new ClefSecret(stack, "Secrets", {
             identity: "api",
             environment: "prod",
             manifest: manifestPath,
@@ -92,7 +92,7 @@ describe("ClefAwsSecretsManager", () => {
       ).toThrow(/requires a KMS-envelope service identity/);
     });
 
-    it("surfaces shape template errors with the valid-keys list", () => {
+    it("surfaces Record-shape typos with the valid-keys list", () => {
       mockInvokePackHelper.mockReturnValue(
         kmsEnvelopeResult("api", "prod", ["DATABASE_HOST", "DATABASE_USER", "API_KEY"]),
       );
@@ -102,13 +102,32 @@ describe("ClefAwsSecretsManager", () => {
 
       expect(
         () =>
-          new ClefAwsSecretsManager(stack, "Secrets", {
+          new ClefSecret(stack, "Secrets", {
             identity: "api",
             environment: "prod",
             manifest: manifestPath,
             shape: { dbHost: "${DATABSAE_HOST}" }, // typo
           }),
       ).toThrow(/references unknown Clef key: \$\{DATABSAE_HOST\}[\s\S]*DATABASE_HOST/);
+    });
+
+    it("surfaces string-shape typos with the valid-keys list", () => {
+      mockInvokePackHelper.mockReturnValue(
+        kmsEnvelopeResult("api", "prod", ["DB_HOST", "DB_USER", "DB_PASSWORD"]),
+      );
+
+      const app = new App();
+      const stack = new Stack(app, "TestStack");
+
+      expect(
+        () =>
+          new ClefSecret(stack, "Secrets", {
+            identity: "api",
+            environment: "prod",
+            manifest: manifestPath,
+            shape: "postgres://${DB_USER}:${DB_PASSWROD}@${DB_HOST}", // typo in DB_PASSWORD
+          }),
+      ).toThrow(/references unknown Clef key: \$\{DB_PASSWROD\}[\s\S]*DB_PASSWORD/);
     });
 
     it("refuses non-JSON pack-helper output", () => {
@@ -118,7 +137,7 @@ describe("ClefAwsSecretsManager", () => {
 
       expect(
         () =>
-          new ClefAwsSecretsManager(stack, "Secrets", {
+          new ClefSecret(stack, "Secrets", {
             identity: "api",
             environment: "prod",
             manifest: manifestPath,
@@ -127,7 +146,7 @@ describe("ClefAwsSecretsManager", () => {
     });
   });
 
-  describe("CFN synthesis — happy path, no shape (passthrough)", () => {
+  describe("CFN synthesis — passthrough (no shape)", () => {
     let stack: Stack;
     let template: Template;
 
@@ -137,7 +156,7 @@ describe("ClefAwsSecretsManager", () => {
       );
       const app = new App();
       stack = new Stack(app, "TestStack");
-      new ClefAwsSecretsManager(stack, "Secrets", {
+      new ClefSecret(stack, "Secrets", {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
@@ -152,8 +171,8 @@ describe("ClefAwsSecretsManager", () => {
       });
     });
 
-    it("creates a Custom::ClefAsmGrant with CreateGrant scoped to the unwrap role", () => {
-      template.resourceCountIs("Custom::ClefAsmGrant", 1);
+    it("creates a Custom::ClefSecretGrant with CreateGrant scoped to the unwrap role", () => {
+      template.resourceCountIs("Custom::ClefSecretGrant", 1);
 
       // The AwsCustomResource role's IAM policy carries the scoped CreateGrant
       // statement — this is where the security boundary lives.
@@ -186,10 +205,10 @@ describe("ClefAwsSecretsManager", () => {
       ).toEqual(["Decrypt"]);
     });
 
-    it("creates a Custom::ClefAsmUnwrap that depends on the grant", () => {
-      template.resourceCountIs("Custom::ClefAsmUnwrap", 1);
+    it("creates a Custom::ClefSecretUnwrap that depends on the grant", () => {
+      template.resourceCountIs("Custom::ClefSecretUnwrap", 1);
 
-      const unwraps = template.findResources("Custom::ClefAsmUnwrap");
+      const unwraps = template.findResources("Custom::ClefSecretUnwrap");
       const [unwrap] = Object.values(unwraps);
       const deps = (unwrap as { DependsOn?: string[] }).DependsOn;
       expect(deps).toBeDefined();
@@ -229,17 +248,25 @@ describe("ClefAwsSecretsManager", () => {
         },
       });
     });
+
+    it("omits the Shape property on the Unwrap CR (passthrough case)", () => {
+      const unwraps = template.findResources("Custom::ClefSecretUnwrap");
+      const [props] = Object.values(unwraps).map(
+        (r) => (r as { Properties: Record<string, unknown> }).Properties,
+      );
+      expect(props.Shape).toBeUndefined();
+    });
   });
 
-  describe("CFN synthesis — with shape template", () => {
-    it("passes the shape through to the Unwrap custom resource", () => {
+  describe("CFN synthesis — Record shape (JSON secret)", () => {
+    it("passes the record shape through to the Unwrap custom resource", () => {
       mockInvokePackHelper.mockReturnValue(
         kmsEnvelopeResult("api", "prod", ["DATABASE_HOST", "API_KEY"]),
       );
       const app = new App();
       const stack = new Stack(app, "TestStack");
 
-      new ClefAwsSecretsManager(stack, "Secrets", {
+      new ClefSecret(stack, "Secrets", {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
@@ -251,7 +278,7 @@ describe("ClefAwsSecretsManager", () => {
       });
 
       const template = Template.fromStack(stack);
-      template.hasResourceProperties("Custom::ClefAsmUnwrap", {
+      template.hasResourceProperties("Custom::ClefSecretUnwrap", {
         Shape: {
           dbHost: "${DATABASE_HOST}",
           apiKey: "${API_KEY}",
@@ -259,24 +286,45 @@ describe("ClefAwsSecretsManager", () => {
         },
       });
     });
+  });
 
-    it("omits the Shape property entirely when none provided", () => {
-      mockInvokePackHelper.mockReturnValue(kmsEnvelopeResult("api", "prod", ["DATABASE_URL"]));
+  describe("CFN synthesis — string shape (single-value secret)", () => {
+    it("passes the string template through to the Unwrap custom resource", () => {
+      mockInvokePackHelper.mockReturnValue(
+        kmsEnvelopeResult("api", "prod", ["DB_USER", "DB_PASSWORD", "DB_HOST"]),
+      );
       const app = new App();
       const stack = new Stack(app, "TestStack");
 
-      new ClefAwsSecretsManager(stack, "Secrets", {
+      new ClefSecret(stack, "Secrets", {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
+        shape: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/app",
       });
 
       const template = Template.fromStack(stack);
-      const unwraps = template.findResources("Custom::ClefAsmUnwrap");
-      const [props] = Object.values(unwraps).map(
-        (r) => (r as { Properties: Record<string, unknown> }).Properties,
-      );
-      expect(props.Shape).toBeUndefined();
+      template.hasResourceProperties("Custom::ClefSecretUnwrap", {
+        Shape: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/app",
+      });
+    });
+
+    it("passes a literal string (no refs) through to the Unwrap custom resource", () => {
+      mockInvokePackHelper.mockReturnValue(kmsEnvelopeResult("api", "prod", ["KEY"]));
+      const app = new App();
+      const stack = new Stack(app, "TestStack");
+
+      new ClefSecret(stack, "Secrets", {
+        identity: "api",
+        environment: "prod",
+        manifest: manifestPath,
+        shape: "${KEY}",
+      });
+
+      const template = Template.fromStack(stack);
+      template.hasResourceProperties("Custom::ClefSecretUnwrap", {
+        Shape: "${KEY}",
+      });
     });
   });
 
@@ -286,7 +334,7 @@ describe("ClefAwsSecretsManager", () => {
       const app = new App();
       const stack = new Stack(app, "TestStack");
 
-      const secrets = new ClefAwsSecretsManager(stack, "Secrets", {
+      const secrets = new ClefSecret(stack, "Secrets", {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
@@ -314,20 +362,20 @@ describe("ClefAwsSecretsManager", () => {
     });
   });
 
-  describe("stack-level singleton Lambda", () => {
-    it("reuses one UnwrapFn across multiple ClefAwsSecretsManager instances", () => {
+  describe("multiple ClefSecret instances in one stack", () => {
+    it("reuses a single UnwrapFn across instances (stack-level singleton)", () => {
       mockInvokePackHelper.mockImplementation(({ identity }: { identity: string }) =>
         kmsEnvelopeResult(identity, "prod", ["DATABASE_URL"]),
       );
       const app = new App();
       const stack = new Stack(app, "TestStack");
 
-      new ClefAwsSecretsManager(stack, "SecretsA", {
+      new ClefSecret(stack, "SecretsA", {
         identity: "service-a",
         environment: "prod",
         manifest: manifestPath,
       });
-      new ClefAwsSecretsManager(stack, "SecretsB", {
+      new ClefSecret(stack, "SecretsB", {
         identity: "service-b",
         environment: "prod",
         manifest: manifestPath,
@@ -338,15 +386,40 @@ describe("ClefAwsSecretsManager", () => {
       // Two ASM secrets.
       template.resourceCountIs("AWS::SecretsManager::Secret", 2);
 
-      // Find Lambdas with our description prefix — exactly one is the
-      // singleton unwrap handler; the others are CDK-framework Lambdas
-      // (Provider onEvent framework + AwsCustomResource auto Lambda).
+      // Exactly one unwrap Lambda — matches by our description prefix. The
+      // other Lambdas in the stack are CDK-framework (Provider + AwsCR).
       const functions = template.findResources("AWS::Lambda::Function");
       const unwrapFns = Object.entries(functions).filter(([, res]) => {
         const desc = (res as { Properties: { Description?: string } }).Properties.Description;
-        return typeof desc === "string" && desc.startsWith("Clef ASM unwrap");
+        return typeof desc === "string" && desc.startsWith("Clef secret unwrap");
       });
       expect(unwrapFns).toHaveLength(1);
+    });
+
+    it("creates one Custom::ClefSecretUnwrap per construct instance", () => {
+      mockInvokePackHelper.mockImplementation(({ identity }: { identity: string }) =>
+        kmsEnvelopeResult(identity, "prod", ["DATABASE_URL"]),
+      );
+      const app = new App();
+      const stack = new Stack(app, "TestStack");
+
+      new ClefSecret(stack, "DbUrl", {
+        identity: "service-a",
+        environment: "prod",
+        manifest: manifestPath,
+        shape: "${DATABASE_URL}",
+      });
+      new ClefSecret(stack, "ApiConfig", {
+        identity: "service-b",
+        environment: "prod",
+        manifest: manifestPath,
+        shape: { url: "${DATABASE_URL}" },
+      });
+
+      const template = Template.fromStack(stack);
+      template.resourceCountIs("AWS::SecretsManager::Secret", 2);
+      template.resourceCountIs("Custom::ClefSecretUnwrap", 2);
+      template.resourceCountIs("Custom::ClefSecretGrant", 2);
     });
   });
 });

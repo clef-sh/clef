@@ -44,10 +44,15 @@ function applyTemplate(template: string, values: Record<string, string>): string
   });
 }
 
+type ShapeTemplate = string | Record<string, string>;
+
 function applyShape(
-  shape: Record<string, string>,
+  shape: ShapeTemplate,
   values: Record<string, string>,
-): Record<string, string> {
+): string | Record<string, string> {
+  if (typeof shape === "string") {
+    return applyTemplate(shape, values);
+  }
   const out: Record<string, string> = {};
   for (const [field, template] of Object.entries(shape)) {
     out[field] = applyTemplate(template, values);
@@ -80,7 +85,7 @@ interface OnEventRequest {
     EnvelopeJson: string;
     Revision: string;
     GrantToken: string;
-    Shape?: Record<string, string>;
+    Shape?: ShapeTemplate;
   };
   PhysicalResourceId?: string;
 }
@@ -106,7 +111,7 @@ export async function handler(event: OnEventRequest): Promise<OnEventResponse> {
   const envelope = JSON.parse(EnvelopeJson) as PackedArtifact;
   if (!envelope.envelope) {
     throw new Error(
-      `ClefAwsSecretsManager requires a KMS-envelope artifact, but envelope for ` +
+      `ClefSecret requires a KMS-envelope artifact, but envelope for ` +
         `'${envelope.identity}/${envelope.environment}' has no envelope header. ` +
         `Age-only identities are not supported by this construct.`,
     );
@@ -137,14 +142,18 @@ export async function handler(event: OnEventRequest): Promise<OnEventResponse> {
     const values = JSON.parse(plaintextBuf.toString("utf-8")) as Record<string, string>;
 
     // 3. Apply shape template if provided, else passthrough.
-    const finalObj = Shape ? applyShape(Shape, values) : values;
+    //    - Shape is a string     → single-value SecretString (no JSON wrap)
+    //    - Shape is an object    → JSON SecretString with mapped fields
+    //    - Shape is undefined    → JSON SecretString with envelope's native keys
+    const final = Shape !== undefined ? applyShape(Shape, values) : values;
+    const secretString = typeof final === "string" ? final : JSON.stringify(final);
 
     // 4. Write to ASM. Replaces the secret's current value with a new version
     //    (keeps history if the user has ASM versioning enabled).
     await sm.send(
       new PutSecretValueCommand({
         SecretId: SecretArn,
-        SecretString: JSON.stringify(finalObj),
+        SecretString: secretString,
       }),
     );
   } finally {

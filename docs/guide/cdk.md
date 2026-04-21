@@ -73,13 +73,13 @@ npm install @clef-sh/cdk @aws-sdk/client-kms
 import { Stack, StackProps } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as lambda from "aws-cdk-lib/aws-lambda";
-import { ClefAwsSecretsManager } from "@clef-sh/cdk";
+import { ClefSecret } from "@clef-sh/cdk";
 
 export class ApiStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
 
-    const secrets = new ClefAwsSecretsManager(this, "ApiSecrets", {
+    const secrets = new ClefSecret(this, "ApiSecrets", {
       identity: "api-gateway",
       environment: "production",
 
@@ -166,7 +166,7 @@ export async function handler() {
 
 If you're using ECS, field-level injection keeps even this boilerplate out
 of your app — see the
-[`Secret.fromSecretsManager`](/cdk/aws-secrets-manager#ecs-field-injection)
+[`Secret.fromSecretsManager`](/cdk/secret#ecs-field-injection-record-shape)
 example.
 
 ## Rotating secrets
@@ -184,8 +184,8 @@ value to ASM, and the previous grant is revoked.
 
 ## When to use `ClefArtifactBucket` instead
 
-`ClefAwsSecretsManager` is ideal when you want AWS Secrets Manager as the
-runtime surface. If instead you already run the Clef agent (sidecar,
+`ClefSecret` is ideal when you want AWS Secrets Manager as the runtime
+surface. If instead you already run the Clef agent (sidecar,
 Lambda extension, etc.), use
 [`ClefArtifactBucket`](/cdk/artifact-bucket) — it just puts the envelope
 in S3 and grants the agent read access. No unwrap Lambda involved.

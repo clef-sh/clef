@@ -13,10 +13,10 @@ identities (recommended), also install `@aws-sdk/client-kms`.
 
 ## What's included
 
-| Construct               | Use case                                                                                                                                                                  |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ClefArtifactBucket`    | Deliver the encrypted envelope to S3 for the Clef agent (or any VCS-compatible client) to fetch and decrypt at runtime.                                                   |
-| `ClefAwsSecretsManager` | Unwrap the envelope at deploy time and store the plaintext in AWS Secrets Manager. Consumers read via the native ASM SDK / ECS secret injection — no Clef agent required. |
+| Construct            | Use case                                                                                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ClefArtifactBucket` | Deliver the encrypted envelope to S3 for the Clef agent (or any VCS-compatible client) to fetch and decrypt at runtime.                                                   |
+| `ClefSecret`         | Unwrap the envelope at deploy time and store the plaintext in AWS Secrets Manager. Consumers read via the native ASM SDK / ECS secret injection — no Clef agent required. |
 
 ## Quick start
 
@@ -38,34 +38,45 @@ artifact.envelopeKey?.grantDecrypt(agentLambda); // kms:Decrypt (KMS identities 
 ### AWS Secrets Manager delivery (KMS-envelope identities)
 
 ```ts
-import { ClefAwsSecretsManager } from "@clef-sh/cdk";
+import { ClefSecret } from "@clef-sh/cdk";
 
-const secrets = new ClefAwsSecretsManager(this, "ApiSecrets", {
+// Single-value secret — connection string, API token, webhook URL, etc.
+const dbUrl = new ClefSecret(this, "DbUrl", {
   identity: "api-gateway",
   environment: "production",
+  shape: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/app",
+});
 
-  // Optional — reshape the ASM JSON to match what your app expects
+// JSON-shaped secret — multiple fields, mapping Clef keys to app-expected names
+const config = new ClefSecret(this, "Config", {
+  identity: "api-gateway",
+  environment: "production",
   shape: {
     dbHost: "${DATABASE_HOST}",
-    dbPassword: "${DATABASE_PASSWORD}",
     apiKey: "${API_KEY}",
     region: "us-east-1", // literal
-    connectionString: "postgres://${DB_USER}:${DB_PASSWORD}@${DATABASE_HOST}:5432/app",
   },
 });
 
-secrets.grantRead(apiLambda);
+dbUrl.grantRead(apiLambda);
+config.grantRead(apiLambda);
 ```
 
-Existing Lambdas using `SecretsManagerClient.GetSecretValue` or ECS services
-using `Secret.fromSecretsManager(secret, "FIELD")` keep working unchanged.
+Each `new ClefSecret(…)` provisions one ASM secret, same as native
+`secretsmanager.Secret`. The pack-helper is memoized per
+`(manifest, identity, environment)`, so multiple instances for the same
+identity share a single pack invocation at synth.
 
-## How the ASM construct stays secure
+Existing Lambdas using `SecretsManagerClient.GetSecretValue` or ECS
+services using `Secret.fromSecretsManager(secret, "FIELD")` keep working
+unchanged — the construct shapes ASM to match what your app already reads.
+
+## How `ClefSecret` stays secure
 
 Conventional "unwrap Lambda" designs leave a long-lived Lambda with
 persistent `kms:Decrypt` in your account — an attractive target for anyone
-who pivots into the runtime. `ClefAwsSecretsManager` uses **per-deploy KMS
-grants** instead:
+who pivots into the runtime. `ClefSecret` uses **per-deploy KMS grants**
+instead:
 
 - The unwrap Lambda's role has **no baseline `kms:Decrypt`**.
 - On each deploy, a sibling CloudFormation Custom Resource calls
@@ -82,9 +93,10 @@ threat model Clef assumes everywhere else).
 ## Synth-time validation
 
 Shape templates are validated **before** CloudFormation sees them. Typos
-surface at `cdk synth` with the field name, the bad reference, a
-did-you-mean suggestion, and the full list of valid Clef keys for that
-identity/environment. No broken deploys, no rollback dances.
+surface at `cdk synth` with the field name (or `<value>` for string
+shape), the bad reference, a did-you-mean suggestion, and the full list of
+valid Clef keys for that identity/environment. No broken deploys, no
+rollback dances.
 
 ## Requirements at synth time
 

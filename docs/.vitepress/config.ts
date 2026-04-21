@@ -133,7 +133,7 @@ export default withMermaid({
           items: [
             { text: "Overview", link: "/cdk/overview" },
             { text: "ClefArtifactBucket", link: "/cdk/artifact-bucket" },
-            { text: "ClefAwsSecretsManager", link: "/cdk/aws-secrets-manager" },
+            { text: "ClefSecret", link: "/cdk/secret" },
           ],
         },
       ],

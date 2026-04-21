@@ -27,8 +27,28 @@ export interface PackHelperResult {
 }
 
 /**
+ * Memoization cache — synth-scoped. Multiple constructs (e.g. several
+ * `ClefSecret` instances for the same identity/environment) share a
+ * single pack-helper invocation. Keyed on the input tuple because the
+ * envelope revision changes every run: without memoization, each
+ * construct would get a different envelope, confusing CFN's resource
+ * dedup.
+ */
+const packCache = new Map<string, PackHelperResult>();
+
+/**
+ * Test-only hook. Clears the pack-helper memoization so each test starts
+ * fresh. Production synth runs in a short-lived process and doesn't need
+ * this.
+ */
+export function resetPackHelperCache(): void {
+  packCache.clear();
+}
+
+/**
  * Run the pack-helper as a child Node process and return the envelope JSON
- * plus the plaintext list of key names.
+ * plus the plaintext list of key names. Memoized per (manifest, identity,
+ * environment) within a single process lifetime.
  *
  * Blocking by design — CDK construct constructors are synchronous, and this
  * is how `NodejsFunction` / `PythonFunction` / `DockerImageAsset` produce
@@ -40,6 +60,15 @@ export interface PackHelperResult {
  * field.
  */
 export function invokePackHelper(args: InvokePackHelperArgs): PackHelperResult {
+  const cacheKey = `${args.manifest}|${args.identity}|${args.environment}`;
+  const cached = packCache.get(cacheKey);
+  if (cached) return cached;
+  const result = runPackHelper(args);
+  packCache.set(cacheKey, result);
+  return result;
+}
+
+function runPackHelper(args: InvokePackHelperArgs): PackHelperResult {
   const keysOut = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "clef-cdk-keys-")), "keys.json");
   try {
     const buf = execFileSync(

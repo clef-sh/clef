@@ -13,10 +13,10 @@ Peer deps: `aws-cdk-lib ^2.100`, `constructs ^10`. Install
 
 ## What you get
 
-| Construct                                           | When to use it                                                                                                                                                                        |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`ClefArtifactBucket`](/cdk/artifact-bucket)        | You're already running the Clef agent (as a sidecar, Lambda extension, or in-process). You want a stable S3 location it can poll. Works with both age and KMS-envelope identities.    |
-| [`ClefAwsSecretsManager`](/cdk/aws-secrets-manager) | Your app already reads AWS Secrets Manager (via the SDK, ECS secret injection, or the Lambda Secrets Manager Extension). No agent, no app code changes. KMS-envelope identities only. |
+| Construct                                    | When to use it                                                                                                                                                                        |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`ClefArtifactBucket`](/cdk/artifact-bucket) | You're already running the Clef agent (as a sidecar, Lambda extension, or in-process). You want a stable S3 location it can poll. Works with both age and KMS-envelope identities.    |
+| [`ClefSecret`](/cdk/secret)                  | Your app already reads AWS Secrets Manager (via the SDK, ECS secret injection, or the Lambda Secrets Manager Extension). No agent, no app code changes. KMS-envelope identities only. |
 
 ## Shared behaviours
 
@@ -42,13 +42,13 @@ Both constructs share the same synth-time foundation:
 
 ```ts
 import { Stack } from "aws-cdk-lib";
-import { ClefAwsSecretsManager } from "@clef-sh/cdk";
+import { ClefSecret } from "@clef-sh/cdk";
 
 export class ApiStack extends Stack {
   constructor(scope, id, props) {
     super(scope, id, props);
 
-    const secrets = new ClefAwsSecretsManager(this, "ApiSecrets", {
+    const secrets = new ClefSecret(this, "ApiSecrets", {
       identity: "api-gateway",
       environment: "production",
     });

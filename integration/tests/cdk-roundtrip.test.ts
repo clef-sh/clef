@@ -16,7 +16,7 @@
  */
 import { App, Stack } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
-import { ClefArtifactBucket, ClefAwsSecretsManager } from "@clef-sh/cdk";
+import { ClefArtifactBucket, ClefSecret } from "@clef-sh/cdk";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -144,7 +144,7 @@ describe("ClefArtifactBucket — integration with real pack-helper", () => {
   });
 });
 
-describe("ClefAwsSecretsManager — integration with real pack-helper", () => {
+describe("ClefSecret — integration with real pack-helper", () => {
   it("rejects age-only identities with a clear, actionable message", () => {
     const app = new App();
     const stack = new Stack(app, "TestStack", {
@@ -153,7 +153,7 @@ describe("ClefAwsSecretsManager — integration with real pack-helper", () => {
 
     expect(
       () =>
-        new ClefAwsSecretsManager(stack, "Secrets", {
+        new ClefSecret(stack, "Secrets", {
           identity: "web-app",
           environment: "dev",
           manifest: path.join(repo.dir, "clef.yaml"),
@@ -161,7 +161,7 @@ describe("ClefAwsSecretsManager — integration with real pack-helper", () => {
     ).toThrow(/requires a KMS-envelope service identity/);
   });
 
-  it("surfaces shape-template typos at synth with valid-keys list", () => {
+  it("rejects age identities before shape validation runs (early-exit order)", () => {
     const app = new App();
     const stack = new Stack(app, "TestStack", {
       env: { account: "111122223333", region: "us-east-1" },
@@ -170,12 +170,12 @@ describe("ClefAwsSecretsManager — integration with real pack-helper", () => {
     // We're still on an age identity (so the construct will throw for that
     // reason before shape validation). Shape-template validation running
     // against real pack-helper output is already covered by the unit tests;
-    // this integration test documents that an age identity fails *first*
-    // (early-exit order matters for UX — the age error is actionable,
-    // while shape errors against an age envelope would just be noise).
+    // this integration test documents that an age identity fails *first* —
+    // the age error is actionable, while shape errors against an age
+    // envelope would just be noise.
     expect(
       () =>
-        new ClefAwsSecretsManager(stack, "Secrets", {
+        new ClefSecret(stack, "Secrets", {
           identity: "web-app",
           environment: "dev",
           manifest: path.join(repo.dir, "clef.yaml"),

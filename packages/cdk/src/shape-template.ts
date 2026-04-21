@@ -1,32 +1,41 @@
 /**
- * Shape-template parser and validator for {@link ClefAwsSecretsManager}.
+ * Shape-template parser and validator for {@link ClefSecret}.
  *
- * The construct accepts a `shape: Record<string, string>` prop that maps
- * target ASM JSON field names to template strings containing `${CLEF_KEY}`
- * references, literal characters, or any mix:
+ * The construct accepts a `shape` prop that can take one of three forms:
  *
- *   shape: {
- *     dbHost: "${DATABASE_HOST}",                        // pure ref
- *     region: "us-east-1",                                // literal
- *     connectionString: "postgres://${USER}:${PASS}@${HOST}:5432/db",
- *   }
+ *   - **`undefined`** — passthrough, envelope stored verbatim as JSON.
+ *
+ *   - **`string`** — single-value secret. The template is interpolated and
+ *     the result becomes the raw `SecretString` (no JSON wrapping).
+ *
+ *         shape: "postgres://${USER}:${PASS}@${HOST}:5432/db"
+ *
+ *   - **`Record<string, string>`** — JSON secret. Each value is a template.
+ *
+ *         shape: {
+ *           dbHost: "${DATABASE_HOST}",       // pure ref
+ *           region: "us-east-1",              // literal
+ *           conn:   "postgres://${USER}:${PASS}@${HOST}:5432/db",
+ *         }
  *
  * At synth time we verify every `${VAR}` reference matches a key present
  * in the envelope (sourced from pack-helper's sidecar). Missing references
  * fail loud with a message listing the bad ref, the field it appeared in,
- * the identity/env, and the set of valid keys. No "deploy fails at
- * PutSecretValue because a key was misspelled" — we catch it before CFN.
+ * the identity/env, and the set of valid keys.
  *
  * At deploy time the unwrap Lambda applies the same template using the
  * decrypted envelope values.
  */
 
+/** Public type mirror for the construct's `shape` prop. */
+export type ShapeTemplate = string | Record<string, string>;
+
 /** Matches `${IDENTIFIER}` where identifier is word-chars only. */
 const REF_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
 export interface ValidateShapeArgs {
-  /** The shape map the user passed to the construct. */
-  shape: Record<string, string>;
+  /** The shape value the user passed to the construct. */
+  shape: ShapeTemplate;
   /** Plaintext key names from the envelope. */
   availableKeys: string[];
   /** For the error message — helps users locate the offending clef.yaml entry. */
@@ -36,23 +45,41 @@ export interface ValidateShapeArgs {
 }
 
 /**
- * Validate a shape map against the available envelope keys. Throws with a
+ * Validate a shape against the available envelope keys. Throws with a
  * precise, reviewer-friendly message on the first unknown reference. Does
  * not throw on literals or well-formed references.
  */
 export function validateShape(args: ValidateShapeArgs): void {
   const available = new Set(args.availableKeys);
+  if (typeof args.shape === "string") {
+    validateOneField("<value>", args.shape, available, args);
+    return;
+  }
+  if (args.shape === null || typeof args.shape !== "object") {
+    throw new Error(
+      `ClefSecret shape must be a string or an object of strings, got ${typeof args.shape}.`,
+    );
+  }
   for (const [field, template] of Object.entries(args.shape)) {
     if (typeof template !== "string") {
       throw new Error(
-        `ClefAwsSecretsManager shape['${field}'] must be a string, got ${typeof template}. ` +
+        `ClefSecret shape['${field}'] must be a string, got ${typeof template}. ` +
           `Shape values are literal strings with optional \${KEY} references to Clef values.`,
       );
     }
-    for (const ref of extractRefs(template)) {
-      if (!available.has(ref)) {
-        throw new Error(buildUnknownRefMessage(field, ref, args));
-      }
+    validateOneField(`shape['${field}']`, template, available, args);
+  }
+}
+
+function validateOneField(
+  location: string,
+  template: string,
+  available: Set<string>,
+  args: ValidateShapeArgs,
+): void {
+  for (const ref of extractRefs(template)) {
+    if (!available.has(ref)) {
+      throw new Error(buildUnknownRefMessage(location, ref, args));
     }
   }
 }
@@ -86,13 +113,17 @@ export function applyTemplate(template: string, values: Record<string, string>):
 }
 
 /**
- * Apply a whole shape map against decrypted values. Returns the final
- * object the construct will JSON-stringify into the ASM secret.
+ * Apply a whole shape against decrypted values. Returns either a scalar
+ * string (when `shape` was a string template) or a mapped object (when
+ * `shape` was a Record).
  */
 export function applyShape(
-  shape: Record<string, string>,
+  shape: ShapeTemplate,
   values: Record<string, string>,
-): Record<string, string> {
+): string | Record<string, string> {
+  if (typeof shape === "string") {
+    return applyTemplate(shape, values);
+  }
   const out: Record<string, string> = {};
   for (const [field, template] of Object.entries(shape)) {
     out[field] = applyTemplate(template, values);
@@ -100,16 +131,16 @@ export function applyShape(
   return out;
 }
 
-function buildUnknownRefMessage(field: string, ref: string, args: ValidateShapeArgs): string {
+function buildUnknownRefMessage(location: string, ref: string, args: ValidateShapeArgs): string {
   const sortedKeys = [...args.availableKeys].sort();
   // When the typo is close to a real key, surface the likely intent first.
   const suggestion = findClosestKey(ref, sortedKeys);
 
   const lines: string[] = [
     ``,
-    `ClefAwsSecretsManager shape error:`,
+    `ClefSecret shape error:`,
     ``,
-    `  shape['${field}'] references unknown Clef key: \${${ref}}`,
+    `  ${location} references unknown Clef key: \${${ref}}`,
     `  identity:    ${args.identity}`,
     `  environment: ${args.environment}`,
     ``,

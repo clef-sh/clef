@@ -17,9 +17,28 @@ import { invokePackHelper } from "./pack-invoker";
 import { validateShape } from "./shape-template";
 
 /**
- * Props for {@link ClefAwsSecretsManager}.
+ * Target shape for a {@link ClefSecret}. The value determines what lives in
+ * `SecretString`:
+ *
+ *   - **Undefined** — passthrough. The decrypted envelope JSON is written
+ *     to ASM 1:1 with Clef key names. Best for consumers that already
+ *     expect the envelope's native shape.
+ *
+ *   - **`string`** — single-value secret. The string is run through
+ *     `${CLEF_KEY}` interpolation and written to `SecretString` verbatim
+ *     (no JSON wrapping). Best for consumers that expect a scalar —
+ *     connection strings, single API tokens, opaque credentials.
+ *
+ *   - **`Record<string, string>`** — JSON secret. Each value is a template
+ *     (literal or `${…}`-interpolated); the construct writes a JSON object
+ *     with the mapped fields. Best for consumers that expect a specific
+ *     JSON shape (ECS `Secret.fromSecretsManager(…, "FIELD")`, Lambda
+ *     fetch-and-parse, etc.).
  */
-export interface ClefAwsSecretsManagerProps {
+export type ClefSecretShape = string | Record<string, string>;
+
+/** Props for {@link ClefSecret}. */
+export interface ClefSecretProps {
   /** Service identity name from `clef.yaml`. Must use KMS-envelope encryption. */
   readonly identity: string;
   /** Target environment name (e.g. `"production"`). */
@@ -31,18 +50,12 @@ export interface ClefAwsSecretsManagerProps {
    */
   readonly manifest?: string;
   /**
-   * Optional target JSON shape for the ASM secret. Keys are the field names
-   * the consumer expects; values are literal strings or `${CLEF_KEY}` template
-   * references to Clef keys. Supports composition
-   * (`"postgres://${USER}:${PASS}@${HOST}"`).
-   *
-   * When omitted, the ASM secret stores the decrypted envelope JSON as-is
-   * (1:1 with Clef key names).
+   * Shape of the ASM secret value. See {@link ClefSecretShape}.
    *
    * Unknown `${VAR}` references fail loud at synth with a message listing
    * valid keys and a "did you mean?" suggestion for close matches.
    */
-  readonly shape?: Record<string, string>;
+  readonly shape?: ClefSecretShape;
   /** Explicit secret name. Defaults to `clef/<identity>/<environment>`. */
   readonly secretName?: string;
 }
@@ -56,38 +69,42 @@ interface EnvelopeView {
 }
 
 /**
- * Deliver a Clef-packed artifact into AWS Secrets Manager as a JSON secret.
+ * Deliver a Clef-packed artifact into an AWS Secrets Manager secret. One
+ * construct instance = one ASM secret. Instantiate multiple times for
+ * multiple secrets (pack-helper is memoized per identity/env, so the synth
+ * overhead does not scale with construct count).
  *
  * Architecture — two Custom Resources orchestrate the unwrap:
  *
  *   1. **GrantCreate** — `kms:CreateGrant` authorises the unwrap Lambda to
- *      `Decrypt` the envelope's wrapped DEK, for this deploy only. The grant
- *      token short-circuits propagation delay. Grant is scoped to
+ *      `Decrypt` the envelope's wrapped DEK, for this deploy only. The
+ *      grant token short-circuits propagation delay. Grant is scoped to
  *      `GranteePrincipal = unwrap Lambda role` and `Operations = [Decrypt]`.
- *      On stack update that replaces the resource (new envelope revision =
- *      new physical id), CFN calls `RevokeGrant` on the old grant.
+ *      On stack update that replaces the resource (new envelope revision
+ *      = new physical id), CFN calls `RevokeGrant` on the old grant.
  *
  *   2. **Unwrap** — invokes a stack-wide singleton Lambda with the envelope
- *      JSON, shape template, secret ARN, and grant token. Lambda decrypts via
- *      KMS (using the just-minted grant), AES-GCM unwraps the ciphertext,
- *      applies the shape, and calls `secretsmanager:PutSecretValue`.
+ *      JSON, shape template, secret ARN, and grant token. Lambda decrypts
+ *      via KMS (using the just-minted grant), AES-GCM unwraps the
+ *      ciphertext, applies the shape, and calls
+ *      `secretsmanager:PutSecretValue`.
  *
- * Security posture (the whole point of this shape):
+ * Security posture:
  *   - The unwrap Lambda has **no baseline `kms:Decrypt`**. Its only KMS
- *     authority is the short-lived grant, minted per deploy, revoked on the
- *     next deploy's replace.
- *   - The AwsCustomResource-provisioned auto Lambda has `kms:CreateGrant`
- *     and `kms:RevokeGrant` — but constrained via `kms:GranteePrincipal`
- *     and `kms:GrantOperations` conditions so it can *only* grant Decrypt to
+ *     authority is the short-lived grant, minted per deploy, revoked on
+ *     the next deploy's replace.
+ *   - The `AwsCustomResource` auto Lambda has `kms:CreateGrant` and
+ *     `kms:RevokeGrant` — but constrained via `kms:GranteePrincipal` and
+ *     `kms:GrantOperations` conditions so it can *only* grant Decrypt to
  *     the unwrap Lambda's role.
- *   - The envelope JSON lives in CFN resource properties after deploy — it's
- *     ciphertext, safe anywhere (same threat model Clef already assumes).
+ *   - The envelope JSON lives in CFN resource properties after deploy —
+ *     it's ciphertext, safe anywhere (same threat model Clef already
+ *     assumes).
  *
  * IAM is explicit by design: {@link grantRead} binds `secretsmanager:
- * GetSecretValue` only. Consumers who need ASM's decrypt (for custom KMS
- * CMK-encrypted secrets) wire that themselves.
+ * GetSecretValue` only.
  */
-export class ClefAwsSecretsManager extends Construct {
+export class ClefSecret extends Construct {
   /** The ASM secret receiving the unwrapped value. */
   public readonly secret: ISecret;
   /** KMS key that wraps the envelope's DEK (from `clef.yaml` service-identity config). */
@@ -95,7 +112,7 @@ export class ClefAwsSecretsManager extends Construct {
   /** Absolute path to the resolved `clef.yaml`, for debugging. */
   public readonly manifestPath: string;
 
-  constructor(scope: Construct, id: string, props: ClefAwsSecretsManagerProps) {
+  constructor(scope: Construct, id: string, props: ClefSecretProps) {
     super(scope, id);
 
     this.manifestPath = resolveManifestPath(props.manifest);
@@ -121,7 +138,7 @@ export class ClefAwsSecretsManager extends Construct {
     // bootstrap-the-bootstrap problem.
     if (!envelope.envelope?.keyId) {
       throw new Error(
-        `\nClefAwsSecretsManager requires a KMS-envelope service identity.\n` +
+        `\nClefSecret requires a KMS-envelope service identity.\n` +
           `\n` +
           `  identity:    ${props.identity}\n` +
           `  environment: ${props.environment}\n` +
@@ -139,7 +156,7 @@ export class ClefAwsSecretsManager extends Construct {
 
     // Validate shape template references BEFORE touching CFN. Typos surface
     // at `cdk synth`, not at deploy, with a message listing valid keys.
-    if (props.shape) {
+    if (props.shape !== undefined) {
       validateShape({
         shape: props.shape,
         availableKeys: keys,
@@ -157,35 +174,35 @@ export class ClefAwsSecretsManager extends Construct {
 
     // ── Unwrap Lambda — singleton per stack ──────────────────────────────
     //
-    // Multiple ClefAwsSecretsManager instances share this Lambda. The role
-    // accumulates secretsmanager:PutSecretValue statements (one per secret)
-    // but has NO baseline kms:Decrypt. All KMS authority is grant-mediated.
+    // Multiple ClefSecret instances share this Lambda. The role accumulates
+    // secretsmanager:PutSecretValue statements (one per secret) but has NO
+    // baseline kms:Decrypt. All KMS authority is grant-mediated.
 
     const unwrapFn = new lambda.SingletonFunction(this, "UnwrapFn", {
       // Stable UUID — any construct instance with the same UUID reuses the
       // same underlying Lambda resource in the stack.
-      uuid: "b7e0f8a1-clef-asm-unwrap-v1",
+      uuid: "b7e0f8a1-clef-secret-unwrap-v1",
       runtime: lambda.Runtime.NODEJS_20_X,
       code: lambda.Code.fromAsset(path.resolve(__dirname, "unwrap-lambda")),
       handler: "index.handler",
       timeout: Duration.minutes(2),
       description:
-        "Clef ASM unwrap — decrypts KMS-envelope artifact and writes to Secrets Manager. " +
+        "Clef secret unwrap — decrypts KMS-envelope artifact and writes to Secrets Manager. " +
         "No baseline kms:Decrypt; authority is granted per-deploy and revoked after.",
     });
 
     this.secret.grantWrite(unwrapFn);
 
     if (!unwrapFn.role) {
-      throw new Error("ClefAwsSecretsManager: unwrap Lambda has no role (should be unreachable).");
+      throw new Error("ClefSecret: unwrap Lambda has no role (should be unreachable).");
     }
 
     // ── GrantCreate + Revoke on replace ──────────────────────────────────
 
-    const grantName = `clef-asm-${props.identity}-${props.environment}-${envelope.revision}`;
+    const grantName = `clef-secret-${props.identity}-${props.environment}-${envelope.revision}`;
 
     const grantCreate = new cr.AwsCustomResource(this, "GrantCreate", {
-      resourceType: "Custom::ClefAsmGrant",
+      resourceType: "Custom::ClefSecretGrant",
       onCreate: {
         service: "KMS",
         action: "createGrant",
@@ -255,14 +272,14 @@ export class ClefAwsSecretsManager extends Construct {
     });
 
     const unwrap = new CustomResource(this, "Unwrap", {
-      resourceType: "Custom::ClefAsmUnwrap",
+      resourceType: "Custom::ClefSecretUnwrap",
       serviceToken: provider.serviceToken,
       properties: {
         SecretArn: this.secret.secretArn,
         EnvelopeJson: envelopeJson,
         Revision: envelope.revision,
         GrantToken: grantCreate.getResponseField("GrantToken"),
-        ...(props.shape ? { Shape: props.shape } : {}),
+        ...(props.shape !== undefined ? { Shape: props.shape } : {}),
       },
     });
 
@@ -270,11 +287,10 @@ export class ClefAwsSecretsManager extends Construct {
   }
 
   /**
-   * Grant `secretsmanager:GetSecretValue` on the wrapped secret. Consumers
-   * that need per-JSON-field injection should use
-   * `ecs.Secret.fromSecretsManager(secret.secret, "FIELD_NAME")` directly —
-   * that is the idiomatic ASM pattern for JSON-shaped secrets and requires
-   * the same grant.
+   * Grant `secretsmanager:GetSecretValue` on the wrapped secret. For JSON
+   * shapes, ECS consumers can pull individual fields via
+   * `ecs.Secret.fromSecretsManager(clefSecret.secret, "FIELD_NAME")` —
+   * same grant, no extra IAM surface.
    */
   public grantRead(grantable: IGrantable): Grant {
     return this.secret.grantRead(grantable) as Grant;
