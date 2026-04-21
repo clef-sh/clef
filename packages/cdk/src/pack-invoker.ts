@@ -58,6 +58,11 @@ export function invokePackHelper(args: InvokePackHelperArgs): PackHelperResult {
       {
         maxBuffer: 50 * 1024 * 1024,
         stdio: ["ignore", "pipe", "pipe"],
+        // Explicitly pass the parent's env so Clef credential vars
+        // (CLEF_AGE_KEY / CLEF_AGE_KEY_FILE) and AWS SDK config reach the
+        // helper. Some test harnesses (notably Jest with ts-jest) wrap the
+        // worker in a way that drops the default inheritance.
+        env: process.env,
       },
     );
     const envelopeJson = buf.toString("utf-8");
