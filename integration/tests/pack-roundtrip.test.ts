@@ -128,7 +128,7 @@ describe("clef pack roundtrip", () => {
     expect(result.exitCode).toBe(1);
     const combined = result.stdout + result.stderr;
     expect(combined).toMatch(/Unknown pack backend "not-real"/);
-    expect(combined).toMatch(/Available backends: json-envelope/);
+    expect(combined).toMatch(/Built-in backends: json-envelope/);
   });
 
   it("accepts --backend-opt key=value without breaking the default backend", () => {
@@ -158,6 +158,70 @@ describe("clef pack roundtrip", () => {
     runClef(["pack", "web-app", "dev", "--output", artifactPath, "--backend-opt", "query=a=1&b=2"]);
 
     expect(fs.existsSync(artifactPath)).toBe(true);
+  });
+
+  it("resolves and invokes a third-party plugin via the clef-pack-<id> convention", () => {
+    // Real third-party plugin loading uses Node's normal module resolution,
+    // which walks up from the importing file (the CLI bundle) through
+    // node_modules directories. NODE_PATH is not honored by native
+    // `import()`. The most realistic setup: symlink the fixture into the
+    // CLI's node_modules so the CLI resolves it exactly as it would a real
+    // npm-installed plugin. The symlink is removed in afterAll.
+    const fixtureSource = path.resolve(
+      __dirname,
+      "../fixtures/plugin-node-modules/clef-pack-testfixture",
+    );
+    const cliNodeModules = path.resolve(__dirname, "../../packages/cli/node_modules");
+    const linkTarget = path.join(cliNodeModules, "clef-pack-testfixture");
+
+    // Idempotent setup — remove any stale link from prior runs
+    try {
+      fs.rmSync(linkTarget, { recursive: true, force: true });
+    } catch {
+      // Ignore
+    }
+    fs.symlinkSync(fixtureSource, linkTarget, "dir");
+
+    try {
+      const artifactPath = path.join(repo.dir, "plugin-output.json");
+      execFileSync(
+        "node",
+        [
+          clefBin,
+          "pack",
+          "web-app",
+          "dev",
+          "--backend",
+          "testfixture",
+          "--output",
+          artifactPath,
+          "--backend-opt",
+          "custom=value",
+        ],
+        {
+          cwd: repo.dir,
+          env: {
+            ...process.env,
+            SOPS_AGE_KEY_FILE: keys.keyFilePath,
+          },
+          encoding: "utf-8",
+        },
+      );
+
+      expect(fs.existsSync(artifactPath)).toBe(true);
+      const written = JSON.parse(fs.readFileSync(artifactPath, "utf-8"));
+      expect(written.marker).toBe("hello-from-testfixture-plugin");
+      expect(written.identity).toBe("web-app");
+      expect(written.environment).toBe("dev");
+      expect(written.backendOptions.custom).toBe("value");
+      expect(written.backendOptions.outputPath).toBe(artifactPath);
+    } finally {
+      try {
+        fs.unlinkSync(linkTarget);
+      } catch {
+        // Ignore
+      }
+    }
   });
 
   it("errors cleanly when --backend-opt is malformed", () => {

@@ -6,7 +6,7 @@ import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
-import { createPackBackendRegistry, parseBackendOptions } from "../pack-backends";
+import { createPackBackendRegistry, parseBackendOptions, resolveBackend } from "../pack-backends";
 
 export function registerPackCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -58,10 +58,12 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-          // Resolve the backend early so unknown-backend errors fail fast
+          // Resolve the backend early so unknown-backend errors fail fast.
+          // Tries the built-in registry first, then optional plugin packages
+          // (@clef-sh/pack-<id> and clef-pack-<id>) via dynamic import.
           const registry = createPackBackendRegistry();
           const backendId = opts.backend ?? "json-envelope";
-          const backend = await registry.resolve(backendId);
+          const backend = await resolveBackend(registry, backendId);
 
           // TTL validation — numeric flag, keep the existing error text
           const ttl = opts.ttl ? parseInt(opts.ttl, 10) : undefined;

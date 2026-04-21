@@ -1,4 +1,63 @@
-import { createPackBackendRegistry, parseBackendOptions } from "./pack-backends";
+import { PackBackendRegistry } from "@clef-sh/core";
+import { createPackBackendRegistry, parseBackendOptions, resolveBackend } from "./pack-backends";
+
+jest.mock(
+  "@clef-sh/pack-happy-path",
+  () => ({
+    default: {
+      id: "happy-path",
+      description: "test fixture",
+      async pack() {
+        throw new Error("not used");
+      },
+    },
+  }),
+  { virtual: true },
+);
+
+jest.mock(
+  "clef-pack-community-only",
+  () => ({
+    default: {
+      id: "community-only",
+      description: "community-prefix fixture",
+      async pack() {
+        throw new Error("not used");
+      },
+    },
+  }),
+  { virtual: true },
+);
+
+jest.mock(
+  "@acme/custom-pack-name",
+  () => ({
+    default: {
+      id: "custom",
+      description: "verbatim package-name fixture",
+      async pack() {
+        throw new Error("not used");
+      },
+    },
+  }),
+  { virtual: true },
+);
+
+jest.mock(
+  "@clef-sh/pack-invalid-shape",
+  () => ({
+    default: { something: "not a backend" },
+  }),
+  { virtual: true },
+);
+
+jest.mock(
+  "@clef-sh/pack-throws-at-import",
+  () => {
+    throw new Error("boom — plugin failed to initialise");
+  },
+  { virtual: true },
+);
 
 describe("createPackBackendRegistry", () => {
   it("registers json-envelope by default", async () => {
@@ -73,5 +132,55 @@ describe("parseBackendOptions", () => {
     // Without hasOwnProperty, the first `--backend-opt constructor=x` would
     // throw 'Duplicate' because `{}.constructor` is inherited from Object.prototype.
     expect(() => parseBackendOptions(["constructor=x"])).not.toThrow();
+  });
+});
+
+describe("resolveBackend", () => {
+  function emptyRegistry(): PackBackendRegistry {
+    return new PackBackendRegistry();
+  }
+
+  it("resolves a built-in backend via the registry first", async () => {
+    const registry = createPackBackendRegistry();
+    const backend = await resolveBackend(registry, "json-envelope");
+    expect(backend.id).toBe("json-envelope");
+  });
+
+  it("resolves the @clef-sh/pack-<id> official-prefix plugin", async () => {
+    const backend = await resolveBackend(emptyRegistry(), "happy-path");
+    expect(backend.id).toBe("happy-path");
+  });
+
+  it("resolves the clef-pack-<id> community-prefix plugin", async () => {
+    const backend = await resolveBackend(emptyRegistry(), "community-only");
+    expect(backend.id).toBe("community-only");
+  });
+
+  it("resolves a verbatim package name when it starts with @", async () => {
+    const backend = await resolveBackend(emptyRegistry(), "@acme/custom-pack-name");
+    expect(backend.id).toBe("custom");
+  });
+
+  it("rejects a plugin whose default export is not a valid PackBackend", async () => {
+    await expect(resolveBackend(emptyRegistry(), "invalid-shape")).rejects.toThrow(
+      /does not export a valid PackBackend/,
+    );
+  });
+
+  it("surfaces real plugin-side errors (does not treat them as not-installed)", async () => {
+    await expect(resolveBackend(emptyRegistry(), "throws-at-import")).rejects.toThrow(
+      /boom — plugin failed to initialise/,
+    );
+  });
+
+  it("gives a clear install hint when no plugin is found", async () => {
+    const registry = createPackBackendRegistry();
+    const promise = resolveBackend(registry, "nowhere-to-be-found");
+    await expect(promise).rejects.toThrow(/Unknown pack backend "nowhere-to-be-found"/);
+    await expect(promise).rejects.toThrow(
+      /npm install --save-dev @clef-sh\/pack-nowhere-to-be-found/,
+    );
+    await expect(promise).rejects.toThrow(/npm install --save-dev clef-pack-nowhere-to-be-found/);
+    await expect(promise).rejects.toThrow(/Built-in backends: json-envelope/);
   });
 });
