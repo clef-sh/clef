@@ -1,26 +1,5 @@
 import * as crypto from "crypto";
-
-/**
- * Minimal artifact shape for signature payload construction.
- * Mirrors the fields from ArtifactEnvelope that the signature covers.
- */
-interface SignableArtifact {
-  version: number;
-  identity: string;
-  environment: string;
-  revision: string;
-  packedAt: string;
-  ciphertextHash: string;
-  expiresAt?: string;
-  envelope?: {
-    provider: string;
-    keyId: string;
-    wrappedKey: string;
-    algorithm: string;
-    iv?: string;
-    authTag?: string;
-  };
-}
+import type { PackedArtifact } from "@clef-sh/core";
 
 /**
  * Build the canonical signing payload from an artifact.
@@ -29,7 +8,7 @@ interface SignableArtifact {
  * to enable cross-package sign/verify. The format is a deterministic
  * newline-separated string of all security-relevant fields.
  */
-export function buildSigningPayload(artifact: SignableArtifact): Buffer {
+export function buildSigningPayload(artifact: PackedArtifact): Buffer {
   const fields = [
     "clef-sig-v3",
     String(artifact.version),

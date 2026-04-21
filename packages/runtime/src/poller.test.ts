@@ -5,6 +5,7 @@ import { ArtifactSource } from "./sources/types";
 import { DiskCache } from "./disk-cache";
 import { TelemetryEmitter } from "./telemetry";
 import { buildSigningPayload } from "./signature";
+import type { PackedArtifact } from "@clef-sh/core";
 
 jest.mock(
   "age-encryption",
@@ -1017,7 +1018,7 @@ describe("ArtifactPoller", () => {
         "-----BEGIN AGE ENCRYPTED FILE-----\nmock\n-----END AGE ENCRYPTED FILE-----";
       const ciphertextHash = crypto.createHash("sha256").update(ciphertext).digest("hex");
 
-      const artifact = {
+      const artifact: PackedArtifact = {
         version: 1,
         identity: "api-gateway",
         environment: "production",
@@ -1115,7 +1116,7 @@ describe("ArtifactPoller", () => {
         "-----BEGIN AGE ENCRYPTED FILE-----\nmock\n-----END AGE ENCRYPTED FILE-----";
       const realHash = crypto.createHash("sha256").update(ciphertext).digest("hex");
 
-      const artifact = {
+      const artifact: PackedArtifact = {
         version: 1,
         identity: "api-gateway",
         environment: "production",
@@ -1224,7 +1225,7 @@ describe("ArtifactPoller", () => {
         "-----BEGIN AGE ENCRYPTED FILE-----\nmock\n-----END AGE ENCRYPTED FILE-----";
       const ciphertextHash = crypto.createHash("sha256").update(ciphertext).digest("hex");
 
-      const artifact = {
+      const artifact: PackedArtifact = {
         version: 1,
         identity: "api-gateway",
         environment: "production",
