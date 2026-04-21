@@ -1,30 +1,6 @@
 import * as crypto from "crypto";
 import type { KmsProvider } from "@clef-sh/runtime";
-
-/** KMS envelope metadata in the artifact. */
-export interface ArtifactEnvelopeField {
-  provider: string;
-  keyId: string;
-  wrappedKey: string;
-  algorithm: string;
-  /** Base64-encoded 12-byte AES-GCM initialization vector. */
-  iv: string;
-  /** Base64-encoded 16-byte AES-GCM authentication tag. */
-  authTag: string;
-}
-
-/** JSON envelope produced by the broker. Matches the runtime's expected artifact shape. */
-export interface BrokerArtifact {
-  version: 1;
-  identity: string;
-  environment: string;
-  packedAt: string;
-  revision: string;
-  ciphertextHash: string;
-  ciphertext: string;
-  envelope: ArtifactEnvelopeField;
-  expiresAt: string;
-}
+import type { PackedArtifact } from "@clef-sh/core";
 
 /** Options for packEnvelope(). */
 export interface PackEnvelopeOptions {
@@ -83,7 +59,7 @@ export async function packEnvelope(options: PackEnvelopeOptions): Promise<string
   const packedAt = new Date().toISOString();
   const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
 
-  const artifact: BrokerArtifact = {
+  const artifact: PackedArtifact = {
     version: 1,
     identity,
     environment,

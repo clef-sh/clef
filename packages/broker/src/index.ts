@@ -14,6 +14,7 @@ export type {
 export { resolveConfig, ConfigError } from "./config";
 export type { BrokerConfig } from "./config";
 export { packEnvelope } from "./envelope";
-export type { BrokerArtifact, PackEnvelopeOptions, ArtifactEnvelopeField } from "./envelope";
+export type { PackEnvelopeOptions } from "./envelope";
+export type { PackedArtifact, KmsEnvelope } from "@clef-sh/core";
 export { validateBroker, formatResults } from "./validate";
 export type { CheckResult, ValidationResult } from "./validate";
