@@ -70,6 +70,7 @@ export default withMermaid({
             { text: "Scanning for Secrets", link: "/guide/scanning" },
             { text: "Service Identities", link: "/guide/service-identities" },
             { text: "Dynamic Secrets", link: "/guide/dynamic-secrets" },
+            { text: "Pack Backend Plugins", link: "/guide/pack-plugins" },
             { text: "Runtime Agent", link: "/guide/agent" },
             { text: "Telemetry", link: "/guide/telemetry" },
             { text: "Production Isolation", link: "/guide/production-isolation" },

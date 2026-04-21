@@ -6,38 +6,8 @@ import { EncryptedArtifactStore } from "./encrypted-artifact-store";
 import { ArtifactDecryptor } from "./artifact-decryptor";
 import { TelemetryEmitter } from "./telemetry";
 import { buildSigningPayload, verifySignature } from "./signature";
-
-/** KMS envelope metadata for artifacts using KMS envelope encryption. */
-export interface ArtifactKmsEnvelope {
-  provider: string;
-  keyId: string;
-  wrappedKey: string;
-  algorithm: string;
-  /** Base64-encoded 12-byte AES-GCM initialization vector. */
-  iv: string;
-  /** Base64-encoded 16-byte AES-GCM authentication tag. */
-  authTag: string;
-}
-
-/** Shape of a packed artifact JSON envelope. */
-export interface ArtifactEnvelope {
-  version: number;
-  identity: string;
-  environment: string;
-  packedAt: string;
-  revision: string;
-  ciphertextHash: string;
-  ciphertext: string;
-  envelope?: ArtifactKmsEnvelope;
-  /** ISO-8601 expiry timestamp. Artifact is rejected after this time. */
-  expiresAt?: string;
-  /** ISO-8601 revocation timestamp. Present when the artifact has been revoked. */
-  revokedAt?: string;
-  /** Base64-encoded cryptographic signature over the canonical artifact payload. */
-  signature?: string;
-  /** Algorithm used to produce the signature (e.g. "Ed25519", "ECDSA_SHA256"). */
-  signatureAlgorithm?: string;
-}
+import { assertPackedArtifact, InvalidArtifactError } from "@clef-sh/core";
+import type { PackedArtifact } from "@clef-sh/core";
 
 export interface PollerOptions {
   /** Artifact source strategy. */
@@ -149,7 +119,7 @@ export class ArtifactPoller {
    * Returns null when the content hash is unchanged (short-circuit).
    */
   private async fetchRaw(): Promise<{
-    artifact: ArtifactEnvelope;
+    artifact: PackedArtifact;
     contentHash: string | undefined;
   } | null> {
     let raw: string;
@@ -219,24 +189,37 @@ export class ArtifactPoller {
       }
     }
 
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(raw);
 
-    // Check for revocation before full validation
-    if (parsed.revokedAt) {
+    // Revocation kill-signal is honored even on malformed artifacts — a
+    // revoke response should work regardless of whether the rest of the
+    // artifact shape is valid. Full shape check follows immediately after.
+    const asRecord = parsed as Record<string, unknown>;
+    if (asRecord.revokedAt) {
       this.options.cache.wipe();
       this.options.encryptedStore?.wipe();
       this.options.diskCache?.purge();
       this.lastRevision = null;
       this.lastContentHash = null;
       this.telemetry?.artifactRevoked({
-        revokedAt: String(parsed.revokedAt),
+        revokedAt: String(asRecord.revokedAt),
       });
       throw new Error(
-        `Artifact revoked: ${parsed.identity}/${parsed.environment} at ${parsed.revokedAt}`,
+        `Artifact revoked: ${String(asRecord.identity)}/${String(asRecord.environment)} at ${String(asRecord.revokedAt)}`,
       );
     }
 
-    return { artifact: parsed as unknown as ArtifactEnvelope, contentHash };
+    try {
+      assertPackedArtifact(parsed, "fetched artifact");
+    } catch (err) {
+      this.telemetry?.artifactInvalid({
+        reason: classifyValidationError(err),
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+
+    return { artifact: parsed, contentHash };
   }
 
   /**
@@ -245,8 +228,8 @@ export class ArtifactPoller {
    * Emits `artifact.invalid` / `artifact.expired` telemetry on failure.
    * Returns the validated artifact, or throws.
    */
-  private validateArtifact(parsed: ArtifactEnvelope): ArtifactEnvelope {
-    let artifact: ArtifactEnvelope;
+  private validateArtifact(parsed: PackedArtifact): PackedArtifact {
+    let artifact: PackedArtifact;
     try {
       artifact = this.validateEnvelope(parsed);
     } catch (err) {
@@ -331,7 +314,7 @@ export class ArtifactPoller {
    * Validate then decrypt and cache. Used by fetchAndDecrypt (cached mode).
    */
   private async validateDecryptAndCache(
-    parsed: ArtifactEnvelope,
+    parsed: PackedArtifact,
     contentHash: string | undefined,
   ): Promise<void> {
     const artifact = this.validateArtifact(parsed);
@@ -424,10 +407,9 @@ export class ArtifactPoller {
     return 30_000;
   }
 
-  private validateEnvelope(artifact: ArtifactEnvelope): ArtifactEnvelope {
-    if (artifact.version !== 1) {
-      throw new Error(`Unsupported artifact version: ${artifact.version}`);
-    }
+  private validateEnvelope(artifact: PackedArtifact): PackedArtifact {
+    // Version and shape verified by assertPackedArtifact at the parse boundary.
+    // These checks enforce semantic validity (non-empty fields) on top of shape.
     if (!artifact.ciphertext || !artifact.revision || !artifact.ciphertextHash) {
       throw new Error("Invalid artifact: missing required fields.");
     }
@@ -452,9 +434,10 @@ export class ArtifactPoller {
 function classifyValidationError(err: unknown): string {
   if (err instanceof SyntaxError) return "json_parse";
   const msg = err instanceof Error ? err.message : "";
-  if (msg.includes("Unsupported artifact version")) return "unsupported_version";
+  if (/unsupported( artifact)? version/i.test(msg)) return "unsupported_version";
   if (msg.includes("missing required fields")) return "missing_fields";
   if (msg.includes("incomplete envelope")) return "incomplete_envelope";
   if (msg.includes("signature")) return "signature";
+  if (err instanceof InvalidArtifactError) return "invalid_shape";
   return "unknown";
 }
