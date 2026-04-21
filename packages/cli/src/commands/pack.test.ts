@@ -277,6 +277,48 @@ describe("clef pack", () => {
     );
   });
 
+  it("should accept --backend json-envelope explicitly", async () => {
+    const runner = makeRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync([
+      "node",
+      "clef",
+      "pack",
+      "api-gateway",
+      "dev",
+      "--backend",
+      "json-envelope",
+      "--output",
+      "/tmp/artifact.json",
+    ]);
+
+    expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Artifact packed"));
+    expect(mockFormatter.error).not.toHaveBeenCalled();
+  });
+
+  it("should error cleanly when --backend is unknown", async () => {
+    const runner = makeRunner();
+    const program = makeProgram(runner);
+
+    await program.parseAsync([
+      "node",
+      "clef",
+      "pack",
+      "api-gateway",
+      "dev",
+      "--backend",
+      "unknown-backend",
+      "--output",
+      "/tmp/artifact.json",
+    ]);
+
+    expect(mockFormatter.error).toHaveBeenCalledWith(
+      expect.stringContaining('Unknown pack backend "unknown-backend"'),
+    );
+    expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
   it("should produce artifact with envelope field for KMS identity", async () => {
     const kmsManifest = YAML.stringify({
       version: 1,
