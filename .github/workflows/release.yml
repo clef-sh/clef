@@ -82,6 +82,8 @@ jobs:
       ui_released: ${{ steps.versions.outputs.ui_released }}
       client_version: ${{ steps.versions.outputs.client_version }}
       client_released: ${{ steps.versions.outputs.client_released }}
+      cdk_version: ${{ steps.versions.outputs.cdk_version }}
+      cdk_released: ${{ steps.versions.outputs.cdk_released }}
 
     steps:
       - uses: actions/checkout@v6
@@ -132,6 +134,7 @@ jobs:
           stamp_stable packages/cli       cli
           stamp_stable packages/ui        ui
           stamp_stable packages/client    client
+          stamp_stable packages/cdk       cdk
 
       # ── Verify CLI was bumped (early gate) ───────────────────────────────
       #
@@ -197,6 +200,7 @@ jobs:
           tag_if_released cli       cli       "${{ steps.versions.outputs.cli_released }}"       "${{ steps.versions.outputs.cli_version }}"
           tag_if_released ui        ui        "${{ steps.versions.outputs.ui_released }}"        "${{ steps.versions.outputs.ui_version }}"
           tag_if_released client    client    "${{ steps.versions.outputs.client_released }}"    "${{ steps.versions.outputs.client_version }}"
+          tag_if_released cdk       cdk       "${{ steps.versions.outputs.cdk_released }}"       "${{ steps.versions.outputs.cdk_version }}"
 
           # Push only tags that don't yet exist on remote. The plain
           # `git push --tags` already skips existing matching tags but
@@ -266,6 +270,7 @@ jobs:
             add_row cli       "${{ steps.versions.outputs.cli_released }}"       "${{ steps.versions.outputs.cli_version }}"
             add_row ui        "${{ steps.versions.outputs.ui_released }}"        "${{ steps.versions.outputs.ui_version }}"
             add_row client    "${{ steps.versions.outputs.client_released }}"    "${{ steps.versions.outputs.client_version }}"
+            add_row cdk       "${{ steps.versions.outputs.cdk_released }}"       "${{ steps.versions.outputs.cdk_version }}"
             echo ""
             echo "Install: \`npm install -g @clef-sh/cli\`"
             echo ""
@@ -470,6 +475,14 @@ jobs:
         continue-on-error: true
         working-directory: packages/client
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/client publish failed (may already exist)"
+
+      - name: Publish @clef-sh/cdk
+        if: needs.prepare.outputs.cdk_released == 'true'
+        continue-on-error: true
+        working-directory: packages/cdk
+        run: npm publish --provenance --access public || echo "::warning::@clef-sh/cdk publish failed (may already exist)"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # ── Flip draft to published ─────────────────────────────────────────
       #
