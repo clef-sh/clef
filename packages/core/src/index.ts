@@ -107,7 +107,7 @@ export type {
   PackConfig,
   PackResult,
   PackOutput,
-  ArtifactEnvelope,
+  KmsEnvelope,
   SignatureAlgorithm,
 } from "./artifact/types";
 export {

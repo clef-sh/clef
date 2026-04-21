@@ -1,5 +1,5 @@
 /** KMS envelope metadata for artifacts using KMS envelope encryption. */
-export interface ArtifactEnvelope {
+export interface KmsEnvelope {
   /** KMS provider that wrapped the DEK (e.g. "aws", "gcp", "azure"). */
   provider: string;
   /** KMS key ARN/ID used to wrap the AES-256 DEK. */
@@ -33,9 +33,11 @@ export interface PackedArtifact {
   /** Base64-encoded ciphertext. Age format for age-only artifacts; AES-256-GCM for KMS envelope artifacts. */
   ciphertext: string;
   /** KMS envelope metadata. Present when the identity uses KMS envelope encryption. */
-  envelope?: ArtifactEnvelope;
+  envelope?: KmsEnvelope;
   /** ISO-8601 expiry timestamp. Artifact is rejected after this time. */
   expiresAt?: string;
+  /** ISO-8601 revocation timestamp. Present when the artifact has been revoked. */
+  revokedAt?: string;
   /** Base64-encoded cryptographic signature over the canonical artifact payload. */
   signature?: string;
   /** Algorithm used to produce the signature. */
