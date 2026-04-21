@@ -118,6 +118,14 @@ export {
   verifySignature,
   detectAlgorithm,
 } from "./artifact/signer";
+export { PackBackendRegistry } from "./pack/registry";
+export type {
+  PackBackend,
+  PackBackendFactory,
+  PackRequest,
+  PackServices,
+  BackendPackResult,
+} from "./pack/types";
 export type { KmsProvider, KmsWrapResult, KmsProviderType } from "./kms";
 export { VALID_KMS_PROVIDERS } from "./kms";
 export { BackendMigrator } from "./migration/backend";
