@@ -1,7 +1,7 @@
 import { EncryptedArtifactStore } from "./encrypted-artifact-store";
-import type { ArtifactEnvelope } from "./poller";
+import type { PackedArtifact } from "@clef-sh/core";
 
-function makeEnvelope(revision = "rev-1"): ArtifactEnvelope {
+function makeEnvelope(revision = "rev-1"): PackedArtifact {
   return {
     version: 1,
     identity: "api-gateway",

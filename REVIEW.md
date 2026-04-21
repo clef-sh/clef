@@ -645,7 +645,7 @@ Check:
   throws
 - The envelope contains `iv` and `authTag` (base64-encoded)
   alongside `wrappedKey`, `provider`, `keyId`, `algorithm`
-- `ArtifactEnvelopeField` type has all six fields — if `iv`
+- `KmsEnvelope` type has all six fields — if `iv`
   or `authTag` are missing, the runtime poller will reject
   the artifact at validation time
 - The broker must NOT import or call `age-encryption` — it
@@ -750,7 +750,7 @@ Check — Verify key provenance:
   through to `ArtifactPoller` options and confirm it is
   the same value used in the `verifySignature` call — no
   overrides, no fallbacks to artifact fields
-- Confirm `ArtifactEnvelope` in the runtime does NOT have
+- Confirm `PackedArtifact` in the runtime does NOT have
   a `verifyKey` field that the poller reads — the verify
   key lives exclusively in config, never in the artifact
 
@@ -1569,12 +1569,12 @@ Check — Core exports:
   from `packages/core/src/index.ts`
 - All related types are exported: `ServiceIdentityDefinition`,
   `ServiceIdentityEnvironmentConfig`,
-  `ServiceIdentityDriftIssue`, `ArtifactEnvelope`,
+  `ServiceIdentityDriftIssue`, `KmsEnvelope`,
   `ArtifactPackResult`
 - KMS types are exported from core: `KmsProvider`,
   `KmsWrapResult`, `KmsProviderType`
 - `KmsConfig`, `isKmsEnvelope` are exported from core types
-- `ArtifactEnvelope` type is exported from core artifact types
+- `KmsEnvelope` type is exported from core artifact types
 
 Check — Manifest integration:
 

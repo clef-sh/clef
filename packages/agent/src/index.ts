@@ -2,7 +2,8 @@
 export { SecretsCache, AgeDecryptor, ArtifactPoller, ClefRuntime, init } from "@clef-sh/runtime";
 export type {
   PollerOptions,
-  ArtifactEnvelope,
+  PackedArtifact,
+  KmsEnvelope,
   RuntimeConfig,
   VcsProvider,
   VcsProviderConfig,

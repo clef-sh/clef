@@ -1,6 +1,6 @@
 import * as crypto from "crypto";
 import { ArtifactDecryptor } from "./artifact-decryptor";
-import type { ArtifactEnvelope } from "./poller";
+import type { PackedArtifact } from "@clef-sh/core";
 import { TelemetryEmitter } from "./telemetry";
 
 jest.mock(
@@ -28,7 +28,7 @@ jest.mock("./kms", () => {
 const { __mockUnwrap: mockKmsUnwrap } = require("./kms") as { __mockUnwrap: jest.Mock };
 
 /** Build a minimal age-only artifact envelope. */
-function makeAgeArtifact(overrides: Partial<ArtifactEnvelope> = {}): ArtifactEnvelope {
+function makeAgeArtifact(overrides: Partial<PackedArtifact> = {}): PackedArtifact {
   const ciphertext =
     overrides.ciphertext ??
     "-----BEGIN AGE ENCRYPTED FILE-----\nmock\n-----END AGE ENCRYPTED FILE-----";
@@ -51,8 +51,8 @@ function makeAgeArtifact(overrides: Partial<ArtifactEnvelope> = {}): ArtifactEnv
 function makeKmsArtifact(
   testDek: Buffer,
   values: Record<string, string>,
-  overrides: Partial<ArtifactEnvelope> = {},
-): ArtifactEnvelope {
+  overrides: Partial<PackedArtifact> = {},
+): PackedArtifact {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", testDek, iv);
   const ct = Buffer.concat([cipher.update(JSON.stringify(values), "utf-8"), cipher.final()]);

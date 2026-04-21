@@ -1,36 +1,18 @@
 import * as crypto from "crypto";
 import { buildSigningPayload, verifySignature } from "./signature";
 
-function makeArtifact(
-  overrides: Partial<{
-    version: number;
-    identity: string;
-    environment: string;
-    revision: string;
-    packedAt: string;
-    ciphertextHash: string;
-    expiresAt: string;
-    envelope: {
-      provider: string;
-      keyId: string;
-      wrappedKey: string;
-      algorithm: string;
-      iv?: string;
-      authTag?: string;
-    };
-  }> = {},
-) {
+import type { PackedArtifact } from "@clef-sh/core";
+
+function makeArtifact(overrides: Partial<PackedArtifact> = {}): PackedArtifact {
   return {
-    version: overrides.version ?? 1,
-    identity: overrides.identity ?? "api-gateway",
-    environment: overrides.environment ?? "production",
-    revision: overrides.revision ?? "1711101600000-a1b2c3d4",
-    packedAt: overrides.packedAt ?? "2026-03-22T10:00:00.000Z",
-    ciphertextHash:
-      overrides.ciphertextHash ??
-      "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
-    expiresAt: overrides.expiresAt,
-    envelope: overrides.envelope,
+    version: 1,
+    identity: "api-gateway",
+    environment: "production",
+    revision: "1711101600000-a1b2c3d4",
+    packedAt: "2026-03-22T10:00:00.000Z",
+    ciphertextHash: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+    ciphertext: "dGVzdC1jaXBoZXJ0ZXh0",
+    ...overrides,
   };
 }
 
@@ -57,6 +39,8 @@ describe("buildSigningPayload (runtime)", () => {
         keyId: "arn:aws:kms:test",
         wrappedKey: "d3JhcHBlZA==",
         algorithm: "SYMMETRIC_DEFAULT",
+        iv: "dGVzdC1pdg==",
+        authTag: "dGVzdC1hdXRo",
       },
     });
     const payload = buildSigningPayload(artifact).toString("utf-8");

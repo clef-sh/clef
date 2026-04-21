@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/broker",
-  "version": "0.1.22-alpha.117",
+  "version": "0.1.22-alpha.121",
   "description": "Runtime harness for Clef dynamic credential brokers",
   "repository": {
     "type": "git",
@@ -20,6 +20,7 @@
     "test:e2e": "npx tsx --test e2e/broker.e2e.test.ts"
   },
   "dependencies": {
+    "@clef-sh/core": "*",
     "@clef-sh/runtime": "*",
     "age-encryption": "^0.3.0",
     "yaml": "^2.8.3"

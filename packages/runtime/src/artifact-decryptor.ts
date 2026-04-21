@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import { AgeDecryptor } from "./decrypt";
 import { createKmsProvider } from "./kms";
 import { TelemetryEmitter } from "./telemetry";
-import type { ArtifactEnvelope } from "./poller";
+import type { PackedArtifact } from "@clef-sh/core";
 
 /** Result of decrypting an artifact envelope. */
 export interface DecryptedArtifact {
@@ -55,7 +55,7 @@ export class ArtifactDecryptor {
    * @throws On KMS unwrap failure, AES-GCM auth failure, age decrypt failure,
    *         missing private key (config error), or malformed plaintext JSON.
    */
-  async decrypt(artifact: ArtifactEnvelope): Promise<DecryptedArtifact> {
+  async decrypt(artifact: PackedArtifact): Promise<DecryptedArtifact> {
     let plaintext: string;
 
     if (artifact.envelope) {
@@ -81,7 +81,7 @@ export class ArtifactDecryptor {
   }
 
   /** KMS envelope: unwrap DEK via KMS, then AES-256-GCM decrypt. */
-  private async decryptKmsEnvelope(artifact: ArtifactEnvelope): Promise<string> {
+  private async decryptKmsEnvelope(artifact: PackedArtifact): Promise<string> {
     const envelope = artifact.envelope!;
     let dek: Buffer;
     try {
@@ -115,7 +115,7 @@ export class ArtifactDecryptor {
   }
 
   /** Age-only: decrypt with the static private key. */
-  private async decryptAge(artifact: ArtifactEnvelope): Promise<string> {
+  private async decryptAge(artifact: PackedArtifact): Promise<string> {
     if (!this.privateKey) {
       // Config error — NOT an artifact.invalid event
       throw new Error(
