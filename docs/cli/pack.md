@@ -27,13 +27,24 @@ See [Service Identities](/guide/service-identities) for the full guide.
 
 ## Flags
 
-| Flag                        | Type   | Required | Default | Description                                                                                                                                                   |
-| --------------------------- | ------ | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-o, --output <path>`       | string | Yes      | —       | Output file path for the artifact                                                                                                                             |
-| `--ttl <seconds>`           | number | No       | —       | Artifact TTL — embeds an `expiresAt` timestamp. Also relevant for [dynamic secret patterns](/guide/dynamic-secrets#example-static-secrets-with-ttl-bounding). |
-| `--signing-key <key>`       | string | No       | —       | Ed25519 private key for artifact signing (base64 DER PKCS8). Falls back to `CLEF_SIGNING_KEY` env var. Mutually exclusive with `--signing-kms-key`.           |
-| `--signing-kms-key <keyId>` | string | No       | —       | KMS asymmetric signing key ARN/ID (ECDSA_SHA_256). Falls back to `CLEF_SIGNING_KMS_KEY` env var. Mutually exclusive with `--signing-key`.                     |
-| `--dir <path>`              | string | No       | cwd     | Override repository root                                                                                                                                      |
+| Flag                        | Type   | Required                | Default         | Description                                                                                                                                                   |
+| --------------------------- | ------ | ----------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-b, --backend <id>`        | string | No                      | `json-envelope` | Pack destination backend. See [Backend selection](#backend-selection) below.                                                                                  |
+| `-o, --output <path>`       | string | Yes (for json-envelope) | —               | Output file path for the artifact. Required by the default `json-envelope` backend; other backends may ignore it.                                             |
+| `--ttl <seconds>`           | number | No                      | —               | Artifact TTL — embeds an `expiresAt` timestamp. Also relevant for [dynamic secret patterns](/guide/dynamic-secrets#example-static-secrets-with-ttl-bounding). |
+| `--signing-key <key>`       | string | No                      | —               | Ed25519 private key for artifact signing (base64 DER PKCS8). Falls back to `CLEF_SIGNING_KEY` env var. Mutually exclusive with `--signing-kms-key`.           |
+| `--signing-kms-key <keyId>` | string | No                      | —               | KMS asymmetric signing key ARN/ID (ECDSA_SHA_256). Falls back to `CLEF_SIGNING_KMS_KEY` env var. Mutually exclusive with `--signing-key`.                     |
+| `--dir <path>`              | string | No                      | cwd             | Override repository root                                                                                                                                      |
+
+## Backend selection
+
+`clef pack` writes to a pluggable backend selected via `--backend <id>`. The default is `json-envelope`, which produces the Clef JSON artifact file described above. Additional backends ship as optional sibling packages under the `@clef-sh/pack-<name>` convention and are discovered at runtime when installed alongside the CLI.
+
+```bash
+clef pack api-gateway production --backend json-envelope --output ./artifact.json
+```
+
+Omitting the flag picks `json-envelope`, so existing workflows continue to work unchanged.
 
 ## Exit codes
 
