@@ -46,6 +46,21 @@ clef pack api-gateway production --backend json-envelope --output ./artifact.jso
 
 Omitting the flag picks `json-envelope`, so existing workflows continue to work unchanged.
 
+Authoring a custom backend is a short npm-package shape — see [Pack Backend Plugins](/guide/pack-plugins) for the full guide.
+
+### Backend-specific options
+
+Backends that target external stores (Vault, AWS Secrets Manager, etc.) take per-invocation options via `--backend-opt key=value` (repeatable). Examples:
+
+```bash
+clef pack api-gateway production \
+  --backend vault \
+  --backend-opt path=secret/data/myapp/production \
+  --backend-opt namespace=team-a
+```
+
+Values may contain `=` — only the first `=` is treated as the delimiter. Auth credentials come from each backend's standard ecosystem env vars (`VAULT_ADDR`/`VAULT_TOKEN`, AWS SDK chain, `AZURE_TENANT_ID`, etc.), not from flags.
+
 ## Exit codes
 
 | Code | Meaning                                                |
