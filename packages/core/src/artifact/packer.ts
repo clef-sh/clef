@@ -144,10 +144,12 @@ export class ArtifactPacker {
     const output = config.output ?? new FilePackOutput(config.outputPath ?? "artifact.json");
     await output.write(artifact, json);
 
+    const keys = Object.keys(resolved.values);
     return {
       outputPath: config.outputPath ?? "",
       namespaceCount: resolved.identity.namespaces.length,
-      keyCount: Object.keys(resolved.values).length,
+      keyCount: keys.length,
+      keys,
       artifactSize: Buffer.byteLength(json, "utf-8"),
       revision: artifact.revision,
     };

@@ -71,6 +71,9 @@ interface HelperArgs {
   manifest: string;
   identity: string;
   environment: string;
+  /** Optional path to write the list of key names to. Omitted by callers that
+   *  don't need the sidecar (e.g. ClefArtifactBucket). */
+  keysOut?: string;
 }
 
 function parseArgs(argv: string[]): HelperArgs {
@@ -85,11 +88,12 @@ function parseArgs(argv: string[]): HelperArgs {
     if (a === "--manifest") out.manifest = next();
     else if (a === "--identity") out.identity = next();
     else if (a === "--environment") out.environment = next();
+    else if (a === "--keys-out") out.keysOut = next();
     else throw new Error(`Unknown argument: ${a}`);
   }
   if (!out.manifest || !out.identity || !out.environment) {
     throw new Error(
-      "Usage: clef-cdk-pack-helper --manifest <path> --identity <name> --environment <name>",
+      "Usage: clef-cdk-pack-helper --manifest <path> --identity <name> --environment <name> [--keys-out <path>]",
     );
   }
   return out as HelperArgs;
@@ -145,11 +149,20 @@ async function main(): Promise<void> {
     backendOptions: { output },
   };
   backend.validateOptions?.(request.backendOptions);
-  await backend.pack(request);
+  const result = await backend.pack(request);
 
   if (!output.json) {
     throw new Error("Pack completed but produced no JSON envelope (internal error).");
   }
+
+  // Write the plaintext key names sidecar when requested. Names only — values
+  // stay encrypted in the envelope. Consumers (e.g. ClefAwsSecretsManager) use
+  // this to validate shape templates at synth before any deploy happens.
+  if (args.keysOut) {
+    const fs = await import("fs");
+    fs.writeFileSync(args.keysOut, JSON.stringify(result.keys), "utf-8");
+  }
+
   process.stdout.write(output.json);
 }
 

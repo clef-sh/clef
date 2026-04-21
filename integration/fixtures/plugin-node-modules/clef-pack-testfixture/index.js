@@ -31,6 +31,7 @@ const backend = {
       outputPath,
       namespaceCount: 0,
       keyCount: 0,
+      keys: [],
       artifactSize: Buffer.byteLength(JSON.stringify(payload), "utf-8"),
       revision: "fixture-rev-1",
       backend: "testfixture",

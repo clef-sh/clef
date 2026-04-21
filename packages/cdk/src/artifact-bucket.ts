@@ -66,7 +66,7 @@ export class ClefArtifactBucket extends Construct {
 
     this.manifestPath = resolveManifestPath(props.manifest);
 
-    const envelopeJson = invokePackHelper({
+    const { envelopeJson } = invokePackHelper({
       manifest: this.manifestPath,
       identity: props.identity,
       environment: props.environment,

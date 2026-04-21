@@ -16,36 +16,42 @@ function writeManifest(dir: string): string {
   return p;
 }
 
-function ageOnlyEnvelope(identity: string, environment: string): string {
-  return JSON.stringify({
-    version: 1,
-    identity,
-    environment,
-    packedAt: "2026-01-01T00:00:00.000Z",
-    revision: "1-abc",
-    ciphertextHash: "deadbeef",
-    ciphertext: "YWdlCg==",
-  });
+function ageOnlyEnvelope(identity: string, environment: string) {
+  return {
+    envelopeJson: JSON.stringify({
+      version: 1,
+      identity,
+      environment,
+      packedAt: "2026-01-01T00:00:00.000Z",
+      revision: "1-abc",
+      ciphertextHash: "deadbeef",
+      ciphertext: "YWdlCg==",
+    }),
+    keys: ["SAMPLE_KEY"],
+  };
 }
 
-function kmsEnvelope(identity: string, environment: string, keyArn: string): string {
-  return JSON.stringify({
-    version: 1,
-    identity,
-    environment,
-    packedAt: "2026-01-01T00:00:00.000Z",
-    revision: "1-abc",
-    ciphertextHash: "deadbeef",
-    ciphertext: "ENCRYPTEDDD",
-    envelope: {
-      provider: "aws",
-      keyId: keyArn,
-      wrappedKey: "d3JhcHBlZAo=",
-      algorithm: "SYMMETRIC_DEFAULT",
-      iv: "aXYxMjM=",
-      authTag: "dGFnMTIzNDU2Nzg=",
-    },
-  });
+function kmsEnvelope(identity: string, environment: string, keyArn: string) {
+  return {
+    envelopeJson: JSON.stringify({
+      version: 1,
+      identity,
+      environment,
+      packedAt: "2026-01-01T00:00:00.000Z",
+      revision: "1-abc",
+      ciphertextHash: "deadbeef",
+      ciphertext: "ENCRYPTEDDD",
+      envelope: {
+        provider: "aws",
+        keyId: keyArn,
+        wrappedKey: "d3JhcHBlZAo=",
+        algorithm: "SYMMETRIC_DEFAULT",
+        iv: "aXYxMjM=",
+        authTag: "dGFnMTIzNDU2Nzg=",
+      },
+    }),
+    keys: ["SAMPLE_KEY"],
+  };
 }
 
 describe("ClefArtifactBucket", () => {
@@ -248,7 +254,7 @@ describe("ClefArtifactBucket", () => {
   });
 
   it("surfaces a clear error when the pack-helper returns non-JSON", () => {
-    mockInvokePackHelper.mockReturnValue("this is not json");
+    mockInvokePackHelper.mockReturnValue({ envelopeJson: "this is not json", keys: [] });
     const app = new App();
     const stack = new Stack(app, "TestStack");
 

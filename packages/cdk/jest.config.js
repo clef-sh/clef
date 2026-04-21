@@ -12,6 +12,11 @@ module.exports = {
     // useful because the whole file IS the call.
     "!<rootDir>/src/pack-helper.ts",
     "!<rootDir>/src/pack-invoker.ts",
+    // unwrap-lambda runs inside AWS Lambda at deploy time with real KMS +
+    // Secrets Manager clients. Unit-testing it would require mocking AWS
+    // SDK v3's middleware stack, which is heavier than the value delivers —
+    // defer to end-to-end tests against a real AWS account.
+    "!<rootDir>/src/unwrap-lambda/**/*.ts",
   ],
   coverageThreshold: {
     global: {

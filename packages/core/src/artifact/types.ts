@@ -75,6 +75,13 @@ export interface PackResult {
   namespaceCount: number;
   /** Number of secret keys in the artifact. */
   keyCount: number;
+  /**
+   * Names of the secret keys included in the artifact. Plaintext names only;
+   * values stay encrypted in `PackedArtifact.ciphertext`. Callers (e.g. the
+   * CDK library's synth-time validator) use this list to verify shape-template
+   * references before deploy. Order is not guaranteed.
+   */
+  keys: string[];
   /** Size of the artifact file in bytes. */
   artifactSize: number;
   /** Monotonic revision string. */
