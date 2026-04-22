@@ -34,19 +34,19 @@ const isUp = await secrets.health();
 With defaults the client reads:
 
 - **Endpoint** from `CLEF_ENDPOINT`, falling back to `http://127.0.0.1:7779` (the agent's default bind)
-- **Token** from `CLEF_SERVICE_TOKEN` (the bearer token the agent was configured with)
+- **Token** from `CLEF_AGENT_TOKEN` (the bearer token the agent was configured with)
 
 If both match your deployment, no constructor arguments are needed.
 
 ## Configuration
 
-| Option        | Env var              | Default                 | Description                                                              |
-| ------------- | -------------------- | ----------------------- | ------------------------------------------------------------------------ |
-| `endpoint`    | `CLEF_ENDPOINT`      | `http://127.0.0.1:7779` | Agent serve endpoint URL.                                                |
-| `token`       | `CLEF_SERVICE_TOKEN` | —                       | Bearer token for agent auth. Throws if unset.                            |
-| `envFallback` | —                    | `true`                  | When a key is not in the agent's payload, fall back to `process.env[K]`. |
-| `cacheTtlMs`  | —                    | `0`                     | In-memory cache TTL (ms). `0` disables the client cache entirely.        |
-| `fetch`       | —                    | `globalThis.fetch`      | Injectable fetch implementation for testing or non-Node runtimes.        |
+| Option        | Env var            | Default                 | Description                                                              |
+| ------------- | ------------------ | ----------------------- | ------------------------------------------------------------------------ |
+| `endpoint`    | `CLEF_ENDPOINT`    | `http://127.0.0.1:7779` | Agent serve endpoint URL.                                                |
+| `token`       | `CLEF_AGENT_TOKEN` | —                       | Bearer token for agent auth. Throws if unset.                            |
+| `envFallback` | —                  | `true`                  | When a key is not in the agent's payload, fall back to `process.env[K]`. |
+| `cacheTtlMs`  | —                  | `0`                     | In-memory cache TTL (ms). `0` disables the client cache entirely.        |
+| `fetch`       | —                  | `globalThis.fetch`      | Injectable fetch implementation for testing or non-Node runtimes.        |
 
 Explicit constructor options always win over environment variables:
 
@@ -84,7 +84,7 @@ try {
 
 Common error conditions:
 
-- **No token configured** — thrown synchronously from the constructor. Set `CLEF_SERVICE_TOKEN` or pass `token:` explicitly.
+- **No token configured** — thrown synchronously from the constructor. Set `CLEF_AGENT_TOKEN` or pass `token:` explicitly.
 - **Agent unreachable** — `health()` returns `false`; `get/getAll/keys` throw with the underlying HTTP error.
 - **401 Unauthorized** — the token does not match what the agent was configured with.
 - **503 Service Unavailable** — the agent is up but has not yet loaded an artifact. Typical during cold start; retry with backoff.
@@ -118,9 +118,9 @@ expect(await secrets.get("DB_URL")).toBe("postgres://fake");
 
 ## Lambda and container patterns
 
-**Lambda (with the agent as a Lambda extension layer):** the extension binds to `127.0.0.1:7779` within the execution environment, and the runtime sets `CLEF_ENDPOINT` and `CLEF_SERVICE_TOKEN` for the function via environment variables you configure on the function. The client's defaults pick both up automatically.
+**Lambda (with the agent as a Lambda extension layer):** the extension binds to `127.0.0.1:7779` within the execution environment, and the runtime sets `CLEF_ENDPOINT` and `CLEF_AGENT_TOKEN` for the function via environment variables you configure on the function. The client's defaults pick both up automatically.
 
-**Container (with the agent as a sidecar):** run the agent as a sidecar container in the same pod or task. Mount the shared token (via a Kubernetes secret, ECS Secrets Manager reference, or the orchestrator's native mechanism) into both containers as `CLEF_SERVICE_TOKEN`. The application container reaches the sidecar via `127.0.0.1:7779` when the pod shares a network namespace.
+**Container (with the agent as a sidecar):** run the agent as a sidecar container in the same pod or task. Mount the shared token (via a Kubernetes secret, ECS Secrets Manager reference, or the orchestrator's native mechanism) into both containers as `CLEF_AGENT_TOKEN`. The application container reaches the sidecar via `127.0.0.1:7779` when the pod shares a network namespace.
 
 **Local dev:** either run the agent locally (`clef serve`) and the client connects to `127.0.0.1:7779` the same way it does in production, or export secrets to your shell (`clef exec`, `clef export`) and let `envFallback: true` serve them from `process.env` without the agent running.
 
@@ -133,7 +133,7 @@ import { CloudKmsProvider } from "@clef-sh/client/kms";
 
 const kms = new CloudKmsProvider({
   endpoint: "https://api.clef.sh",
-  token: process.env.CLEF_SERVICE_TOKEN,
+  token: process.env.CLEF_AGENT_TOKEN,
 });
 ```
 

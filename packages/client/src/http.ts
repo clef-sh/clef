@@ -50,7 +50,7 @@ export async function request<T>(baseUrl: string, opts: RequestOptions): Promise
   }
 
   if (response.status === 401) {
-    throw new ClefClientError("Authentication failed", 401, "Check your CLEF_SERVICE_TOKEN.");
+    throw new ClefClientError("Authentication failed", 401, "Check your CLEF_AGENT_TOKEN.");
   }
 
   if (response.status === 503) {
