@@ -1,4 +1,4 @@
-import type { ArtifactEnvelope } from "./poller";
+import type { PackedArtifact } from "@clef-sh/core";
 
 /**
  * Holds the latest validated-but-encrypted artifact envelope.
@@ -7,17 +7,17 @@ import type { ArtifactEnvelope } from "./poller";
  * and the HTTP server reads from here on each request to decrypt on demand.
  */
 export class EncryptedArtifactStore {
-  private artifact: ArtifactEnvelope | null = null;
+  private artifact: PackedArtifact | null = null;
   private _storedAt: number | null = null;
 
   /** Atomically replace the stored artifact. */
-  swap(artifact: ArtifactEnvelope): void {
+  swap(artifact: PackedArtifact): void {
     this.artifact = artifact;
     this._storedAt = Date.now();
   }
 
   /** Get the current encrypted artifact. Returns null if not yet loaded. */
-  get(): ArtifactEnvelope | null {
+  get(): PackedArtifact | null {
     return this.artifact;
   }
 

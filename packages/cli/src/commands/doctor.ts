@@ -1,7 +1,17 @@
 import * as fs from "fs";
 import * as path from "path";
+import * as YAML from "yaml";
 import { Command } from "commander";
-import { checkAll, GitIntegration, REQUIREMENTS, SubprocessRunner } from "@clef-sh/core";
+import {
+  ClefLocalConfig,
+  ClefManifest,
+  ManifestParser,
+  checkAll,
+  GitIntegration,
+  REQUIREMENTS,
+  resolveKeyservicePath,
+  SubprocessRunner,
+} from "@clef-sh/core";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import {
@@ -109,6 +119,12 @@ export function registerDoctorCommand(program: Command, deps: { runner: Subproce
         detail: manifestFound ? "clef.yaml found" : "clef.yaml not found",
         hint: manifestFound ? undefined : "run: clef init",
       });
+
+      // 5b. HSM (only when the manifest declares an `hsm` backend)
+      const parsedManifest = manifestFound ? safeParseManifest(manifestPath) : null;
+      if (parsedManifest && manifestUsesHsm(parsedManifest)) {
+        for (const check of checkHsm(repoRoot)) checks.push(check);
+      }
 
       // 6. age key
       const ageKeyResult = await checkAgeKey(repoRoot, deps.runner);
@@ -328,4 +344,132 @@ async function checkAgeKey(repoRoot: string, runner: SubprocessRunner): Promise<
 function getSopsInstallHint(): string {
   if (process.platform === "darwin") return "brew install sops";
   return "see https://github.com/getsops/sops/releases";
+}
+
+/**
+ * Parse the manifest, suppressing errors. Returns null on any failure —
+ * the dedicated manifest check above already surfaces parse errors, and
+ * we don't want HSM diagnostics to mask the underlying problem.
+ */
+function safeParseManifest(manifestPath: string): ClefManifest | null {
+  try {
+    return new ManifestParser().parse(manifestPath);
+  } catch {
+    return null;
+  }
+}
+
+function manifestUsesHsm(manifest: ClefManifest): boolean {
+  return (
+    manifest.sops.default_backend === "hsm" ||
+    manifest.environments.some((e) => e.sops?.backend === "hsm")
+  );
+}
+
+/** Read .clef/config.yaml without throwing. Used only for diagnostics. */
+function readLocalConfigForDoctor(repoRoot: string): ClefLocalConfig | null {
+  const p = path.join(repoRoot, ".clef", "config.yaml");
+  try {
+    if (!fs.existsSync(p)) return null;
+    return YAML.parse(fs.readFileSync(p, "utf-8")) as ClefLocalConfig;
+  } catch {
+    return null;
+  }
+}
+
+function checkHsm(repoRoot: string): DoctorCheckResult[] {
+  const out: DoctorCheckResult[] = [];
+
+  // 1. Keyservice binary resolution
+  try {
+    const ks = resolveKeyservicePath();
+    const sourceLabel =
+      ks.source === "bundled"
+        ? " [bundled]"
+        : ks.source === "env"
+          ? " [CLEF_KEYSERVICE_PATH]"
+          : " [system]";
+    out.push({
+      name: "clef-keyservice",
+      ok: true,
+      detail: `${ks.path}${sourceLabel}`,
+    });
+  } catch (err) {
+    out.push({
+      name: "clef-keyservice",
+      ok: false,
+      detail: (err as Error).message,
+      hint:
+        "install the @clef-sh/keyservice-* platform package, set CLEF_KEYSERVICE_PATH, " +
+        "or place clef-keyservice on your PATH",
+    });
+  }
+
+  const config = readLocalConfigForDoctor(repoRoot);
+
+  // 2. PKCS#11 module path
+  const moduleEnv = process.env.CLEF_PKCS11_MODULE;
+  const moduleConfig = config?.pkcs11_module;
+  const modulePath = moduleEnv ?? moduleConfig;
+  if (!modulePath) {
+    out.push({
+      name: "pkcs11 module",
+      ok: false,
+      detail: "not configured",
+      hint:
+        "set CLEF_PKCS11_MODULE or pkcs11_module in .clef/config.yaml " +
+        "(e.g. /usr/lib/softhsm/libsofthsm2.so)",
+    });
+  } else if (!fs.existsSync(modulePath)) {
+    out.push({
+      name: "pkcs11 module",
+      ok: false,
+      detail: `${modulePath} (not found)`,
+      hint: "install the vendor PKCS#11 library or correct the module path",
+    });
+  } else {
+    const sourceLabel = moduleEnv ? " [CLEF_PKCS11_MODULE]" : " [.clef/config.yaml]";
+    out.push({
+      name: "pkcs11 module",
+      ok: true,
+      detail: `${modulePath}${sourceLabel}`,
+    });
+  }
+
+  // 3. PIN source — never read or display the PIN value, only the source.
+  if (process.env.CLEF_PKCS11_PIN) {
+    out.push({
+      name: "pkcs11 pin",
+      ok: true,
+      detail: "configured (CLEF_PKCS11_PIN env)",
+    });
+  } else if (process.env.CLEF_PKCS11_PIN_FILE) {
+    const f = process.env.CLEF_PKCS11_PIN_FILE;
+    const exists = fs.existsSync(f);
+    out.push({
+      name: "pkcs11 pin",
+      ok: exists,
+      detail: exists ? `pin file (${f})` : `pin file (${f}) not readable`,
+      hint: exists ? undefined : "create the file with the PIN content (mode 0600)",
+    });
+  } else if (config?.pkcs11_pin_file) {
+    const f = config.pkcs11_pin_file;
+    const exists = fs.existsSync(f);
+    out.push({
+      name: "pkcs11 pin",
+      ok: exists,
+      detail: exists ? `pin file (${f})` : `pin file (${f}) not readable`,
+      hint: exists ? undefined : "create the file with the PIN content (mode 0600)",
+    });
+  } else {
+    out.push({
+      name: "pkcs11 pin",
+      ok: false,
+      detail: "not configured",
+      hint:
+        "set CLEF_PKCS11_PIN, CLEF_PKCS11_PIN_FILE, or pkcs11_pin_file " + "in .clef/config.yaml",
+    });
+  }
+
+  return out;
 }

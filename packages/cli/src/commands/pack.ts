@@ -1,18 +1,12 @@
 import * as path from "path";
 import { Command } from "commander";
-import {
-  ManifestParser,
-  SubprocessRunner,
-  MatrixManager,
-  ArtifactPacker,
-  FilePackOutput,
-  isKmsEnvelope,
-} from "@clef-sh/core";
+import { ManifestParser, SubprocessRunner, isKmsEnvelope } from "@clef-sh/core";
+import type { KmsProvider, PackRequest } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
-import type { KmsProvider } from "@clef-sh/core";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
 import { createSopsClient } from "../age-credential";
+import { createPackBackendRegistry, parseBackendOptions, resolveBackend } from "../pack-backends";
 
 export function registerPackCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -25,6 +19,16 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
         "  clef pack api-gateway production --output ./artifact.json\n" +
         "  # Then upload with your CI tools:\n" +
         "  # aws s3 cp ./artifact.json s3://my-bucket/clef/api-gateway/production.json",
+    )
+    .option("-b, --backend <id>", "Pack backend id", "json-envelope")
+    .option(
+      "--backend-opt <keyval>",
+      "Backend option key=value (repeatable). Passed through to the backend.",
+      (val: string, acc: string[]) => {
+        acc.push(val);
+        return acc;
+      },
+      [] as string[],
     )
     .option("-o, --output <path>", "Output file path for the artifact JSON")
     .option("--ttl <seconds>", "Artifact TTL — embeds an expiresAt timestamp in the envelope")
@@ -41,6 +45,8 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
         identity: string,
         environment: string,
         opts: {
+          backend?: string;
+          backendOpt?: string[];
           output?: string;
           ttl?: string;
           signingKey?: string;
@@ -48,33 +54,18 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
         },
       ) => {
         try {
-          if (!opts.output) {
-            formatter.error("--output is required.");
-            process.exit(1);
-            return;
-          }
-
           const repoRoot = (program.opts().dir as string) || process.cwd();
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-          const sopsClient = await createSopsClient(repoRoot, deps.runner);
-          const matrixManager = new MatrixManager();
+          // Resolve the backend early so unknown-backend errors fail fast.
+          // Tries the built-in registry first, then optional plugin packages
+          // (@clef-sh/pack-<id> and clef-pack-<id>) via dynamic import.
+          const registry = createPackBackendRegistry();
+          const backendId = opts.backend ?? "json-envelope";
+          const backend = await resolveBackend(registry, backendId);
 
-          // Resolve KMS provider if the identity uses envelope encryption
-          let kmsProvider: KmsProvider | undefined;
-          const si = manifest.service_identities?.find((s) => s.name === identity);
-          const envConfig = si?.environments[environment];
-          if (envConfig && isKmsEnvelope(envConfig)) {
-            const { createKmsProvider } = await import("@clef-sh/runtime");
-            kmsProvider = await createKmsProvider(envConfig.kms.provider, {
-              region: envConfig.kms.region,
-            });
-          }
-
-          const packer = new ArtifactPacker(sopsClient, matrixManager, kmsProvider);
-
-          const outputPath = opts.output ? path.resolve(opts.output) : undefined;
+          // TTL validation — numeric flag, keep the existing error text
           const ttl = opts.ttl ? parseInt(opts.ttl, 10) : undefined;
           if (ttl !== undefined && (isNaN(ttl) || ttl < 1)) {
             formatter.error("--ttl must be a positive integer (seconds).");
@@ -85,63 +76,96 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
           // Resolve signing key: flag > env var
           const signingKey = opts.signingKey ?? process.env.CLEF_SIGNING_KEY;
           const signingKmsKeyId = opts.signingKmsKey ?? process.env.CLEF_SIGNING_KMS_KEY;
+          const outputPath = opts.output ? path.resolve(opts.output) : undefined;
 
-          if (signingKey && signingKmsKeyId) {
-            formatter.error(
-              "Cannot specify both --signing-key (Ed25519) and --signing-kms-key (KMS). Choose one.",
-            );
-            process.exit(1);
-            return;
-          }
+          // Backend owns option validation (mutually exclusive signing keys, required
+          // outputs, etc.). Run it before any expensive setup. Named flags take
+          // precedence over --backend-opt when both set the same key; unknown keys
+          // from --backend-opt flow through unchanged for plugin backends.
+          const backendOptions: Record<string, unknown> = {
+            ...parseBackendOptions(opts.backendOpt ?? []),
+          };
+          if (outputPath !== undefined) backendOptions.outputPath = outputPath;
+          if (signingKey !== undefined) backendOptions.signingKey = signingKey;
+          if (signingKmsKeyId !== undefined) backendOptions.signingKmsKeyId = signingKmsKeyId;
+          backend.validateOptions?.(backendOptions);
 
-          const output = outputPath ? new FilePackOutput(outputPath) : undefined;
-
-          formatter.print(
-            `${sym("working")}  Packing artifact for '${identity}/${environment}'...`,
-          );
-
-          const result = await packer.pack(
-            { identity, environment, outputPath, ttl, signingKey, signingKmsKeyId, output },
-            manifest,
+          const { client: sopsClient, cleanup } = await createSopsClient(
             repoRoot,
+            deps.runner,
+            manifest,
           );
+          try {
+            // Resolve KMS provider if the identity uses envelope encryption
+            let kmsProvider: KmsProvider | undefined;
+            const si = manifest.service_identities?.find((s) => s.name === identity);
+            const envConfig = si?.environments[environment];
+            if (envConfig && isKmsEnvelope(envConfig)) {
+              const { createKmsProvider } = await import("@clef-sh/runtime");
+              kmsProvider = await createKmsProvider(envConfig.kms.provider, {
+                region: envConfig.kms.region,
+              });
+            }
 
-          if (isJsonMode()) {
-            formatter.json({
+            formatter.print(
+              `${sym("working")}  Packing artifact for '${identity}/${environment}'...`,
+            );
+
+            const request: PackRequest = {
               identity,
               environment,
-              keyCount: result.keyCount,
-              namespaceCount: result.namespaceCount,
-              artifactSize: result.artifactSize,
-              revision: result.revision,
-              output: outputPath ?? null,
-            });
-            return;
-          }
+              manifest,
+              repoRoot,
+              services: {
+                encryption: sopsClient,
+                kms: kmsProvider,
+                runner: deps.runner,
+              },
+              ttl,
+              backendOptions,
+            };
 
-          formatter.success(
-            `Artifact packed: ${result.keyCount} keys from ${result.namespaceCount} namespace(s).`,
-          );
-          if (outputPath) {
-            formatter.print(`  Output:   ${outputPath}`);
-          }
-          formatter.print(`  Size:     ${(result.artifactSize / 1024).toFixed(1)} KB`);
-          formatter.print(`  Revision: ${result.revision}`);
+            const result = await backend.pack(request);
 
-          if (envConfig && isKmsEnvelope(envConfig)) {
-            formatter.print(`  Envelope: KMS (${envConfig.kms.provider})`);
-          }
+            if (isJsonMode()) {
+              formatter.json({
+                identity,
+                environment,
+                keyCount: result.keyCount,
+                namespaceCount: result.namespaceCount,
+                artifactSize: result.artifactSize,
+                revision: result.revision,
+                output: outputPath ?? null,
+              });
+              return;
+            }
 
-          if (signingKey) {
-            formatter.print(`  Signed:   Ed25519`);
-          } else if (signingKmsKeyId) {
-            formatter.print(`  Signed:   KMS ECDSA_SHA256`);
-          }
+            formatter.success(
+              `Artifact packed: ${result.keyCount} keys from ${result.namespaceCount} namespace(s).`,
+            );
+            if (outputPath) {
+              formatter.print(`  Output:   ${outputPath}`);
+            }
+            formatter.print(`  Size:     ${(result.artifactSize / 1024).toFixed(1)} KB`);
+            formatter.print(`  Revision: ${result.revision}`);
 
-          formatter.hint(
-            "\nUpload the artifact to an HTTP-accessible store (S3, GCS, etc.) or commit to\n" +
-              "  .clef/packed/ for VCS-based delivery. See: clef.sh/guide/service-identities",
-          );
+            if (envConfig && isKmsEnvelope(envConfig)) {
+              formatter.print(`  Envelope: KMS (${envConfig.kms.provider})`);
+            }
+
+            if (signingKey) {
+              formatter.print(`  Signed:   Ed25519`);
+            } else if (signingKmsKeyId) {
+              formatter.print(`  Signed:   KMS ECDSA_SHA256`);
+            }
+
+            formatter.hint(
+              "\nUpload the artifact to an HTTP-accessible store (S3, GCS, etc.) or commit to\n" +
+                "  .clef/packed/ for VCS-based delivery. See: clef.sh/guide/service-identities",
+            );
+          } finally {
+            await cleanup();
+          }
         } catch (err) {
           handleCommandError(err);
         }

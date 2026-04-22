@@ -31,6 +31,7 @@ import {
 import { assertSops } from "../dependencies/checker";
 import { deriveAgePublicKey } from "../age/keygen";
 import { resolveSopsPath } from "./resolver";
+import { isClefHsmArn, pkcs11UriToSyntheticArn, syntheticArnToPkcs11Uri } from "./hsm-arn";
 
 function formatFromPath(filePath: string): "yaml" | "json" {
   return filePath.endsWith(".json") ? "json" : "yaml";
@@ -80,6 +81,7 @@ function openWindowsInputPipe(content: string): Promise<{ inputArg: string; clea
  */
 export class SopsClient implements EncryptionBackend {
   private readonly sopsCommand: string;
+  private readonly keyserviceArgs: readonly string[];
 
   /**
    * @param runner - Subprocess runner used to invoke the `sops` binary.
@@ -89,14 +91,27 @@ export class SopsClient implements EncryptionBackend {
    *   to the subprocess environment.
    * @param sopsPath - Optional explicit path to the sops binary. When omitted,
    *   resolved automatically via {@link resolveSopsPath}.
+   * @param keyserviceAddr - Optional address of an external SOPS KeyService
+   *   sidecar (e.g. `tcp://127.0.0.1:12345`). When set, every SOPS invocation
+   *   includes `--enable-local-keyservice=false --keyservice <addr>` so KMS
+   *   wrap/unwrap is routed to the sidecar (used for the HSM backend, where
+   *   the sidecar is `clef-keyservice` talking PKCS#11 to the HSM).
+   *
+   *   The flags are inserted **after** the SOPS subcommand — placing them
+   *   before is silently ignored by SOPS (a footgun discovered the first
+   *   time we shipped this).
    */
   constructor(
     private readonly runner: SubprocessRunner,
     private readonly ageKeyFile?: string,
     private readonly ageKey?: string,
     sopsPath?: string,
+    keyserviceAddr?: string,
   ) {
     this.sopsCommand = sopsPath ?? resolveSopsPath().path;
+    this.keyserviceArgs = keyserviceAddr
+      ? Object.freeze(["--enable-local-keyservice=false", "--keyservice", keyserviceAddr])
+      : Object.freeze([]);
   }
 
   private buildSopsEnv(): Record<string, string> | undefined {
@@ -124,7 +139,7 @@ export class SopsClient implements EncryptionBackend {
     const env = this.buildSopsEnv();
     const result = await this.runner.run(
       this.sopsCommand,
-      ["decrypt", "--output-type", fmt, filePath],
+      ["decrypt", ...this.keyserviceArgs, "--output-type", fmt, filePath],
       {
         ...(env ? { env } : {}),
       },
@@ -210,6 +225,7 @@ export class SopsClient implements EncryptionBackend {
           "--config",
           configPath,
           "encrypt",
+          ...this.keyserviceArgs,
           ...args,
           "--input-type",
           fmt,
@@ -271,7 +287,7 @@ export class SopsClient implements EncryptionBackend {
     const env = this.buildSopsEnv();
     const result = await this.runner.run(
       this.sopsCommand,
-      ["rotate", "-i", "--add-age", key, filePath],
+      ["rotate", ...this.keyserviceArgs, "-i", "--add-age", key, filePath],
       {
         ...(env ? { env } : {}),
       },
@@ -297,7 +313,7 @@ export class SopsClient implements EncryptionBackend {
     const env = this.buildSopsEnv();
     const result = await this.runner.run(
       this.sopsCommand,
-      ["rotate", "-i", "--rm-age", key, filePath],
+      ["rotate", ...this.keyserviceArgs, "-i", "--rm-age", key, filePath],
       {
         ...(env ? { env } : {}),
       },
@@ -438,7 +454,16 @@ export class SopsClient implements EncryptionBackend {
 
   private detectBackend(sops: Record<string, unknown>): BackendType {
     if (sops.age && Array.isArray(sops.age) && (sops.age as unknown[]).length > 0) return "age";
-    if (sops.kms && Array.isArray(sops.kms) && (sops.kms as unknown[]).length > 0) return "awskms";
+    if (sops.kms && Array.isArray(sops.kms) && (sops.kms as unknown[]).length > 0) {
+      // HSM uses SOPS's KMS slot but stamps a Clef synthetic ARN. The
+      // alias/clef-hsm/v* marker is how we distinguish from real AWS KMS.
+      const kmsEntries = sops.kms as Array<Record<string, unknown>>;
+      const firstArn = kmsEntries[0]?.arn;
+      if (typeof firstArn === "string" && isClefHsmArn(firstArn)) {
+        return "hsm";
+      }
+      return "awskms";
+    }
     if (sops.gcp_kms && Array.isArray(sops.gcp_kms) && (sops.gcp_kms as unknown[]).length > 0)
       return "gcpkms";
     if (sops.azure_kv && Array.isArray(sops.azure_kv) && (sops.azure_kv as unknown[]).length > 0)
@@ -456,6 +481,19 @@ export class SopsClient implements EncryptionBackend {
       case "awskms": {
         const entries = sops.kms as Array<Record<string, unknown>> | undefined;
         return entries?.map((e) => String(e.arn ?? "")) ?? [];
+      }
+      case "hsm": {
+        // HSM entries live in the same `sops.kms[]` slot as AWS KMS but
+        // carry a Clef synthetic ARN. Surface the decoded pkcs11 URI so
+        // policy/lint/UI consumers see a meaningful identifier rather
+        // than the opaque base64url payload.
+        const entries = sops.kms as Array<Record<string, unknown>> | undefined;
+        return (
+          entries?.map((e) => {
+            const raw = String(e.arn ?? "");
+            return syntheticArnToPkcs11Uri(raw) ?? raw;
+          }) ?? []
+        );
       }
       case "gcpkms": {
         const entries = sops.gcp_kms as Array<Record<string, unknown>> | undefined;
@@ -494,6 +532,7 @@ export class SopsClient implements EncryptionBackend {
           gcp_kms_resource_id: manifest.sops.gcp_kms_resource_id,
           azure_kv_url: manifest.sops.azure_kv_url,
           pgp_fingerprint: manifest.sops.pgp_fingerprint,
+          pkcs11_uri: manifest.sops.pkcs11_uri,
         };
 
     switch (config.backend) {
@@ -526,6 +565,15 @@ export class SopsClient implements EncryptionBackend {
       case "pgp":
         if (config.pgp_fingerprint) {
           args.push("--pgp", config.pgp_fingerprint);
+        }
+        break;
+      case "hsm":
+        if (config.pkcs11_uri) {
+          // SOPS validates --kms against an AWS ARN regex before the
+          // keyservice is ever called, so we wrap the pkcs11 URI in a
+          // Clef synthetic ARN. The keyservice decodes it on the wire
+          // and forwards the URI to the PKCS#11 backend.
+          args.push("--kms", pkcs11UriToSyntheticArn(config.pkcs11_uri));
         }
         break;
     }

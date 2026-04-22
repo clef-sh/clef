@@ -1,6 +1,7 @@
 import * as path from "path";
 import { Command } from "commander";
 import {
+  ClefManifest,
   GitIntegration,
   ManifestParser,
   MatrixManager,
@@ -16,11 +17,12 @@ import { createSopsClient } from "../age-credential";
 async function makeStructureManager(
   repoRoot: string,
   runner: SubprocessRunner,
-): Promise<StructureManager> {
-  const sopsClient = await createSopsClient(repoRoot, runner);
+  manifest?: ClefManifest,
+): Promise<{ structure: StructureManager; cleanup: () => Promise<void> }> {
+  const { client: sopsClient, cleanup } = await createSopsClient(repoRoot, runner, manifest);
   const matrixManager = new MatrixManager();
   const tx = new TransactionManager(new GitIntegration(runner));
-  return new StructureManager(matrixManager, sopsClient, tx);
+  return { structure: new StructureManager(matrixManager, sopsClient, tx), cleanup };
 }
 
 export function registerNamespaceCommand(
@@ -60,37 +62,45 @@ export function registerNamespaceCommand(
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-          const structure = await makeStructureManager(repoRoot, deps.runner);
-          await structure.editNamespace(name, opts, manifest, repoRoot);
+          const { structure, cleanup } = await makeStructureManager(
+            repoRoot,
+            deps.runner,
+            manifest,
+          );
+          try {
+            await structure.editNamespace(name, opts, manifest, repoRoot);
 
-          if (isJsonMode()) {
-            formatter.json({
-              action: "edited",
-              kind: "namespace",
-              name: opts.rename ?? name,
-              previousName: opts.rename ? name : undefined,
-              changes: {
-                ...(opts.rename ? { rename: opts.rename } : {}),
-                ...(opts.description !== undefined ? { description: opts.description } : {}),
-                ...(opts.schema !== undefined ? { schema: opts.schema } : {}),
-              },
-            });
-            return;
-          }
+            if (isJsonMode()) {
+              formatter.json({
+                action: "edited",
+                kind: "namespace",
+                name: opts.rename ?? name,
+                previousName: opts.rename ? name : undefined,
+                changes: {
+                  ...(opts.rename ? { rename: opts.rename } : {}),
+                  ...(opts.description !== undefined ? { description: opts.description } : {}),
+                  ...(opts.schema !== undefined ? { schema: opts.schema } : {}),
+                },
+              });
+              return;
+            }
 
-          const finalName = opts.rename ?? name;
-          if (opts.rename) {
-            formatter.success(`Renamed namespace '${name}' → '${finalName}'`);
-          }
-          if (opts.description !== undefined) {
-            formatter.success(`Updated description on namespace '${finalName}'`);
-          }
-          if (opts.schema !== undefined) {
-            formatter.success(
-              opts.schema === ""
-                ? `Cleared schema on namespace '${finalName}'`
-                : `Set schema on namespace '${finalName}' → ${opts.schema}`,
-            );
+            const finalName = opts.rename ?? name;
+            if (opts.rename) {
+              formatter.success(`Renamed namespace '${name}' → '${finalName}'`);
+            }
+            if (opts.description !== undefined) {
+              formatter.success(`Updated description on namespace '${finalName}'`);
+            }
+            if (opts.schema !== undefined) {
+              formatter.success(
+                opts.schema === ""
+                  ? `Cleared schema on namespace '${finalName}'`
+                  : `Set schema on namespace '${finalName}' → ${opts.schema}`,
+              );
+            }
+          } finally {
+            await cleanup();
           }
         } catch (err) {
           handleCommandError(err);
@@ -114,27 +124,31 @@ export function registerNamespaceCommand(
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const structure = await makeStructureManager(repoRoot, deps.runner);
-        await structure.addNamespace(
-          name,
-          { description: opts.description, schema: opts.schema },
-          manifest,
-          repoRoot,
-        );
-
-        if (isJsonMode()) {
-          formatter.json({
-            action: "added",
-            kind: "namespace",
+        const { structure, cleanup } = await makeStructureManager(repoRoot, deps.runner, manifest);
+        try {
+          await structure.addNamespace(
             name,
-            cellsScaffolded: manifest.environments.length,
-          });
-          return;
-        }
+            { description: opts.description, schema: opts.schema },
+            manifest,
+            repoRoot,
+          );
 
-        formatter.success(
-          `Added namespace '${name}' (${manifest.environments.length} cell${manifest.environments.length === 1 ? "" : "s"} scaffolded)`,
-        );
+          if (isJsonMode()) {
+            formatter.json({
+              action: "added",
+              kind: "namespace",
+              name,
+              cellsScaffolded: manifest.environments.length,
+            });
+            return;
+          }
+
+          formatter.success(
+            `Added namespace '${name}' (${manifest.environments.length} cell${manifest.environments.length === 1 ? "" : "s"} scaffolded)`,
+          );
+        } finally {
+          await cleanup();
+        }
       } catch (err) {
         handleCommandError(err);
       }
@@ -169,14 +183,18 @@ export function registerNamespaceCommand(
           }
         }
 
-        const structure = await makeStructureManager(repoRoot, deps.runner);
-        await structure.removeNamespace(name, manifest, repoRoot);
+        const { structure, cleanup } = await makeStructureManager(repoRoot, deps.runner, manifest);
+        try {
+          await structure.removeNamespace(name, manifest, repoRoot);
 
-        if (isJsonMode()) {
-          formatter.json({ action: "removed", kind: "namespace", name });
-          return;
+          if (isJsonMode()) {
+            formatter.json({ action: "removed", kind: "namespace", name });
+            return;
+          }
+          formatter.success(`Removed namespace '${name}'`);
+        } finally {
+          await cleanup();
         }
-        formatter.success(`Removed namespace '${name}'`);
       } catch (err) {
         handleCommandError(err);
       }

@@ -1,5 +1,6 @@
 import * as crypto from "crypto";
-import { packEnvelope, BrokerArtifact } from "./envelope";
+import { packEnvelope } from "./envelope";
+import type { PackedArtifact } from "@clef-sh/core";
 import type { KmsProvider, KmsWrapResult } from "@clef-sh/runtime";
 
 function mockKms(): jest.Mocked<KmsProvider> {
@@ -34,7 +35,7 @@ describe("packEnvelope", () => {
 
   it("produces valid JSON with all required fields", async () => {
     const json = await packEnvelope(baseOptions(kms));
-    const artifact: BrokerArtifact = JSON.parse(json);
+    const artifact: PackedArtifact = JSON.parse(json);
 
     expect(artifact.version).toBe(1);
     expect(artifact.identity).toBe("rds-primary");
@@ -49,7 +50,7 @@ describe("packEnvelope", () => {
 
   it("ciphertextHash matches SHA-256 of ciphertext", async () => {
     const json = await packEnvelope(baseOptions(kms));
-    const artifact: BrokerArtifact = JSON.parse(json);
+    const artifact: PackedArtifact = JSON.parse(json);
 
     const expected = crypto.createHash("sha256").update(artifact.ciphertext).digest("hex");
     expect(artifact.ciphertextHash).toBe(expected);
@@ -59,38 +60,38 @@ describe("packEnvelope", () => {
     const before = Date.now();
     const json = await packEnvelope(baseOptions(kms));
     const after = Date.now();
-    const artifact: BrokerArtifact = JSON.parse(json);
+    const artifact: PackedArtifact = JSON.parse(json);
 
-    const expiresAt = new Date(artifact.expiresAt).getTime();
+    const expiresAt = new Date(artifact.expiresAt!).getTime();
     expect(expiresAt).toBeGreaterThanOrEqual(before + 900_000);
     expect(expiresAt).toBeLessThanOrEqual(after + 900_000);
   });
 
   it("envelope contains correct KMS metadata", async () => {
     const json = await packEnvelope(baseOptions(kms));
-    const artifact: BrokerArtifact = JSON.parse(json);
+    const artifact: PackedArtifact = JSON.parse(json);
 
-    expect(artifact.envelope.provider).toBe("aws");
-    expect(artifact.envelope.keyId).toBe("arn:aws:kms:us-east-1:123:key/abc");
-    expect(artifact.envelope.algorithm).toBe("SYMMETRIC_DEFAULT");
+    expect(artifact.envelope!.provider).toBe("aws");
+    expect(artifact.envelope!.keyId).toBe("arn:aws:kms:us-east-1:123:key/abc");
+    expect(artifact.envelope!.algorithm).toBe("SYMMETRIC_DEFAULT");
   });
 
   it("wrappedKey is base64-encoded", async () => {
     const json = await packEnvelope(baseOptions(kms));
-    const artifact: BrokerArtifact = JSON.parse(json);
+    const artifact: PackedArtifact = JSON.parse(json);
 
-    const decoded = Buffer.from(artifact.envelope.wrappedKey, "base64");
+    const decoded = Buffer.from(artifact.envelope!.wrappedKey, "base64");
     expect(decoded.toString()).toBe("wrapped-dek-key");
   });
 
   it("envelope contains iv and authTag with correct sizes", async () => {
     const json = await packEnvelope(baseOptions(kms));
-    const artifact: BrokerArtifact = JSON.parse(json);
+    const artifact: PackedArtifact = JSON.parse(json);
 
-    expect(artifact.envelope.iv).toBeTruthy();
-    expect(Buffer.from(artifact.envelope.iv, "base64")).toHaveLength(12);
-    expect(artifact.envelope.authTag).toBeTruthy();
-    expect(Buffer.from(artifact.envelope.authTag, "base64")).toHaveLength(16);
+    expect(artifact.envelope!.iv).toBeTruthy();
+    expect(Buffer.from(artifact.envelope!.iv, "base64")).toHaveLength(12);
+    expect(artifact.envelope!.authTag).toBeTruthy();
+    expect(Buffer.from(artifact.envelope!.authTag, "base64")).toHaveLength(16);
   });
 
   it("does not include keys in the envelope", async () => {
@@ -104,13 +105,13 @@ describe("packEnvelope", () => {
 
   it("revision has timestamp-hex format", async () => {
     const json = await packEnvelope(baseOptions(kms));
-    const artifact: BrokerArtifact = JSON.parse(json);
+    const artifact: PackedArtifact = JSON.parse(json);
     expect(artifact.revision).toMatch(/^\d+-[0-9a-f]{8}$/);
   });
 
   it("ciphertext is base64-encoded", async () => {
     const json = await packEnvelope(baseOptions(kms));
-    const artifact: BrokerArtifact = JSON.parse(json);
+    const artifact: PackedArtifact = JSON.parse(json);
 
     // Should not throw on base64 decode
     const decoded = Buffer.from(artifact.ciphertext, "base64");
@@ -161,11 +162,11 @@ describe("packEnvelope", () => {
       ...baseOptions(kms),
       data: { ROUND_TRIP: "success" },
     });
-    const artifact: BrokerArtifact = JSON.parse(json);
+    const artifact: PackedArtifact = JSON.parse(json);
 
     expect(capturedDek).not.toBeNull();
-    const iv = Buffer.from(artifact.envelope.iv, "base64");
-    const authTag = Buffer.from(artifact.envelope.authTag, "base64");
+    const iv = Buffer.from(artifact.envelope!.iv, "base64");
+    const authTag = Buffer.from(artifact.envelope!.authTag, "base64");
     const ciphertextBuf = Buffer.from(artifact.ciphertext, "base64");
     const decipher = crypto.createDecipheriv("aes-256-gcm", capturedDek!, iv);
     decipher.setAuthTag(authTag);

@@ -122,16 +122,25 @@ export function registerServeCommand(program: Command, deps: { runner: Subproces
         );
 
         // Pack in memory
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
+        const { client: sopsClient, cleanup } = await createSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
         const matrixManager = new MatrixManager();
 
         const memOutput = new MemoryPackOutput();
         const packer = new ArtifactPacker(sopsClient, matrixManager);
-        const result = await packer.pack(
-          { identity: opts.identity, environment: opts.env, output: memOutput },
-          devManifest,
-          repoRoot,
-        );
+        let result;
+        try {
+          result = await packer.pack(
+            { identity: opts.identity, environment: opts.env, output: memOutput },
+            devManifest,
+            repoRoot,
+          );
+        } finally {
+          await cleanup();
+        }
 
         if (!memOutput.artifact) {
           formatter.error("Pack produced no artifact.");

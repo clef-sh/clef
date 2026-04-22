@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/runtime",
-  "version": "0.1.21",
+  "version": "0.1.22-beta.132",
   "description": "Lightweight runtime secrets engine for Clef — VCS-native fetch, age decrypt, in-memory cache",
   "repository": {
     "type": "git",
@@ -13,11 +13,12 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "test": "jest",
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
+    "@clef-sh/core": "*",
     "age-encryption": "^0.3.0"
   },
   "peerDependencies": {

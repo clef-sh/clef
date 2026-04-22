@@ -99,8 +99,21 @@ export class LambdaExtension {
     }
   }
 
+  private extensionsApiBase(): string {
+    // Lambda publishes the Extensions API host via AWS_LAMBDA_RUNTIME_API.
+    // It is NOT guaranteed to be 127.0.0.1:9001 — newer runtimes may use a
+    // different host/port, so hardcoding breaks on them.
+    const host = process.env.AWS_LAMBDA_RUNTIME_API;
+    if (!host) {
+      throw new Error(
+        "AWS_LAMBDA_RUNTIME_API is not set — not running inside a Lambda Extension context.",
+      );
+    }
+    return `http://${host}/2020-01-01/extension`;
+  }
+
   private async register(): Promise<string> {
-    const res = await fetch("http://127.0.0.1:9001/2020-01-01/extension/register", {
+    const res = await fetch(`${this.extensionsApiBase()}/register`, {
       method: "POST",
       headers: { "Lambda-Extension-Name": "clef-agent" },
       body: JSON.stringify({ events: ["INVOKE", "SHUTDOWN"] }),
@@ -119,7 +132,7 @@ export class LambdaExtension {
   }
 
   private async nextEvent(extensionId: string): Promise<LambdaNextResponse> {
-    const res = await fetch("http://127.0.0.1:9001/2020-01-01/extension/event/next", {
+    const res = await fetch(`${this.extensionsApiBase()}/event/next`, {
       method: "GET",
       headers: { "Lambda-Extension-Identifier": extensionId },
     });

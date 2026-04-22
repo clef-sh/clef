@@ -46,7 +46,11 @@ export function registerRotateCommand(program: Command, deps: { runner: Subproce
             .replace("{environment}", environment),
         );
 
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
+        const { client: sopsClient, cleanup } = await createSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
+        );
         try {
           const relativeFile = manifest.file_pattern
             .replace("{namespace}", namespace)
@@ -65,7 +69,7 @@ export function registerRotateCommand(program: Command, deps: { runner: Subproce
             `git add ${relativeFile} && git commit -m "rotate: ${namespace}/${environment}"`,
           );
         } finally {
-          // no cleanup needed
+          await cleanup();
         }
       } catch (err) {
         handleCommandError(err);

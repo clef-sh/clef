@@ -1,0 +1,7 @@
+{
+  "name": "clef-pack-testfixture",
+  "version": "1.0.0",
+  "main": "index.js",
+  "private": true,
+  "description": "Integration-test fixture plugin for clef pack backend resolution."
+}

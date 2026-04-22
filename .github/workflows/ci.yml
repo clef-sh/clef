@@ -25,6 +25,7 @@ jobs:
       - run: npm run build --workspace=packages/broker
       - run: npm run build --workspace=packages/agent
       - run: npm run build --workspace=packages/ui
+      - run: npm run build --workspace=packages/cdk
       - name: Test with coverage
         run: npm run test:coverage --workspaces --if-present
         # Fails automatically if Jest thresholds are breached.
@@ -102,6 +103,7 @@ jobs:
       - run: npm run build --workspace=packages/broker
       - run: npm run build --workspace=packages/agent
       - run: npm run build --workspace=packages/cli
+      - run: npm run build --workspace=packages/cdk
 
   docs-build:
     name: Docs Build
@@ -112,8 +114,13 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      # Install root workspaces so typedoc can read packages/*/src.
+      - run: npm ci
       - run: cd docs && npm ci
-      - run: cd docs && npm run build
+      # Generate typedoc output (docs/api/*) before vitepress builds —
+      # docs/api/ is gitignored, so without this step /api/* links are
+      # dead in CI even though they work locally.
+      - run: npm run docs:build
 
   www-build:
     name: WWW Build
@@ -195,6 +202,11 @@ jobs:
           curl -Lo /usr/local/bin/sops https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64
           chmod +x /usr/local/bin/sops
           sops --version
+      # SoftHSM2 + OpenSC provide the PKCS#11 token that hsm-roundtrip.test.ts
+      # provisions against. clef-keyservice is pulled in via npm ci as an
+      # optionalDependency of @clef-sh/cli (platform: linux-x64).
+      - name: Install SoftHSM2 + OpenSC
+        run: sudo apt-get update && sudo apt-get install -y softhsm2 opensc
       - run: npm ci
       - run: npm run build --workspace=packages/core
       - run: npm run build --workspace=packages/ui

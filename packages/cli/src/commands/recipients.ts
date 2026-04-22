@@ -80,30 +80,38 @@ export function registerRecipientsCommand(
         }
 
         const matrixManager = new MatrixManager();
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const recipientManager = makeRecipientManager(sopsClient, matrixManager, deps.runner);
-
-        const recipients = await recipientManager.list(manifest, repoRoot, opts.environment);
-
-        if (isJsonMode()) {
-          formatter.json(recipients);
-          return;
-        }
-
-        if (recipients.length === 0) {
-          const scope = opts.environment ? ` for environment '${opts.environment}'` : "";
-          formatter.info(`No recipients configured${scope}.`);
-          return;
-        }
-
-        const count = recipients.length;
-        const scope = opts.environment ? ` (${opts.environment})` : "";
-        formatter.print(
-          `${sym("recipient")}  ${count} recipient${count !== 1 ? "s" : ""}${scope}\n`,
+        const { client: sopsClient, cleanup } = await createSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
         );
+        try {
+          const recipientManager = makeRecipientManager(sopsClient, matrixManager, deps.runner);
 
-        for (const r of recipients) {
-          formatter.recipientItem(r.label || r.preview, r.label ? r.preview : "");
+          const recipients = await recipientManager.list(manifest, repoRoot, opts.environment);
+
+          if (isJsonMode()) {
+            formatter.json(recipients);
+            return;
+          }
+
+          if (recipients.length === 0) {
+            const scope = opts.environment ? ` for environment '${opts.environment}'` : "";
+            formatter.info(`No recipients configured${scope}.`);
+            return;
+          }
+
+          const count = recipients.length;
+          const scope = opts.environment ? ` (${opts.environment})` : "";
+          formatter.print(
+            `${sym("recipient")}  ${count} recipient${count !== 1 ? "s" : ""}${scope}\n`,
+          );
+
+          for (const r of recipients) {
+            formatter.recipientItem(r.label || r.preview, r.label ? r.preview : "");
+          }
+        } finally {
+          await cleanup();
         }
       } catch (err) {
         handleCommandError(err);
@@ -195,123 +203,131 @@ export function registerRecipientsCommand(
         }
 
         const matrixManager = new MatrixManager();
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const recipientManager = makeRecipientManager(sopsClient, matrixManager, deps.runner);
-
-        // Verify recipient exists
-        const existing = await recipientManager.list(manifest, repoRoot, opts.environment);
-        const trimmedKey = key.trim();
-        const target = existing.find((r) => r.key === trimmedKey);
-        if (!target) {
-          formatter.error(`Recipient '${keyPreview(trimmedKey)}' is not in the manifest.`);
-          process.exit(2);
-          return;
-        }
-
-        // Mandatory re-encryption warning — cannot be bypassed
-        formatter.warn(
-          "Important: re-encryption is not full revocation.\n\n" +
-            "   Removing a recipient re-encrypts all files so the\n" +
-            "   removed key cannot decrypt future versions. However,\n" +
-            "   if the removed recipient previously had access, they\n" +
-            "   may have decrypted values cached locally.\n\n" +
-            "   To fully revoke access, you must also rotate the\n" +
-            "   secret values themselves using clef rotate.\n",
-        );
-
-        await waitForEnter("   Press Enter to continue, or Ctrl+C to cancel.\n");
-
-        // Count files for confirmation
-        const allCells = matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
-        const cells = opts.environment
-          ? allCells.filter((c) => c.environment === opts.environment)
-          : allCells;
-        const fileCount = cells.length;
-        const label = target.label || keyPreview(trimmedKey);
-
-        // Show confirmation prompt
-        const scope = opts.environment ? ` for environment '${opts.environment}'` : "";
-        formatter.print(`Remove recipient from this repository${scope}?\n`);
-        formatter.print(`  Key:    ${target.preview}`);
-        if (target.label) {
-          formatter.print(`  Label:  ${target.label}`);
-        }
-        formatter.print(`\nThis will re-encrypt ${fileCount} files in the matrix.`);
-        formatter.print(`${label} will not be able to decrypt new versions of these files.\n`);
-        formatter.warn(
-          "Remember: rotate secrets after removing a recipient.\n" +
-            `   Run: clef rotate <namespace>/<environment>`,
-        );
-
-        const confirmed = await formatter.confirm("\nProceed?");
-        if (!confirmed) {
-          formatter.info("Aborted.");
-          process.exit(0);
-          return;
-        }
-
-        // Show progress
-        formatter.print(`\n${sym("working")}  Re-encrypting matrix...`);
-
-        const result = await recipientManager.remove(
-          trimmedKey,
-          manifest,
+        const { client: sopsClient, cleanup } = await createSopsClient(
           repoRoot,
-          opts.environment,
+          deps.runner,
+          manifest,
         );
+        try {
+          const recipientManager = makeRecipientManager(sopsClient, matrixManager, deps.runner);
 
-        // Check for rollback
-        if (result.failedFiles.length > 0) {
-          const failedFile = result.failedFiles[0];
-          formatter.print(
-            `\n${sym("failure")} Re-encryption failed on ${path.basename(failedFile)}`,
-          );
-          formatter.print(`   Error: re-encryption failed`);
-          formatter.print("\nRolling back...");
-          formatter.print(`  ${sym("success")} clef.yaml restored`);
-          formatter.print(
-            `  ${sym("success")} ${result.reEncryptedFiles.length} re-encrypted files restored from backup`,
-          );
-          formatter.print("\nNo changes were applied. Investigate the error above and retry.");
-          process.exit(1);
-          return;
-        }
-
-        // Show success progress
-        for (const file of result.reEncryptedFiles) {
-          const relative = path.relative(repoRoot, file);
-          formatter.print(`   ${sym("success")}  ${relative}`);
-        }
-
-        if (isJsonMode()) {
-          formatter.json({
-            action: "removed",
-            key: trimmedKey,
-            label,
-            environment: opts.environment ?? null,
-            reEncryptedFiles: result.reEncryptedFiles.length,
-          });
-          return;
-        }
-
-        formatter.success(
-          `${label} removed. ${result.reEncryptedFiles.length} files re-encrypted. ${sym("locked")}`,
-        );
-
-        // Rotation reminder — scope to affected environments
-        formatter.warn("Rotate secrets to complete revocation:");
-        const targetEnvs = opts.environment
-          ? manifest.environments.filter((e) => e.name === opts.environment)
-          : manifest.environments;
-        for (const ns of manifest.namespaces) {
-          for (const env of targetEnvs) {
-            formatter.hint(`clef rotate ${ns.name}/${env.name}`);
+          // Verify recipient exists
+          const existing = await recipientManager.list(manifest, repoRoot, opts.environment);
+          const trimmedKey = key.trim();
+          const target = existing.find((r) => r.key === trimmedKey);
+          if (!target) {
+            formatter.error(`Recipient '${keyPreview(trimmedKey)}' is not in the manifest.`);
+            process.exit(2);
+            return;
           }
+
+          // Mandatory re-encryption warning — cannot be bypassed
+          formatter.warn(
+            "Important: re-encryption is not full revocation.\n\n" +
+              "   Removing a recipient re-encrypts all files so the\n" +
+              "   removed key cannot decrypt future versions. However,\n" +
+              "   if the removed recipient previously had access, they\n" +
+              "   may have decrypted values cached locally.\n\n" +
+              "   To fully revoke access, you must also rotate the\n" +
+              "   secret values themselves using clef rotate.\n",
+          );
+
+          await waitForEnter("   Press Enter to continue, or Ctrl+C to cancel.\n");
+
+          // Count files for confirmation
+          const allCells = matrixManager.resolveMatrix(manifest, repoRoot).filter((c) => c.exists);
+          const cells = opts.environment
+            ? allCells.filter((c) => c.environment === opts.environment)
+            : allCells;
+          const fileCount = cells.length;
+          const label = target.label || keyPreview(trimmedKey);
+
+          // Show confirmation prompt
+          const scope = opts.environment ? ` for environment '${opts.environment}'` : "";
+          formatter.print(`Remove recipient from this repository${scope}?\n`);
+          formatter.print(`  Key:    ${target.preview}`);
+          if (target.label) {
+            formatter.print(`  Label:  ${target.label}`);
+          }
+          formatter.print(`\nThis will re-encrypt ${fileCount} files in the matrix.`);
+          formatter.print(`${label} will not be able to decrypt new versions of these files.\n`);
+          formatter.warn(
+            "Remember: rotate secrets after removing a recipient.\n" +
+              `   Run: clef rotate <namespace>/<environment>`,
+          );
+
+          const confirmed = await formatter.confirm("\nProceed?");
+          if (!confirmed) {
+            formatter.info("Aborted.");
+            process.exit(0);
+            return;
+          }
+
+          // Show progress
+          formatter.print(`\n${sym("working")}  Re-encrypting matrix...`);
+
+          const result = await recipientManager.remove(
+            trimmedKey,
+            manifest,
+            repoRoot,
+            opts.environment,
+          );
+
+          // Check for rollback
+          if (result.failedFiles.length > 0) {
+            const failedFile = result.failedFiles[0];
+            formatter.print(
+              `\n${sym("failure")} Re-encryption failed on ${path.basename(failedFile)}`,
+            );
+            formatter.print(`   Error: re-encryption failed`);
+            formatter.print("\nRolling back...");
+            formatter.print(`  ${sym("success")} clef.yaml restored`);
+            formatter.print(
+              `  ${sym("success")} ${result.reEncryptedFiles.length} re-encrypted files restored from backup`,
+            );
+            formatter.print("\nNo changes were applied. Investigate the error above and retry.");
+            process.exit(1);
+            return;
+          }
+
+          // Show success progress
+          for (const file of result.reEncryptedFiles) {
+            const relative = path.relative(repoRoot, file);
+            formatter.print(`   ${sym("success")}  ${relative}`);
+          }
+
+          if (isJsonMode()) {
+            formatter.json({
+              action: "removed",
+              key: trimmedKey,
+              label,
+              environment: opts.environment ?? null,
+              reEncryptedFiles: result.reEncryptedFiles.length,
+            });
+            return;
+          }
+
+          formatter.success(
+            `${label} removed. ${result.reEncryptedFiles.length} files re-encrypted. ${sym("locked")}`,
+          );
+
+          // Rotation reminder — scope to affected environments
+          formatter.warn("Rotate secrets to complete revocation:");
+          const targetEnvs = opts.environment
+            ? manifest.environments.filter((e) => e.name === opts.environment)
+            : manifest.environments;
+          for (const ns of manifest.namespaces) {
+            for (const env of targetEnvs) {
+              formatter.hint(`clef rotate ${ns.name}/${env.name}`);
+            }
+          }
+          const envSuffix = opts.environment ? ` [${opts.environment}]` : "";
+          formatter.hint(
+            `git add clef.yaml && git add -A && git commit -m "remove recipient: ${label}${envSuffix}"`,
+          );
+        } finally {
+          await cleanup();
         }
-        const envSuffix = opts.environment ? ` [${opts.environment}]` : "";
-        formatter.hint(
-          `git add clef.yaml && git add -A && git commit -m "remove recipient: ${label}${envSuffix}"`,
-        );
       } catch (err) {
         handleCommandError(err);
       }
@@ -358,48 +374,56 @@ export function registerRecipientsCommand(
 
         // Check if already a recipient
         const matrixManager = new MatrixManager();
-        const sopsClient = await createSopsClient(repoRoot, deps.runner);
-        const recipientManager = makeRecipientManager(sopsClient, matrixManager, deps.runner);
-        const existing = await recipientManager.list(manifest, repoRoot, opts.environment);
-        if (existing.some((r) => r.key === publicKey)) {
-          formatter.info("You are already a recipient.");
-          return;
-        }
-
-        // Resolve label
-        let label = opts.label;
-        if (!label) {
-          try {
-            const result = await deps.runner.run("git", ["config", "user.name"]);
-            label = result.stdout.trim();
-          } catch {
-            // git config may not be set
-          }
-        }
-        if (!label) {
-          formatter.error("Could not determine a label. Set git user.name or pass --label.");
-          process.exit(2);
-          return;
-        }
-
-        upsertRequest(repoRoot, publicKey, label, opts.environment);
-
-        if (isJsonMode()) {
-          formatter.json({
-            action: "requested",
-            label,
-            key: publicKey,
-            environment: opts.environment ?? null,
-          });
-          return;
-        }
-
-        const scope = opts.environment ? ` for environment '${opts.environment}'` : "";
-        formatter.success(`Access requested as '${label}'${scope}`);
-        formatter.print(`  Key: ${keyPreview(publicKey)}`);
-        formatter.hint(
-          `git add ${REQUESTS_FILENAME} && git commit -m "chore: request recipient access for ${label}" && git push`,
+        const { client: sopsClient, cleanup } = await createSopsClient(
+          repoRoot,
+          deps.runner,
+          manifest,
         );
+        try {
+          const recipientManager = makeRecipientManager(sopsClient, matrixManager, deps.runner);
+          const existing = await recipientManager.list(manifest, repoRoot, opts.environment);
+          if (existing.some((r) => r.key === publicKey)) {
+            formatter.info("You are already a recipient.");
+            return;
+          }
+
+          // Resolve label
+          let label = opts.label;
+          if (!label) {
+            try {
+              const result = await deps.runner.run("git", ["config", "user.name"]);
+              label = result.stdout.trim();
+            } catch {
+              // git config may not be set
+            }
+          }
+          if (!label) {
+            formatter.error("Could not determine a label. Set git user.name or pass --label.");
+            process.exit(2);
+            return;
+          }
+
+          upsertRequest(repoRoot, publicKey, label, opts.environment);
+
+          if (isJsonMode()) {
+            formatter.json({
+              action: "requested",
+              label,
+              key: publicKey,
+              environment: opts.environment ?? null,
+            });
+            return;
+          }
+
+          const scope = opts.environment ? ` for environment '${opts.environment}'` : "";
+          formatter.success(`Access requested as '${label}'${scope}`);
+          formatter.print(`  Key: ${keyPreview(publicKey)}`);
+          formatter.hint(
+            `git add ${REQUESTS_FILENAME} && git commit -m "chore: request recipient access for ${label}" && git push`,
+          );
+        } finally {
+          await cleanup();
+        }
       } catch (err) {
         formatter.error((err as Error).message);
         process.exit(1);
@@ -538,64 +562,68 @@ async function executeRecipientAdd(
   }
 
   const matrixManager = new MatrixManager();
-  const sopsClient = await createSopsClient(repoRoot, deps.runner);
-  const recipientManager = makeRecipientManager(sopsClient, matrixManager, deps.runner);
+  const { client: sopsClient, cleanup } = await createSopsClient(repoRoot, deps.runner, manifest);
+  try {
+    const recipientManager = makeRecipientManager(sopsClient, matrixManager, deps.runner);
 
-  // Check for duplicate
-  const existing = await recipientManager.list(manifest, repoRoot, environment);
-  if (existing.some((r) => r.key === key)) {
-    formatter.error(`Recipient '${keyPreview(key)}' is already present.`);
-    process.exit(2);
-    return null;
-  }
+    // Check for duplicate
+    const existing = await recipientManager.list(manifest, repoRoot, environment);
+    if (existing.some((r) => r.key === key)) {
+      formatter.error(`Recipient '${keyPreview(key)}' is already present.`);
+      process.exit(2);
+      return null;
+    }
 
-  // Count files for confirmation
-  const allCells = matrixManager
-    .resolveMatrix(manifest, repoRoot)
-    .filter((c) => c.exists && c.environment === environment);
-  const fileCount = allCells.length;
+    // Count files for confirmation
+    const allCells = matrixManager
+      .resolveMatrix(manifest, repoRoot)
+      .filter((c) => c.exists && c.environment === environment);
+    const fileCount = allCells.length;
 
-  // Show confirmation
-  formatter.print(`Add recipient for environment '${environment}'?\n`);
-  formatter.print(`  Key:    ${keyPreview(key)}`);
-  if (label) {
-    formatter.print(`  Label:  ${label}`);
-  }
-  formatter.print(`\nThis will re-encrypt ${fileCount} files in the matrix.`);
-  formatter.print(`The new recipient will be able to decrypt '${environment}' secrets.\n`);
+    // Show confirmation
+    formatter.print(`Add recipient for environment '${environment}'?\n`);
+    formatter.print(`  Key:    ${keyPreview(key)}`);
+    if (label) {
+      formatter.print(`  Label:  ${label}`);
+    }
+    formatter.print(`\nThis will re-encrypt ${fileCount} files in the matrix.`);
+    formatter.print(`The new recipient will be able to decrypt '${environment}' secrets.\n`);
 
-  const confirmed = await formatter.confirm("Proceed?");
-  if (!confirmed) {
-    formatter.info("Aborted.");
-    return null;
-  }
+    const confirmed = await formatter.confirm("Proceed?");
+    if (!confirmed) {
+      formatter.info("Aborted.");
+      return null;
+    }
 
-  formatter.print(`\n${sym("working")}  Re-encrypting matrix...`);
+    formatter.print(`\n${sym("working")}  Re-encrypting matrix...`);
 
-  const result = await recipientManager.add(key, label, manifest, repoRoot, environment);
+    const result = await recipientManager.add(key, label, manifest, repoRoot, environment);
 
-  if (result.failedFiles.length > 0) {
-    const failedFile = result.failedFiles[0];
-    formatter.print(`\n${sym("failure")} Re-encryption failed on ${path.basename(failedFile)}`);
-    formatter.print(`   Error: re-encryption failed`);
-    formatter.print("\nRolling back...");
-    formatter.print(`  ${sym("success")} clef.yaml restored`);
-    formatter.print(
-      `  ${sym("success")} ${result.reEncryptedFiles.length} re-encrypted files restored from backup`,
+    if (result.failedFiles.length > 0) {
+      const failedFile = result.failedFiles[0];
+      formatter.print(`\n${sym("failure")} Re-encryption failed on ${path.basename(failedFile)}`);
+      formatter.print(`   Error: re-encryption failed`);
+      formatter.print("\nRolling back...");
+      formatter.print(`  ${sym("success")} clef.yaml restored`);
+      formatter.print(
+        `  ${sym("success")} ${result.reEncryptedFiles.length} re-encrypted files restored from backup`,
+      );
+      formatter.print("\nNo changes were applied. Investigate the error above and retry.");
+      process.exit(1);
+      return null;
+    }
+
+    for (const file of result.reEncryptedFiles) {
+      const relative = path.relative(repoRoot, file);
+      formatter.print(`   ${sym("success")}  ${relative}`);
+    }
+
+    const displayLabel = label || keyPreview(key);
+    formatter.success(
+      `${displayLabel} added. ${result.reEncryptedFiles.length} files re-encrypted. ${sym("locked")}`,
     );
-    formatter.print("\nNo changes were applied. Investigate the error above and retry.");
-    process.exit(1);
-    return null;
+    return { reEncryptedFiles: result.reEncryptedFiles };
+  } finally {
+    await cleanup();
   }
-
-  for (const file of result.reEncryptedFiles) {
-    const relative = path.relative(repoRoot, file);
-    formatter.print(`   ${sym("success")}  ${relative}`);
-  }
-
-  const displayLabel = label || keyPreview(key);
-  formatter.success(
-    `${displayLabel} added. ${result.reEncryptedFiles.length} files re-encrypted. ${sym("locked")}`,
-  );
-  return { reEncryptedFiles: result.reEncryptedFiles };
 }

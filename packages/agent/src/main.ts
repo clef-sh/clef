@@ -172,8 +172,11 @@ main().catch((err) => {
     console.error(`[clef-agent] config error: ${err.message}`);
   } else {
     console.error(`[clef-agent] fatal: ${err.message}`);
-    if (err instanceof Error && err.stack) {
-      console.error(err.stack);
+    if (err instanceof Error) {
+      // undici attaches the real failure (ECONNREFUSED, ENOTFOUND, TLS, etc.)
+      // on .cause. Without surfacing it, every "fetch failed" looks identical.
+      if (err.cause) console.error("cause:", err.cause);
+      if (err.stack) console.error(err.stack);
     }
   }
   process.exit(1);

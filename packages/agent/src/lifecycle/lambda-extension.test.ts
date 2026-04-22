@@ -6,9 +6,13 @@ describe("LambdaExtension", () => {
   let mockPoller: jest.Mocked<Pick<ArtifactPoller, "fetchAndDecrypt" | "start" | "stop">>;
   let mockServer: jest.Mocked<AgentServerHandle>;
   let mockFetch: jest.Mock;
+  let originalRuntimeApi: string | undefined;
 
   beforeEach(() => {
     jest.clearAllMocks();
+
+    originalRuntimeApi = process.env.AWS_LAMBDA_RUNTIME_API;
+    process.env.AWS_LAMBDA_RUNTIME_API = "127.0.0.1:9001";
 
     mockPoller = {
       fetchAndDecrypt: jest.fn().mockResolvedValue(undefined),
@@ -24,6 +28,14 @@ describe("LambdaExtension", () => {
 
     mockFetch = jest.fn();
     global.fetch = mockFetch;
+  });
+
+  afterEach(() => {
+    if (originalRuntimeApi === undefined) {
+      delete process.env.AWS_LAMBDA_RUNTIME_API;
+    } else {
+      process.env.AWS_LAMBDA_RUNTIME_API = originalRuntimeApi;
+    }
   });
 
   it("should register with the Extensions API", async () => {
@@ -155,6 +167,50 @@ describe("LambdaExtension", () => {
     });
 
     await expect(ext.start()).rejects.toThrow("register failed");
+  });
+
+  it("should use AWS_LAMBDA_RUNTIME_API from env instead of hardcoded host", async () => {
+    process.env.AWS_LAMBDA_RUNTIME_API = "169.254.100.1:4242";
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: { get: () => "ext-123" },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ eventType: "SHUTDOWN" }),
+      });
+
+    const ext = new LambdaExtension({
+      poller: mockPoller as unknown as ArtifactPoller,
+      server: mockServer,
+      refreshTtl: 30,
+      onLog: jest.fn(),
+    });
+
+    await ext.start();
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://169.254.100.1:4242/2020-01-01/extension/register",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://169.254.100.1:4242/2020-01-01/extension/event/next",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("should throw a clear error if AWS_LAMBDA_RUNTIME_API is unset", async () => {
+    delete process.env.AWS_LAMBDA_RUNTIME_API;
+
+    const ext = new LambdaExtension({
+      poller: mockPoller as unknown as ArtifactPoller,
+      server: mockServer,
+      refreshTtl: 30,
+    });
+
+    await expect(ext.start()).rejects.toThrow(/AWS_LAMBDA_RUNTIME_API is not set/);
   });
 
   it("should throw if no extension ID returned", async () => {
