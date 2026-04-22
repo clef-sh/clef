@@ -17,6 +17,7 @@ identities (recommended), also install `@aws-sdk/client-kms`.
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ClefArtifactBucket` | Deliver the encrypted envelope to S3 for the Clef agent (or any VCS-compatible client) to fetch and decrypt at runtime.                                                   |
 | `ClefSecret`         | Unwrap the envelope at deploy time and store the plaintext in AWS Secrets Manager. Consumers read via the native ASM SDK / ECS secret injection — no Clef agent required. |
+| `ClefParameter`      | Unwrap the envelope at deploy time and store the plaintext in an SSM Parameter Store parameter. One construct = one parameter. Consumers read via `ssm:GetParameter`.     |
 
 ## Quick start
 
@@ -66,6 +67,32 @@ Each `new ClefSecret(…)` provisions one ASM secret, same as native
 `secretsmanager.Secret`. The pack-helper is memoized per
 `(manifest, identity, environment)`, so multiple instances for the same
 identity share a single pack invocation at synth.
+
+### SSM Parameter Store delivery (KMS-envelope identities)
+
+```ts
+import { ClefParameter } from "@clef-sh/cdk";
+
+const dbUrl = new ClefParameter(this, "DbUrl", {
+  identity: "api-gateway",
+  environment: "production",
+  shape: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/app",
+});
+
+const stripe = new ClefParameter(this, "StripeKey", {
+  identity: "api-gateway",
+  environment: "production",
+  shape: "${STRIPE_SECRET_KEY}",
+});
+
+dbUrl.grantRead(apiLambda);
+stripe.grantRead(paymentsLambda);
+```
+
+`ClefParameter` is single-value only (SSM holds one value per parameter),
+so `shape` is required and must be a string template. Defaults to
+`SecureString` with the AWS-managed `alias/aws/ssm` at-rest key. Shares
+the unwrap Lambda and per-deploy KMS grant lifecycle with `ClefSecret`.
 
 Existing Lambdas using `SecretsManagerClient.GetSecretValue` or ECS
 services using `Secret.fromSecretsManager(secret, "FIELD")` keep working

@@ -134,6 +134,7 @@ export default withMermaid({
             { text: "Overview", link: "/cdk/overview" },
             { text: "ClefArtifactBucket", link: "/cdk/artifact-bucket" },
             { text: "ClefSecret", link: "/cdk/secret" },
+            { text: "ClefParameter", link: "/cdk/parameter" },
           ],
         },
       ],

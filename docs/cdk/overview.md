@@ -13,10 +13,11 @@ Peer deps: `aws-cdk-lib ^2.100`, `constructs ^10`. Install
 
 ## What you get
 
-| Construct                                    | When to use it                                                                                                                                                                        |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`ClefArtifactBucket`](/cdk/artifact-bucket) | You're already running the Clef agent (as a sidecar, Lambda extension, or in-process). You want a stable S3 location it can poll. Works with both age and KMS-envelope identities.    |
-| [`ClefSecret`](/cdk/secret)                  | Your app already reads AWS Secrets Manager (via the SDK, ECS secret injection, or the Lambda Secrets Manager Extension). No agent, no app code changes. KMS-envelope identities only. |
+| Construct                                    | When to use it                                                                                                                                                                           |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`ClefArtifactBucket`](/cdk/artifact-bucket) | You're already running the Clef agent (as a sidecar, Lambda extension, or in-process). You want a stable S3 location it can poll. Works with both age and KMS-envelope identities.       |
+| [`ClefSecret`](/cdk/secret)                  | Your app already reads AWS Secrets Manager (via the SDK, ECS secret injection, or the Lambda Secrets Manager Extension). No agent, no app code changes. KMS-envelope identities only.    |
+| [`ClefParameter`](/cdk/parameter)            | Your app reads AWS Systems Manager Parameter Store — via the SDK, ECS `Secret.fromSsmParameter`, or CFN dynamic references. One construct = one parameter. KMS-envelope identities only. |
 
 ## Shared behaviours
 

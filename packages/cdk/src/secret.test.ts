@@ -391,7 +391,7 @@ describe("ClefSecret", () => {
       const functions = template.findResources("AWS::Lambda::Function");
       const unwrapFns = Object.entries(functions).filter(([, res]) => {
         const desc = (res as { Properties: { Description?: string } }).Properties.Description;
-        return typeof desc === "string" && desc.startsWith("Clef secret unwrap");
+        return typeof desc === "string" && desc.startsWith("Clef CDK unwrap");
       });
       expect(unwrapFns).toHaveLength(1);
     });

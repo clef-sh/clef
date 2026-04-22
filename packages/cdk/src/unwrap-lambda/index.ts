@@ -1,22 +1,28 @@
 /**
- * CloudFormation Custom Resource handler for {@link ClefAwsSecretsManager}.
+ * CloudFormation Custom Resource handler shared by {@link ClefSecret} and
+ * {@link ClefParameter}. Dispatches on the `Target` property:
  *
- * Invoked once per deploy (Create or Update event) with:
- *   - EnvelopeJson:  the full PackedArtifact JSON, passed as a CR property
- *   - Shape:         optional `{ field: "${CLEF_KEY}" }` mapping
- *   - SecretArn:     ASM secret to write into
- *   - GrantToken:    short-lived grant token from the preceding grant-create CR
- *   - Revision:      envelope revision, threaded through for idempotency
+ *   - Target: "secret"    → decrypts and calls PutSecretValue on AWS
+ *                           Secrets Manager (CFN owns the secret resource;
+ *                           Lambda owns the value).
+ *   - Target: "parameter" → decrypts and calls PutParameter / DeleteParameter
+ *                           on SSM Parameter Store (Lambda owns the full
+ *                           parameter lifecycle — SecureString cannot be
+ *                           created via CloudFormation).
+ *
+ * Common ResourceProperties:
+ *   - EnvelopeJson:  the full PackedArtifact JSON
+ *   - Shape:         optional template — string for a scalar, record for JSON
+ *   - GrantToken:    short-lived KMS grant token from the sibling grant CR
+ *   - Revision:      envelope revision, used in PhysicalResourceId
  *
  * Security posture:
- *   - Lambda role has NO baseline `kms:Decrypt`. Authority is granted per-deploy
- *     via `kms:CreateGrant` (sibling CR), minted as a time-limited token, used
- *     once here, then revoked by a third sibling CR. Between deploys the
- *     Lambda is cold and powerless.
- *   - Plaintext DEK + plaintext values live only in this invocation's memory.
- *     DEK buffer is zeroed after use (best-effort; Node GC may retain copies).
- *   - Rejects age-envelope artifacts defensively (synth-time validation
- *     should have caught it, but defence-in-depth).
+ *   - Lambda role has NO baseline `kms:Decrypt`. Authority is granted
+ *     per-deploy via `kms:CreateGrant` (sibling CR), minted as a time-
+ *     limited token, used here, then revoked by the grant CR's onDelete.
+ *   - Plaintext DEK + plaintext values live only in this invocation's
+ *     memory. DEK buffer is zeroed after use.
+ *   - Rejects age-envelope artifacts defensively.
  */
 import * as crypto from "crypto";
 import { DecryptCommand, KMSClient } from "@aws-sdk/client-kms";
@@ -25,9 +31,9 @@ import { PutSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-sec
 /**
  * ${IDENTIFIER} reference grammar. Duplicated from
  * `packages/cdk/src/shape-template.ts` — the Lambda asset is bundled in
- * isolation so it can't import sibling dist files. The two copies MUST stay
- * in sync; synth-time validation runs against the authoritative copy, this
- * is the runtime application.
+ * isolation so it can't import sibling dist files. The two copies MUST
+ * stay in sync; synth-time validation runs against the authoritative
+ * copy, this is the runtime application.
  */
 const REF_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
@@ -78,15 +84,33 @@ interface PackedArtifact {
   envelope?: KmsEnvelopeHeader;
 }
 
+interface SecretResourceProperties {
+  Target: "secret";
+  SecretArn: string;
+  EnvelopeJson: string;
+  Revision: string;
+  GrantToken: string;
+  Shape?: ShapeTemplate;
+}
+
+interface ParameterResourceProperties {
+  Target: "parameter";
+  ParameterName: string;
+  ParameterType: "String" | "SecureString";
+  ParameterTier?: "Standard" | "Advanced" | "Intelligent-Tiering";
+  ParameterKmsKeyId?: string;
+  EnvelopeJson: string;
+  Revision: string;
+  GrantToken: string;
+  Shape?: ShapeTemplate;
+}
+
+type ResourceProperties = SecretResourceProperties | ParameterResourceProperties;
+
 interface OnEventRequest {
   RequestType: "Create" | "Update" | "Delete";
-  ResourceProperties: {
-    SecretArn: string;
-    EnvelopeJson: string;
-    Revision: string;
-    GrantToken: string;
-    Shape?: ShapeTemplate;
-  };
+  ResourceProperties: ResourceProperties;
+  OldResourceProperties?: ResourceProperties;
   PhysicalResourceId?: string;
 }
 
@@ -99,21 +123,127 @@ const kms = new KMSClient({});
 const sm = new SecretsManagerClient({});
 
 export async function handler(event: OnEventRequest): Promise<OnEventResponse> {
+  const target = event.ResourceProperties.Target;
+  if (target === "parameter") {
+    return handleParameter(event);
+  }
+  return handleSecret(event);
+}
+
+async function handleSecret(event: OnEventRequest): Promise<OnEventResponse> {
+  const props = event.ResourceProperties as SecretResourceProperties;
+
   if (event.RequestType === "Delete") {
     // The ASM secret is a separate CFN-managed resource; CFN handles its
-    // deletion on stack teardown. The grant-revoke sibling CR cleans up KMS
-    // authorization. This handler has nothing to undo.
+    // deletion on stack teardown. The grant-revoke sibling CR cleans up
+    // KMS authorization. This handler has nothing to undo.
     return { PhysicalResourceId: event.PhysicalResourceId };
   }
 
-  const { SecretArn, EnvelopeJson, Revision, GrantToken, Shape } = event.ResourceProperties;
+  const { SecretArn, EnvelopeJson, Revision, GrantToken, Shape } = props;
+  const secretString = await decryptAndShape(EnvelopeJson, GrantToken, Shape);
 
-  const envelope = JSON.parse(EnvelopeJson) as PackedArtifact;
+  await sm.send(
+    new PutSecretValueCommand({
+      SecretId: SecretArn,
+      SecretString: secretString,
+    }),
+  );
+
+  return {
+    // PhysicalResourceId includes the revision so CFN detects a change
+    // when the envelope is re-packed with new values.
+    PhysicalResourceId: `${SecretArn}#${Revision}`,
+    Data: { Revision },
+  };
+}
+
+async function handleParameter(event: OnEventRequest): Promise<OnEventResponse> {
+  // Lazy-import SSM client — stacks with only ClefSecret instances never
+  // pay the cold-start cost of loading the SSM SDK.
+  const { PutParameterCommand, DeleteParameterCommand, SSMClient } =
+    await import("@aws-sdk/client-ssm");
+  const ssm = new SSMClient({});
+
+  if (event.RequestType === "Delete") {
+    // PhysicalResourceId carries the parameter name we created. Delete it.
+    // Missing parameter is ignored — CFN might call Delete on a previously
+    // failed Create, where the parameter never actually existed.
+    if (event.PhysicalResourceId && event.PhysicalResourceId.startsWith("param:")) {
+      const parameterName = event.PhysicalResourceId.slice("param:".length);
+      try {
+        await ssm.send(new DeleteParameterCommand({ Name: parameterName }));
+      } catch (err) {
+        const code = (err as { name?: string }).name;
+        if (code !== "ParameterNotFound") throw err;
+      }
+    }
+    return { PhysicalResourceId: event.PhysicalResourceId };
+  }
+
+  const props = event.ResourceProperties as ParameterResourceProperties;
+  const {
+    ParameterName,
+    ParameterType,
+    ParameterTier,
+    ParameterKmsKeyId,
+    EnvelopeJson,
+    Revision,
+    GrantToken,
+    Shape,
+  } = props;
+
+  // Shape is required for parameters (SSM holds one value per parameter),
+  // but defensively allow undefined — in that case we'd stringify the full
+  // envelope JSON, which is probably not what the user wants. Validate.
+  if (Shape === undefined) {
+    throw new Error(
+      `ClefParameter requires a 'shape' template — SSM parameters hold a single value. ` +
+        `Add shape: "\${KEY}" (or a composition) to your construct props.`,
+    );
+  }
+  if (typeof Shape !== "string") {
+    throw new Error(
+      `ClefParameter 'shape' must be a string (single-value template). ` +
+        `Record shapes are for ClefSecret (JSON-shaped ASM secrets).`,
+    );
+  }
+
+  const parameterValue = await decryptAndShape(EnvelopeJson, GrantToken, Shape);
+
+  // If the parameter name changed between Update invocations, CFN sees the
+  // PhysicalResourceId change and calls Create on the new one + Delete on
+  // the old — this branch only handles the current Create/Update target.
+  await ssm.send(
+    new PutParameterCommand({
+      Name: ParameterName,
+      Value: parameterValue,
+      Type: ParameterType,
+      Tier: ParameterTier,
+      Overwrite: event.RequestType === "Update",
+      ...(ParameterKmsKeyId ? { KeyId: ParameterKmsKeyId } : {}),
+    }),
+  );
+
+  return {
+    // Prefix with "param:" so Delete can distinguish secret vs parameter
+    // physical IDs (secrets use the ASM ARN directly).
+    PhysicalResourceId: `param:${ParameterName}`,
+    Data: { Revision },
+  };
+}
+
+async function decryptAndShape(
+  envelopeJson: string,
+  grantToken: string,
+  shape: ShapeTemplate | undefined,
+): Promise<string> {
+  const envelope = JSON.parse(envelopeJson) as PackedArtifact;
   if (!envelope.envelope) {
     throw new Error(
-      `ClefSecret requires a KMS-envelope artifact, but envelope for ` +
+      `Clef CDK constructs require KMS-envelope artifacts, but envelope for ` +
         `'${envelope.identity}/${envelope.environment}' has no envelope header. ` +
-        `Age-only identities are not supported by this construct.`,
+        `Age-only identities are not supported.`,
     );
   }
 
@@ -123,7 +253,7 @@ export async function handler(event: OnEventRequest): Promise<OnEventResponse> {
     new DecryptCommand({
       CiphertextBlob: Buffer.from(envelope.envelope.wrappedKey, "base64"),
       KeyId: envelope.envelope.keyId,
-      GrantTokens: [GrantToken],
+      GrantTokens: [grantToken],
     }),
   );
   if (!decryptResult.Plaintext) {
@@ -141,31 +271,12 @@ export async function handler(event: OnEventRequest): Promise<OnEventResponse> {
     const plaintextBuf = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
     const values = JSON.parse(plaintextBuf.toString("utf-8")) as Record<string, string>;
 
-    // 3. Apply shape template if provided, else passthrough.
-    //    - Shape is a string     → single-value SecretString (no JSON wrap)
-    //    - Shape is an object    → JSON SecretString with mapped fields
-    //    - Shape is undefined    → JSON SecretString with envelope's native keys
-    const final = Shape !== undefined ? applyShape(Shape, values) : values;
-    const secretString = typeof final === "string" ? final : JSON.stringify(final);
-
-    // 4. Write to ASM. Replaces the secret's current value with a new version
-    //    (keeps history if the user has ASM versioning enabled).
-    await sm.send(
-      new PutSecretValueCommand({
-        SecretId: SecretArn,
-        SecretString: secretString,
-      }),
-    );
+    // 3. Apply shape if provided, else passthrough (JSON-stringified values).
+    const final = shape !== undefined ? applyShape(shape, values) : values;
+    return typeof final === "string" ? final : JSON.stringify(final);
   } finally {
-    // Best-effort plaintext hygiene. Node can GC earlier copies we don't own,
-    // but at least the buffer we hold is zeroed before return.
+    // Best-effort plaintext hygiene. Node can GC earlier copies we don't
+    // own, but at least the buffer we hold is zeroed before return.
     dek.fill(0);
   }
-
-  return {
-    // PhysicalResourceId includes the revision so CFN detects a change when
-    // the envelope is re-packed with new values.
-    PhysicalResourceId: `${SecretArn}#${Revision}`,
-    Data: { Revision },
-  };
 }

@@ -16,7 +16,7 @@
  */
 import { App, Stack } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
-import { ClefArtifactBucket, ClefSecret } from "@clef-sh/cdk";
+import { ClefArtifactBucket, ClefParameter, ClefSecret } from "@clef-sh/cdk";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -180,6 +180,45 @@ describe("ClefSecret — integration with real pack-helper", () => {
           environment: "dev",
           manifest: path.join(repo.dir, "clef.yaml"),
           shape: { bogus: "${NOT_A_REAL_KEY}" },
+        }),
+    ).toThrow(/requires a KMS-envelope service identity/);
+  });
+});
+
+describe("ClefParameter — integration with real pack-helper", () => {
+  it("rejects age-only identities with a clear, actionable message", () => {
+    const app = new App();
+    const stack = new Stack(app, "TestStack", {
+      env: { account: "111122223333", region: "us-east-1" },
+    });
+
+    expect(
+      () =>
+        new ClefParameter(stack, "Param", {
+          identity: "web-app",
+          environment: "dev",
+          manifest: path.join(repo.dir, "clef.yaml"),
+          shape: "${STRIPE_KEY}",
+        }),
+    ).toThrow(/requires a KMS-envelope service identity/);
+  });
+
+  it("rejects age identities before shape validation runs (early-exit order)", () => {
+    const app = new App();
+    const stack = new Stack(app, "TestStack", {
+      env: { account: "111122223333", region: "us-east-1" },
+    });
+
+    // Bogus shape against an age identity — documents that the age error
+    // surfaces first. A shape typo against an envelope the Lambda can't
+    // decrypt would be noise; the age error is the actionable fix.
+    expect(
+      () =>
+        new ClefParameter(stack, "Param", {
+          identity: "web-app",
+          environment: "dev",
+          manifest: path.join(repo.dir, "clef.yaml"),
+          shape: "${NOT_A_REAL_KEY}",
         }),
     ).toThrow(/requires a KMS-envelope service identity/);
   });

@@ -179,16 +179,19 @@ export class ClefSecret extends Construct {
     // baseline kms:Decrypt. All KMS authority is grant-mediated.
 
     const unwrapFn = new lambda.SingletonFunction(this, "UnwrapFn", {
-      // Stable UUID — any construct instance with the same UUID reuses the
-      // same underlying Lambda resource in the stack.
-      uuid: "b7e0f8a1-clef-secret-unwrap-v1",
+      // Stable UUID shared with ClefParameter — both constructs dispatch
+      // through the same handler, so they use the same singleton Lambda
+      // within a stack. Changing the UUID is a breaking change for
+      // in-place stack updates (CFN would replace the resource).
+      uuid: "b7e0f8a1-clef-unwrap-v1",
       runtime: lambda.Runtime.NODEJS_20_X,
       code: lambda.Code.fromAsset(path.resolve(__dirname, "unwrap-lambda")),
       handler: "index.handler",
       timeout: Duration.minutes(2),
       description:
-        "Clef secret unwrap — decrypts KMS-envelope artifact and writes to Secrets Manager. " +
-        "No baseline kms:Decrypt; authority is granted per-deploy and revoked after.",
+        "Clef CDK unwrap — decrypts KMS-envelope artifact, applies shape, and writes " +
+        "to Secrets Manager or SSM Parameter Store. No baseline kms:Decrypt; authority " +
+        "is granted per-deploy and revoked after.",
     });
 
     this.secret.grantWrite(unwrapFn);
@@ -275,6 +278,7 @@ export class ClefSecret extends Construct {
       resourceType: "Custom::ClefSecretUnwrap",
       serviceToken: provider.serviceToken,
       properties: {
+        Target: "secret",
         SecretArn: this.secret.secretArn,
         EnvelopeJson: envelopeJson,
         Revision: envelope.revision,
