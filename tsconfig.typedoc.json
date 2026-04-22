@@ -10,6 +10,15 @@
     "resolveJsonModule": true,
     "declaration": true
   },
-  "include": ["packages/core/src/**/*.ts", "packages/runtime/src/**/*.ts"],
+  "include": [
+    "packages/core/src/**/*.ts",
+    "packages/runtime/src/**/*.ts",
+    "packages/agent/src/**/*.ts",
+    "packages/analytics/src/**/*.ts",
+    "packages/broker/src/**/*.ts",
+    "packages/cdk/src/**/*.ts",
+    "packages/client/src/**/*.ts",
+    "packages/cloud/src/**/*.ts"
+  ],
   "exclude": ["**/*.test.ts", "**/dist/**", "**/node_modules/**"]
 }
