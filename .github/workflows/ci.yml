@@ -114,8 +114,13 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      # Install root workspaces so typedoc can read packages/*/src.
+      - run: npm ci
       - run: cd docs && npm ci
-      - run: cd docs && npm run build
+      # Generate typedoc output (docs/api/*) before vitepress builds —
+      # docs/api/ is gitignored, so without this step /api/* links are
+      # dead in CI even though they work locally.
+      - run: npm run docs:build
 
   www-build:
     name: WWW Build
