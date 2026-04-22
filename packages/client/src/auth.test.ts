@@ -6,7 +6,7 @@ describe("resolveToken", () => {
 
   beforeEach(() => {
     process.env = { ...origEnv };
-    delete process.env.CLEF_SERVICE_TOKEN;
+    delete process.env.CLEF_AGENT_TOKEN;
   });
 
   afterAll(() => {
@@ -17,19 +17,19 @@ describe("resolveToken", () => {
     expect(resolveToken("my-token")).toBe("my-token");
   });
 
-  it("falls back to CLEF_SERVICE_TOKEN env var", () => {
-    process.env.CLEF_SERVICE_TOKEN = "env-token";
+  it("falls back to CLEF_AGENT_TOKEN env var", () => {
+    process.env.CLEF_AGENT_TOKEN = "env-token";
     expect(resolveToken()).toBe("env-token");
   });
 
   it("prefers explicit over env var", () => {
-    process.env.CLEF_SERVICE_TOKEN = "env-token";
+    process.env.CLEF_AGENT_TOKEN = "env-token";
     expect(resolveToken("explicit")).toBe("explicit");
   });
 
   it("throws ClefClientError when no token available", () => {
     expect(() => resolveToken()).toThrow(ClefClientError);
-    expect(() => resolveToken()).toThrow("No service token configured");
+    expect(() => resolveToken()).toThrow("No agent token configured");
   });
 });
 

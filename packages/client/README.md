@@ -25,12 +25,12 @@ const isUp = await secrets.health();
 
 ### Configuration
 
-| Option        | Env var              | Default                 | Description                                   |
-| ------------- | -------------------- | ----------------------- | --------------------------------------------- |
-| `endpoint`    | `CLEF_ENDPOINT`      | `http://127.0.0.1:7779` | Serve endpoint URL                            |
-| `token`       | `CLEF_SERVICE_TOKEN` | —                       | Bearer token for authentication               |
-| `envFallback` | —                    | `true`                  | Fall back to `process.env` when key not found |
-| `cacheTtlMs`  | —                    | `0`                     | In-memory cache TTL (0 = no caching)          |
+| Option        | Env var            | Default                 | Description                                   |
+| ------------- | ------------------ | ----------------------- | --------------------------------------------- |
+| `endpoint`    | `CLEF_ENDPOINT`    | `http://127.0.0.1:7779` | Serve endpoint URL                            |
+| `token`       | `CLEF_AGENT_TOKEN` | —                       | Bearer token for authentication               |
+| `envFallback` | —                  | `true`                  | Fall back to `process.env` when key not found |
+| `cacheTtlMs`  | —                  | `0`                     | In-memory cache TTL (0 = no caching)          |
 
 ## Cloud KMS Provider
 
@@ -41,7 +41,7 @@ import { CloudKmsProvider } from "@clef-sh/client/kms";
 
 const kms = new CloudKmsProvider({
   endpoint: "https://api.clef.sh",
-  token: process.env.CLEF_SERVICE_TOKEN,
+  token: process.env.CLEF_AGENT_TOKEN,
 });
 ```
 

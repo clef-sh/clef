@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/cdk",
-  "version": "0.1.19-alpha.117",
+  "version": "0.1.19",
   "description": "AWS CDK L2 constructs for delivering Clef-managed secrets to AWS resources",
   "repository": {
     "type": "git",
@@ -18,8 +18,8 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "@clef-sh/core": "*",
-    "@clef-sh/runtime": "*"
+    "@clef-sh/core": "0.1.19",
+    "@clef-sh/runtime": "0.1.22"
   },
   "peerDependencies": {
     "@aws-sdk/client-kms": "^3.500.0",

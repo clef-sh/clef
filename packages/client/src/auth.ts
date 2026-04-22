@@ -1,19 +1,19 @@
 import { ClefClientError } from "./types";
 
 /**
- * Resolve a service token from an explicit value or CLEF_SERVICE_TOKEN env var.
+ * Resolve an agent token from an explicit value or CLEF_AGENT_TOKEN env var.
  */
 export function resolveToken(explicit?: string): string {
   if (explicit) return explicit;
 
-  if (typeof process !== "undefined" && process.env?.CLEF_SERVICE_TOKEN) {
-    return process.env.CLEF_SERVICE_TOKEN;
+  if (typeof process !== "undefined" && process.env?.CLEF_AGENT_TOKEN) {
+    return process.env.CLEF_AGENT_TOKEN;
   }
 
   throw new ClefClientError(
-    "No service token configured",
+    "No agent token configured",
     undefined,
-    "Set CLEF_SERVICE_TOKEN or pass token in options.",
+    "Set CLEF_AGENT_TOKEN or pass token in options.",
   );
 }
 
