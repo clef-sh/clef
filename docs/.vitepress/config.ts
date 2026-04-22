@@ -45,6 +45,7 @@ export default withMermaid({
       { text: "Guide", link: "/guide/introduction" },
       { text: "CLI Reference", link: "/cli/overview" },
       { text: "UI", link: "/ui/overview" },
+      { text: "CDK", link: "/cdk/overview" },
       { text: "Backends", link: "/backends/age" },
       { text: "Schemas", link: "/schemas/overview" },
       { text: "API", link: "/api/" },
@@ -71,6 +72,7 @@ export default withMermaid({
             { text: "Service Identities", link: "/guide/service-identities" },
             { text: "Dynamic Secrets", link: "/guide/dynamic-secrets" },
             { text: "Pack Backend Plugins", link: "/guide/pack-plugins" },
+            { text: "CDK Constructs (AWS)", link: "/guide/cdk" },
             { text: "Runtime Agent", link: "/guide/agent" },
             { text: "Telemetry", link: "/guide/telemetry" },
             { text: "Production Isolation", link: "/guide/production-isolation" },
@@ -122,6 +124,17 @@ export default withMermaid({
             { text: "Namespace Editor", link: "/ui/editor" },
             { text: "Diff View", link: "/ui/diff-view" },
             { text: "Lint View", link: "/ui/lint-view" },
+          ],
+        },
+      ],
+      "/cdk/": [
+        {
+          text: "CDK Constructs",
+          items: [
+            { text: "Overview", link: "/cdk/overview" },
+            { text: "ClefArtifactBucket", link: "/cdk/artifact-bucket" },
+            { text: "ClefSecret", link: "/cdk/secret" },
+            { text: "ClefParameter", link: "/cdk/parameter" },
           ],
         },
       ],

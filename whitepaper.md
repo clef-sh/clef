@@ -36,6 +36,8 @@ Not every team needs what Clef provides. Honest guidance before investing in the
 
 **A team that needs dynamic credentials today with minimal engineering investment**: Vault. Its built-in secrets engines for databases, cloud IAM, and PKI are production-proven and require no custom code. Clef's dynamic credential architecture requires implementing a broker handler. Vault's integration breadth is larger by an order of magnitude.
 
+**A team that already operates Vault, AWS Secrets Manager, or another secrets store and wants git-native review and drift detection without replacing runtime consumption**: Clef's pack backends (Section 4.6) are the delivery seam. A backend plugin decrypts the matrix and writes to the existing store, so production continues to read from the system it already knows. Clef becomes the source-of-truth and delivery layer; the existing store remains the consumer-facing surface.
+
 **A team that wants secrets versioned alongside code, git-native review workflows, and no central server**: Clef. This is the use case the architecture is designed for. Start with age keys and a single repository — it works in an afternoon. Graduate to KMS as IAM maturity allows.
 
 ---
@@ -222,22 +224,28 @@ If any one of the three uses age instead of KMS, a static credential enters the 
 
 ### 4.2 The Artifact Packing Pipeline
 
-For production workloads, Clef introduces **packed artifacts**: self-contained JSON envelopes that bundle encrypted secrets for a specific service identity and environment.
+`clef pack` is a **decrypt-scope-emit** step: it resolves a service identity's namespace scope, decrypts only those SOPS files, merges the values, and hands them to a backend for delivery. The default backend produces a self-contained JSON envelope that Clef's runtime consumes. Other backends perform write-through delivery to external stores directly — see Section 4.6 for the full set of delivery modes.
 
 ```bash
+# Default backend: emit a signed JSON envelope
 clef pack api-gateway production --output ./artifact.json
-# Upload to any HTTP-accessible store
-aws s3 cp ./artifact.json s3://my-bucket/clef/api-gateway/production.age.json
+aws s3 cp ./artifact.json s3://my-bucket/clef/api-gateway/production.json
 ```
 
-The `clef pack` command:
+The shared pack steps, regardless of backend:
 
-1. Resolves the service identity's namespace scope from the manifest
-2. Decrypts only the SOPS files within that scope
-3. Merges values from all scoped namespaces into a single key-value map
-4. Encrypts the merged plaintext — AES-256-GCM with a random DEK for KMS envelope identities (the DEK is wrapped by the service identity's KMS key), or age encryption for age-only identities
-5. Writes a JSON envelope with integrity metadata
-6. Optionally signs the envelope with an Ed25519 or KMS ECDSA key
+1. Resolve the service identity's namespace scope from the manifest
+2. Decrypt only the SOPS files within that scope
+3. Merge values from all scoped namespaces into a single key-value map
+4. Hand the decrypted map to the backend's `pack()` function
+
+The default `json-envelope` backend then:
+
+5. Encrypts the merged plaintext — AES-256-GCM with a random DEK for KMS envelope identities (the DEK is wrapped by the service identity's KMS key), or age encryption for age-only identities
+6. Writes a JSON envelope with integrity metadata
+7. Optionally signs the envelope with an Ed25519 or KMS ECDSA key
+
+Other backends replace steps 5–7 with whatever the target system needs — for example, a Vault backend decrypts and `PUT`s to a KV v2 path; an AWS Secrets Manager backend calls `PutSecretValue`. The decrypt-scope-merge preamble is shared; emission is pluggable.
 
 ### 4.3 Artifact Signing
 
@@ -346,9 +354,41 @@ An `api-gateway` identity scoped to `["api-keys", "database"]` cannot decrypt th
 
 The two runtime modes — age and KMS envelope — share this isolation property. They differ in what the workload holds: an age runtime identity stores an age private key (still a static credential, see Section 4.1), while a KMS envelope identity holds only an IAM permission (`kms:Decrypt` on a specific key, no static secret). With separate KMS keys for the SOPS backend and the envelope (Section 4.1), KMS envelope mode adds a second layer: even if the workload were misconfigured with permission to read the encrypted files, it would lack `kms:Decrypt` on the SOPS key and could not decrypt them.
 
+### 4.6 Delivery Modes
+
+The JSON envelope is the default _output_ of `clef pack`, but it is not the only delivery path. Clef ships three delivery modes — each independently useful, and combinable within one manifest — covering different consumption preferences:
+
+**Envelope + agent (the default).** `clef pack` writes a signed JSON envelope to an artifact store (S3, HTTP, or the VCS repository). The Clef agent polls the store, decrypts in memory, and serves secrets on `127.0.0.1:7779`. This is the path Sections 5 and 6 describe in detail, and it is the right default when the consuming workload is a long-running process (container, VM, sidecar) that can host a lightweight local HTTP client.
+
+**Pack backend plugins.** `clef pack --backend <id>` swaps the emit step. A backend receives the decrypted key-value map plus the SOPS services (so it can re-encrypt or reshape as needed) and performs whatever delivery the target requires — `POST` to Vault's KV v2 API, `PutSecretValue` on AWS Secrets Manager, `PutParameter` on SSM Parameter Store, publish to Doppler, or write to an internal store over HTTPS. Authentication uses the target's own SDK (IAM roles, `VAULT_TOKEN`, service-account JSON). Clef ships the plugin seam, the resolver (`@clef-sh/pack-<id>` → `clef-pack-<id>` → verbatim npm name), documentation, and one bundled backend (`json-envelope`). Pre-built plugins for Vault, ASM, SSM, Doppler, and Infisical are a near-term roadmap item — writing one today is a small handler against a stable `PackBackend` interface that calls the shared decrypt service and then the target SDK.
+
+**IaC-native constructs (CDK).** The `@clef-sh/cdk` package provides `ClefArtifactBucket` (provisions a hardened S3 bucket and uploads the envelope — keeps the agent in the loop), `ClefSecret` (unwraps at stack deploy time, writes to AWS Secrets Manager), and `ClefParameter` (unwraps at stack deploy time, writes to SSM Parameter Store — one construct per parameter). The unwrap path uses a CloudFormation Custom Resource backed by a singleton Lambda whose IAM role has **no baseline `kms:Decrypt`**; authority is minted per-deploy via `kms:CreateGrant` scoped to Decrypt-only operations on the envelope key, and revoked when the stack updates or deletes. The consuming workload reads the resulting ASM secret or SSM parameter via whatever native mechanism it already uses — ECS `Secret.fromSecretsManager` or `Secret.fromSsmParameter`, `GetSecretValue` through the AWS SDK, CFN dynamic references, or the AWS Parameters and Secrets Lambda Extension. No Clef code in the runtime.
+
+The three modes can coexist in one manifest. A service identity can be delivered via the agent in one environment, via ASM in another, and via a Vault backend in a third, without changing its `clef.yaml` entry — the delivery choice belongs to the pack invocation, not the identity.
+
+| Mode                     | Decrypt site | Consumer reads from           | Auth at consume time  | Shipped                   |
+| ------------------------ | ------------ | ----------------------------- | --------------------- | ------------------------- |
+| Envelope + agent         | Runtime      | Agent HTTP (`127.0.0.1:7779`) | Bearer token (local)  | Yes (`@clef-sh/agent`)    |
+| Pack backend plugin      | Pack time    | Target store's native API     | Target's IAM / tokens | Seam yes, plugins roadmap |
+| CDK `ClefSecret`         | Deploy time  | AWS Secrets Manager           | AWS IAM               | Yes (`@clef-sh/cdk`)      |
+| CDK `ClefParameter`      | Deploy time  | SSM Parameter Store           | AWS IAM               | Yes (`@clef-sh/cdk`)      |
+| CDK `ClefArtifactBucket` | Runtime      | Agent (artifact lives in S3)  | Bearer token (local)  | Yes (`@clef-sh/cdk`)      |
+
+**Zero custody holds across all modes.** No mode moves plaintext outside the team's trust boundary: the agent decrypts in the workload's memory, pack backends decrypt in CI and write to the team's own secrets store, CDK constructs decrypt in a per-deploy-granted Lambda running in the team's AWS account. The encryption and IAM topology from Sections 4.1, 4.3, and 8.4 applies identically — the difference is where the final decrypt happens and what consumes it.
+
+**Trade-offs to be honest about:**
+
+- _Pack backends_ peg freshness to the pack cadence. A secret rotated in `clef set` + merged + packed becomes live in the target store as soon as the pack job finishes — so CI latency is the floor on secret freshness. Broker-based dynamic credentials (Section 7) close this gap for credential types that support short-lived generation.
+- _CDK constructs_ tie secret rotation to `cdk deploy`. A secret change requires a stack update. For secrets that rotate frequently the envelope-plus-agent path (or a pack backend targeting ASM invoked on its own cadence) is a better fit.
+- _Envelope + agent_ requires the agent in every consumer. This is minimal (one sidecar per pod, one Lambda extension per function) but it is runtime code that must be operated. The CDK path eliminates it for AWS-native targets.
+
+The choice between modes is not a security decision — the three share the same KMS envelope and IAM posture — it is about where the team prefers the final decrypt to happen and which delivery surface their existing infrastructure already reads from.
+
 ---
 
 ## 5. Production Workloads: The Runtime and Agent
+
+This section describes the **envelope + agent** delivery mode from Section 4.6. The runtime library and agent are the reference implementation of the envelope consumer — the right default when the consuming workload is a long-running process. For IaC-native delivery (deploy-time unwrap to ASM or SSM), see the CDK constructs in Section 4.6. For write-through delivery to an existing secrets store, see pack backends in Section 4.6. Those paths skip the agent entirely and do not use the components described below.
 
 ### 5.1 The Runtime Library
 
@@ -767,14 +807,22 @@ Cloud-native secret managers (AWS Secrets Manager, GCP Secret Manager, Azure Key
 
 ### 9.4 Integration Breadth
 
-| Solution            | Native integrations                                          | Consumer interface                    |
-| ------------------- | ------------------------------------------------------------ | ------------------------------------- |
-| Vault               | Hundreds of auth methods, secrets engines, community plugins | Client libraries, CLI, API            |
-| Doppler             | Dozens of platform integrations (Vercel, Fly, Railway, etc.) | SDK, CLI, API                         |
-| AWS Secrets Manager | Native to AWS services (Lambda, ECS, RDS)                    | AWS SDK                               |
-| **Clef**            | **Broker SDK + community registry**                          | **Agent HTTP API (`127.0.0.1:7779`)** |
+Clef positions as a _delivery_ layer rather than a consumption layer. The consumer-facing surface is whatever the chosen delivery mode produces (Section 4.6), not a new API consumers must adopt.
 
-Vault and Doppler have broader out-of-the-box integration coverage. Clef's consumption interface is a single HTTP API on localhost — any language or framework that can make an HTTP GET can read secrets from the agent. This is simpler (one protocol, no SDK to install) but means every consumer needs HTTP client code rather than a native plugin. The broker registry narrows the gap on the credential generation side, but on the consumption side, the tradeoff is real: breadth of pre-built integrations vs. simplicity of a universal interface.
+| Solution            | Consumer interface                                                                                                                |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Vault               | Client libraries, CLI, API                                                                                                        |
+| Doppler             | SDK, CLI, API                                                                                                                     |
+| AWS Secrets Manager | AWS SDK, ECS secret injection, Lambda extension, CFN dynamic refs                                                                 |
+| **Clef**            | **Agent HTTP (`127.0.0.1:7779`), OR the consumer surface of the chosen delivery target (ASM SDK, SSM, Vault API, Doppler, etc.)** |
+
+Three consumer surfaces are available today, one per delivery mode:
+
+- **Envelope + agent**: Consumers read from `127.0.0.1:7779` using any HTTP client. Universal, language-agnostic, one sidecar per workload.
+- **Pack backend write-through**: Consumers keep reading from whatever store the backend wrote to — AWS SDK for ASM, `ssm:GetParameter` for SSM, Vault agent for Vault, Doppler SDK for Doppler. No Clef code in the runtime.
+- **CDK deploy-time unwrap**: `ClefSecret` writes to ASM so ECS `Secret.fromSecretsManager` and Lambda `GetSecretValue` keep working unchanged; `ClefParameter` writes to SSM so `ecs.Secret.fromSsmParameter` and the AWS Parameters and Secrets Lambda Extension keep working unchanged.
+
+**What's shipped vs. roadmap.** The envelope + agent path, the pack-backend plugin seam (resolver, `PackBackend` interface, developer docs, the bundled `json-envelope` backend), and the three CDK constructs are all shipped. Pre-built pack backends for Vault, ASM, SSM, Doppler, and Infisical are a near-term roadmap item — writing one is a small handler against a stable interface. Vault and Doppler have broader out-of-the-box coverage today. Clef's strategy is that the breadth gap closes as customer demand produces plugins, while the architectural property — secrets live in git, delivery is pluggable, consumption uses the native surface — is already in place.
 
 ### 9.5 Security Posture
 
@@ -835,7 +883,7 @@ The scaling solution is not a new product — it is the aggregation and alerting
 
 ## 11. Summary
 
-Clef's architecture delivers five properties that no existing secrets manager provides simultaneously:
+Clef's architecture delivers six properties that no existing secrets manager provides simultaneously:
 
 1. **Zero custody**: Clef never sees, stores, or processes customer secrets. The git repository and the customer's KMS are the only systems that hold cryptographic material. To be precise: in KMS mode, custody is delegated to the cloud provider's HSM-backed key service. The customer trusts AWS/GCP/Azure with key material inside the HSM. This is a reasonable trust model for organizations already running production workloads on those cloud providers, but it is a trust delegation, not an absence of trust.
 
@@ -846,6 +894,8 @@ Clef's architecture delivers five properties that no existing secrets manager pr
 4. **Artifact provenance**: Packed artifacts can be cryptographically signed (Ed25519 or KMS ECDSA) so the runtime verifies the artifact was produced by an authorized CI pipeline before decryption. This reduces the trust boundary from "anyone who can write to the artifact store" to "the CI runner that holds the signing key" — closing the gap between integrity verification (ciphertextHash, which proves the artifact was not corrupted) and provenance verification (signature, which proves the artifact was produced by a trusted source).
 
 5. **Dynamic credentials without vendor lock-in**: The artifact envelope is an open contract. Customers implement credential generation in their own serverless functions, using their own IAM roles, against their own data sources. Clef provides the delivery and lifecycle machinery, not the credential logic.
+
+6. **Pluggable delivery**: Production delivery is not locked to one mechanism. The envelope + agent path is the self-contained default; pack backends write through to any existing secrets store (Vault, AWS Secrets Manager, Doppler, or an internal system) so consumers keep their existing client; CDK constructs unwrap at AWS stack deploy time into Secrets Manager or SSM for IaC-native workloads. The three modes share the same KMS envelope and IAM posture — the choice is about where the final decrypt happens and which consumer surface the team prefers.
 
 The result is a secrets management system where the blast radius of a runtime compromise is bounded to one service identity in one environment (when separate KMS keys are used for SOPS and envelope encryption; see Section 8.4), where operational burden is limited to existing platform engineering, and where the vendor relationship is one of tooling, not custody.
 

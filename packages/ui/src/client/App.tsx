@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { theme } from "./theme";
 import { apiFetch } from "./api";
 import { Sidebar, ViewName } from "./components/Sidebar";
@@ -209,7 +209,6 @@ export default function App() {
         {view === "reset" && (
           <ResetScreen manifest={manifest} setView={setView} reloadManifest={loadManifest} />
         )}
-        {view === "cloud" && null}
         {view === "history" && <GitLogView manifest={manifest} />}
         {view === "manifest" && (
           <ManifestScreen manifest={manifest} reloadManifest={loadManifest} />

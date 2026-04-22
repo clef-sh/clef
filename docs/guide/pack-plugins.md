@@ -91,6 +91,7 @@ const backend: PackBackend = {
     return {
       outputPath: "",
       keyCount: Object.keys(secrets).length,
+      keys: Object.keys(secrets),
       namespaceCount: 1,
       artifactSize: 0,
       revision: new Date().toISOString(),

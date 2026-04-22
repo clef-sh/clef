@@ -27,7 +27,7 @@
   "scripts": {
     "build": "npm run build:client && npm run build:server && npm run build:client-lib",
     "build:client": "vite build",
-    "build:server": "tsc",
+    "build:server": "tsc -p tsconfig.build.json",
     "build:client-lib": "tsc -p tsconfig.client.json",
     "dev": "vite",
     "test": "jest",
