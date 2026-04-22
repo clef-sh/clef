@@ -25,6 +25,7 @@ jobs:
       - run: npm run build --workspace=packages/broker
       - run: npm run build --workspace=packages/agent
       - run: npm run build --workspace=packages/ui
+      - run: npm run build --workspace=packages/cdk
       - name: Test with coverage
         run: npm run test:coverage --workspaces --if-present
         # Fails automatically if Jest thresholds are breached.
@@ -102,6 +103,7 @@ jobs:
       - run: npm run build --workspace=packages/broker
       - run: npm run build --workspace=packages/agent
       - run: npm run build --workspace=packages/cli
+      - run: npm run build --workspace=packages/cdk
 
   docs-build:
     name: Docs Build
@@ -112,8 +114,13 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      # Install root workspaces so typedoc can read packages/*/src.
+      - run: npm ci
       - run: cd docs && npm ci
-      - run: cd docs && npm run build
+      # Generate typedoc output (docs/api/*) before vitepress builds —
+      # docs/api/ is gitignored, so without this step /api/* links are
+      # dead in CI even though they work locally.
+      - run: npm run docs:build
 
   www-build:
     name: WWW Build

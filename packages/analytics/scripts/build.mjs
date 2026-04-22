@@ -43,7 +43,7 @@ execFileSync(
   tscBin,
   [
     "--project",
-    resolve(packageRoot, "tsconfig.json"),
+    resolve(packageRoot, "tsconfig.build.json"),
     "--emitDeclarationOnly",
     "--outDir",
     resolve(packageRoot, "dist"),

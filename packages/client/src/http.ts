@@ -65,12 +65,13 @@ export async function request<T>(baseUrl: string, opts: RequestOptions): Promise
     );
   }
 
-  const json = await response.json();
+  const json = (await response.json()) as { success?: unknown; message?: unknown; data?: T };
 
   // Unwrap { data, success, message } envelope if present
   if (json && typeof json === "object" && "success" in json) {
     if (!json.success) {
-      throw new ClefClientError(json.message || "Request failed", response.status);
+      const msg = typeof json.message === "string" ? json.message : "Request failed";
+      throw new ClefClientError(msg, response.status);
     }
     return json.data as T;
   }

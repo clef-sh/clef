@@ -38,6 +38,13 @@ jobs:
 
       - run: npm ci
 
+      # Defensive: staging should already have pins from publish-prerelease's
+      # commit-back, but if this workflow is invoked against a branch where
+      # that didn't happen, pin now so loose `*` specifiers don't leak to
+      # npm. Not committed — this workflow never writes back.
+      - name: Pin internal dep versions
+        run: node scripts/stamp-internal-deps.mjs
+
       - name: Build all packages
         run: npm run build
 
@@ -56,6 +63,7 @@ jobs:
           echo "cli=$(node -p "require('./packages/cli/package.json').version")" >> "$GITHUB_OUTPUT"
           echo "ui=$(node -p "require('./packages/ui/package.json').version")" >> "$GITHUB_OUTPUT"
           echo "client=$(node -p "require('./packages/client/package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "cdk=$(node -p "require('./packages/cdk/package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Publish @clef-sh/core
         continue-on-error: true
@@ -120,6 +128,15 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      # No NODE_AUTH_TOKEN: @clef-sh/cdk uses npm trusted-publisher + OIDC
+      # after its manual first-publish (--provenance) from a maintainer
+      # machine. The id-token:write permission at the top of this workflow
+      # is what lets `npm publish` authenticate here.
+      - name: Publish @clef-sh/cdk
+        continue-on-error: true
+        working-directory: packages/cdk
+        run: npm publish --tag beta --access public --provenance || echo "::warning::@clef-sh/cdk publish failed (may already exist)"
+
       # Tag the promoted commit so it's traceable from npm back to source
       - name: Tag promoted commit
         env:
@@ -170,6 +187,7 @@ jobs:
           echo "| \`@clef-sh/cli\` | \`${{ steps.ver.outputs.cli }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/ui\` | \`${{ steps.ver.outputs.ui }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/client\` | \`${{ steps.ver.outputs.client }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/cdk\` | \`${{ steps.ver.outputs.cdk }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Install: \`npm install @clef-sh/cli@beta\`" >> "$GITHUB_STEP_SUMMARY"
           echo "SEA binaries attached to release \`v${{ steps.ver.outputs.cli }}\`" >> "$GITHUB_STEP_SUMMARY"

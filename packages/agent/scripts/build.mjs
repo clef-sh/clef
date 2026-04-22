@@ -75,7 +75,7 @@ const tscBin = resolve(
   repoRoot,
   process.platform === "win32" ? "node_modules/.bin/tsc.cmd" : "node_modules/.bin/tsc",
 );
-execFileSync(tscBin, ["--project", resolve(packageRoot, "tsconfig.json")], {
+execFileSync(tscBin, ["--project", resolve(packageRoot, "tsconfig.build.json")], {
   cwd: packageRoot,
   stdio: "inherit",
   shell: process.platform === "win32",
