@@ -663,7 +663,11 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     permissions:
-      contents: read
+      # contents: write is required to see the draft release — GitHub's
+      # Releases API hides drafts from read-only tokens. Without this,
+      # both /releases/tags/<tag> and the full /releases list 404/omit
+      # the draft we need to download SEA layer ZIPs from.
+      contents: write
       id-token: write
     strategy:
       fail-fast: false
