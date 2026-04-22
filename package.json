@@ -30,7 +30,7 @@
     "docs:dev": "npm run docs:api && vitepress dev docs",
     "registry:dev": "cd registry && npm run dev",
     "registry:build": "cd registry && npm run build",
-    "prepublish": "npm run build",
+    "prepublishOnly": "npm run build",
     "publish": "npm publish --workspaces --if-present"
   },
   "engines": {
