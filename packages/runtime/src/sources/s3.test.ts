@@ -222,9 +222,7 @@ describe("S3ArtifactSource", () => {
 
     it("throws on malformed s3:// URL (missing key)", () => {
       process.env.AWS_REGION = "us-east-1";
-      expect(() => new S3ArtifactSource("s3://my-bucket/")).toThrow(
-        /missing bucket or key/,
-      );
+      expect(() => new S3ArtifactSource("s3://my-bucket/")).toThrow(/missing bucket or key/);
     });
   });
 
