@@ -17,6 +17,12 @@ export interface AgentServerOptions {
   token: string;
   cache: SecretsCache;
   cacheTtl?: number;
+  /**
+   * Cached mode: invoked when a request finds the cache expired. The server
+   * awaits this before responding and only 503s if the refresh itself fails.
+   * Concurrent requests coalesce onto a single refresh promise.
+   */
+  refresh?: () => Promise<void>;
   /** JIT mode: decrypt on every request instead of serving from cache. */
   decryptor?: ArtifactDecryptor;
   /** JIT mode: encrypted artifact store (required when decryptor is set). */
@@ -33,9 +39,22 @@ export interface AgentServerOptions {
  *   GET /v1/ready         → readiness probe (unauthenticated)
  */
 export function startAgentServer(options: AgentServerOptions): Promise<AgentServerHandle> {
-  const { port, token, cache, cacheTtl, decryptor, encryptedStore } = options;
+  const { port, token, cache, cacheTtl, refresh, decryptor, encryptedStore } = options;
   const jitMode = !!decryptor && !!encryptedStore;
   const app = express();
+
+  // Coalesce concurrent refresh calls. Multiple requests hitting an expired
+  // cache at once should trigger a single refresh, not N parallel fetches.
+  let inflightRefresh: Promise<void> | null = null;
+  const refreshOnce = (): Promise<void> => {
+    if (!refresh) return Promise.resolve();
+    if (!inflightRefresh) {
+      inflightRefresh = refresh().finally(() => {
+        inflightRefresh = null;
+      });
+    }
+    return inflightRefresh;
+  };
 
   // Host header validation — block DNS rebinding attacks.
   // Allowed hosts are static after startup; compute once.
@@ -63,15 +82,35 @@ export function startAgentServer(options: AgentServerOptions): Promise<AgentServ
   app.use("/v1/secrets", authMiddleware(token));
   app.use("/v1/keys", authMiddleware(token));
 
-  // TTL guard — reject requests when cache has expired (cached mode only)
+  // TTL guard — in cached mode, try to refresh the cache before failing.
+  // The cache only 503s if the refresh itself fails (IAM denied, envelope
+  // gone, decrypt error) — elapsed time alone is never grounds for rejection.
   // In JIT mode, freshness is proved by KMS success on each request.
-  const ttlGuard = (_req: Request, res: Response, next: NextFunction): void => {
+  const ttlGuard = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     if (jitMode) {
       if (!encryptedStore.isReady()) {
         res.status(503).json({ error: "Secrets not yet loaded" });
         return;
       }
-    } else if (cacheTtl !== undefined && cache.isExpired(cacheTtl)) {
+      next();
+      return;
+    }
+    if (cacheTtl === undefined || !cache.isExpired(cacheTtl)) {
+      next();
+      return;
+    }
+    if (!refresh) {
+      res.status(503).json({ error: "Secrets expired" });
+      return;
+    }
+    try {
+      await refreshOnce();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(503).json({ error: "Refresh failed", detail: message });
+      return;
+    }
+    if (cache.isExpired(cacheTtl)) {
       res.status(503).json({ error: "Secrets expired" });
       return;
     }

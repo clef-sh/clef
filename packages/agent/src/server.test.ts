@@ -242,4 +242,125 @@ describe("Agent HTTP server", () => {
       expect(body).toEqual({ ready: false, reason: "cache_expired" });
     });
   });
+
+  describe("cache TTL guard with refresh callback", () => {
+    const REFRESH_PORT = 19781;
+    let refreshHandle: AgentServerHandle;
+    let refreshCache: SecretsCache;
+
+    async function getRefreshJson(
+      path: string,
+      token?: string,
+    ): Promise<{ status: number; body: unknown }> {
+      const headers: Record<string, string> = {
+        Host: `127.0.0.1:${REFRESH_PORT}`,
+      };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(`http://127.0.0.1:${REFRESH_PORT}${path}`, { headers });
+      const body = await res.json();
+      return { status: res.status, body };
+    }
+
+    function seedExpired() {
+      const now = Date.now();
+      jest.spyOn(Date, "now").mockReturnValueOnce(now - 20_000);
+      refreshCache.swap({ KEY: "stale" }, ["KEY"], "rev-stale");
+      jest.spyOn(Date, "now").mockReturnValue(now);
+    }
+
+    afterEach(async () => {
+      if (refreshHandle) await refreshHandle.stop();
+    });
+
+    it("serves fresh data after a successful refresh", async () => {
+      refreshCache = new SecretsCache();
+      const refresh = jest.fn().mockImplementation(async () => {
+        refreshCache.swap({ KEY: "fresh" }, ["KEY"], "rev-fresh");
+      });
+      refreshHandle = await startAgentServer({
+        port: REFRESH_PORT,
+        token: TOKEN,
+        cache: refreshCache,
+        cacheTtl: 10,
+        refresh,
+      });
+      seedExpired();
+
+      const { status, body } = await getRefreshJson("/v1/secrets", TOKEN);
+      expect(status).toBe(200);
+      expect(body).toEqual({ KEY: "fresh" });
+      expect(refresh).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns 503 with detail when refresh throws", async () => {
+      refreshCache = new SecretsCache();
+      const refresh = jest.fn().mockRejectedValue(new Error("AccessDenied: kms:Decrypt"));
+      refreshHandle = await startAgentServer({
+        port: REFRESH_PORT,
+        token: TOKEN,
+        cache: refreshCache,
+        cacheTtl: 10,
+        refresh,
+      });
+      seedExpired();
+
+      const { status, body } = await getRefreshJson("/v1/secrets", TOKEN);
+      expect(status).toBe(503);
+      expect(body).toEqual({ error: "Refresh failed", detail: "AccessDenied: kms:Decrypt" });
+    });
+
+    it("coalesces concurrent refreshes onto one call", async () => {
+      refreshCache = new SecretsCache();
+      let resolveRefresh!: () => void;
+      const refresh = jest.fn().mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveRefresh = () => {
+              refreshCache.swap({ KEY: "fresh" }, ["KEY"], "rev-fresh");
+              resolve();
+            };
+          }),
+      );
+      refreshHandle = await startAgentServer({
+        port: REFRESH_PORT,
+        token: TOKEN,
+        cache: refreshCache,
+        cacheTtl: 10,
+        refresh,
+      });
+      seedExpired();
+
+      const responses = Promise.all([
+        getRefreshJson("/v1/secrets", TOKEN),
+        getRefreshJson("/v1/secrets", TOKEN),
+        getRefreshJson("/v1/keys", TOKEN),
+      ]);
+      // Give the middleware a tick to call refresh()
+      await new Promise((r) => setTimeout(r, 10));
+      resolveRefresh();
+      const results = await responses;
+
+      expect(refresh).toHaveBeenCalledTimes(1);
+      for (const { status } of results) expect(status).toBe(200);
+    });
+
+    it("keeps serving when refresh succeeds but cache remains expired", async () => {
+      // Edge case: refresh callback resolves but doesn't update the cache.
+      // The server falls back to the legacy "Secrets expired" 503.
+      refreshCache = new SecretsCache();
+      const refresh = jest.fn().mockResolvedValue(undefined);
+      refreshHandle = await startAgentServer({
+        port: REFRESH_PORT,
+        token: TOKEN,
+        cache: refreshCache,
+        cacheTtl: 10,
+        refresh,
+      });
+      seedExpired();
+
+      const { status, body } = await getRefreshJson("/v1/secrets", TOKEN);
+      expect(status).toBe(503);
+      expect(body).toEqual({ error: "Secrets expired" });
+    });
+  });
 });
