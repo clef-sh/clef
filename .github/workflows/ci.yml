@@ -25,6 +25,8 @@ jobs:
       - run: npm run build --workspace=packages/broker
       - run: npm run build --workspace=packages/agent
       - run: npm run build --workspace=packages/ui
+      - run: npm run build --workspace=packages/analytics
+      - run: npm run build --workspace=packages/cloud
       - run: npm run build --workspace=packages/cdk
       - name: Test with coverage
         run: npm run test:coverage --workspaces --if-present
@@ -102,6 +104,8 @@ jobs:
       - run: npm run build --workspace=packages/runtime
       - run: npm run build --workspace=packages/broker
       - run: npm run build --workspace=packages/agent
+      - run: npm run build --workspace=packages/analytics
+      - run: npm run build --workspace=packages/cloud
       - run: npm run build --workspace=packages/cli
       - run: npm run build --workspace=packages/cdk
 

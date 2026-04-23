@@ -166,6 +166,8 @@ jobs:
         run: |
           npm run build -w packages/core
           npm run build -w packages/ui
+          npm run build -w packages/analytics
+          npm run build -w packages/cloud
 
       - name: Build SEA binary
         shell: bash
