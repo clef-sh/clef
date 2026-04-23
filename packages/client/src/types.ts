@@ -2,7 +2,7 @@
 export interface ClefClientOptions {
   /** Base URL of the clef serve endpoint. Default: http://127.0.0.1:7779 */
   endpoint?: string;
-  /** Bearer token for authentication. Falls back to CLEF_SERVICE_TOKEN env var. */
+  /** Bearer token for authentication. Falls back to CLEF_AGENT_TOKEN env var. */
   token?: string;
   /** Fall back to process.env when a key is not found. Default: true */
   envFallback?: boolean;

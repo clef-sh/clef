@@ -30,7 +30,7 @@
     "docs:dev": "npm run docs:api && vitepress dev docs",
     "registry:dev": "cd registry && npm run dev",
     "registry:build": "cd registry && npm run build",
-    "prepublish": "npm run build",
+    "prepublishOnly": "npm run build",
     "publish": "npm publish --workspaces --if-present"
   },
   "engines": {
@@ -43,14 +43,14 @@
   },
   "homepage": "https://clef.sh",
   "devDependencies": {
-    "@commitlint/cli": "^19.0.0",
-    "esbuild": "0.27.4",
+    "@commitlint/cli": "^20.5.0",
+    "esbuild": "0.28.0",
     "@commitlint/config-conventional": "^19.0.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "eslint": "^9.39.0",
-    "prettier": "^3.2.0",
-    "typedoc": "^0.28.18",
+    "prettier": "^3.8.3",
+    "typedoc": "^0.28.19",
     "typedoc-plugin-markdown": "^4.10.0",
     "typescript": "^5.9.3",
     "vitepress": "^1.6.4"
