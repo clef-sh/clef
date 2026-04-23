@@ -20,14 +20,10 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run build --workspace=packages/core
-      - run: npm run build --workspace=packages/runtime
-      - run: npm run build --workspace=packages/broker
-      - run: npm run build --workspace=packages/agent
-      - run: npm run build --workspace=packages/ui
-      - run: npm run build --workspace=packages/analytics
-      - run: npm run build --workspace=packages/cloud
-      - run: npm run build --workspace=packages/cdk
+      # Root build walks workspaces in topological order (see package.json
+      # workspaces array). Cheaper than enumerating per-job and keeps new
+      # cross-workspace imports from silently breaking individual jobs.
+      - run: npm run build
       - name: Test with coverage
         run: npm run test:coverage --workspaces --if-present
         # Fails automatically if Jest thresholds are breached.
@@ -99,15 +95,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run build --workspace=packages/core
-      - run: npm run build --workspace=packages/ui
-      - run: npm run build --workspace=packages/runtime
-      - run: npm run build --workspace=packages/broker
-      - run: npm run build --workspace=packages/agent
-      - run: npm run build --workspace=packages/analytics
-      - run: npm run build --workspace=packages/cloud
-      - run: npm run build --workspace=packages/cli
-      - run: npm run build --workspace=packages/cdk
+      - run: npm run build
 
   docs-build:
     name: Docs Build
@@ -215,15 +203,7 @@ jobs:
       - name: Install SoftHSM2 + OpenSC
         run: sudo apt-get update && sudo apt-get install -y softhsm2 opensc
       - run: npm ci
-      - run: npm run build --workspace=packages/core
-      - run: npm run build --workspace=packages/ui
-      - run: npm run build --workspace=packages/runtime
-      - run: npm run build --workspace=packages/broker
-      - run: npm run build --workspace=packages/agent
-      - run: npm run build --workspace=packages/analytics
-      - run: npm run build --workspace=packages/cloud
-      - run: npm run build --workspace=packages/cli
-      - run: npm run build --workspace=packages/cdk
+      - run: npm run build
       - run: npm run test:integration
       - name: Agent integration tests
         run: npx jest --config packages/agent/jest.integration.config.js
@@ -399,16 +379,9 @@ jobs:
       - name: Build packages
         shell: bash
         run: |
-          npm run build -w packages/core
-          npm run build -w packages/ui
-          npm run build -w packages/runtime
-          npm run build -w packages/agent
-          npm run build -w packages/analytics
-          npm run build -w packages/cloud
+          npm run build
           if [[ "${{ matrix.mode }}" == "sea" ]]; then
             npm run build:sea -w packages/cli
-          else
-            npm run build -w packages/cli
           fi
 
       - name: Install Playwright
