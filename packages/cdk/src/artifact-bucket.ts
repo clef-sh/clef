@@ -119,6 +119,19 @@ export class ClefArtifactBucket extends Construct {
   public grantRead(grantable: IGrantable): Grant {
     return this.bucket.grantRead(grantable, this.objectKey) as unknown as Grant;
   }
+
+  /**
+   * Source URL in `s3://bucket/key` form, ready to feed directly into the
+   * consumer's `CLEF_AGENT_SOURCE` environment variable. The agent resolves
+   * region from `AWS_REGION`, which Lambda and ECS populate automatically.
+   *
+   * ```typescript
+   * fn.addEnvironment('CLEF_AGENT_SOURCE', artifact.s3AgentSource);
+   * ```
+   */
+  public get s3AgentSource(): string {
+    return `s3://${this.bucket.bucketName}/${this.objectKey}`;
+  }
 }
 
 export type { IGrantable } from "aws-cdk-lib/aws-iam";
