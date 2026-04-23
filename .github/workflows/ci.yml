@@ -20,12 +20,10 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run build --workspace=packages/core
-      - run: npm run build --workspace=packages/runtime
-      - run: npm run build --workspace=packages/broker
-      - run: npm run build --workspace=packages/agent
-      - run: npm run build --workspace=packages/ui
-      - run: npm run build --workspace=packages/cdk
+      # Root build walks workspaces in topological order (see package.json
+      # workspaces array). Cheaper than enumerating per-job and keeps new
+      # cross-workspace imports from silently breaking individual jobs.
+      - run: npm run build
       - name: Test with coverage
         run: npm run test:coverage --workspaces --if-present
         # Fails automatically if Jest thresholds are breached.
@@ -97,13 +95,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run build --workspace=packages/core
-      - run: npm run build --workspace=packages/ui
-      - run: npm run build --workspace=packages/runtime
-      - run: npm run build --workspace=packages/broker
-      - run: npm run build --workspace=packages/agent
-      - run: npm run build --workspace=packages/cli
-      - run: npm run build --workspace=packages/cdk
+      - run: npm run build
 
   docs-build:
     name: Docs Build
@@ -117,6 +109,9 @@ jobs:
       # Install root workspaces so typedoc can read packages/*/src.
       - run: npm ci
       - run: cd docs && npm ci
+      # typedoc resolves cross-package types via each workspace's built
+      # dist/*.d.ts, so every workspace must be built first.
+      - run: npm run build
       # Generate typedoc output (docs/api/*) before vitepress builds —
       # docs/api/ is gitignored, so without this step /api/* links are
       # dead in CI even though they work locally.
@@ -208,12 +203,7 @@ jobs:
       - name: Install SoftHSM2 + OpenSC
         run: sudo apt-get update && sudo apt-get install -y softhsm2 opensc
       - run: npm ci
-      - run: npm run build --workspace=packages/core
-      - run: npm run build --workspace=packages/ui
-      - run: npm run build --workspace=packages/runtime
-      - run: npm run build --workspace=packages/broker
-      - run: npm run build --workspace=packages/agent
-      - run: npm run build --workspace=packages/cli
+      - run: npm run build
       - run: npm run test:integration
       - name: Agent integration tests
         run: npx jest --config packages/agent/jest.integration.config.js
@@ -389,12 +379,9 @@ jobs:
       - name: Build packages
         shell: bash
         run: |
-          npm run build -w packages/core
-          npm run build -w packages/ui
+          npm run build
           if [[ "${{ matrix.mode }}" == "sea" ]]; then
             npm run build:sea -w packages/cli
-          else
-            npm run build -w packages/cli
           fi
 
       - name: Install Playwright

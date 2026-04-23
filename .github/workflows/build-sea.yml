@@ -163,9 +163,7 @@ jobs:
 
       - name: Build packages
         shell: bash
-        run: |
-          npm run build -w packages/core
-          npm run build -w packages/ui
+        run: npm run build
 
       - name: Build SEA binary
         shell: bash

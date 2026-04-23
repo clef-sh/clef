@@ -284,12 +284,22 @@ jobs:
             echo "CLI and agent SEA binaries (linux/darwin/windows × x64/arm64) plus the agent Lambda layer are attached below."
           } > /tmp/release-notes.md
 
+          # Pin the "Full Changelog" range to the previous stable umbrella
+          # tag. Without this, gh's --generate-notes walks back through all
+          # releases including betas and lands on e.g. v0.1.16-beta.110
+          # instead of v0.1.18.
+          PREV_TAG=$(git tag --list 'v*' --sort=-v:refname \
+            | grep -Ev -- '-(beta|alpha|rc)\.' \
+            | grep -v "^${TAG}$" \
+            | head -1)
+
           gh release create "$TAG" \
             --title "v${CLI_VER}" \
             --notes-file /tmp/release-notes.md \
             --generate-notes \
+            --notes-start-tag "$PREV_TAG" \
             --draft
-          echo "Created draft umbrella release: $TAG"
+          echo "Created draft umbrella release: $TAG (changelog from $PREV_TAG)"
 
   # ── 2. Build SEA bins and attach to draft ─────────────────────────────
   build-sea-bins:
@@ -545,7 +555,7 @@ jobs:
         region: [us-east-1, ca-central-1]
     steps:
       - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_LAMBDA_LAYER_ROLE_ARN }}
           aws-region: ${{ matrix.region }}
@@ -625,7 +635,7 @@ jobs:
           ARNS_EOF
 
       - name: Upload ARN artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lambda-layer-arns-${{ matrix.region }}
           path: arns/
