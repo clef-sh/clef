@@ -121,6 +121,9 @@ jobs:
       # Install root workspaces so typedoc can read packages/*/src.
       - run: npm ci
       - run: cd docs && npm ci
+      # typedoc resolves cross-package types via each workspace's built
+      # dist/*.d.ts, so every workspace must be built first.
+      - run: npm run build
       # Generate typedoc output (docs/api/*) before vitepress builds —
       # docs/api/ is gitignored, so without this step /api/* links are
       # dead in CI even though they work locally.
