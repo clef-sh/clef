@@ -7,7 +7,10 @@
 # This is a manual gate: beta versions land on GitHub Packages automatically,
 # and a human promotes them to npm when ready for open testing.
 #
-# Authentication: GitHub Actions OIDC — no long-lived npm token required.
+# Authentication: classic NPM_TOKEN. npm only honours one trusted publisher
+# per package and that slot is taken by release.yml (stable publishes), so
+# the beta workflow uses a token. Provenance attestations still work via
+# the id-token:write permission below.
 
 name: Publish Beta to npm
 
@@ -128,14 +131,12 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # No NODE_AUTH_TOKEN: @clef-sh/cdk uses npm trusted-publisher + OIDC
-      # after its manual first-publish (--provenance) from a maintainer
-      # machine. The id-token:write permission at the top of this workflow
-      # is what lets `npm publish` authenticate here.
       - name: Publish @clef-sh/cdk
         continue-on-error: true
         working-directory: packages/cdk
         run: npm publish --tag beta --access public --provenance || echo "::warning::@clef-sh/cdk publish failed (may already exist)"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # Tag the promoted commit so it's traceable from npm back to source
       - name: Tag promoted commit
