@@ -8,7 +8,7 @@
 
 > **Early release** — Clef is under active development. Please [open an issue](https://github.com/clef-sh/clef/issues) if you happen to find one; we will fix it fast.
 
-![Image](https://github.com/user-attachments/assets/8e8735f8-80d2-4f69-b2ea-a03cf54574f4)
+![Image](https://github.com/user-attachments/assets/34e574a5-8fe8-4129-be4d-1cfc4d754513)
 
 Clef adds a namespace-by-environment matrix, schema validation, drift detection, and a local web UI building on what SOPS has accomplished in the direction of Secrets-as-Code (SaC). Your secrets stay in git, encrypted by your KMS. The access control, audit logs, and short-lived credential access you need for enterprise compliance come from your KMS — not from a new intermediary.
 
