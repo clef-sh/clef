@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/ui",
-  "version": "0.1.20-alpha.133",
+  "version": "0.1.20-alpha.140",
   "description": "Local web UI for Clef — git-native secrets management",
   "repository": {
     "type": "git",
@@ -34,7 +34,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "@clef-sh/core": "0.1.20-alpha.133",
+    "@clef-sh/core": "0.1.20-alpha.140",
     "express": "^5.1.0",
     "express-rate-limit": "^8.3.2",
     "yaml": "^2.8.3"
