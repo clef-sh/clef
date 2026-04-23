@@ -220,6 +220,8 @@ jobs:
       - run: npm run build --workspace=packages/runtime
       - run: npm run build --workspace=packages/broker
       - run: npm run build --workspace=packages/agent
+      - run: npm run build --workspace=packages/analytics
+      - run: npm run build --workspace=packages/cloud
       - run: npm run build --workspace=packages/cli
       - run: npm run test:integration
       - name: Agent integration tests
@@ -398,6 +400,8 @@ jobs:
         run: |
           npm run build -w packages/core
           npm run build -w packages/ui
+          npm run build -w packages/analytics
+          npm run build -w packages/cloud
           if [[ "${{ matrix.mode }}" == "sea" ]]; then
             npm run build:sea -w packages/cli
           else
