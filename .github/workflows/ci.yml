@@ -223,6 +223,7 @@ jobs:
       - run: npm run build --workspace=packages/analytics
       - run: npm run build --workspace=packages/cloud
       - run: npm run build --workspace=packages/cli
+      - run: npm run build --workspace=packages/cdk
       - run: npm run test:integration
       - name: Agent integration tests
         run: npx jest --config packages/agent/jest.integration.config.js
