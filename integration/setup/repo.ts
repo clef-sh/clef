@@ -8,6 +8,16 @@ import { AgeKeyPair } from "./keys";
 export interface TestRepo {
   dir: string;
   cleanup: () => void;
+  /**
+   * When `includeServiceIdentity: true`, this is the service identity's
+   * runtime private key (AGE-SECRET-KEY-…). The matching public key is
+   * wired into the manifest automatically. Tests that need to decrypt a
+   * packed artifact (e.g. the envelope roundtrip) read this; tests that
+   * synthesize their own key (e.g. serve-roundtrip) ignore it.
+   */
+  serviceIdentityPrivateKey?: string;
+  /** Path to a file containing `serviceIdentityPrivateKey` — convenient for --identity flags. */
+  serviceIdentityKeyFilePath?: string;
 }
 
 export interface ScaffoldOptions {
@@ -21,14 +31,27 @@ export interface ScaffoldOptions {
 export function scaffoldTestRepo(keys: AgeKeyPair, options?: ScaffoldOptions): TestRepo {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-repo-"));
 
-  // Generate a throwaway public key for the service identity. The serve
-  // command synthesizes its own ephemeral key and overwrites this anyway —
-  // it just needs to be a valid age recipient string in the manifest.
+  // Generate a fresh age keypair for the service identity. `clef serve`
+  // synthesizes its own ephemeral key and overwrites the recipient anyway,
+  // but tests that decrypt a `clef pack` output (e.g. envelope roundtrip)
+  // need the matching private key. We return both halves on TestRepo.
+  // The key file lives outside the repo so it is never git-committed.
   let siRecipient: string | undefined;
+  let siPrivateKey: string | undefined;
+  let siKeyFilePath: string | undefined;
   if (options?.includeServiceIdentity) {
     const helperPath = path.resolve(__dirname, "age-keygen-helper.mjs");
     const result = execFileSync(process.execPath, [helperPath], { encoding: "utf-8" });
-    siRecipient = (JSON.parse(result) as { publicKey: string }).publicKey;
+    const parsed = JSON.parse(result) as { publicKey: string; privateKey: string };
+    siRecipient = parsed.publicKey;
+    siPrivateKey = parsed.privateKey;
+    const siKeyDir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-si-"));
+    siKeyFilePath = path.join(siKeyDir, "key.txt");
+    fs.writeFileSync(
+      siKeyFilePath,
+      `# created: ${new Date().toISOString()}\n# public key: ${parsed.publicKey}\n${parsed.privateKey}\n`,
+      { mode: 0o600 },
+    );
   }
 
   const manifest: Record<string, unknown> = {
@@ -173,13 +196,23 @@ export function scaffoldTestRepo(keys: AgeKeyPair, options?: ScaffoldOptions): T
     stdio: "pipe",
   });
 
+  const siKeyDir = siKeyFilePath ? path.dirname(siKeyFilePath) : undefined;
   return {
     dir,
+    serviceIdentityPrivateKey: siPrivateKey,
+    serviceIdentityKeyFilePath: siKeyFilePath,
     cleanup: () => {
       try {
         fs.rmSync(dir, { recursive: true, force: true });
       } catch {
         // Ignore cleanup errors
+      }
+      if (siKeyDir) {
+        try {
+          fs.rmSync(siKeyDir, { recursive: true, force: true });
+        } catch {
+          // Ignore cleanup errors
+        }
       }
     },
   };
