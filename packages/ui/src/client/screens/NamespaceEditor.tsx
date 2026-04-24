@@ -317,7 +317,7 @@ export function NamespaceEditor({ ns, initialEnv, manifest }: NamespaceEditorPro
           gap: 0,
           borderBottom: `1px solid ${theme.border}`,
           padding: "0 24px",
-          background: "#0D0F14",
+          background: theme.ink800,
         }}
       >
         {environments.map((e) => {
@@ -437,7 +437,7 @@ export function NamespaceEditor({ ns, initialEnv, manifest }: NamespaceEditorPro
                 style={{
                   display: "grid",
                   gridTemplateColumns: "260px 1fr 90px 36px",
-                  background: "#0D0F14",
+                  background: theme.ink800,
                   padding: "10px 20px",
                   borderBottom: `1px solid ${theme.border}`,
                   borderRadius: "10px 10px 0 0",
@@ -556,7 +556,7 @@ export function NamespaceEditor({ ns, initialEnv, manifest }: NamespaceEditorPro
                         placeholder={row.pending ? "Enter real value..." : undefined}
                         style={{
                           flex: 1,
-                          background: "#0D0F14",
+                          background: theme.ink800,
                           border: `1px solid ${theme.borderLight}`,
                           borderRadius: 5,
                           padding: "5px 10px",
@@ -787,7 +787,7 @@ export function NamespaceEditor({ ns, initialEnv, manifest }: NamespaceEditorPro
                       onChange={(e) => setNewKey(e.target.value)}
                       style={{
                         flex: "0 0 240px",
-                        background: "#0D0F14",
+                        background: theme.ink800,
                         border: `1px solid ${theme.accent}66`,
                         borderRadius: 5,
                         padding: "6px 10px",
@@ -863,7 +863,7 @@ export function NamespaceEditor({ ns, initialEnv, manifest }: NamespaceEditorPro
                         autoComplete="off"
                         style={{
                           flex: 1,
-                          background: "#0D0F14",
+                          background: theme.ink800,
                           border: `1px solid ${theme.border}`,
                           borderRadius: 5,
                           padding: "6px 10px",

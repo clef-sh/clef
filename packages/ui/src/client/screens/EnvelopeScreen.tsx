@@ -1023,6 +1023,7 @@ interface ErrorHint {
 function ErrorRow({ code, message, hint }: { code: string; message: string; hint?: ErrorHint }) {
   return (
     <div
+      role="alert"
       data-testid="envelope-error"
       style={{
         padding: "10px 12px",

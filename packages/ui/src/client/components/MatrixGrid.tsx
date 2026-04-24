@@ -59,7 +59,7 @@ export function MatrixGrid({
           display: "grid",
           gridTemplateColumns: `180px ${environments.map(() => "1fr").join(" ")}`,
           borderBottom: `1px solid ${theme.border}`,
-          background: "#0D0F14",
+          background: theme.ink800,
         }}
       >
         <div

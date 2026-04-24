@@ -462,7 +462,7 @@ function IssueCard({
             display: "flex",
             alignItems: "center",
             gap: 8,
-            background: "#0D0F14",
+            background: theme.ink800,
             border: `1px solid ${theme.borderLight}`,
             borderRadius: 6,
             padding: "6px 10px",

@@ -259,7 +259,7 @@ export function PolicyView({ setView, setNs }: PolicyViewProps) {
               style={{
                 marginTop: 12,
                 padding: "12px 14px",
-                background: "#0D0F14",
+                background: theme.ink800,
                 border: `1px solid ${theme.borderLight}`,
                 borderRadius: 6,
                 fontFamily: theme.mono,
@@ -280,7 +280,7 @@ export function PolicyView({ setView, setNs }: PolicyViewProps) {
         <div
           style={{
             padding: "14px 24px",
-            background: "#0D0F14",
+            background: theme.ink800,
             borderBottom: `1px solid ${theme.border}`,
             display: "flex",
             alignItems: "center",

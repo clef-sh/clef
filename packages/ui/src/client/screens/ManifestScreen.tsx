@@ -413,7 +413,17 @@ function EmptyState(props: { message: string }) {
 // ── Modal primitives ─────────────────────────────────────────────────────
 
 function ModalShell(props: { title: string; onClose: () => void; children: React.ReactNode }) {
-  // Stop propagation on inner click so clicking the dialog body doesn't dismiss
+  // a11y: backdrop click closes; Escape closes; dialog body traps inner clicks.
+  // Generate a stable id for aria-labelledby so AT can associate the dialog
+  // with its title — React 18's useId would be cleaner but requires import.
+  const titleId = React.useId();
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") props.onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [props]);
   return (
     <div
       data-testid="manifest-modal"
@@ -421,7 +431,7 @@ function ModalShell(props: { title: string; onClose: () => void; children: React
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0,0,0,0.55)",
+        background: theme.scrim,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -429,6 +439,9 @@ function ModalShell(props: { title: string; onClose: () => void; children: React
       }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         onClick={(e) => e.stopPropagation()}
         style={{
           background: theme.surface,
@@ -440,6 +453,7 @@ function ModalShell(props: { title: string; onClose: () => void; children: React
         }}
       >
         <h3
+          id={titleId}
           style={{
             fontFamily: theme.sans,
             fontSize: 16,

@@ -117,7 +117,7 @@ export function DiffView({ manifest }: DiffViewProps) {
       <div
         style={{
           padding: "14px 24px",
-          background: "#0D0F14",
+          background: theme.ink800,
           borderBottom: `1px solid ${theme.border}`,
           display: "flex",
           alignItems: "center",
@@ -313,7 +313,7 @@ export function DiffView({ manifest }: DiffViewProps) {
                 style={{
                   display: "grid",
                   gridTemplateColumns: "220px 1fr 1fr 100px",
-                  background: "#0D0F14",
+                  background: theme.ink800,
                   padding: "10px 20px",
                   borderBottom: `1px solid ${theme.border}`,
                 }}
