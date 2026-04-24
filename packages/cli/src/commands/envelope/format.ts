@@ -222,3 +222,123 @@ export function renderInspectHuman(r: InspectResult, now: number = Date.now()): 
 
   return lines.join("\n");
 }
+
+// ── Verify output shape ───────────────────────────────────────────────────
+
+export type HashStatus = "ok" | "mismatch" | "skipped";
+export type SignatureStatus = "valid" | "invalid" | "absent" | "not_verified";
+export type ExpiryStatus = "ok" | "expired" | "absent";
+export type RevocationStatus = "ok" | "revoked" | "absent";
+export type OverallStatus = "pass" | "fail";
+
+/**
+ * Shape of a `verify` result. Binding contract for `--json` output and for
+ * the UI server's `/api/envelope/verify` response (PR 7).
+ *
+ * The `overall` field summarizes the four checks: `fail` if any is `mismatch`
+ * or `invalid`, otherwise `pass`. Expiry and revocation are reports-only in
+ * v1 (plan §6.2 step 5) — they do not flip `overall` to `fail`.
+ */
+export interface VerifyResult {
+  source: string;
+  checks: {
+    hash: { status: HashStatus };
+    signature: { status: SignatureStatus; algorithm: string | null };
+    expiry: { status: ExpiryStatus; expiresAt: string | null };
+    revocation: { status: RevocationStatus; revokedAt: string | null };
+  };
+  overall: OverallStatus;
+  error: { code: string; message: string } | null;
+}
+
+/** Build a {@link VerifyResult} for a source that could not be fetched or parsed. */
+export function buildVerifyError(source: string, code: string, message: string): VerifyResult {
+  return {
+    source,
+    checks: {
+      hash: { status: "skipped" },
+      signature: { status: "absent", algorithm: null },
+      expiry: { status: "absent", expiresAt: null },
+      revocation: { status: "absent", revokedAt: null },
+    },
+    overall: "fail",
+    error: { code, message },
+  };
+}
+
+export interface VerifyInputs {
+  hash: HashStatus;
+  signature: { status: SignatureStatus; algorithm: string | null };
+  expiry: { status: ExpiryStatus; expiresAt: string | null };
+  revocation: { status: RevocationStatus; revokedAt: string | null };
+}
+
+/** Combine per-check results into a {@link VerifyResult} with `overall` derived. */
+export function buildVerifyResult(source: string, inputs: VerifyInputs): VerifyResult {
+  const hashFailed = inputs.hash === "mismatch";
+  const signatureFailed = inputs.signature.status === "invalid";
+  const overall: OverallStatus = hashFailed || signatureFailed ? "fail" : "pass";
+  return {
+    source,
+    checks: {
+      hash: { status: inputs.hash },
+      signature: inputs.signature,
+      expiry: inputs.expiry,
+      revocation: inputs.revocation,
+    },
+    overall,
+    error: null,
+  };
+}
+
+/** Render a single {@link VerifyResult} as the canonical human block. */
+export function renderVerifyHuman(r: VerifyResult, now: number = Date.now()): string {
+  if (r.error) {
+    return `${r.source}: ${r.error.code} — ${r.error.message}`;
+  }
+
+  const lines: string[] = [];
+  const pad = (k: string) => k.padEnd(16);
+  lines.push(`${pad("source:")}${r.source}`);
+
+  const hashLabel =
+    r.checks.hash.status === "ok"
+      ? "OK"
+      : r.checks.hash.status === "mismatch"
+        ? "MISMATCH"
+        : "skipped";
+  lines.push(`${pad("ciphertextHash:")}${hashLabel}`);
+
+  const sig = r.checks.signature;
+  let sigLine: string;
+  if (sig.status === "valid") {
+    sigLine = `valid (${sig.algorithm ?? "unknown"}, signer matches --signer-key)`;
+  } else if (sig.status === "invalid") {
+    sigLine = `INVALID (${sig.algorithm ?? "unknown"})`;
+  } else if (sig.status === "absent") {
+    sigLine = "absent";
+  } else {
+    sigLine = `present (${sig.algorithm ?? "unknown"}, not verified — no --signer-key)`;
+  }
+  lines.push(`${pad("signature:")}${sigLine}`);
+
+  const exp = r.checks.expiry;
+  if (exp.status === "absent") {
+    lines.push(`${pad("expiresAt:")}—`);
+  } else if (exp.status === "expired") {
+    lines.push(`${pad("expiresAt:")}${exp.expiresAt} (expired)`);
+  } else {
+    lines.push(`${pad("expiresAt:")}${exp.expiresAt} (${formatAge(exp.expiresAt ?? "", now)})`);
+  }
+
+  const rev = r.checks.revocation;
+  if (rev.status === "absent") {
+    lines.push(`${pad("revokedAt:")}—`);
+  } else {
+    lines.push(`${pad("revokedAt:")}${rev.revokedAt}`);
+  }
+
+  lines.push(`${pad("overall:")}${r.overall === "pass" ? "PASS" : "FAIL"}`);
+
+  return lines.join("\n");
+}

@@ -2,9 +2,12 @@ import type { PackedArtifact } from "@clef-sh/core";
 import {
   buildInspectError,
   buildInspectResult,
+  buildVerifyError,
+  buildVerifyResult,
   formatAge,
   formatSize,
   renderInspectHuman,
+  renderVerifyHuman,
   shortHash,
 } from "./format";
 
@@ -289,5 +292,163 @@ describe("renderInspectHuman", () => {
   it("renders an error result as a single line with code and message", () => {
     const r = buildInspectError("envelope.json", "fetch_failed", "connection refused");
     expect(renderInspectHuman(r)).toBe("envelope.json: fetch_failed — connection refused");
+  });
+});
+
+describe("buildVerifyResult / buildVerifyError", () => {
+  it("overall is 'pass' when hash ok + signature valid", () => {
+    const r = buildVerifyResult("envelope.json", {
+      hash: "ok",
+      signature: { status: "valid", algorithm: "Ed25519" },
+      expiry: { status: "absent", expiresAt: null },
+      revocation: { status: "absent", revokedAt: null },
+    });
+    expect(r.overall).toBe("pass");
+    expect(r.error).toBeNull();
+  });
+
+  it("overall is 'fail' on hash mismatch", () => {
+    const r = buildVerifyResult("envelope.json", {
+      hash: "mismatch",
+      signature: { status: "not_verified", algorithm: null },
+      expiry: { status: "absent", expiresAt: null },
+      revocation: { status: "absent", revokedAt: null },
+    });
+    expect(r.overall).toBe("fail");
+  });
+
+  it("overall is 'fail' on signature invalid", () => {
+    const r = buildVerifyResult("envelope.json", {
+      hash: "ok",
+      signature: { status: "invalid", algorithm: "Ed25519" },
+      expiry: { status: "absent", expiresAt: null },
+      revocation: { status: "absent", revokedAt: null },
+    });
+    expect(r.overall).toBe("fail");
+  });
+
+  it("expiry 'expired' does not flip overall to fail (report-only in v1)", () => {
+    const r = buildVerifyResult("envelope.json", {
+      hash: "ok",
+      signature: { status: "valid", algorithm: "Ed25519" },
+      expiry: { status: "expired", expiresAt: "2020-01-01T00:00:00.000Z" },
+      revocation: { status: "absent", revokedAt: null },
+    });
+    expect(r.overall).toBe("pass");
+  });
+
+  it("revocation 'revoked' does not flip overall to fail (report-only in v1)", () => {
+    const r = buildVerifyResult("envelope.json", {
+      hash: "ok",
+      signature: { status: "valid", algorithm: "Ed25519" },
+      expiry: { status: "absent", expiresAt: null },
+      revocation: { status: "revoked", revokedAt: "2026-04-20T00:00:00.000Z" },
+    });
+    expect(r.overall).toBe("pass");
+  });
+
+  it("buildVerifyError produces the documented error shape", () => {
+    const r = buildVerifyError("envelope.json", "fetch_failed", "connection refused");
+    expect(r.overall).toBe("fail");
+    expect(r.error).toEqual({ code: "fetch_failed", message: "connection refused" });
+    expect(r.checks.hash.status).toBe("skipped");
+    expect(r.checks.signature.status).toBe("absent");
+  });
+});
+
+describe("renderVerifyHuman", () => {
+  const basePass = buildVerifyResult("envelope.json", {
+    hash: "ok",
+    signature: { status: "valid", algorithm: "Ed25519" },
+    expiry: { status: "absent", expiresAt: null },
+    revocation: { status: "absent", revokedAt: null },
+  });
+
+  it("includes every documented field", () => {
+    const out = renderVerifyHuman(basePass);
+    expect(out).toContain("source:");
+    expect(out).toContain("ciphertextHash:");
+    expect(out).toContain("signature:");
+    expect(out).toContain("expiresAt:");
+    expect(out).toContain("revokedAt:");
+    expect(out).toContain("overall:");
+  });
+
+  it("shows 'OK' for hash.ok, 'MISMATCH' for hash.mismatch, 'skipped' otherwise", () => {
+    expect(renderVerifyHuman(basePass)).toContain("ciphertextHash: OK");
+
+    const mismatch = buildVerifyResult("envelope.json", {
+      ...basePass.checks,
+      hash: "mismatch",
+      signature: basePass.checks.signature,
+      expiry: basePass.checks.expiry,
+      revocation: basePass.checks.revocation,
+    });
+    expect(renderVerifyHuman(mismatch)).toContain("ciphertextHash: MISMATCH");
+
+    const skipped = buildVerifyResult("envelope.json", {
+      hash: "skipped",
+      signature: basePass.checks.signature,
+      expiry: basePass.checks.expiry,
+      revocation: basePass.checks.revocation,
+    });
+    expect(renderVerifyHuman(skipped)).toContain("ciphertextHash: skipped");
+  });
+
+  it("shows PASS/FAIL for overall", () => {
+    expect(renderVerifyHuman(basePass)).toContain("overall:        PASS");
+    const fail = buildVerifyResult("envelope.json", {
+      hash: "mismatch",
+      signature: basePass.checks.signature,
+      expiry: basePass.checks.expiry,
+      revocation: basePass.checks.revocation,
+    });
+    expect(renderVerifyHuman(fail)).toContain("overall:        FAIL");
+  });
+
+  it("renders 'INVALID' for invalid signatures", () => {
+    const r = buildVerifyResult("envelope.json", {
+      hash: "ok",
+      signature: { status: "invalid", algorithm: "Ed25519" },
+      expiry: { status: "absent", expiresAt: null },
+      revocation: { status: "absent", revokedAt: null },
+    });
+    expect(renderVerifyHuman(r)).toMatch(/signature:\s+INVALID/);
+  });
+
+  it("renders a non-expired expiry with a relative time", () => {
+    const now = new Date("2026-04-23T12:00:00.000Z").getTime();
+    const r = buildVerifyResult("envelope.json", {
+      hash: "ok",
+      signature: { status: "valid", algorithm: "Ed25519" },
+      expiry: { status: "ok", expiresAt: "2026-04-30T06:00:00.000Z" },
+      revocation: { status: "absent", revokedAt: null },
+    });
+    expect(renderVerifyHuman(r, now)).toContain("2026-04-30T06:00:00.000Z (in 6d)");
+  });
+
+  it("renders an expired expiry with the '(expired)' tag", () => {
+    const r = buildVerifyResult("envelope.json", {
+      hash: "ok",
+      signature: { status: "valid", algorithm: "Ed25519" },
+      expiry: { status: "expired", expiresAt: "2020-01-01T00:00:00.000Z" },
+      revocation: { status: "absent", revokedAt: null },
+    });
+    expect(renderVerifyHuman(r)).toContain("(expired)");
+  });
+
+  it("renders a revoked artifact with the revokedAt timestamp", () => {
+    const r = buildVerifyResult("envelope.json", {
+      hash: "ok",
+      signature: { status: "valid", algorithm: "Ed25519" },
+      expiry: { status: "absent", expiresAt: null },
+      revocation: { status: "revoked", revokedAt: "2026-04-20T00:00:00.000Z" },
+    });
+    expect(renderVerifyHuman(r)).toContain("2026-04-20T00:00:00.000Z");
+  });
+
+  it("renders an error result as a single line with code and message", () => {
+    const r = buildVerifyError("envelope.json", "fetch_failed", "connection refused");
+    expect(renderVerifyHuman(r)).toBe("envelope.json: fetch_failed — connection refused");
   });
 });

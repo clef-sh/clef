@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { PackedArtifact } from "@clef-sh/core";
-import { buildInspectResult } from "../format";
+import { buildInspectResult, buildVerifyResult } from "../format";
 
 /**
  * Binding CLI ↔ UI parity contract for `inspect` output (plan §10.1).
@@ -68,5 +68,35 @@ describe("envelope-snapshots (binding CLI ↔ UI parity contract)", () => {
     });
     const result = buildInspectResult("envelope.json", artifact, false, NOW);
     expect(result).toEqual(readFixture("inspect.hash-mismatch.json"));
+  });
+
+  it("verify.pass.json matches buildVerifyResult for a fully passing artifact", () => {
+    const result = buildVerifyResult("envelope.json", {
+      hash: "ok",
+      signature: { status: "valid", algorithm: "Ed25519" },
+      expiry: { status: "ok", expiresAt: "2026-04-30T06:00:00.000Z" },
+      revocation: { status: "absent", revokedAt: null },
+    });
+    expect(result).toEqual(readFixture("verify.pass.json"));
+  });
+
+  it("verify.signature-invalid.json matches buildVerifyResult for a tampered signature", () => {
+    const result = buildVerifyResult("envelope.json", {
+      hash: "ok",
+      signature: { status: "invalid", algorithm: "Ed25519" },
+      expiry: { status: "absent", expiresAt: null },
+      revocation: { status: "absent", revokedAt: null },
+    });
+    expect(result).toEqual(readFixture("verify.signature-invalid.json"));
+  });
+
+  it("verify.no-signer-key.json matches buildVerifyResult when signature is present but not verified", () => {
+    const result = buildVerifyResult("envelope.json", {
+      hash: "ok",
+      signature: { status: "not_verified", algorithm: "Ed25519" },
+      expiry: { status: "absent", expiresAt: null },
+      revocation: { status: "absent", revokedAt: null },
+    });
+    expect(result).toEqual(readFixture("verify.no-signer-key.json"));
   });
 });

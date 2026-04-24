@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import type { SubprocessRunner } from "@clef-sh/core";
 import { registerInspectCommand } from "./inspect";
+import { registerVerifyCommand } from "./verify";
 
 /**
  * Register `clef envelope` and its subcommands on the given program.
@@ -33,4 +34,5 @@ export function registerEnvelopeCommand(
     );
 
   registerInspectCommand(envelopeCmd);
+  registerVerifyCommand(envelopeCmd);
 }
