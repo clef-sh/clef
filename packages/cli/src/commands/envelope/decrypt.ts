@@ -1,17 +1,18 @@
 import type { Command } from "commander";
-import { InvalidArtifactError, assertPackedArtifact, computeCiphertextHash } from "@clef-sh/core";
-import type { PackedArtifact } from "@clef-sh/core";
+import {
+  InvalidArtifactError,
+  assertPackedArtifact,
+  buildDecryptError,
+  buildDecryptResult,
+  computeCiphertextHash,
+  formatRevealWarning,
+} from "@clef-sh/core";
+import type { DecryptResult, PackedArtifact } from "@clef-sh/core";
 import { AgeDecryptor, ArtifactDecryptor } from "@clef-sh/runtime";
 import type { ArtifactSource } from "@clef-sh/runtime";
 import { formatter, isJsonMode } from "../../output/formatter";
 import { resolveSource } from "./source";
-import {
-  type DecryptResult,
-  buildDecryptError,
-  buildDecryptResult,
-  renderDecryptHuman,
-} from "./format";
-import { formatRevealWarning } from "./warnings";
+import { renderDecryptHuman } from "./format";
 
 interface DecryptOptions {
   identity?: string;

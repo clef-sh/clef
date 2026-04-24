@@ -1,12 +1,10 @@
 /**
- * Canonical `--reveal` warning strings for `clef envelope decrypt`.
+ * Canonical `--reveal` warning strings for the envelope debug surface.
  *
- * Always flushed to stderr, before the first stdout byte of a revealed
- * value, and only AFTER all validation (hash / expiry / key / decrypt)
- * has passed. This prevents the UX where a user sees "plaintext will be
- * printed" followed by an error with no output.
+ * Emitted by the CLI to stderr (before the first stdout byte of a revealed
+ * value, only after validation passes), and by the UI as a banner above the
+ * Decrypt card. Two variants:
  *
- * Two variants:
  *   - REVEAL_WARNING (all-values)      — used with --reveal (unscoped)
  *   - formatRevealWarning("DB_URL")    — named-key variant, used with --key
  *

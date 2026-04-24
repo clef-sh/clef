@@ -1,14 +1,16 @@
 import type { Command } from "commander";
-import { InvalidArtifactError, assertPackedArtifact, computeCiphertextHash } from "@clef-sh/core";
+import {
+  InvalidArtifactError,
+  assertPackedArtifact,
+  buildInspectError,
+  buildInspectResult,
+  computeCiphertextHash,
+} from "@clef-sh/core";
+import type { InspectResult } from "@clef-sh/core";
 import type { ArtifactSource } from "@clef-sh/runtime";
 import { formatter, isJsonMode } from "../../output/formatter";
 import { resolveSource } from "./source";
-import {
-  type InspectResult,
-  buildInspectError,
-  buildInspectResult,
-  renderInspectHuman,
-} from "./format";
+import { renderInspectHuman } from "./format";
 
 /**
  * Register `clef envelope inspect` under the parent `envelope` command.

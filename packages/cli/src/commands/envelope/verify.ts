@@ -3,24 +3,24 @@ import {
   InvalidArtifactError,
   assertPackedArtifact,
   buildSigningPayload,
+  buildVerifyError,
+  buildVerifyResult,
   computeCiphertextHash,
+  parseSignerKey,
   verifySignature,
+} from "@clef-sh/core";
+import type {
+  ExpiryStatus,
+  HashStatus,
+  RevocationStatus,
+  SignatureStatus,
+  VerifyInputs,
+  VerifyResult,
 } from "@clef-sh/core";
 import type { ArtifactSource } from "@clef-sh/runtime";
 import { formatter, isJsonMode } from "../../output/formatter";
 import { resolveSource } from "./source";
-import {
-  type ExpiryStatus,
-  type HashStatus,
-  type RevocationStatus,
-  type SignatureStatus,
-  type VerifyInputs,
-  type VerifyResult,
-  buildVerifyError,
-  buildVerifyResult,
-  renderVerifyHuman,
-} from "./format";
-import { parseSignerKey } from "./signer-key";
+import { renderVerifyHuman } from "./format";
 
 interface VerifyOptions {
   signerKey?: string;
@@ -114,7 +114,7 @@ async function verifyOne(source: string, params: VerifyParams): Promise<VerifyRe
     if (params.signerKey) {
       let signerKeyBase64: string;
       try {
-        signerKeyBase64 = parseSignerKey(params.signerKey);
+        signerKeyBase64 = parseSignerKey(params.signerKey, { allowFilePaths: true });
       } catch (err) {
         return buildVerifyError(source, "signer_key_invalid", (err as Error).message);
       }

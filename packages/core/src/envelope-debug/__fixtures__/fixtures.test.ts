@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
-import type { PackedArtifact } from "@clef-sh/core";
-import { buildDecryptResult, buildInspectResult, buildVerifyResult } from "../format";
+import type { PackedArtifact } from "../../artifact/types";
+import { buildDecryptResult, buildInspectResult, buildVerifyResult } from "../builders";
 
 /**
  * Binding CLI ↔ UI parity contract for `inspect` output (plan §10.1).

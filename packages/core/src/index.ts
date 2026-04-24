@@ -126,6 +126,32 @@ export {
   detectAlgorithm,
 } from "./artifact/signer";
 export { computeCiphertextHash } from "./artifact/hash";
+export type {
+  InspectEnvelope,
+  InspectResult,
+  HashStatus,
+  SignatureStatus,
+  ExpiryStatus,
+  RevocationStatus,
+  OverallStatus,
+  VerifyResult,
+  VerifyInputs,
+  DecryptStatus,
+  DecryptResult,
+  DecryptSuccessInputs,
+  ParseSignerKeyOptions,
+} from "./envelope-debug";
+export {
+  buildInspectError,
+  buildInspectResult,
+  buildVerifyError,
+  buildVerifyResult,
+  buildDecryptError,
+  buildDecryptResult,
+  REVEAL_WARNING,
+  formatRevealWarning,
+  parseSignerKey,
+} from "./envelope-debug";
 export { PackBackendRegistry } from "./pack/registry";
 export type {
   PackBackend,

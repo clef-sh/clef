@@ -4,12 +4,8 @@ import {
   buildInspectResult,
   buildVerifyError,
   buildVerifyResult,
-  formatAge,
-  formatSize,
-  renderInspectHuman,
-  renderVerifyHuman,
-  shortHash,
-} from "./format";
+} from "@clef-sh/core";
+import { formatAge, formatSize, renderInspectHuman, renderVerifyHuman, shortHash } from "./format";
 
 const NOW = new Date("2026-04-23T12:00:00.000Z").getTime();
 
