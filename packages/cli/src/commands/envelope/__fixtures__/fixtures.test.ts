@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { PackedArtifact } from "@clef-sh/core";
-import { buildInspectResult, buildVerifyResult } from "../format";
+import { buildDecryptResult, buildInspectResult, buildVerifyResult } from "../format";
 
 /**
  * Binding CLI ↔ UI parity contract for `inspect` output (plan §10.1).
@@ -98,5 +98,25 @@ describe("envelope-snapshots (binding CLI ↔ UI parity contract)", () => {
       revocation: { status: "absent", revokedAt: null },
     });
     expect(result).toEqual(readFixture("verify.no-signer-key.json"));
+  });
+
+  const DECRYPT_KEYS = ["DB_URL", "REDIS_URL", "API_KEY"];
+  const DECRYPT_VALUES = {
+    DB_URL: "postgres://prod",
+    REDIS_URL: "redis://prod",
+    API_KEY: "sk-123",
+  };
+
+  it("decrypt.keys-only.json matches buildDecryptResult for the safe default", () => {
+    const result = buildDecryptResult("envelope.json", { keys: DECRYPT_KEYS });
+    expect(result).toEqual(readFixture("decrypt.keys-only.json"));
+  });
+
+  it("decrypt.revealed.json matches buildDecryptResult for --reveal", () => {
+    const result = buildDecryptResult("envelope.json", {
+      keys: DECRYPT_KEYS,
+      allValues: DECRYPT_VALUES,
+    });
+    expect(result).toEqual(readFixture("decrypt.revealed.json"));
   });
 });

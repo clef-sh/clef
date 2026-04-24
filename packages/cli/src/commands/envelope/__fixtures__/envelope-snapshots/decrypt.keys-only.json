@@ -1,0 +1,8 @@
+{
+  "source": "envelope.json",
+  "status": "ok",
+  "error": null,
+  "revealed": false,
+  "keys": ["API_KEY", "DB_URL", "REDIS_URL"],
+  "values": null
+}

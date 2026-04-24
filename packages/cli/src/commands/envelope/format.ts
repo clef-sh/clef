@@ -342,3 +342,86 @@ export function renderVerifyHuman(r: VerifyResult, now: number = Date.now()): st
 
   return lines.join("\n");
 }
+
+// ── Decrypt output shape ───────────────────────────────────────────────────
+
+export type DecryptStatus = "ok" | "error";
+
+/**
+ * Shape of a `decrypt` result. Binding contract for `--json` output and for
+ * the UI server's `/api/envelope/decrypt` response (PR 7).
+ *
+ * `values` is `null` unless `--reveal` was passed; `revealed` lets downstream
+ * scripts assert the expected safety posture. Errors swap `status` to
+ * `"error"` and populate the `error` envelope.
+ */
+export interface DecryptResult {
+  source: string;
+  status: DecryptStatus;
+  error: { code: string; message: string } | null;
+  revealed: boolean;
+  keys: string[];
+  values: Record<string, string> | null;
+}
+
+/** Build a {@link DecryptResult} for a source that could not be decrypted. */
+export function buildDecryptError(source: string, code: string, message: string): DecryptResult {
+  return {
+    source,
+    status: "error",
+    error: { code, message },
+    revealed: false,
+    keys: [],
+    values: null,
+  };
+}
+
+export interface DecryptSuccessInputs {
+  /** Key names from the decrypted payload. Always present (sorted by the builder). */
+  keys: string[];
+  /** Full key-value map, only set when `--reveal` was passed. */
+  allValues?: Record<string, string>;
+}
+
+/** Build a success {@link DecryptResult}. Enforces the safe default: names only. */
+export function buildDecryptResult(source: string, inputs: DecryptSuccessInputs): DecryptResult {
+  const values = inputs.allValues ?? null;
+  return {
+    source,
+    status: "ok",
+    error: null,
+    revealed: values !== null,
+    keys: [...inputs.keys].sort(),
+    values,
+  };
+}
+
+/**
+ * Render a {@link DecryptResult} as text suitable for stdout in human mode.
+ *
+ *   - Not revealed  →  one key name per line (no values, ever).
+ *   - Revealed      →  KEY=value lines. Values with whitespace, `=`, `#`, `"`,
+ *                      or newlines are double-quoted with inner quotes and
+ *                      newlines escaped.
+ *
+ * `--json` mode callers use `formatter.json(result)` instead — never this
+ * function. This renderer never emits a value that was not revealed.
+ */
+export function renderDecryptHuman(r: DecryptResult): string {
+  if (r.error) {
+    return `${r.source}: ${r.error.code} — ${r.error.message}`;
+  }
+  if (!r.values) {
+    return r.keys.join("\n");
+  }
+  return Object.entries(r.values)
+    .map(([k, v]) => `${k}=${escapeKeyValue(v)}`)
+    .join("\n");
+}
+
+function escapeKeyValue(value: string): string {
+  if (/[\s="#]|\n/.test(value)) {
+    return `"${value.replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`;
+  }
+  return value;
+}

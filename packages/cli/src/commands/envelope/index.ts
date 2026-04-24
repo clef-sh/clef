@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import type { SubprocessRunner } from "@clef-sh/core";
+import { registerDecryptCommand } from "./decrypt";
 import { registerInspectCommand } from "./inspect";
 import { registerVerifyCommand } from "./verify";
 
@@ -35,4 +36,5 @@ export function registerEnvelopeCommand(
 
   registerInspectCommand(envelopeCmd);
   registerVerifyCommand(envelopeCmd);
+  registerDecryptCommand(envelopeCmd);
 }
