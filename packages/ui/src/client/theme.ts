@@ -21,7 +21,7 @@ export const theme = {
   textMuted: "#6B7280",
   textDim: "#3D4455",
   mono: "'JetBrains Mono', 'Fira Code', monospace",
-  sans: "'DM Sans', system-ui, sans-serif",
+  sans: "'Inter', system-ui, sans-serif",
 } as const;
 
 export type ThemeColor = (typeof theme)[keyof typeof theme];
