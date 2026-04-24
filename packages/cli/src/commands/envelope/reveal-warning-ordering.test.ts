@@ -63,12 +63,17 @@ jest.mock("./source", () => ({
   })),
 }));
 
-const mockAgeDecrypt = jest.fn<Promise<string>, [string, string]>();
 const mockAgeResolveKey = jest.fn<string, [string | undefined, string | undefined]>();
+const mockArtifactDecrypt = jest.fn<
+  Promise<{ values: Record<string, string>; keys: string[]; revision: string }>,
+  [unknown]
+>();
 jest.mock("@clef-sh/runtime", () => ({
   AgeDecryptor: jest.fn().mockImplementation(() => ({
-    decrypt: mockAgeDecrypt,
     resolveKey: mockAgeResolveKey,
+  })),
+  ArtifactDecryptor: jest.fn().mockImplementation(() => ({
+    decrypt: mockArtifactDecrypt,
   })),
 }));
 
@@ -83,7 +88,11 @@ beforeEach(() => {
   jest.clearAllMocks();
   writeLog.length = 0;
   mockAgeResolveKey.mockReturnValue("resolved-key");
-  mockAgeDecrypt.mockResolvedValue(JSON.stringify({ DB_URL: "postgres://prod" }));
+  mockArtifactDecrypt.mockResolvedValue({
+    values: { DB_URL: "postgres://prod" },
+    keys: ["DB_URL"],
+    revision: "test-revision",
+  });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test spy replaces process.std{out,err}.write
   (process.stdout.write as any) = jest.fn((chunk: string | Uint8Array) => {
@@ -176,7 +185,7 @@ describe("reveal-warning ordering invariant", () => {
   });
 
   it("(1b) does NOT emit the warning when age decryption fails + --reveal", async () => {
-    mockAgeDecrypt.mockRejectedValue(new Error("no identity matched"));
+    mockArtifactDecrypt.mockRejectedValue(new Error("no identity matched"));
     fakeFetch.mockResolvedValue({ raw: JSON.stringify(makeArtifact()) });
 
     const program = makeProgram();

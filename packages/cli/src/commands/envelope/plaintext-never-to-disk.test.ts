@@ -55,12 +55,17 @@ jest.mock("./source", () => ({
   })),
 }));
 
-const mockAgeDecrypt = jest.fn<Promise<string>, [string, string]>();
 const mockAgeResolveKey = jest.fn<string, [string | undefined, string | undefined]>();
+const mockArtifactDecrypt = jest.fn<
+  Promise<{ values: Record<string, string>; keys: string[]; revision: string }>,
+  [unknown]
+>();
 jest.mock("@clef-sh/runtime", () => ({
   AgeDecryptor: jest.fn().mockImplementation(() => ({
-    decrypt: mockAgeDecrypt,
     resolveKey: mockAgeResolveKey,
+  })),
+  ArtifactDecryptor: jest.fn().mockImplementation(() => ({
+    decrypt: mockArtifactDecrypt,
   })),
 }));
 
@@ -123,7 +128,11 @@ function makeProgram(): Command {
 beforeEach(() => {
   jest.clearAllMocks();
   mockAgeResolveKey.mockReturnValue("resolved-key");
-  mockAgeDecrypt.mockResolvedValue(JSON.stringify(FAKE_SECRETS));
+  mockArtifactDecrypt.mockResolvedValue({
+    values: FAKE_SECRETS,
+    keys: Object.keys(FAKE_SECRETS),
+    revision: "test-revision",
+  });
   fakeFetch.mockResolvedValue({ raw: JSON.stringify(makeArtifact()) });
 });
 

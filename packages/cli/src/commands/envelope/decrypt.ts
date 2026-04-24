@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { InvalidArtifactError, assertPackedArtifact, computeCiphertextHash } from "@clef-sh/core";
-import { AgeDecryptor } from "@clef-sh/runtime";
+import type { PackedArtifact } from "@clef-sh/core";
+import { AgeDecryptor, ArtifactDecryptor } from "@clef-sh/runtime";
 import type { ArtifactSource } from "@clef-sh/runtime";
 import { formatter, isJsonMode } from "../../output/formatter";
 import { resolveSource } from "./source";
@@ -20,22 +21,23 @@ interface DecryptOptions {
 /**
  * Register `clef envelope decrypt` under the parent `envelope` command.
  *
+ * Supports both age-only and KMS-enveloped artifacts. For age-only, an age
+ * identity must be configured via --identity / CLEF_AGE_KEY_FILE / CLEF_AGE_KEY.
+ * For KMS-enveloped artifacts, ambient AWS credentials are used (AWS_PROFILE,
+ * AWS_ROLE_ARN, instance role — decision D1).
+ *
  * Exit codes:
  *   0 — decrypt succeeded
  *   1 — generic / bad args / source unreachable
  *   2 — ciphertext hash mismatch
- *   4 — key resolution failure (no identity, decrypt failure)
+ *   4 — key resolution failure (no identity for age, or decrypt failure)
  *   5 — expired or revoked
  *
- * Safety invariants:
- *   - Default output is key names only — values require `--reveal`.
- *   - Reveal warning to stderr emits ONLY AFTER all validation passes (hash,
- *     expiry, key resolution, decryption) and strictly BEFORE the first
- *     stdout byte. Protected by reveal-warning-ordering.test.ts.
- *   - No plaintext is ever written to disk. Protected by
- *     plaintext-never-to-disk.test.ts.
- *   - Identity resolution matches the existing CLEF_AGE_KEY_FILE /
- *     CLEF_AGE_KEY idiom — no `env:VAR` DSL.
+ * Safety invariants (tested):
+ *   - Default output is key names only — values require --reveal.
+ *   - Reveal warning emits ONLY AFTER all validation + decryption passes and
+ *     strictly BEFORE the first stdout byte. See reveal-warning-ordering test.
+ *   - No plaintext is ever written to disk. See plaintext-never-to-disk test.
  */
 export function registerDecryptCommand(parent: Command): void {
   parent
@@ -43,14 +45,16 @@ export function registerDecryptCommand(parent: Command): void {
     .description(
       "Decrypt a packed artifact and print its contents. Default output is\n" +
         "key names only — values require `--reveal`.\n\n" +
-        "Identity resolution order:\n" +
+        "Age-only artifacts: identity resolution order\n" +
         "  1. --identity <path>\n" +
         "  2. $CLEF_AGE_KEY_FILE\n" +
-        "  3. $CLEF_AGE_KEY (inline)",
+        "  3. $CLEF_AGE_KEY (inline)\n\n" +
+        "KMS-enveloped artifacts: uses ambient AWS credentials\n" +
+        "(AWS_PROFILE, AWS_ROLE_ARN, instance role).",
     )
     .option(
       "--identity <path>",
-      "Path to an age identity file. Overrides CLEF_AGE_KEY_FILE / CLEF_AGE_KEY.",
+      "Path to an age identity file. Overrides CLEF_AGE_KEY_FILE / CLEF_AGE_KEY. Ignored for KMS envelopes.",
     )
     .option("--reveal", "Reveal all secret values (prints a warning to stderr)")
     .action(async (source: string, options: DecryptOptions) => {
@@ -132,66 +136,43 @@ async function decryptOne(source: string, params: DecryptParams): Promise<Decryp
     return buildDecryptError(source, "invalid_artifact", message);
   }
 
-  const artifact = parsed as Parameters<typeof assertPackedArtifact>[0] & {
-    ciphertext: string;
-    ciphertextHash: string;
-    expiresAt?: string;
-    revokedAt?: string;
-    envelope?: unknown;
-  };
+  const artifact = parsed as PackedArtifact;
 
   // Hash check — hard-fail on mismatch (corrupt ciphertext makes decrypt meaningless).
-  const computed = computeCiphertextHash(artifact.ciphertext);
-  if (computed !== artifact.ciphertextHash) {
+  if (computeCiphertextHash(artifact.ciphertext) !== artifact.ciphertextHash) {
     return buildDecryptError(
       source,
       "hash_mismatch",
-      `ciphertext hash mismatch: expected ${artifact.ciphertextHash}, got ${computed}`,
+      "ciphertext hash does not match declared value",
     );
   }
 
-  // Expiry hard-fail (matches poller.ts:244-250 runtime behavior).
+  // Expiry / revocation hard-fail (matches runtime poller behavior).
   if (artifact.expiresAt && new Date(artifact.expiresAt).getTime() < Date.now()) {
     return buildDecryptError(source, "expired", `artifact expired at ${artifact.expiresAt}`);
   }
-
-  // Revocation hard-fail.
   if (artifact.revokedAt) {
     return buildDecryptError(source, "revoked", `artifact was revoked at ${artifact.revokedAt}`);
   }
 
-  // KMS-enveloped artifacts land in a follow-up PR.
-  if (artifact.envelope) {
-    return buildDecryptError(
-      source,
-      "unsupported_envelope",
-      "KMS-enveloped artifact decryption lands in a follow-up PR; for now use a build that includes the KMS path.",
-    );
+  // Resolve the age identity. Required for age-only; ignored for KMS envelopes
+  // (AWS credentials are resolved by the KMS provider internally).
+  let privateKey: string | undefined;
+  if (!artifact.envelope) {
+    try {
+      privateKey = resolveAgeIdentity(params.identityPath);
+    } catch (err) {
+      return buildDecryptError(source, "key_resolution_failed", (err as Error).message);
+    }
   }
 
-  // Resolve the age identity.
-  let privateKey: string;
-  try {
-    privateKey = resolveAgeIdentity(params.identityPath);
-  } catch (err) {
-    return buildDecryptError(source, "key_resolution_failed", (err as Error).message);
-  }
-
-  // Decrypt.
-  let plaintext: string;
-  try {
-    const decryptor = new AgeDecryptor();
-    plaintext = await decryptor.decrypt(artifact.ciphertext, privateKey);
-  } catch (err) {
-    return buildDecryptError(source, "decrypt_failed", (err as Error).message);
-  }
-
-  // Parse the plaintext — packer writes JSON.stringify(values).
+  // Decrypt via ArtifactDecryptor — handles age and KMS uniformly.
   let values: Record<string, string>;
   try {
-    values = JSON.parse(plaintext) as Record<string, string>;
+    const decryptor = new ArtifactDecryptor({ privateKey });
+    ({ values } = await decryptor.decrypt(artifact));
   } catch (err) {
-    return buildDecryptError(source, "plaintext_parse_failed", (err as Error).message);
+    return buildDecryptError(source, "decrypt_failed", (err as Error).message);
   }
 
   const keys = Object.keys(values);
@@ -199,31 +180,30 @@ async function decryptOne(source: string, params: DecryptParams): Promise<Decryp
   if (params.revealAll) {
     return buildDecryptResult(source, { keys, allValues: values });
   }
-
   return buildDecryptResult(source, { keys });
 }
 
 /**
- * Resolve the age identity per documented precedence:
+ * Resolve an age private key per documented precedence:
  *   1. --identity <path>
  *   2. $CLEF_AGE_KEY_FILE
  *   3. $CLEF_AGE_KEY
  */
 function resolveAgeIdentity(identityPath?: string): string {
-  const decryptor = new AgeDecryptor();
+  const ageDecryptor = new AgeDecryptor();
 
   if (identityPath) {
-    return decryptor.resolveKey(undefined, identityPath);
+    return ageDecryptor.resolveKey(undefined, identityPath);
   }
 
   const envFile = process.env.CLEF_AGE_KEY_FILE;
   if (envFile) {
-    return decryptor.resolveKey(undefined, envFile);
+    return ageDecryptor.resolveKey(undefined, envFile);
   }
 
   const envInline = process.env.CLEF_AGE_KEY;
   if (envInline) {
-    return decryptor.resolveKey(envInline);
+    return ageDecryptor.resolveKey(envInline);
   }
 
   throw new Error(

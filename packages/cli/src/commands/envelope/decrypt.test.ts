@@ -32,12 +32,17 @@ jest.mock("./source", () => ({
   })),
 }));
 
-const mockAgeDecrypt = jest.fn<Promise<string>, [string, string]>();
 const mockAgeResolveKey = jest.fn<string, [string | undefined, string | undefined]>();
+const mockArtifactDecrypt = jest.fn<
+  Promise<{ values: Record<string, string>; keys: string[]; revision: string }>,
+  [unknown]
+>();
 jest.mock("@clef-sh/runtime", () => ({
   AgeDecryptor: jest.fn().mockImplementation(() => ({
-    decrypt: mockAgeDecrypt,
     resolveKey: mockAgeResolveKey,
+  })),
+  ArtifactDecryptor: jest.fn().mockImplementation(() => ({
+    decrypt: mockArtifactDecrypt,
   })),
 }));
 
@@ -75,7 +80,11 @@ function makeProgram(): Command {
 beforeEach(() => {
   jest.clearAllMocks();
   (isJsonMode as jest.Mock).mockReturnValue(false);
-  mockAgeDecrypt.mockResolvedValue(JSON.stringify(FAKE_SECRETS));
+  mockArtifactDecrypt.mockResolvedValue({
+    values: FAKE_SECRETS,
+    keys: Object.keys(FAKE_SECRETS),
+    revision: "test-revision",
+  });
   mockAgeResolveKey.mockImplementation((inline, file) => {
     if (inline) return inline.trim();
     if (file) return `resolved-from-file:${file}`;
@@ -219,9 +228,12 @@ describe("clef envelope decrypt — --reveal", () => {
   });
 
   it("quote-escapes values with special characters in KEY=value output", async () => {
-    mockAgeDecrypt.mockResolvedValue(
-      JSON.stringify({ SIMPLE: "abc", QUOTED: "has spaces", WITH_EQ: "a=b" }),
-    );
+    const specials = { SIMPLE: "abc", QUOTED: "has spaces", WITH_EQ: "a=b" };
+    mockArtifactDecrypt.mockResolvedValue({
+      values: specials,
+      keys: Object.keys(specials),
+      revision: "test-revision",
+    });
     fakeFetch.mockResolvedValue({ raw: JSON.stringify(makeArtifact()) });
 
     const program = makeProgram();
@@ -365,7 +377,9 @@ describe("clef envelope decrypt — validation and failure exit codes", () => {
   });
 
   it("exits 4 on decrypt failure (e.g. wrong key)", async () => {
-    mockAgeDecrypt.mockRejectedValue(new Error("no identity matched any of the file's recipients"));
+    mockArtifactDecrypt.mockRejectedValue(
+      new Error("no identity matched any of the file's recipients"),
+    );
     fakeFetch.mockResolvedValue({ raw: JSON.stringify(makeArtifact()) });
 
     const program = makeProgram();
@@ -434,33 +448,73 @@ describe("clef envelope decrypt — validation and failure exit codes", () => {
 
     expect(mockExit).toHaveBeenCalledWith(1);
   });
+});
 
-  it("refuses KMS envelopes in PR 4 (unsupported_envelope until PR 5)", async () => {
-    const kms = makeArtifact({
+// ── KMS envelope path ─────────────────────────────────────────────────────
+
+describe("clef envelope decrypt — KMS envelope path", () => {
+  function makeKmsArtifact(): PackedArtifact {
+    return makeArtifact({
       envelope: {
         provider: "aws",
-        keyId: "arn:aws:kms:test",
+        keyId: "arn:aws:kms:us-east-1:123456789012:key/abcd-1234",
         wrappedKey: "d3JhcHBlZA==",
         algorithm: "SYMMETRIC_DEFAULT",
         iv: "aXY=",
         authTag: "YXV0aA==",
       },
     });
-    fakeFetch.mockResolvedValue({ raw: JSON.stringify(kms) });
+  }
+
+  it("decrypts KMS envelopes without requiring an age identity", async () => {
+    fakeFetch.mockResolvedValue({ raw: JSON.stringify(makeKmsArtifact()) });
 
     const program = makeProgram();
-    await program.parseAsync([
-      "node",
-      "clef",
-      "envelope",
-      "decrypt",
-      "--identity",
-      "/fake/key.txt",
-      "envelope.json",
-    ]);
+    // No --identity, no CLEF_AGE_* env — should still succeed for KMS
+    await program.parseAsync(["node", "clef", "envelope", "decrypt", "envelope.json"]);
 
-    expect(mockExit).toHaveBeenCalledWith(1);
+    expect(mockExit).toHaveBeenCalledWith(0);
+    // ArtifactDecryptor was invoked with the parsed artifact
+    expect(mockArtifactDecrypt).toHaveBeenCalledTimes(1);
+    const passed = mockArtifactDecrypt.mock.calls[0][0] as PackedArtifact;
+    expect(passed.envelope?.provider).toBe("aws");
+    // Age identity resolution was NOT attempted for the KMS path
+    expect(mockAgeResolveKey).not.toHaveBeenCalled();
+  });
+
+  it("exits 4 on KMS unwrap failure", async () => {
+    mockArtifactDecrypt.mockRejectedValue(new Error("kms:Decrypt AccessDenied"));
+    fakeFetch.mockResolvedValue({ raw: JSON.stringify(makeKmsArtifact()) });
+
+    const program = makeProgram();
+    await program.parseAsync(["node", "clef", "envelope", "decrypt", "envelope.json"]);
+
+    expect(mockExit).toHaveBeenCalledWith(4);
     const msg = (formatter.error as jest.Mock).mock.calls[0][0] as string;
-    expect(msg).toContain("unsupported_envelope");
+    expect(msg).toContain("decrypt_failed");
+    expect(msg).toContain("AccessDenied");
+  });
+
+  it("still hard-fails on hash mismatch for KMS envelopes (before KMS call)", async () => {
+    const bad: PackedArtifact = { ...makeKmsArtifact(), ciphertextHash: "deadbeef".repeat(8) };
+    fakeFetch.mockResolvedValue({ raw: JSON.stringify(bad) });
+
+    const program = makeProgram();
+    await program.parseAsync(["node", "clef", "envelope", "decrypt", "envelope.json"]);
+
+    expect(mockExit).toHaveBeenCalledWith(2);
+    // KMS decrypt should not have been attempted
+    expect(mockArtifactDecrypt).not.toHaveBeenCalled();
+  });
+
+  it("revealed values for KMS envelopes still emit the reveal warning", async () => {
+    fakeFetch.mockResolvedValue({ raw: JSON.stringify(makeKmsArtifact()) });
+
+    const program = makeProgram();
+    await program.parseAsync(["node", "clef", "envelope", "decrypt", "--reveal", "envelope.json"]);
+
+    expect(mockExit).toHaveBeenCalledWith(0);
+    const stderrWrites = mockStderrWrite.mock.calls.map((c) => c[0]?.toString() ?? "").join("");
+    expect(stderrWrites).toMatch(/^WARNING: plaintext will be printed/);
   });
 });
