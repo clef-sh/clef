@@ -381,11 +381,22 @@ export interface DecryptSuccessInputs {
   keys: string[];
   /** Full key-value map, only set when `--reveal` was passed. */
   allValues?: Record<string, string>;
+  /**
+   * Single-key disclosure — set when `--key <name>` was passed. Reduces the
+   * render surface to one value; the rest remain hidden. Mutually exclusive
+   * with `allValues` at the command layer (the command validates this).
+   */
+  singleKey?: { name: string; value: string };
 }
 
 /** Build a success {@link DecryptResult}. Enforces the safe default: names only. */
 export function buildDecryptResult(source: string, inputs: DecryptSuccessInputs): DecryptResult {
-  const values = inputs.allValues ?? null;
+  let values: Record<string, string> | null = null;
+  if (inputs.allValues) {
+    values = inputs.allValues;
+  } else if (inputs.singleKey) {
+    values = { [inputs.singleKey.name]: inputs.singleKey.value };
+  }
   return {
     source,
     status: "ok",

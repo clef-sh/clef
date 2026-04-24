@@ -7,7 +7,7 @@ Inspect, verify, and decrypt packed artifacts produced by [`clef pack`](/cli/pac
 ```bash
 clef envelope inspect <source>...
 clef envelope verify  <source> --signer-key <key>
-clef envelope decrypt <source> --identity <path> [--reveal]
+clef envelope decrypt <source> --identity <path> [--reveal | --key <name>]
 ```
 
 All three commands accept the same source formats: a local file path, an `s3://bucket/key` URL, or an `https://…` URL. S3 URLs use ambient AWS credentials (AWS_PROFILE, AWS_ROLE_ARN, instance role).
@@ -92,7 +92,7 @@ API_KEY
 DB_URL
 REDIS_URL
 
-# Reveal values — prints a warning to stderr before stdout
+# Reveal all values — prints a warning to stderr before stdout
 $ clef envelope decrypt ./artifact.json --identity ~/.age/key.txt --reveal
 WARNING: plaintext will be printed to stdout. Shell history, terminal
 scrollback, and any attached logging (tmux capture-pane, CI log collectors,
@@ -101,14 +101,21 @@ upstream captures are trusted.
 API_KEY=sk_live_123
 DB_URL=postgres://prod-db
 REDIS_URL=redis://prod-cache
+
+# Reveal just one value — narrower disclosure; shoulder-surfers see one
+# secret, not the whole payload
+$ clef envelope decrypt ./artifact.json --identity ~/.age/key.txt --key DB_URL
+WARNING: value for key "DB_URL" will be printed to stdout. ...
+DB_URL=postgres://prod-db
 ```
 
 **Flags**
 
-| Flag                | Type   | Description                                                                                                           |
-| ------------------- | ------ | --------------------------------------------------------------------------------------------------------------------- |
-| `--identity <path>` | string | Path to an age identity file. Overrides `CLEF_AGE_KEY_FILE` and `CLEF_AGE_KEY`. Ignored for KMS-enveloped artifacts.  |
-| `--reveal`          | bool   | Reveal all secret values. Prints a warning to stderr before the first stdout byte; omitting this keeps values hidden. |
+| Flag                | Type   | Description                                                                                                                                                                  |
+| ------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--identity <path>` | string | Path to an age identity file. Overrides `CLEF_AGE_KEY_FILE` and `CLEF_AGE_KEY`. Ignored for KMS-enveloped artifacts.                                                         |
+| `--reveal`          | bool   | Reveal all secret values. Prints a warning to stderr before the first stdout byte. Mutually exclusive with `--key`.                                                          |
+| `--key <name>`      | string | Reveal one named key's value. Narrower disclosure than `--reveal` — only that one value ever reaches stdout. Prints a key-named warning. Mutually exclusive with `--reveal`. |
 
 **Identity resolution** (age-only artifacts):
 
@@ -120,13 +127,13 @@ REDIS_URL=redis://prod-cache
 
 **Exit codes**
 
-| Code | Meaning                                                                                                    |
-| ---- | ---------------------------------------------------------------------------------------------------------- |
-| `0`  | Decrypt succeeded.                                                                                         |
-| `1`  | Generic / bad args / source unreachable / unparseable JSON.                                                |
-| `2`  | Ciphertext hash mismatch (short-circuits before any decrypt).                                              |
-| `4`  | Key resolution failure — no identity configured, or decrypt returned no match. For KMS: KMS unwrap denied. |
-| `5`  | Artifact is expired or revoked.                                                                            |
+| Code | Meaning                                                                                                                                          |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `0`  | Decrypt succeeded.                                                                                                                               |
+| `1`  | Generic / bad args / source unreachable / unparseable JSON.                                                                                      |
+| `2`  | Ciphertext hash mismatch (short-circuits before any decrypt).                                                                                    |
+| `4`  | Key resolution failure — no identity configured, decrypt returned no match, KMS unwrap denied, or `--key <name>` named a key not in the payload. |
+| `5`  | Artifact is expired or revoked.                                                                                                                  |
 
 **Safety invariants**
 
@@ -157,11 +164,13 @@ clef envelope decrypt ./artifact.json --identity ~/.age/key.txt
 # → API_KEY missing from the list? The packer didn't include it.
 ```
 
-**"Check a specific value without leaving it on screen"**
+**"Check a specific value without disclosing the rest"**
 
 ```bash
-clef envelope decrypt ./artifact.json --identity ~/.age/key.txt --reveal \
-  | grep '^DB_URL=' | head -1
+clef envelope decrypt ./artifact.json --identity ~/.age/key.txt --key DB_URL
+# → prints a key-named warning + only the DB_URL line; no other values
+#    ever reach stdout. Preferred over piping `--reveal | grep ...`
+#    because the full payload never renders.
 ```
 
 ## See also

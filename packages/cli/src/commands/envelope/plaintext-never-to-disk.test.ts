@@ -140,7 +140,8 @@ type Scenario = { label: string; args: string[] };
 
 const SCENARIOS: Scenario[] = [
   { label: "default (keys only)", args: ["--identity", "/fake/key.txt"] },
-  { label: "--reveal", args: ["--identity", "/fake/key.txt", "--reveal"] },
+  { label: "--reveal (all values)", args: ["--identity", "/fake/key.txt", "--reveal"] },
+  { label: "--key DB_URL (one value)", args: ["--identity", "/fake/key.txt", "--key", "DB_URL"] },
 ];
 
 describe("plaintext-never-to-disk invariant", () => {

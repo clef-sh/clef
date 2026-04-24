@@ -11,11 +11,12 @@ import {
   buildDecryptResult,
   renderDecryptHuman,
 } from "./format";
-import { REVEAL_WARNING } from "./warnings";
+import { formatRevealWarning } from "./warnings";
 
 interface DecryptOptions {
   identity?: string;
   reveal?: boolean;
+  key?: string;
 }
 
 /**
@@ -57,12 +58,29 @@ export function registerDecryptCommand(parent: Command): void {
       "Path to an age identity file. Overrides CLEF_AGE_KEY_FILE / CLEF_AGE_KEY. Ignored for KMS envelopes.",
     )
     .option("--reveal", "Reveal all secret values (prints a warning to stderr)")
+    .option(
+      "--key <name>",
+      "Reveal just one named key's value. Narrower disclosure than --reveal; safer for shoulder-surfing scenarios.",
+    )
     .action(async (source: string, options: DecryptOptions) => {
       const revealAll = options.reveal === true;
+      const singleKey = options.key;
+
+      if (revealAll && singleKey) {
+        const msg = "--reveal and --key are mutually exclusive; pick one";
+        if (isJsonMode()) {
+          formatter.json({ error: true, message: msg });
+        } else {
+          formatter.error(msg);
+        }
+        process.exit(1);
+        return;
+      }
 
       const result = await decryptOne(source, {
         identityPath: options.identity,
         revealAll,
+        singleKey,
       });
 
       const exitCode = exitCodeFor(result);
@@ -81,8 +99,10 @@ export function registerDecryptCommand(parent: Command): void {
 
       // Reveal warning emits immediately before the first stdout byte of a
       // revealed value. A user who Ctrl-C's on the warning never sees plaintext.
+      // The key-named variant names the single value so the operator can make
+      // an informed disclosure call (narrower surface than --reveal).
       if (result.revealed) {
-        writeStderr(REVEAL_WARNING + "\n");
+        writeStderr(formatRevealWarning(singleKey) + "\n");
       }
 
       if (isJsonMode()) {
@@ -104,6 +124,7 @@ function writeStderr(s: string): void {
 interface DecryptParams {
   identityPath?: string;
   revealAll: boolean;
+  singleKey?: string;
 }
 
 async function decryptOne(source: string, params: DecryptParams): Promise<DecryptResult> {
@@ -177,6 +198,20 @@ async function decryptOne(source: string, params: DecryptParams): Promise<Decryp
 
   const keys = Object.keys(values);
 
+  if (params.singleKey) {
+    if (!(params.singleKey in values)) {
+      return buildDecryptError(
+        source,
+        "unknown_key",
+        `key "${params.singleKey}" not present in decrypted payload`,
+      );
+    }
+    return buildDecryptResult(source, {
+      keys,
+      singleKey: { name: params.singleKey, value: values[params.singleKey] },
+    });
+  }
+
   if (params.revealAll) {
     return buildDecryptResult(source, { keys, allValues: values });
   }
@@ -222,6 +257,7 @@ function exitCodeFor(r: DecryptResult): number {
       return 5;
     case "key_resolution_failed":
     case "decrypt_failed":
+    case "unknown_key":
       return 4;
     default:
       return 1;

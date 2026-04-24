@@ -255,6 +255,126 @@ describe("clef envelope decrypt — --reveal", () => {
   });
 });
 
+// ── --key <name> (narrow disclosure) ──────────────────────────────────────
+
+describe("clef envelope decrypt — --key <name>", () => {
+  it("emits only the named key's value, in --json mode", async () => {
+    fakeFetch.mockResolvedValue({ raw: JSON.stringify(makeArtifact()) });
+    (isJsonMode as jest.Mock).mockReturnValue(true);
+
+    const program = makeProgram();
+    await program.parseAsync([
+      "node",
+      "clef",
+      "envelope",
+      "decrypt",
+      "--identity",
+      "/fake/key.txt",
+      "--key",
+      "DB_URL",
+      "envelope.json",
+    ]);
+
+    expect(mockExit).toHaveBeenCalledWith(0);
+    const payload = (formatter.json as jest.Mock).mock.calls[0][0];
+    expect(payload.revealed).toBe(true);
+    expect(payload.values).toEqual({ DB_URL: "postgres://prod" });
+    // Other keys are listed but not disclosed
+    expect(payload.keys).toContain("API_KEY");
+    expect(payload.keys).toContain("REDIS_URL");
+  });
+
+  it("emits only the named key's KEY=value in human mode", async () => {
+    fakeFetch.mockResolvedValue({ raw: JSON.stringify(makeArtifact()) });
+
+    const program = makeProgram();
+    await program.parseAsync([
+      "node",
+      "clef",
+      "envelope",
+      "decrypt",
+      "--identity",
+      "/fake/key.txt",
+      "--key",
+      "DB_URL",
+      "envelope.json",
+    ]);
+
+    expect(mockExit).toHaveBeenCalledWith(0);
+    const prints = (formatter.print as jest.Mock).mock.calls.map((c) => c[0] as string).join("\n");
+    expect(prints).toContain("DB_URL=postgres://prod");
+    // Other values must NOT leak
+    expect(prints).not.toContain("sk-123");
+    expect(prints).not.toContain("redis://prod");
+  });
+
+  it("emits a key-named reveal warning to stderr", async () => {
+    fakeFetch.mockResolvedValue({ raw: JSON.stringify(makeArtifact()) });
+
+    const program = makeProgram();
+    await program.parseAsync([
+      "node",
+      "clef",
+      "envelope",
+      "decrypt",
+      "--identity",
+      "/fake/key.txt",
+      "--key",
+      "DB_URL",
+      "envelope.json",
+    ]);
+
+    const stderrWrites = mockStderrWrite.mock.calls.map((c) => c[0]?.toString() ?? "").join("");
+    expect(stderrWrites).toContain('value for key "DB_URL" will be printed');
+    // Should NOT use the all-values phrasing
+    expect(stderrWrites).not.toContain("plaintext will be printed to stdout");
+  });
+
+  it("exits 4 when --key names a key that isn't in the payload", async () => {
+    fakeFetch.mockResolvedValue({ raw: JSON.stringify(makeArtifact()) });
+
+    const program = makeProgram();
+    await program.parseAsync([
+      "node",
+      "clef",
+      "envelope",
+      "decrypt",
+      "--identity",
+      "/fake/key.txt",
+      "--key",
+      "NOT_A_REAL_KEY",
+      "envelope.json",
+    ]);
+
+    expect(mockExit).toHaveBeenCalledWith(4);
+    const msg = (formatter.error as jest.Mock).mock.calls[0][0] as string;
+    expect(msg).toContain("unknown_key");
+    expect(msg).toContain("NOT_A_REAL_KEY");
+  });
+
+  it("exits 1 when --reveal and --key are combined (mutually exclusive)", async () => {
+    fakeFetch.mockResolvedValue({ raw: JSON.stringify(makeArtifact()) });
+
+    const program = makeProgram();
+    await program.parseAsync([
+      "node",
+      "clef",
+      "envelope",
+      "decrypt",
+      "--identity",
+      "/fake/key.txt",
+      "--reveal",
+      "--key",
+      "DB_URL",
+      "envelope.json",
+    ]);
+
+    expect(mockExit).toHaveBeenCalledWith(1);
+    const msg = (formatter.error as jest.Mock).mock.calls[0][0] as string;
+    expect(msg).toContain("mutually exclusive");
+  });
+});
+
 // ── Key resolution precedence ─────────────────────────────────────────────
 
 describe("clef envelope decrypt — key resolution precedence", () => {

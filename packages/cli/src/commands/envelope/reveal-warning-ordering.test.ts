@@ -235,6 +235,41 @@ describe("reveal-warning ordering invariant", () => {
     expect(firstWarningIdx).toBeLessThan(firstStdoutIdx);
   });
 
+  it("(2a) --key <name> emits the key-named warning BEFORE the first stdout byte", async () => {
+    fakeFetch.mockResolvedValue({ raw: JSON.stringify(makeArtifact()) });
+
+    const program = makeProgram();
+    await program.parseAsync([
+      "node",
+      "clef",
+      "envelope",
+      "decrypt",
+      "--identity",
+      "/fake/key.txt",
+      "--key",
+      "DB_URL",
+      "envelope.json",
+    ]);
+
+    expect(mockExit).toHaveBeenCalledWith(0);
+
+    const firstWarningIdx = writeLog.findIndex(
+      (w) => w.stream === "stderr" && w.payload.includes('value for key "DB_URL"'),
+    );
+    const firstStdoutIdx = writeLog.findIndex((w) => w.stream === "stdout" && w.payload.length > 0);
+
+    expect(firstWarningIdx).toBeGreaterThanOrEqual(0);
+    expect(firstStdoutIdx).toBeGreaterThanOrEqual(0);
+    expect(firstWarningIdx).toBeLessThan(firstStdoutIdx);
+
+    // And the all-values warning must NOT appear — key variant only
+    const stderrContent = writeLog
+      .filter((w) => w.stream === "stderr")
+      .map((w) => w.payload)
+      .join("");
+    expect(stderrContent).not.toContain("plaintext will be printed to stdout");
+  });
+
   it("(3) does NOT emit the warning when --reveal is absent", async () => {
     fakeFetch.mockResolvedValue({ raw: JSON.stringify(makeArtifact()) });
 

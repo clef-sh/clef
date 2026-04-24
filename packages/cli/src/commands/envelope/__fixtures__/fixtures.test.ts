@@ -119,4 +119,12 @@ describe("envelope-snapshots (binding CLI ↔ UI parity contract)", () => {
     });
     expect(result).toEqual(readFixture("decrypt.revealed.json"));
   });
+
+  it("decrypt.single-key.json matches buildDecryptResult for --key <name>", () => {
+    const result = buildDecryptResult("envelope.json", {
+      keys: DECRYPT_KEYS,
+      singleKey: { name: "DB_URL", value: "postgres://prod" },
+    });
+    expect(result).toEqual(readFixture("decrypt.single-key.json"));
+  });
 });
