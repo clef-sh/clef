@@ -15,7 +15,8 @@ export type ViewName =
   | "backend"
   | "reset"
   | "history"
-  | "manifest";
+  | "manifest"
+  | "envelope";
 
 interface SidebarProps {
   activeView: ViewName;
@@ -93,11 +94,12 @@ export function Sidebar({
         <div>
           <div
             style={{
-              fontFamily: theme.sans,
+              fontFamily: theme.mono,
               fontWeight: 700,
-              fontSize: 16,
+              fontSize: 18,
               color: theme.text,
               letterSpacing: "-0.02em",
+              lineHeight: 1,
             }}
           >
             clef
@@ -205,6 +207,12 @@ export function Sidebar({
           label="Manifest"
           active={activeView === "manifest"}
           onClick={() => setView("manifest")}
+        />
+        <NavItem
+          icon={"\u2709"}
+          label="Envelope"
+          active={activeView === "envelope"}
+          onClick={() => setView("envelope")}
         />
         <NavItem
           icon={"\u23F1"}

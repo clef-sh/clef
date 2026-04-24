@@ -15,6 +15,7 @@ import { ServiceIdentitiesScreen } from "./screens/ServiceIdentitiesScreen";
 import { BackendScreen } from "./screens/BackendScreen";
 import { ResetScreen } from "./screens/ResetScreen";
 import { GitLogView } from "./screens/GitLogView";
+import { EnvelopeScreen } from "./screens/EnvelopeScreen";
 import type { ClefManifest, MatrixStatus, GitStatus, LintResult } from "@clef-sh/core";
 
 export default function App() {
@@ -213,6 +214,7 @@ export default function App() {
         {view === "manifest" && (
           <ManifestScreen manifest={manifest} reloadManifest={loadManifest} />
         )}
+        {view === "envelope" && <EnvelopeScreen />}
       </div>
     </div>
   );
