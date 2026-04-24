@@ -125,6 +125,7 @@ export {
   verifySignature,
   detectAlgorithm,
 } from "./artifact/signer";
+export { computeCiphertextHash } from "./artifact/hash";
 export { PackBackendRegistry } from "./pack/registry";
 export type {
   PackBackend,

@@ -1,12 +1,16 @@
-import * as crypto from "crypto";
 import { SecretsCache } from "./secrets-cache";
 import { ArtifactSource } from "./sources/types";
 import { DiskCache } from "./disk-cache";
 import { EncryptedArtifactStore } from "./encrypted-artifact-store";
 import { ArtifactDecryptor } from "./artifact-decryptor";
 import { TelemetryEmitter } from "./telemetry";
-import { buildSigningPayload, verifySignature } from "./signature";
-import { assertPackedArtifact, InvalidArtifactError } from "@clef-sh/core";
+import {
+  assertPackedArtifact,
+  buildSigningPayload,
+  computeCiphertextHash,
+  InvalidArtifactError,
+  verifySignature,
+} from "@clef-sh/core";
 import type { PackedArtifact } from "@clef-sh/core";
 
 export interface PollerOptions {
@@ -253,7 +257,7 @@ export class ArtifactPoller {
     if (artifact.revision === this.lastRevision) return artifact;
 
     // Verify integrity
-    const hash = crypto.createHash("sha256").update(artifact.ciphertext).digest("hex");
+    const hash = computeCiphertextHash(artifact.ciphertext);
     if (hash !== artifact.ciphertextHash) {
       const err = new Error(
         `Artifact integrity check failed: expected hash ${artifact.ciphertextHash}, got ${hash}`,
