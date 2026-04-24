@@ -681,6 +681,7 @@ function DecryptCard({
   countdown,
 }: DecryptCardProps) {
   const identityConfigured = config?.ageIdentity.configured === true;
+  const identityInline = identityConfigured && config!.ageIdentity.source === "CLEF_AGE_KEY";
   const identityLabel = identityConfigured
     ? config!.ageIdentity.source === "CLEF_AGE_KEY_FILE"
       ? `$CLEF_AGE_KEY_FILE  ·  ${config!.ageIdentity.path ?? ""}`
@@ -696,6 +697,28 @@ function DecryptCard({
 
   return (
     <Card title="Decrypt" subtitle={subtitle}>
+      {identityInline && (
+        <div
+          data-testid="inline-key-warning"
+          style={{
+            marginBottom: 12,
+            padding: "8px 12px",
+            borderRadius: 6,
+            background: theme.yellowDim,
+            border: `1px solid ${theme.yellow}44`,
+            color: theme.yellow,
+            fontFamily: theme.sans,
+            fontSize: 12,
+            lineHeight: 1.5,
+          }}
+        >
+          {"⚠ "} This key was passed inline via <code>$CLEF_AGE_KEY</code>, which lands the secret
+          in your shell history (<code>~/.zsh_history</code>, <code>~/.bash_history</code>) and in{" "}
+          <code>ps aux</code> while the process runs. Prefer pointing at a file:{" "}
+          <code>CLEF_AGE_KEY_FILE=/path/to/key clef ui</code>. Rotate the current key if it may
+          already have been captured.
+        </div>
+      )}
       {result?.error && (
         <ErrorRow
           code={result.error.code}
@@ -1068,11 +1091,10 @@ function decryptErrorHint(
   if (error.code === "key_resolution_failed") {
     return {
       title:
-        "No age key on the server. Stop this server (Ctrl-C) and relaunch clef ui with an age key in the environment:",
+        "No age key on the server. Stop this server (Ctrl-C) and relaunch clef ui pointing at a key file:",
       commands: [
         "CLEF_AGE_KEY_FILE=/path/to/your-key.txt clef ui",
-        "# — or, inline —",
-        "CLEF_AGE_KEY='AGE-SECRET-KEY-1...' clef ui",
+        "# avoid CLEF_AGE_KEY='AGE-SECRET-KEY-...' — the key ends up in shell history",
       ],
     };
   }

@@ -421,7 +421,48 @@ describe("EnvelopeScreen", () => {
     const hint = screen.getByTestId("envelope-error-hint");
     expect(hint.textContent).toMatch(/relaunch clef ui/i);
     expect(hint.textContent).toMatch(/CLEF_AGE_KEY_FILE=/);
-    expect(hint.textContent).toMatch(/CLEF_AGE_KEY='AGE-SECRET-KEY-1\.\.\.'/);
+    // We deliberately no longer suggest the inline CLEF_AGE_KEY=... form —
+    // that lands the secret in shell history. The hint should actively
+    // warn against it, not offer it as an alternative.
+    expect(hint.textContent).toMatch(/avoid CLEF_AGE_KEY=/);
+    expect(hint.textContent).not.toMatch(/CLEF_AGE_KEY='AGE-SECRET-KEY-1\.\.\.'/);
+  });
+
+  it("warns that CLEF_AGE_KEY (inline) leaks to shell history when the server uses it", async () => {
+    global.fetch = routeStubs([
+      {
+        match: (u) => u.endsWith("/api/envelope/config"),
+        body: {
+          ageIdentity: { configured: true, source: "CLEF_AGE_KEY", path: null },
+          aws: { hasCredentials: false, profile: null },
+        },
+      },
+      { match: (u) => u.endsWith("/api/envelope/inspect"), body: inspectOk },
+    ]);
+
+    await act(async () => {
+      render(<EnvelopeScreen />);
+    });
+    await typeAndLoad(ARTIFACT_JSON);
+
+    const warning = screen.getByTestId("inline-key-warning");
+    expect(warning.textContent).toMatch(/shell history/i);
+    expect(warning.textContent).toMatch(/CLEF_AGE_KEY_FILE=/);
+    expect(warning.textContent).toMatch(/Rotate/i);
+  });
+
+  it("does not render the inline-key warning when the source is CLEF_AGE_KEY_FILE", async () => {
+    global.fetch = routeStubs([
+      { match: (u) => u.endsWith("/api/envelope/config"), body: configConfigured },
+      { match: (u) => u.endsWith("/api/envelope/inspect"), body: inspectOk },
+    ]);
+
+    await act(async () => {
+      render(<EnvelopeScreen />);
+    });
+    await typeAndLoad(ARTIFACT_JSON);
+
+    expect(screen.queryByTestId("inline-key-warning")).toBeNull();
   });
 
   it("shows a service-identity hint when decrypt fails with 'no identity matched'", async () => {
