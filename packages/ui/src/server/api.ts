@@ -48,6 +48,7 @@ import {
   runCompliance,
 } from "@clef-sh/core";
 import type { BackendType, ImportFormat, MigrationProgressEvent, ResetScope } from "@clef-sh/core";
+import { registerEnvelopeRoutes } from "./envelope";
 
 export interface ApiDeps {
   runner: SubprocessRunner;
@@ -1616,6 +1617,9 @@ export function createApiRouter(deps: ApiDeps): Router {
       res.status(500).json({ error: message, code: "SYNC_ERROR" });
     }
   });
+
+  // ── Envelope debugger (paste-only, server-side keys) ─────────────────
+  registerEnvelopeRoutes(router, { ageKeyFile: deps.ageKeyFile, ageKey: deps.ageKey });
 
   function dispose(): void {
     lastScanResult = null;

@@ -35,6 +35,7 @@
   },
   "dependencies": {
     "@clef-sh/core": "0.1.20",
+    "@clef-sh/runtime": "0.1.23",
     "express": "^5.1.0",
     "express-rate-limit": "^8.3.2",
     "yaml": "^2.8.3"
