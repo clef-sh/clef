@@ -144,7 +144,13 @@ export default function App() {
               marginBottom: 12,
             }}
           >
-            {"\u266A"}
+            <img
+              src="/clef.svg"
+              alt=""
+              width="20"
+              height="44"
+              style={{ filter: "drop-shadow(0 0 10px rgba(240,165,0,0.35))" }}
+            />
           </div>
           <div style={{ fontSize: 13 }}>Loading...</div>
         </div>

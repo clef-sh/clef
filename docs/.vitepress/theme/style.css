@@ -112,6 +112,15 @@ body {
   -webkit-text-fill-color: transparent;
 }
 
+/* Nav-bar wordmark — mono, matching the Cloud app's .clef-wordmark.
+ * VitePress renders the site title as `.VPNavBarTitle .title`; the mono
+ * stack keeps the brand coherent across app / docs / marketing. */
+.VPNavBarTitle .title {
+  font-family: var(--clef-font-mono);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
 /* Text selection — matches the cloud system */
 ::selection {
   background-color: var(--clef-gold-500);
