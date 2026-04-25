@@ -136,7 +136,7 @@ describe("SchemaEditor", () => {
     });
   });
 
-  it("shows a miss when the pattern doesn't match the sample", async () => {
+  it("shows a miss when the pattern doesn't match the sample, and never echoes the value", async () => {
     mockRoutes({
       schema: {
         ok: true,
@@ -152,8 +152,11 @@ describe("SchemaEditor", () => {
       render(<SchemaEditor ns="auth" manifest={manifest} />);
     });
     await waitFor(() => {
-      expect(screen.getByText(/does not match sample/)).toBeInTheDocument();
+      expect(screen.getByText(/did not match/)).toBeInTheDocument();
     });
+    // The decrypted sample value must not appear anywhere in the rendered
+    // result — only the binary match/miss outcome is leaked.
+    expect(screen.queryByText(/sk_test_abc/)).toBeNull();
   });
 
   it("flags an invalid regex as a row error and disables Save", async () => {

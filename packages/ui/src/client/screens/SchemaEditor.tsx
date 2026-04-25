@@ -312,6 +312,16 @@ function SchemaRow(props: {
   const { row, error, sampleValue, onChange, onRemove } = props;
   const patternMatchState = patternMatch(row.pattern, sampleValue);
 
+  // Brief "checking" state on every pattern/sample change so the user sees
+  // the test get re-run rather than the result just silently changing.
+  const [checking, setChecking] = useState(false);
+  useEffect(() => {
+    if (!row.pattern || row.type !== "string") return;
+    setChecking(true);
+    const t = setTimeout(() => setChecking(false), 180);
+    return () => clearTimeout(t);
+  }, [row.pattern, sampleValue, row.type]);
+
   return (
     <div
       style={{
@@ -379,25 +389,63 @@ function SchemaRow(props: {
             gridColumn: "1 / span 5",
             fontFamily: theme.mono,
             fontSize: 11,
-            color:
-              patternMatchState === "match"
-                ? theme.greenDim
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            color: checking
+              ? theme.textMuted
+              : patternMatchState === "match"
+                ? theme.green
                 : patternMatchState === "miss"
                   ? theme.red
                   : theme.textMuted,
           }}
         >
-          {sampleValue === undefined
-            ? "No sample value in the selected env."
-            : patternMatchState === "invalid"
-              ? "Invalid regex."
-              : patternMatchState === "match"
-                ? `✔  matches sample value`
-                : `✖  does not match sample: ${truncate(sampleValue, 60)}`}
+          {checking ? (
+            <>
+              <Spinner />
+              <span>testing…</span>
+            </>
+          ) : sampleValue === undefined ? (
+            <span>No sample value in the selected env.</span>
+          ) : patternMatchState === "invalid" ? (
+            <span>Invalid regex.</span>
+          ) : patternMatchState === "match" ? (
+            <span data-testid="pattern-result">✔ matches sample value</span>
+          ) : (
+            <span data-testid="pattern-result">✖ did not match</span>
+          )}
         </div>
       )}
     </div>
   );
+}
+
+function Spinner() {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        display: "inline-block",
+        width: 10,
+        height: 10,
+        border: `1.5px solid ${theme.border}`,
+        borderTopColor: theme.text,
+        borderRadius: "50%",
+        animation: "clef-schema-spin 0.6s linear infinite",
+      }}
+    />
+  );
+}
+
+// Inject the spinner keyframes once. Repo uses inline-styles everywhere
+// (no CSS files), but @keyframes can't be expressed in a style attribute,
+// so the global stylesheet is the lightest-weight escape hatch.
+if (typeof document !== "undefined" && !document.getElementById("clef-schema-keyframes")) {
+  const style = document.createElement("style");
+  style.id = "clef-schema-keyframes";
+  style.textContent = "@keyframes clef-schema-spin { to { transform: rotate(360deg); } }";
+  document.head.appendChild(style);
 }
 
 function inputStyle(opts?: { mono?: boolean; disabled?: boolean }): React.CSSProperties {
@@ -482,8 +530,4 @@ function validateRows(rows: KeyRow[]): { ok: boolean; rowErrors: Record<number, 
     }
   });
   return { ok: Object.keys(rowErrors).length === 0, rowErrors };
-}
-
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : s.slice(0, n - 1) + "…";
 }
