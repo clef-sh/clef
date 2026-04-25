@@ -233,6 +233,33 @@ export function createApiRouter(deps: ApiDeps): Router {
     return null;
   }
 
+  // Whitelist matching clef's own ENV_NAME_PATTERN (manifest/parser.ts). Used
+  // on the URL `:ns` param so it cannot smuggle `..`, `/`, NUL, etc. into a
+  // default schema filename like `schemas/${ns}.yaml`.
+  const SAFE_NAMESPACE_PARAM = /^[a-z][a-z0-9_-]*$/;
+  function isSafeNamespaceParam(ns: string): boolean {
+    return SAFE_NAMESPACE_PARAM.test(ns);
+  }
+
+  // Validate a manifest- or request-supplied schema path is a safe relative
+  // path string before it reaches the FS. This is the sanitizer CodeQL's
+  // `js/path-injection` query recognizes — `resolvePathWithinRoot` stays as
+  // belt-and-suspenders, but the explicit shape check is what clears the
+  // taint flow analysis.
+  function isSafeSchemaRelPath(p: string): boolean {
+    if (p.length === 0 || p.includes("\0")) return false;
+    if (path.isAbsolute(p)) return false;
+    // Reject `..` traversal in either separator. Normalize must be a no-op —
+    // any `./`, `../`, or doubled separator means the input was already not
+    // in canonical form, which is suspicious for a manifest field.
+    const normalized = path.posix.normalize(p.replace(/\\/g, "/"));
+    if (normalized !== p.replace(/\\/g, "/")) return false;
+    if (normalized === ".." || normalized.startsWith("../") || normalized.includes("/../")) {
+      return false;
+    }
+    return true;
+  }
+
   // Defense-in-depth rate limit applied to every /api route.  This server
   // binds to 127.0.0.1 only and gates /api on a session bearer token, so
   // remote DoS is not the threat model — the limiter exists to bound a
@@ -730,6 +757,10 @@ export function createApiRouter(deps: ApiDeps): Router {
     try {
       const manifest = loadManifest();
       const { ns } = req.params;
+      if (!isSafeNamespaceParam(ns)) {
+        res.status(400).json({ error: "Invalid namespace.", code: "INVALID_NAMESPACE" });
+        return;
+      }
       const nsDef = manifest.namespaces.find((n) => n.name === ns);
       if (!nsDef) {
         res.status(404).json({ error: `Namespace '${ns}' not found.`, code: "NOT_FOUND" });
@@ -737,6 +768,13 @@ export function createApiRouter(deps: ApiDeps): Router {
       }
       if (!nsDef.schema) {
         res.json({ namespace: ns, attached: false, path: null, schema: { keys: {} } });
+        return;
+      }
+      if (!isSafeSchemaRelPath(nsDef.schema)) {
+        res.status(400).json({
+          error: `Schema path '${nsDef.schema}' attached to '${ns}' is not a safe relative path.`,
+          code: "SCHEMA_PATH_INVALID",
+        });
         return;
       }
       const absPath = resolvePathWithinRoot(deps.repoRoot, nsDef.schema);
@@ -772,6 +810,10 @@ export function createApiRouter(deps: ApiDeps): Router {
     try {
       const manifest = loadManifest();
       const { ns } = req.params;
+      if (!isSafeNamespaceParam(ns)) {
+        res.status(400).json({ error: "Invalid namespace.", code: "INVALID_NAMESPACE" });
+        return;
+      }
       const body = req.body as { schema?: unknown; path?: unknown };
 
       const nsDef = manifest.namespaces.find((n) => n.name === ns);
@@ -793,7 +835,21 @@ export function createApiRouter(deps: ApiDeps): Router {
 
       const requestedRelPath =
         typeof body.path === "string" && body.path.length > 0 ? body.path : null;
+      if (requestedRelPath !== null && !isSafeSchemaRelPath(requestedRelPath)) {
+        res.status(400).json({
+          error: "Schema path must be a safe relative path.",
+          code: "SCHEMA_PATH_INVALID",
+        });
+        return;
+      }
       const relPath = nsDef.schema ?? requestedRelPath ?? `schemas/${ns}.yaml`;
+      if (!isSafeSchemaRelPath(relPath)) {
+        res.status(400).json({
+          error: "Schema path must be a safe relative path.",
+          code: "SCHEMA_PATH_INVALID",
+        });
+        return;
+      }
       const absPath = resolvePathWithinRoot(deps.repoRoot, relPath);
       if (!absPath) {
         res.status(400).json({

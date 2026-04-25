@@ -820,6 +820,45 @@ describe("API routes", () => {
         expect(res.body.code).toBe("SCHEMA_PATH_INVALID");
         expect(mockWriteSchema).not.toHaveBeenCalled();
       });
+
+      it("rejects body.path that hides a `..` segment behind a safe-looking prefix", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        const res = await request(app)
+          .put("/api/namespaces/database/schema")
+          .send({
+            schema: { keys: {} },
+            path: "schemas/../../../etc/clef-injected.yaml",
+          });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe("SCHEMA_PATH_INVALID");
+        expect(mockWriteSchema).not.toHaveBeenCalled();
+      });
+
+      it("rejects body.path containing a NUL byte", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        const res = await request(app)
+          .put("/api/namespaces/database/schema")
+          .send({
+            schema: { keys: {} },
+            path: "schemas/db\0.yaml",
+          });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe("SCHEMA_PATH_INVALID");
+        expect(mockWriteSchema).not.toHaveBeenCalled();
+      });
+
+      it("rejects a namespace param that does not match the safe identifier pattern", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        // Uppercase fails the lowercase-only whitelist (clef's own
+        // ENV_NAME_PATTERN). The default `schemas/${ns}.yaml` fallback must
+        // never be built from a name that hasn't been pattern-checked.
+        const res = await request(app)
+          .put("/api/namespaces/BadNs/schema")
+          .send({ schema: { keys: {} } });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe("INVALID_NAMESPACE");
+        expect(mockWriteSchema).not.toHaveBeenCalled();
+      });
     });
   });
 
