@@ -15,6 +15,14 @@ export {
 export type { ScanMatch, ScanResult, ScanOptions, ClefIgnoreRules } from "./scanner";
 export { MatrixManager } from "./matrix/manager";
 export { SchemaValidator } from "./schema/validator";
+export {
+  serializeSchema,
+  writeSchema,
+  writeSchemaRaw,
+  emptyTemplate,
+  exampleTemplate,
+} from "./schema/writer";
+export type { SerializeSchemaOptions } from "./schema/writer";
 export { DiffEngine } from "./diff/engine";
 export { BulkOps } from "./bulk/ops";
 export { GitIntegration } from "./git/integration";
