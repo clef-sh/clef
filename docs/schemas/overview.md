@@ -48,8 +48,6 @@ keys:
   DB_POOL_SIZE:
     type: integer
     required: false
-    default: 10
-    max: 100
   DB_SSL:
     type: boolean
     required: true
