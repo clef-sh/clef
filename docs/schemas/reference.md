@@ -13,8 +13,6 @@ keys:
     required: true | false
     description: "Human-readable description"
     pattern: "^regex$"
-    default: value
-    max: number
 ```
 
 ## Field reference
@@ -23,14 +21,12 @@ keys:
 
 The top-level map. Each entry's name is the expected key name in the encrypted file.
 
-| Field         | Type      | Required | Default | Description                                                                                                   |
-| ------------- | --------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------- |
-| `type`        | `string`  | Yes      | —       | The expected value type. Must be one of `"string"`, `"integer"`, or `"boolean"`.                              |
-| `required`    | `boolean` | Yes      | —       | If `true`, `clef lint` reports an error when this key is missing from an encrypted file.                      |
-| `description` | `string`  | No       | —       | Human-readable description of the key. Shown in the UI as a tooltip or inline annotation.                     |
-| `pattern`     | `string`  | No       | —       | A regex pattern that the value must match. Only applies to `string` type keys.                                |
-| `default`     | `any`     | No       | —       | A suggested default value. Informational; Clef does not auto-populate defaults.                               |
-| `max`         | `number`  | No       | —       | Maximum numeric value. Only applies to `integer` type keys. Exceeding this produces a warning (not an error). |
+| Field         | Type      | Required | Default | Description                                                                               |
+| ------------- | --------- | -------- | ------- | ----------------------------------------------------------------------------------------- |
+| `type`        | `string`  | Yes      | —       | The expected value type. Must be one of `"string"`, `"integer"`, or `"boolean"`.          |
+| `required`    | `boolean` | Yes      | —       | If `true`, `clef lint` reports an error when this key is missing from an encrypted file.  |
+| `description` | `string`  | No       | —       | Human-readable description of the key. Shown in the UI as a tooltip or inline annotation. |
+| `pattern`     | `string`  | No       | —       | A regex pattern that the value must match. Only applies to `string` type keys.            |
 
 ## Type validation rules
 
@@ -63,19 +59,6 @@ keys:
 **Passes:** `5432`, `3306`, `0`
 **Fails:** `abc`, `3.14`, `` (empty string)
 
-With a `max` constraint:
-
-```yaml
-keys:
-  DB_POOL_SIZE:
-    type: integer
-    required: false
-    max: 100
-```
-
-**Passes:** `10`, `50`, `100`
-**Warning:** `150` (exceeds max — this is a warning, not an error)
-
 ### `boolean`
 
 The value must be exactly `"true"` or `"false"` (case-insensitive).
@@ -104,10 +87,9 @@ Schema validation produces two categories of results:
 
 ### Warnings (informational)
 
-| Rule           | Condition                                      | Example message                                       |
-| -------------- | ---------------------------------------------- | ----------------------------------------------------- |
-| `undeclared`   | A key exists in the file but not in the schema | `Key 'LEGACY_DB_HOST' is not declared in the schema.` |
-| `max_exceeded` | An integer value exceeds the `max` constraint  | `Key 'DB_POOL_SIZE' value 150 exceeds maximum 100.`   |
+| Rule         | Condition                                      | Example message                                       |
+| ------------ | ---------------------------------------------- | ----------------------------------------------------- |
+| `undeclared` | A key exists in the file but not in the schema | `Key 'LEGACY_DB_HOST' is not declared in the schema.` |
 
 ## Complete example
 
@@ -136,8 +118,6 @@ keys:
   DB_POOL_SIZE:
     type: integer
     required: false
-    default: 10
-    max: 100
     description: Connection pool size
   DB_SSL:
     type: boolean
@@ -166,12 +146,11 @@ Result: **valid** — 0 errors, 0 warnings.
 DATABASE_URL: "mysql://user:pass@db.example.com:3306/mydb"
 DB_HOST: "db.example.com"
 DB_PORT: "not-a-number"
-DB_POOL_SIZE: "150"
 DB_SSL: "yes"
 LEGACY_BACKUP_HOST: "old-db.example.com"
 ```
 
-Result: **invalid** — 4 errors, 2 warnings:
+Result: **invalid** — 4 errors, 1 warning:
 
 | Severity | Key                  | Message                                              |
 | -------- | -------------------- | ---------------------------------------------------- |
@@ -179,7 +158,6 @@ Result: **invalid** — 4 errors, 2 warnings:
 | Error    | `DB_PORT`            | Must be an integer, got `not-a-number`               |
 | Error    | `DB_PASSWORD`        | Required key is missing                              |
 | Error    | `DB_SSL`             | Must be a boolean (`true` or `false`), got `yes`     |
-| Warning  | `DB_POOL_SIZE`       | Value 150 exceeds maximum 100                        |
 | Warning  | `LEGACY_BACKUP_HOST` | Not declared in the schema                           |
 
 ## Referencing a schema in the manifest

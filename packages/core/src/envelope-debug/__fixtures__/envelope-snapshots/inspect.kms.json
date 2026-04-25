@@ -1,0 +1,30 @@
+{
+  "source": "envelope.json",
+  "version": 1,
+  "identity": "aws-lambda",
+  "environment": "dev",
+  "packedAt": "2026-04-23T06:00:00.000Z",
+  "packedAtAgeMs": 21600000,
+  "revision": "1776880279983-24310ee5",
+  "ciphertextHash": "b555077dd41b180ebae2c2fc96665cebe1b9c164ca418c2b132786fdbec267fb",
+  "ciphertextHashVerified": true,
+  "ciphertextBytes": 31,
+  "expiresAt": "2026-04-30T06:00:00.000Z",
+  "expired": false,
+  "revokedAt": null,
+  "revoked": false,
+  "envelope": {
+    "provider": "aws",
+    "kms": {
+      "provider": "aws",
+      "keyId": "arn:aws:kms:us-east-1:123456789012:key/abcd-1234",
+      "algorithm": "SYMMETRIC_DEFAULT"
+    }
+  },
+  "signature": {
+    "present": true,
+    "algorithm": "Ed25519",
+    "verified": null
+  },
+  "error": null
+}

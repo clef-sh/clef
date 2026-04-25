@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { theme } from "../theme";
 import { apiFetch } from "../api";
-import { TopBar } from "../components/TopBar";
 import { Button } from "../components/Button";
 import { EnvBadge } from "../components/EnvBadge";
 import { CopyButton } from "../components/CopyButton";
+import { Toolbar, Table, EmptyState } from "../primitives";
 import type { ClefManifest, DiffResult } from "@clef-sh/core";
 
 interface DiffViewProps {
@@ -12,8 +11,13 @@ interface DiffViewProps {
 }
 
 function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max) + "\u2026" : s;
+  return s.length > max ? s.slice(0, max) + "…" : s;
 }
+
+const SELECT_CLASSES =
+  "rounded-md border border-edge bg-ink-850 px-2.5 py-1 font-mono text-[12px] text-bone cursor-pointer focus:outline-none focus:border-edge-strong";
+
+type DiffStatus = "changed" | "identical" | "missing_a" | "missing_b";
 
 export function DiffView({ manifest }: DiffViewProps) {
   const environments = manifest?.environments ?? [];
@@ -65,19 +69,79 @@ export function DiffView({ manifest }: DiffViewProps) {
   const identicalCount = rows.filter((r) => r.status === "identical").length;
   const missingRows = rows.filter((r) => r.status === "missing_a" || r.status === "missing_b");
 
-  const statusMeta: Record<string, { label: string; color: string }> = {
-    changed: { label: "Changed", color: theme.yellow },
-    identical: { label: "Identical", color: theme.textMuted },
-    missing_a: { label: `Missing in ${envA}`, color: theme.red },
-    missing_b: { label: `Missing in ${envB}`, color: theme.red },
+  const statusMeta: Record<
+    DiffStatus,
+    { label: string; text: string; bg: string; border: string }
+  > = {
+    changed: {
+      label: "Changed",
+      text: "text-warn-500",
+      bg: "bg-warn-500/10",
+      border: "border-warn-500/30",
+    },
+    identical: {
+      label: "Identical",
+      text: "text-ash",
+      bg: "bg-ash/10",
+      border: "border-ash/20",
+    },
+    missing_a: {
+      label: `Missing in ${envA}`,
+      text: "text-stop-500",
+      bg: "bg-stop-500/10",
+      border: "border-stop-500/30",
+    },
+    missing_b: {
+      label: `Missing in ${envB}`,
+      text: "text-stop-500",
+      bg: "bg-stop-500/10",
+      border: "border-stop-500/30",
+    },
   };
 
+  const summaryPills: Array<{ label: string; text: string; bg: string; border: string }> = [
+    {
+      label: `${changedCount} changed`,
+      text: "text-warn-500",
+      bg: "bg-warn-500/10",
+      border: "border-warn-500/30",
+    },
+    ...(missingACount > 0
+      ? [
+          {
+            label: `${missingACount} missing in ${envA}`,
+            text: "text-stop-500",
+            bg: "bg-stop-500/10",
+            border: "border-stop-500/30",
+          },
+        ]
+      : []),
+    ...(missingBCount > 0
+      ? [
+          {
+            label: `${missingBCount} missing in ${envB}`,
+            text: "text-stop-500",
+            bg: "bg-stop-500/10",
+            border: "border-stop-500/30",
+          },
+        ]
+      : []),
+    {
+      label: `${identicalCount} identical`,
+      text: "text-ash",
+      bg: "bg-ash/10",
+      border: "border-ash/20",
+    },
+  ];
+
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <TopBar
-        title="Environment Diff"
-        subtitle="Compare secrets across environments"
-        actions={
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <Toolbar>
+        <div>
+          <Toolbar.Title>Environment Diff</Toolbar.Title>
+          <Toolbar.Subtitle>Compare secrets across environments</Toolbar.Subtitle>
+        </div>
+        <Toolbar.Actions>
           <Button
             variant="primary"
             data-testid="sync-missing-btn"
@@ -86,69 +150,26 @@ export function DiffView({ manifest }: DiffViewProps) {
               setTimeout(() => setToastVisible(false), 2000);
             }}
           >
-            Sync missing keys {"\u2192"}
+            Sync missing keys {"→"}
           </Button>
-        }
-      />
+        </Toolbar.Actions>
+      </Toolbar>
 
       {/* Toast */}
       {toastVisible && (
         <div
           data-testid="coming-soon-toast"
-          style={{
-            position: "fixed",
-            top: 20,
-            right: 20,
-            padding: "10px 18px",
-            background: theme.surface,
-            border: `1px solid ${theme.accent}44`,
-            borderRadius: 8,
-            fontFamily: theme.sans,
-            fontSize: 12,
-            color: theme.accent,
-            zIndex: 1000,
-          }}
+          className="fixed right-5 top-5 z-[1000] rounded-md border border-gold-500/30 bg-ink-850 px-4 py-2.5 font-sans text-[12px] text-gold-500"
         >
           Coming soon
         </div>
       )}
 
       {/* Controls */}
-      <div
-        style={{
-          padding: "14px 24px",
-          background: "#0D0F14",
-          borderBottom: `1px solid ${theme.border}`,
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          flexWrap: "wrap",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span
-            style={{
-              fontFamily: theme.sans,
-              fontSize: 12,
-              color: theme.textMuted,
-            }}
-          >
-            Namespace
-          </span>
-          <select
-            value={ns}
-            onChange={(e) => setNs(e.target.value)}
-            style={{
-              background: theme.surface,
-              border: `1px solid ${theme.border}`,
-              borderRadius: 6,
-              padding: "5px 10px",
-              fontFamily: theme.mono,
-              fontSize: 12,
-              color: theme.text,
-              cursor: "pointer",
-            }}
-          >
+      <div className="flex flex-wrap items-center gap-3 border-b border-edge bg-ink-800 px-6 py-3.5">
+        <div className="flex items-center gap-2">
+          <span className="font-sans text-[12px] text-ash">Namespace</span>
+          <select value={ns} onChange={(e) => setNs(e.target.value)} className={SELECT_CLASSES}>
             {namespaces.map((n) => (
               <option key={n.name} value={n.name}>
                 {n.name}
@@ -157,59 +178,17 @@ export function DiffView({ manifest }: DiffViewProps) {
           </select>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span
-            style={{
-              fontFamily: theme.sans,
-              fontSize: 12,
-              color: theme.textMuted,
-            }}
-          >
-            Compare
-          </span>
-          <select
-            value={envA}
-            onChange={(e) => setEnvA(e.target.value)}
-            style={{
-              background: theme.surface,
-              border: `1px solid ${theme.border}`,
-              borderRadius: 6,
-              padding: "5px 10px",
-              fontFamily: theme.mono,
-              fontSize: 12,
-              color: theme.text,
-              cursor: "pointer",
-            }}
-          >
+        <div className="flex items-center gap-2">
+          <span className="font-sans text-[12px] text-ash">Compare</span>
+          <select value={envA} onChange={(e) => setEnvA(e.target.value)} className={SELECT_CLASSES}>
             {environments.map((e) => (
               <option key={e.name} value={e.name}>
                 {e.name}
               </option>
             ))}
           </select>
-          <span
-            style={{
-              fontFamily: theme.mono,
-              fontSize: 12,
-              color: theme.textDim,
-            }}
-          >
-            {"\u2192"}
-          </span>
-          <select
-            value={envB}
-            onChange={(e) => setEnvB(e.target.value)}
-            style={{
-              background: theme.surface,
-              border: `1px solid ${theme.border}`,
-              borderRadius: 6,
-              padding: "5px 10px",
-              fontFamily: theme.mono,
-              fontSize: 12,
-              color: theme.text,
-              cursor: "pointer",
-            }}
-          >
+          <span className="font-mono text-[12px] text-ash-dim">{"→"}</span>
+          <select value={envB} onChange={(e) => setEnvB(e.target.value)} className={SELECT_CLASSES}>
             {environments.map((e) => (
               <option key={e.name} value={e.name}>
                 {e.name}
@@ -218,317 +197,147 @@ export function DiffView({ manifest }: DiffViewProps) {
           </select>
         </div>
 
-        <div style={{ flex: 1 }} />
+        <div className="flex-1" />
 
-        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+        <label className="flex cursor-pointer items-center gap-1.5">
           <input
             type="checkbox"
             checked={showValues}
             onChange={(e) => setShowValues(e.target.checked)}
             data-testid="show-values-toggle"
-            style={{ accentColor: theme.accent }}
+            className="accent-gold-500"
           />
-          <span
-            style={{
-              fontFamily: theme.sans,
-              fontSize: 12,
-              color: theme.textMuted,
-            }}
-          >
-            Show values
-          </span>
+          <span className="font-sans text-[12px] text-ash">Show values</span>
         </label>
 
-        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+        <label className="flex cursor-pointer items-center gap-1.5">
           <input
             type="checkbox"
             checked={showSame}
             onChange={(e) => setShowSame(e.target.checked)}
-            style={{ accentColor: theme.accent }}
+            className="accent-gold-500"
           />
-          <span
-            style={{
-              fontFamily: theme.sans,
-              fontSize: 12,
-              color: theme.textMuted,
-            }}
-          >
-            Show identical
-          </span>
+          <span className="font-sans text-[12px] text-ash">Show identical</span>
         </label>
       </div>
 
       {/* Summary strip */}
-      <div
-        style={{
-          padding: "10px 24px",
-          display: "flex",
-          gap: 10,
-          borderBottom: `1px solid ${theme.border}`,
-        }}
-      >
-        {[
-          { label: `${changedCount} changed`, color: theme.yellow },
-          ...(missingACount > 0
-            ? [{ label: `${missingACount} missing in ${envA}`, color: theme.red }]
-            : []),
-          ...(missingBCount > 0
-            ? [{ label: `${missingBCount} missing in ${envB}`, color: theme.red }]
-            : []),
-          { label: `${identicalCount} identical`, color: theme.textMuted },
-        ].map((p) => (
+      <div className="flex gap-2.5 border-b border-edge px-6 py-2.5">
+        {summaryPills.map((p) => (
           <span
             key={p.label}
-            style={{
-              fontFamily: theme.mono,
-              fontSize: 11,
-              color: p.color,
-              background: `${p.color}14`,
-              border: `1px solid ${p.color}33`,
-              borderRadius: 20,
-              padding: "2px 10px",
-            }}
+            className={`rounded-pill border px-2.5 py-px font-mono text-[11px] ${p.text} ${p.bg} ${p.border}`}
           >
             {p.label}
           </span>
         ))}
       </div>
 
-      <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-        {loading && <p style={{ color: theme.textMuted, fontFamily: theme.sans }}>Loading...</p>}
+      <div className="flex-1 overflow-auto p-6">
+        {loading && <EmptyState title="Loading..." body="Computing diff between environments" />}
 
         {!loading && (
           <>
-            <div
-              data-testid="diff-table"
-              style={{
-                background: theme.surface,
-                border: `1px solid ${theme.border}`,
-                borderRadius: 10,
-                overflow: "hidden",
-              }}
-            >
-              {/* Header */}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "220px 1fr 1fr 100px",
-                  background: "#0D0F14",
-                  padding: "10px 20px",
-                  borderBottom: `1px solid ${theme.border}`,
-                }}
-              >
-                <span
-                  style={{
-                    fontFamily: theme.sans,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: theme.textMuted,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.07em",
-                  }}
-                >
-                  Key
-                </span>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <EnvBadge env={envA} small />
-                  <span
-                    style={{
-                      fontFamily: theme.sans,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      color: theme.textMuted,
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    {envA}
-                  </span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <EnvBadge env={envB} small />
-                  <span
-                    style={{
-                      fontFamily: theme.sans,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      color: theme.textMuted,
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    {envB}
-                  </span>
-                </div>
-                <span
-                  style={{
-                    fontFamily: theme.sans,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: theme.textMuted,
-                    textTransform: "uppercase",
-                  }}
-                >
-                  Status
-                </span>
-              </div>
-
-              {filtered.map((row, i) => {
-                const meta = statusMeta[row.status];
-                return (
-                  <div
-                    key={row.key}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "220px 1fr 1fr 100px",
-                      padding: "0 20px",
-                      minHeight: 48,
-                      alignItems: "center",
-                      borderBottom: i < filtered.length - 1 ? `1px solid ${theme.border}` : "none",
-                      background:
-                        row.status === "changed"
-                          ? `${theme.yellow}06`
-                          : row.status.startsWith("missing")
-                            ? `${theme.red}06`
-                            : "transparent",
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontFamily: theme.mono,
-                        fontSize: 12,
-                        color: theme.text,
-                        paddingRight: 16,
-                      }}
-                    >
-                      {row.key}
-                    </span>
-
-                    {/* Env A value */}
-                    <div style={{ paddingRight: 16 }}>
-                      {row.valueA !== null ? (
-                        <span
-                          style={{
-                            fontFamily: theme.mono,
-                            fontSize: 11,
-                            color: row.status === "changed" ? theme.yellow : theme.textMuted,
-                            background: row.status === "changed" ? theme.yellowDim : "transparent",
-                            padding: row.status === "changed" ? "2px 6px" : "0",
-                            borderRadius: 3,
-                          }}
-                        >
-                          {truncate(row.valueA, 36)}
-                        </span>
-                      ) : (
-                        <span
-                          style={{
-                            fontFamily: theme.mono,
-                            fontSize: 11,
-                            color: theme.textDim,
-                            fontStyle: "italic",
-                          }}
-                        >
-                          {"\u2014"} not set {"\u2014"}
-                        </span>
-                      )}
+            <Table data-testid="diff-table">
+              <Table.Header>
+                <tr>
+                  <Table.HeaderCell className="w-[220px]">Key</Table.HeaderCell>
+                  <Table.HeaderCell>
+                    <div className="flex items-center gap-2">
+                      <EnvBadge env={envA} small />
+                      <span>{envA}</span>
                     </div>
-
-                    {/* Env B value */}
-                    <div style={{ paddingRight: 16 }}>
-                      {row.valueB !== null ? (
-                        <span
-                          style={{
-                            fontFamily: theme.mono,
-                            fontSize: 11,
-                            color: row.status === "changed" ? theme.blue : theme.textMuted,
-                            background: row.status === "changed" ? theme.blueDim : "transparent",
-                            padding: row.status === "changed" ? "2px 6px" : "0",
-                            borderRadius: 3,
-                          }}
-                        >
-                          {truncate(row.valueB, 36)}
-                        </span>
-                      ) : (
-                        <span
-                          style={{
-                            fontFamily: theme.mono,
-                            fontSize: 11,
-                            color: theme.textDim,
-                            fontStyle: "italic",
-                          }}
-                        >
-                          {"\u2014"} not set {"\u2014"}
-                        </span>
-                      )}
+                  </Table.HeaderCell>
+                  <Table.HeaderCell>
+                    <div className="flex items-center gap-2">
+                      <EnvBadge env={envB} small />
+                      <span>{envB}</span>
                     </div>
-
-                    {/* Status badge */}
-                    <span
-                      style={{
-                        fontFamily: theme.mono,
-                        fontSize: 10,
-                        fontWeight: 600,
-                        color: meta.color,
-                        background: `${meta.color}18`,
-                        border: `1px solid ${meta.color}33`,
-                        borderRadius: 3,
-                        padding: "2px 8px",
-                        display: "inline-block",
-                      }}
+                  </Table.HeaderCell>
+                  <Table.HeaderCell className="w-[120px]">Status</Table.HeaderCell>
+                </tr>
+              </Table.Header>
+              <tbody>
+                {filtered.map((row) => {
+                  const status = row.status as DiffStatus;
+                  const meta = statusMeta[status];
+                  const isChanged = status === "changed";
+                  const isMissing = status === "missing_a" || status === "missing_b";
+                  const rowBg = isChanged
+                    ? "bg-warn-500/[0.025]"
+                    : isMissing
+                      ? "bg-stop-500/[0.025]"
+                      : "";
+                  return (
+                    <Table.Row
+                      key={row.key}
+                      tone={isMissing ? "drift" : undefined}
+                      className={rowBg}
                     >
-                      {meta.label}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+                      <Table.Cell className="font-mono text-[12px] text-bone">{row.key}</Table.Cell>
+                      <Table.Cell>
+                        {row.valueA !== null ? (
+                          <span
+                            className={`font-mono text-[11px] ${
+                              isChanged
+                                ? "rounded-sm bg-warn-500/15 px-1.5 py-0.5 text-warn-500"
+                                : "text-ash"
+                            }`}
+                          >
+                            {truncate(row.valueA, 36)}
+                          </span>
+                        ) : (
+                          <span className="font-mono text-[11px] italic text-ash-dim">
+                            {"—"} not set {"—"}
+                          </span>
+                        )}
+                      </Table.Cell>
+                      <Table.Cell>
+                        {row.valueB !== null ? (
+                          <span
+                            className={`font-mono text-[11px] ${
+                              isChanged
+                                ? "rounded-sm bg-blue-400/15 px-1.5 py-0.5 text-blue-400"
+                                : "text-ash"
+                            }`}
+                          >
+                            {truncate(row.valueB, 36)}
+                          </span>
+                        ) : (
+                          <span className="font-mono text-[11px] italic text-ash-dim">
+                            {"—"} not set {"—"}
+                          </span>
+                        )}
+                      </Table.Cell>
+                      <Table.Cell>
+                        <span
+                          className={`inline-block rounded-sm border px-2 py-0.5 font-mono text-[10px] font-semibold ${meta.text} ${meta.bg} ${meta.border}`}
+                        >
+                          {meta.label}
+                        </span>
+                      </Table.Cell>
+                    </Table.Row>
+                  );
+                })}
+              </tbody>
+            </Table>
 
             {/* Inline fix hint */}
             {missingRows.length > 0 && (
               <div
                 data-testid="fix-hint"
-                style={{
-                  marginTop: 20,
-                  padding: "14px 18px",
-                  background: theme.surface,
-                  border: `1px solid ${theme.border}`,
-                  borderRadius: 8,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 10,
-                }}
+                className="mt-5 flex flex-col gap-2.5 rounded-md border border-edge bg-ink-850 px-[18px] py-3.5"
               >
                 {missingRows.map((row) => {
                   const missingEnv = row.status === "missing_a" ? envA : envB;
                   const cmd = `clef set ${ns}/${missingEnv} ${row.key}`;
                   return (
-                    <div
-                      key={row.key}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 12,
-                      }}
-                    >
-                      <span style={{ fontSize: 16 }}>{"\uD83D\uDCA1"}</span>
-                      <span
-                        style={{
-                          fontFamily: theme.sans,
-                          fontSize: 12,
-                          color: theme.textMuted,
-                          flex: 1,
-                        }}
-                      >
-                        <strong style={{ color: theme.text }}>{row.key}</strong> is missing in{" "}
+                    <div key={row.key} className="flex items-center gap-3">
+                      <span className="text-[16px]">{"💡"}</span>
+                      <span className="flex-1 font-sans text-[12px] text-ash">
+                        <strong className="text-bone">{row.key}</strong> is missing in{" "}
                         <EnvBadge env={missingEnv} small />. Run{" "}
-                        <code
-                          style={{
-                            fontFamily: theme.mono,
-                            fontSize: 11,
-                            color: theme.accent,
-                            background: theme.accentDim,
-                            padding: "1px 6px",
-                            borderRadius: 3,
-                          }}
-                        >
+                        <code className="rounded-sm bg-gold-500/15 px-1.5 py-px font-mono text-[11px] text-gold-500">
                           {cmd}
                         </code>{" "}
                         to add it.

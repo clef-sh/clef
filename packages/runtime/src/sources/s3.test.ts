@@ -39,6 +39,19 @@ describe("isS3Url", () => {
   it("rejects non-HTTPS URLs", () => {
     expect(isS3Url("http://my-bucket.s3.amazonaws.com/key.json")).toBe(false);
   });
+
+  it("matches s3:// URLs regardless of AWS_REGION", () => {
+    // Structural check only — region resolution is deferred to construction
+    delete process.env.AWS_REGION;
+    delete process.env.AWS_DEFAULT_REGION;
+    expect(isS3Url("s3://my-bucket/path/to/file.json")).toBe(true);
+  });
+
+  it("rejects s3:// URLs missing bucket or key", () => {
+    expect(isS3Url("s3://")).toBe(false);
+    expect(isS3Url("s3://my-bucket")).toBe(false);
+    expect(isS3Url("s3://my-bucket/")).toBe(false);
+  });
 });
 
 describe("S3ArtifactSource", () => {
@@ -164,6 +177,53 @@ describe("S3ArtifactSource", () => {
     const source = new S3ArtifactSource("https://my-bucket.s3.amazonaws.com/key.json");
     // The describe won't show region, but the signed URL will use us-east-1
     expect(source.describe()).toBe("S3 s3://my-bucket/key.json");
+  });
+
+  describe("s3:// URL scheme", () => {
+    it("resolves region from AWS_REGION and signs the request", async () => {
+      process.env.AWS_REGION = "eu-west-1";
+      process.env.AWS_ACCESS_KEY_ID = "AKIATEST";
+      process.env.AWS_SECRET_ACCESS_KEY = "secret";
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        text: () => Promise.resolve('{"version":1}'),
+        headers: new Headers([["etag", '"abc"']]),
+      });
+
+      const source = new S3ArtifactSource("s3://my-bucket/path/artifact.json");
+      const result = await source.fetch();
+
+      expect(result.raw).toBe('{"version":1}');
+      expect(source.describe()).toBe("S3 s3://my-bucket/path/artifact.json");
+
+      const [url, opts] = mockFetch.mock.calls[0];
+      expect(url).toBe("https://my-bucket.s3.eu-west-1.amazonaws.com/path/artifact.json");
+      expect(opts.headers.Authorization).toContain("AWS4-HMAC-SHA256");
+      expect(opts.headers.Authorization).toContain("/eu-west-1/s3/");
+    });
+
+    it("falls back to AWS_DEFAULT_REGION when AWS_REGION is unset", () => {
+      delete process.env.AWS_REGION;
+      process.env.AWS_DEFAULT_REGION = "ap-southeast-2";
+
+      const source = new S3ArtifactSource("s3://my-bucket/key.json");
+      expect(source.describe()).toBe("S3 s3://my-bucket/key.json");
+    });
+
+    it("throws a clear error when neither AWS_REGION nor AWS_DEFAULT_REGION is set", () => {
+      delete process.env.AWS_REGION;
+      delete process.env.AWS_DEFAULT_REGION;
+
+      expect(() => new S3ArtifactSource("s3://my-bucket/key.json")).toThrow(
+        /s3:\/\/ URLs require AWS_REGION/,
+      );
+    });
+
+    it("throws on malformed s3:// URL (missing key)", () => {
+      process.env.AWS_REGION = "us-east-1";
+      expect(() => new S3ArtifactSource("s3://my-bucket/")).toThrow(/missing bucket or key/);
+    });
   });
 
   it("should cache ECS credentials across fetches", async () => {

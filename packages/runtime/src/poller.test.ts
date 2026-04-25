@@ -4,7 +4,7 @@ import { SecretsCache } from "./secrets-cache";
 import { ArtifactSource } from "./sources/types";
 import { DiskCache } from "./disk-cache";
 import { TelemetryEmitter } from "./telemetry";
-import { buildSigningPayload } from "./signature";
+import { buildSigningPayload } from "@clef-sh/core";
 import type { PackedArtifact } from "@clef-sh/core";
 
 jest.mock(

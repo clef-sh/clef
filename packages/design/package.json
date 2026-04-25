@@ -1,0 +1,32 @@
+{
+  "name": "@clef-sh/design",
+  "version": "0.1.0",
+  "description": "Shared Tailwind v4 @theme tokens + TS mirror — single source of truth for Clef Cloud and the Clef local UI.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clef-sh/clef",
+    "directory": "packages/design"
+  },
+  "main": "src/theme.ts",
+  "types": "src/theme.ts",
+  "exports": {
+    ".": {
+      "types": "./src/theme.ts",
+      "default": "./src/theme.ts"
+    },
+    "./theme.css": "./src/theme.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "echo 'no tests in @clef-sh/design — pure values' && exit 0",
+    "build": "echo 'no build — @clef-sh/design ships its sources' && exit 0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "license": "MIT"
+}

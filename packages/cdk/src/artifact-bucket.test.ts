@@ -137,6 +137,24 @@ describe("ClefArtifactBucket", () => {
     });
   });
 
+  it("exposes s3AgentSource as s3://bucket/key for direct CLEF_AGENT_SOURCE use", () => {
+    mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "production"));
+    const app = new App();
+    const stack = new Stack(app, "TestStack");
+
+    const artifact = new ClefArtifactBucket(stack, "Secrets", {
+      identity: "api",
+      environment: "production",
+      manifest: manifestPath,
+    });
+
+    // bucketName is an unresolved CFN token at synth time; the getter should
+    // still produce a correctly-shaped template string with s3:// prefix and
+    // the known object key suffix.
+    expect(artifact.s3AgentSource).toMatch(/^s3:\/\/.+\/clef\/api\/production\.json$/);
+    expect(artifact.s3AgentSource.endsWith("/clef/api/production.json")).toBe(true);
+  });
+
   it("exposes envelopeKey when the envelope names a KMS keyId", () => {
     const keyArn = "arn:aws:kms:us-east-1:111122223333:key/abc-123";
     mockInvokePackHelper.mockReturnValue(kmsEnvelope("api", "prod", keyArn));

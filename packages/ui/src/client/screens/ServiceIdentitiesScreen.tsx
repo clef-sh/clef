@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { theme } from "../theme";
 import { apiFetch } from "../api";
-import { TopBar } from "../components/TopBar";
 import { EnvBadge } from "../components/EnvBadge";
 import { Button } from "../components/Button";
 import { CopyButton } from "../components/CopyButton";
+import { Toolbar } from "../primitives";
 import type { ClefManifest } from "@clef-sh/core";
 
 interface EnvInfo {
@@ -39,38 +38,42 @@ interface ServiceIdentitiesScreenProps {
 
 type View = "list" | "detail" | "create" | "keys" | "update" | "rotate-keys" | "delete-confirm";
 
+const INPUT_BASE =
+  "w-full box-border rounded-md border border-edge bg-ink-850 px-3 py-2 font-mono text-[12px] text-bone outline-none focus-visible:border-gold-500 placeholder:text-ash-dim";
+
+const SMALL_INPUT_BASE =
+  "rounded-md border border-edge bg-ink-850 px-2 py-1.5 font-mono text-[12px] text-bone outline-none focus-visible:border-gold-500";
+
+const BACK_BUTTON =
+  "cursor-pointer rounded-md border border-edge-strong bg-transparent px-3 py-1 font-sans text-[12px] text-ash hover:bg-ink-800";
+
 export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenProps) {
   const [view, setView] = useState<View>("list");
   const [identities, setIdentities] = useState<IdentityInfo[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState("");
 
-  // Create form state
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [selectedNamespaces, setSelectedNamespaces] = useState<Set<string>>(new Set());
   const [envBackends, setEnvBackends] = useState<Record<string, EnvBackendConfig>>({});
   const [role, setRole] = useState<"ci" | "runtime">("ci");
-  const [sharedRecipient, setSharedRecipient] = useState(true); // CI default
+  const [sharedRecipient, setSharedRecipient] = useState(true);
   const [sharedRecipientOverridden, setSharedRecipientOverridden] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
 
-  // Post-create / post-rotate keys
   const [privateKeys, setPrivateKeys] = useState<Record<string, string>>({});
   const [createdName, setCreatedName] = useState("");
   const [wasSharedRecipient, setWasSharedRecipient] = useState(false);
 
-  // Update form state
   const [updateEnvBackends, setUpdateEnvBackends] = useState<Record<string, UpdateEnvState>>({});
   const [updating, setUpdating] = useState(false);
   const [updateError, setUpdateError] = useState("");
 
-  // Rotate state
   const [rotatingEnv, setRotatingEnv] = useState<string | undefined>(undefined);
   const [rotatedKeys, setRotatedKeys] = useState<Record<string, string>>({});
 
-  // Delete state
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
@@ -102,7 +105,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
     }
     setEnvBackends(defaults);
     setRole("ci");
-    setSharedRecipient(true); // CI default
+    setSharedRecipient(true);
     setSharedRecipientOverridden(false);
     setCreateError("");
     setView("create");
@@ -137,8 +140,6 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
     setView("detail");
   }, []);
 
-  // ── Handlers ──────────────────────────────────────────────────────────────────
-
   async function handleCreate() {
     setCreating(true);
     setCreateError("");
@@ -154,9 +155,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
         description: description.trim(),
         namespaces: Array.from(selectedNamespaces),
       };
-      if (role === "runtime") {
-        body.packOnly = true;
-      }
+      if (role === "runtime") body.packOnly = true;
       if (sharedRecipient) {
         body.sharedRecipient = true;
       } else if (Object.keys(kmsEnvConfigs).length > 0) {
@@ -269,36 +268,30 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
   // ── List view ─────────────────────────────────────────────────────────────────
   if (view === "list") {
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <TopBar
-          title="Service Identities"
-          subtitle="Per-service cryptographic access scoping"
-          actions={
-            manifest && (
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <Toolbar>
+          <div>
+            <Toolbar.Title>Service Identities</Toolbar.Title>
+            <Toolbar.Subtitle>Per-service cryptographic access scoping</Toolbar.Subtitle>
+          </div>
+          {manifest && (
+            <Toolbar.Actions>
               <Button variant="primary" onClick={openCreate}>
                 + New identity
               </Button>
-            )
-          }
-        />
-        <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-          <div style={{ maxWidth: 620, margin: "0 auto" }}>
+            </Toolbar.Actions>
+          )}
+        </Toolbar>
+        <div className="flex-1 overflow-auto p-6">
+          <div className="mx-auto max-w-[620px]">
             {error && <ErrorBanner>{error}</ErrorBanner>}
 
             {identities.length === 0 && (
-              <div
-                style={{
-                  textAlign: "center",
-                  padding: "48px 24px",
-                  color: theme.textMuted,
-                  fontFamily: theme.sans,
-                  fontSize: 13,
-                }}
-              >
-                <div style={{ fontSize: 28, marginBottom: 12, opacity: 0.4 }}>{"\uD83D\uDD11"}</div>
+              <div className="px-6 py-12 text-center font-sans text-[13px] text-ash">
+                <div className="mb-3 text-[28px] opacity-40">{"🔑"}</div>
                 No service identities configured.
                 {manifest && (
-                  <div style={{ marginTop: 16, display: "flex", justifyContent: "center" }}>
+                  <div className="mt-4 flex justify-center">
                     <Button variant="primary" onClick={openCreate}>
                       Create the first one
                     </Button>
@@ -324,73 +317,28 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                     setView("detail");
                   }
                 }}
-                style={{
-                  background: theme.surface,
-                  border: `1px solid ${theme.border}`,
-                  borderRadius: 8,
-                  padding: "16px 20px",
-                  marginBottom: 8,
-                  cursor: "pointer",
-                  transition: "all 0.12s",
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.borderColor = theme.borderLight;
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.borderColor = theme.border;
-                }}
+                className="mb-2 cursor-pointer rounded-lg border border-edge bg-ink-850 px-5 py-4 transition-colors hover:border-edge-strong"
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                  <span
-                    style={{
-                      fontFamily: theme.sans,
-                      fontWeight: 600,
-                      fontSize: 14,
-                      color: theme.text,
-                    }}
-                  >
-                    {si.name}
-                  </span>
+                <div className="mb-2 flex items-center gap-2.5">
+                  <span className="font-sans text-[14px] font-semibold text-bone">{si.name}</span>
                   {si.packOnly && (
                     <span
                       data-testid={`si-runtime-badge-${si.name}`}
-                      style={{
-                        fontFamily: theme.mono,
-                        fontSize: 9,
-                        color: theme.yellow,
-                        background: `${theme.yellow}15`,
-                        border: `1px solid ${theme.yellow}33`,
-                        borderRadius: 3,
-                        padding: "1px 6px",
-                      }}
+                      className="rounded-sm border border-warn-500/20 bg-warn-500/10 px-1.5 py-px font-mono text-[9px] text-warn-500"
                     >
                       runtime
                     </span>
                   )}
                 </div>
-                <div
-                  style={{
-                    fontFamily: theme.sans,
-                    fontSize: 12,
-                    color: theme.textMuted,
-                    marginBottom: 10,
-                  }}
-                >
-                  Scoped to: <span style={{ color: theme.text }}>{si.namespaces.join(", ")}</span>
+                <div className="mb-2.5 font-sans text-[12px] text-ash">
+                  Scoped to: <span className="text-bone">{si.namespaces.join(", ")}</span>
                 </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <div className="flex flex-wrap gap-1.5">
                   {Object.entries(si.environments).map(([envName, envInfo]) => (
-                    <span
-                      key={envName}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-                    >
+                    <span key={envName} className="inline-flex items-center gap-1">
                       <EnvBadge env={envName} small />
                       <span
-                        style={{
-                          fontFamily: theme.mono,
-                          fontSize: 9,
-                          color: envInfo.type === "kms" ? theme.purple : theme.textDim,
-                        }}
+                        className={`font-mono text-[9px] ${envInfo.type === "kms" ? "text-purple-400" : "text-ash-dim"}`}
                       >
                         {envInfo.type === "kms" ? "KMS" : "age"}
                       </span>
@@ -408,62 +356,42 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
   // ── Detail view ───────────────────────────────────────────────────────────────
   if (view === "detail") {
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <TopBar
-          title={selectedIdentity?.name ?? selected ?? ""}
-          subtitle={selectedIdentity?.description}
-          actions={
-            <div style={{ display: "flex", gap: 6 }}>
-              {selectedIdentity && (
-                <Button
-                  data-testid="update-backends-btn"
-                  variant="ghost"
-                  onClick={() => openUpdate(selectedIdentity)}
-                >
-                  Update backends
-                </Button>
-              )}
-              <button
-                data-testid="back-button"
-                onClick={goList}
-                style={{
-                  background: "none",
-                  border: `1px solid ${theme.borderLight}`,
-                  borderRadius: 6,
-                  padding: "4px 12px",
-                  cursor: "pointer",
-                  fontFamily: theme.sans,
-                  fontSize: 12,
-                  color: theme.textMuted,
-                  transition: "all 0.12s",
-                }}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <Toolbar>
+          <div>
+            <Toolbar.Title>{selectedIdentity?.name ?? selected ?? ""}</Toolbar.Title>
+            {selectedIdentity?.description && (
+              <Toolbar.Subtitle>{selectedIdentity.description}</Toolbar.Subtitle>
+            )}
+          </div>
+          <Toolbar.Actions>
+            {selectedIdentity && (
+              <Button
+                data-testid="update-backends-btn"
+                variant="ghost"
+                onClick={() => openUpdate(selectedIdentity)}
               >
-                {"\u2190"} Back
-              </button>
-            </div>
-          }
-        />
-        <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-          <div style={{ maxWidth: 620, margin: "0 auto" }}>
+                Update backends
+              </Button>
+            )}
+            <button data-testid="back-button" onClick={goList} className={BACK_BUTTON}>
+              {"←"} Back
+            </button>
+          </Toolbar.Actions>
+        </Toolbar>
+        <div className="flex-1 overflow-auto p-6">
+          <div className="mx-auto max-w-[620px]">
             {error && <ErrorBanner>{error}</ErrorBanner>}
 
             {selectedIdentity && (
               <>
-                <div style={{ marginBottom: 20 }}>
+                <div className="mb-5">
                   <Label>Scoped namespaces</Label>
-                  <div style={{ display: "flex", gap: 6 }}>
+                  <div className="flex gap-1.5">
                     {selectedIdentity.namespaces.map((ns) => (
                       <span
                         key={ns}
-                        style={{
-                          fontFamily: theme.mono,
-                          fontSize: 11,
-                          color: theme.accent,
-                          background: theme.accentDim,
-                          border: `1px solid ${theme.accent}33`,
-                          borderRadius: 4,
-                          padding: "2px 8px",
-                        }}
+                        className="rounded border border-gold-500/20 bg-gold-500/[0.08] px-2 py-0.5 font-mono text-[11px] text-gold-500"
                       >
                         {ns}
                       </span>
@@ -474,17 +402,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                 {selectedIdentity.packOnly && (
                   <div
                     data-testid="runtime-info-banner"
-                    style={{
-                      background: `${theme.yellow}10`,
-                      border: `1px solid ${theme.yellow}33`,
-                      borderRadius: 8,
-                      padding: "10px 16px",
-                      marginBottom: 20,
-                      fontFamily: theme.sans,
-                      fontSize: 12,
-                      color: theme.yellow,
-                      lineHeight: 1.5,
-                    }}
+                    className="mb-5 rounded-lg border border-warn-500/20 bg-warn-500/10 px-4 py-2.5 font-sans text-[12px] leading-relaxed text-warn-500"
                   >
                     Runtime identity — keys are not registered on encrypted files. This identity can
                     only decrypt packed artifacts.
@@ -503,39 +421,14 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                     <div
                       key={env.name}
                       data-testid={`env-${env.name}`}
-                      style={{
-                        background: theme.surface,
-                        border: `1px solid ${theme.border}`,
-                        borderRadius: 8,
-                        padding: "16px 20px",
-                        marginBottom: 10,
-                      }}
+                      className="mb-2.5 rounded-lg border border-edge bg-ink-850 px-5 py-4"
                     >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          marginBottom: 12,
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div className="mb-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
                           <EnvBadge env={env.name} />
-                          {isProtected && (
-                            <span style={{ fontSize: 12, color: theme.red }}>{"\uD83D\uDD12"}</span>
-                          )}
+                          {isProtected && <span className="text-[12px] text-stop-500">{"🔒"}</span>}
                           {envInfo.type === "kms" && (
-                            <span
-                              style={{
-                                fontFamily: theme.mono,
-                                fontSize: 10,
-                                color: theme.purple,
-                                background: theme.purpleDim,
-                                border: `1px solid ${theme.purple}33`,
-                                borderRadius: 3,
-                                padding: "1px 6px",
-                              }}
-                            >
+                            <span className="rounded-sm border border-purple-400/20 bg-purple-400/10 px-1.5 py-px font-mono text-[10px] text-purple-400">
                               KMS
                             </span>
                           )}
@@ -545,17 +438,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                             data-testid={`rotate-${env.name}`}
                             disabled={isRotating}
                             onClick={() => handleRotate(env.name)}
-                            style={{
-                              background: "none",
-                              border: `1px solid ${theme.borderLight}`,
-                              borderRadius: 5,
-                              padding: "3px 10px",
-                              cursor: isRotating ? "default" : "pointer",
-                              fontFamily: theme.sans,
-                              fontSize: 11,
-                              color: isRotating ? theme.textDim : theme.textMuted,
-                              opacity: isRotating ? 0.5 : 1,
-                            }}
+                            className={`rounded border border-edge-strong px-2.5 py-0.5 font-sans text-[11px] ${isRotating ? "cursor-default text-ash-dim opacity-50" : "cursor-pointer text-ash hover:bg-ink-800"}`}
                           >
                             {isRotating ? "Rotating…" : "Rotate key"}
                           </button>
@@ -563,34 +446,17 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                       </div>
 
                       {envInfo.type === "kms" && envInfo.kms && (
-                        <div
-                          style={{ fontFamily: theme.mono, fontSize: 11, color: theme.textMuted }}
-                        >
-                          <div style={{ marginBottom: 8 }}>
-                            Authentication: <span style={{ color: theme.purple }}>IAM + KMS</span>
+                        <div className="font-mono text-[11px] text-ash">
+                          <div className="mb-2">
+                            Authentication: <span className="text-purple-400">IAM + KMS</span>
                           </div>
                           <div>
-                            Provider:{" "}
-                            <span style={{ color: theme.text }}>{envInfo.kms.provider}</span>
+                            Provider: <span className="text-bone">{envInfo.kms.provider}</span>
                           </div>
-                          <div style={{ marginTop: 4 }}>
-                            Key ID:{" "}
-                            <span style={{ color: theme.text, wordBreak: "break-all" }}>
-                              {envInfo.kms.keyId}
-                            </span>
+                          <div className="mt-1">
+                            Key ID: <span className="break-all text-bone">{envInfo.kms.keyId}</span>
                           </div>
-                          <div
-                            style={{
-                              marginTop: 10,
-                              padding: "8px 12px",
-                              background: theme.purpleDim,
-                              border: `1px solid ${theme.purple}33`,
-                              borderRadius: 4,
-                              fontSize: 11,
-                              color: theme.purple,
-                              fontFamily: theme.sans,
-                            }}
-                          >
+                          <div className="mt-2.5 rounded border border-purple-400/20 bg-purple-400/10 px-3 py-2 font-sans text-[11px] text-purple-400">
                             No keys to provision. CI and runtime authenticate via IAM role with
                             kms:Decrypt permission.
                           </div>
@@ -598,15 +464,13 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                       )}
 
                       {envInfo.type === "age" && (
-                        <div
-                          style={{ fontFamily: theme.mono, fontSize: 11, color: theme.textMuted }}
-                        >
-                          <div style={{ marginBottom: 8 }}>
-                            Authentication: <span style={{ color: theme.green }}>age key</span>
+                        <div className="font-mono text-[11px] text-ash">
+                          <div className="mb-2">
+                            Authentication: <span className="text-go-500">age key</span>
                           </div>
                           <div>
                             Public key:{" "}
-                            <span style={{ color: theme.text }}>
+                            <span className="text-bone">
                               {envInfo.publicKey
                                 ? `${envInfo.publicKey.slice(0, 12)}...${envInfo.publicKey.slice(-6)}`
                                 : "unknown"}
@@ -618,15 +482,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                   );
                 })}
 
-                <div
-                  style={{
-                    marginTop: 32,
-                    paddingTop: 20,
-                    borderTop: `1px solid ${theme.border}`,
-                    display: "flex",
-                    justifyContent: "flex-end",
-                  }}
-                >
+                <div className="mt-8 flex justify-end border-t border-edge pt-5">
                   <Button
                     data-testid="delete-identity-btn"
                     variant="danger"
@@ -649,39 +505,29 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
   // ── Delete confirm view ───────────────────────────────────────────────────────
   if (view === "delete-confirm") {
     return (
-      <div
-        data-testid="delete-confirm-view"
-        style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}
-      >
-        <TopBar title="Delete service identity" subtitle="This action cannot be undone" />
-        <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-          <div style={{ maxWidth: 560, margin: "0 auto" }}>
+      <div data-testid="delete-confirm-view" className="flex flex-1 flex-col overflow-hidden">
+        <Toolbar>
+          <div>
+            <Toolbar.Title>Delete service identity</Toolbar.Title>
+            <Toolbar.Subtitle>This action cannot be undone</Toolbar.Subtitle>
+          </div>
+        </Toolbar>
+        <div className="flex-1 overflow-auto p-6">
+          <div className="mx-auto max-w-[560px]">
             {deleteError && <ErrorBanner>{deleteError}</ErrorBanner>}
 
-            <div
-              style={{
-                background: "#1a0a0a",
-                border: `1px solid ${theme.red}55`,
-                borderRadius: 8,
-                padding: "16px 20px",
-                marginBottom: 24,
-                fontFamily: theme.sans,
-                fontSize: 13,
-                color: theme.red,
-              }}
-            >
-              <div style={{ fontWeight: 600, marginBottom: 8 }}>
-                Delete <span style={{ fontFamily: theme.mono }}>{selected}</span>?
+            <div className="mb-6 rounded-lg border border-stop-500/40 bg-stop-500/[0.06] px-5 py-4 font-sans text-[13px] text-stop-500">
+              <div className="mb-2 font-semibold">
+                Delete <span className="font-mono">{selected}</span>?
               </div>
-              <div style={{ color: theme.textMuted, fontSize: 12, lineHeight: 1.6 }}>
-                This will remove the identity from{" "}
-                <span style={{ fontFamily: theme.mono }}>clef.yaml</span> and de-register its
-                recipients from all scoped encrypted files. Any runtimes currently using this
-                identity's private key will lose access on the next artifact refresh.
+              <div className="text-[12px] leading-relaxed text-ash">
+                This will remove the identity from <span className="font-mono">clef.yaml</span> and
+                de-register its recipients from all scoped encrypted files. Any runtimes currently
+                using this identity's private key will lose access on the next artifact refresh.
               </div>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <div className="flex justify-end gap-2">
               <Button
                 data-testid="cancel-delete-btn"
                 variant="ghost"
@@ -708,29 +554,17 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
   // ── Rotate keys result view ───────────────────────────────────────────────────
   if (view === "rotate-keys") {
     return (
-      <div
-        data-testid="rotate-keys-view"
-        style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}
-      >
-        <TopBar title="Key rotated" subtitle={`New keys for ${selected}`} />
-        <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-          <div style={{ maxWidth: 620, margin: "0 auto" }}>
-            <div
-              style={{
-                background: "#1a1200",
-                border: `1px solid ${theme.yellow}55`,
-                borderRadius: 8,
-                padding: "14px 18px",
-                marginBottom: 20,
-                fontFamily: theme.sans,
-                fontSize: 13,
-                color: theme.yellow,
-                display: "flex",
-                gap: 10,
-                alignItems: "flex-start",
-              }}
-            >
-              <span style={{ fontSize: 16, flexShrink: 0 }}>⚠</span>
+      <div data-testid="rotate-keys-view" className="flex flex-1 flex-col overflow-hidden">
+        <Toolbar>
+          <div>
+            <Toolbar.Title>Key rotated</Toolbar.Title>
+            <Toolbar.Subtitle>{`New keys for ${selected}`}</Toolbar.Subtitle>
+          </div>
+        </Toolbar>
+        <div className="flex-1 overflow-auto p-6">
+          <div className="mx-auto max-w-[620px]">
+            <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-warn-500/40 bg-warn-500/[0.06] px-4 py-3.5 font-sans text-[13px] text-warn-500">
+              <span className="shrink-0 text-[16px]">⚠</span>
               <span>
                 Copy the new private key now — it will not be shown again. Provision it to the
                 runtime and invalidate the old key.
@@ -741,42 +575,19 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
             {Object.entries(rotatedKeys).map(([envName, key]) => (
               <div
                 key={envName}
-                style={{
-                  background: theme.surface,
-                  border: `1px solid ${theme.border}`,
-                  borderRadius: 8,
-                  padding: "14px 18px",
-                  marginBottom: 10,
-                }}
+                className="mb-2.5 rounded-lg border border-edge bg-ink-850 px-4 py-3.5"
               >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginBottom: 10,
-                  }}
-                >
+                <div className="mb-2.5 flex items-center justify-between">
                   <EnvBadge env={envName} />
                   <CopyButton text={key} />
                 </div>
-                <div
-                  style={{
-                    fontFamily: theme.mono,
-                    fontSize: 11,
-                    color: theme.textMuted,
-                    wordBreak: "break-all",
-                    background: theme.bg,
-                    borderRadius: 4,
-                    padding: "8px 10px",
-                  }}
-                >
+                <div className="break-all rounded bg-ink-950 px-2.5 py-2 font-mono text-[11px] text-ash">
                   {key}
                 </div>
               </div>
             ))}
 
-            <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}>
+            <div className="mt-2 flex justify-end">
               <Button data-testid="rotate-done-btn" variant="primary" onClick={goDetail}>
                 Done
               </Button>
@@ -804,77 +615,52 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
       });
 
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <TopBar
-          title="Update backends"
-          subtitle={`Environment backends for ${selected}`}
-          actions={
-            <button
-              onClick={goDetail}
-              style={{
-                background: "none",
-                border: `1px solid ${theme.borderLight}`,
-                borderRadius: 6,
-                padding: "4px 12px",
-                cursor: "pointer",
-                fontFamily: theme.sans,
-                fontSize: 12,
-                color: theme.textMuted,
-              }}
-            >
-              {"\u2190"} Cancel
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <Toolbar>
+          <div>
+            <Toolbar.Title>Update backends</Toolbar.Title>
+            <Toolbar.Subtitle>{`Environment backends for ${selected}`}</Toolbar.Subtitle>
+          </div>
+          <Toolbar.Actions>
+            <button onClick={goDetail} className={BACK_BUTTON}>
+              {"←"} Cancel
             </button>
-          }
-        />
-        <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-          <div style={{ maxWidth: 560, margin: "0 auto" }}>
+          </Toolbar.Actions>
+        </Toolbar>
+        <div className="flex-1 overflow-auto p-6">
+          <div className="mx-auto max-w-[560px]">
             {updateError && <ErrorBanner>{updateError}</ErrorBanner>}
 
-            <div
-              style={{
-                fontFamily: theme.sans,
-                fontSize: 12,
-                color: theme.textMuted,
-                marginBottom: 16,
-                lineHeight: 1.6,
-              }}
-            >
+            <div className="mb-4 font-sans text-[12px] leading-relaxed text-ash">
               Switch age environments to KMS, or update an existing KMS key ID. To revert KMS to
               age, delete and recreate the identity.
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 28 }}>
+            <div className="mb-7 flex flex-col gap-2">
               {environments.map((env) => {
                 const state = updateEnvBackends[env.name];
                 if (!state) return null;
-
                 return (
                   <div
                     key={env.name}
-                    style={{
-                      background: theme.surface,
-                      border: `1px solid ${theme.border}`,
-                      borderRadius: 8,
-                      padding: "14px 16px",
-                    }}
+                    className="rounded-lg border border-edge bg-ink-850 px-4 py-3.5"
                   >
                     <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        marginBottom: state.type === "kms" ? 12 : 0,
-                      }}
+                      className={`flex items-center justify-between ${state.type === "kms" ? "mb-3" : ""}`}
                     >
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div className="flex items-center gap-2">
                         <EnvBadge env={env.name} />
-                        {env.protected && (
-                          <span style={{ fontSize: 11, color: theme.red }}>{"\uD83D\uDD12"}</span>
-                        )}
+                        {env.protected && <span className="text-[11px] text-stop-500">{"🔒"}</span>}
                       </div>
-                      <div style={{ display: "flex", gap: 4 }}>
+                      <div className="flex gap-1">
                         {(["age", "kms"] as const).map((t) => {
                           const locked = state.originalType === "kms" && t === "age";
+                          const isSelected = state.type === t;
+                          const buttonClass = isSelected
+                            ? t === "kms"
+                              ? "bg-purple-400 border-purple-400 text-ghost"
+                              : "bg-gold-500 border-gold-500 text-ink-950"
+                            : "bg-transparent border-edge text-ash";
                           return (
                             <button
                               key={t}
@@ -890,29 +676,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                                 }));
                               }}
                               title={locked ? "KMS → age requires delete and recreate" : undefined}
-                              style={{
-                                background:
-                                  state.type === t
-                                    ? t === "kms"
-                                      ? theme.purple
-                                      : theme.accent
-                                    : "transparent",
-                                border: `1px solid ${
-                                  state.type === t
-                                    ? t === "kms"
-                                      ? theme.purple
-                                      : theme.accent
-                                    : theme.border
-                                }`,
-                                borderRadius: 4,
-                                padding: "3px 10px",
-                                cursor: locked ? "not-allowed" : "pointer",
-                                fontFamily: theme.mono,
-                                fontSize: 11,
-                                color: state.type === t ? "#fff" : theme.textMuted,
-                                opacity: locked ? 0.4 : 1,
-                                transition: "all 0.1s",
-                              }}
+                              className={`rounded border px-2.5 py-0.5 font-mono text-[11px] transition-colors ${buttonClass} ${locked ? "cursor-not-allowed opacity-40" : "cursor-pointer"}`}
                             >
                               {t.toUpperCase()}
                             </button>
@@ -922,7 +686,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                     </div>
 
                     {state.type === "kms" && (
-                      <div style={{ display: "flex", gap: 8 }}>
+                      <div className="flex gap-2">
                         <select
                           value={state.provider}
                           onChange={(e) =>
@@ -931,12 +695,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                               [env.name]: { ...state, provider: e.target.value },
                             }))
                           }
-                          style={{
-                            ...inputStyle,
-                            width: 90,
-                            flexShrink: 0,
-                            padding: "7px 8px",
-                          }}
+                          className={`${SMALL_INPUT_BASE} w-[90px] shrink-0`}
                         >
                           <option value="aws">AWS</option>
                           <option value="gcp">GCP</option>
@@ -952,7 +711,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                             }))
                           }
                           placeholder="arn:aws:kms:… or key resource ID"
-                          style={{ ...inputStyle, flex: 1 }}
+                          className={`${SMALL_INPUT_BASE} flex-1`}
                         />
                       </div>
                     )}
@@ -961,7 +720,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
               })}
             </div>
 
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <div className="flex justify-end gap-2">
               <Button
                 data-testid="update-cancel-btn"
                 variant="ghost"
@@ -988,32 +747,22 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
   // ── Keys result view (post-creation) ─────────────────────────────────────────
   if (view === "keys") {
     const hasAgeKeys = Object.keys(privateKeys).length > 0;
-    // For shared mode, all entries hold the same key — grab it once
     const sharedKey = wasSharedRecipient ? Object.values(privateKeys)[0] : undefined;
     const sharedEnvNames = wasSharedRecipient ? Object.keys(privateKeys) : [];
 
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <TopBar title={`${createdName} created`} subtitle="Service identity ready" />
-        <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-          <div style={{ maxWidth: 620, margin: "0 auto" }}>
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <Toolbar>
+          <div>
+            <Toolbar.Title>{`${createdName} created`}</Toolbar.Title>
+            <Toolbar.Subtitle>Service identity ready</Toolbar.Subtitle>
+          </div>
+        </Toolbar>
+        <div className="flex-1 overflow-auto p-6">
+          <div className="mx-auto max-w-[620px]">
             {hasAgeKeys && (
-              <div
-                style={{
-                  background: "#1a1200",
-                  border: `1px solid ${theme.yellow}55`,
-                  borderRadius: 8,
-                  padding: "14px 18px",
-                  marginBottom: 20,
-                  fontFamily: theme.sans,
-                  fontSize: 13,
-                  color: theme.yellow,
-                  display: "flex",
-                  gap: 10,
-                  alignItems: "flex-start",
-                }}
-              >
-                <span style={{ fontSize: 16, flexShrink: 0 }}>⚠</span>
+              <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-warn-500/40 bg-warn-500/[0.06] px-4 py-3.5 font-sans text-[13px] text-warn-500">
+                <span className="shrink-0 text-[16px]">⚠</span>
                 <span>
                   {wasSharedRecipient
                     ? `Copy this key now — it will not be shown again. Set it as CLEF_AGE_KEY in your CI. It decrypts: ${sharedEnvNames.join(", ")}.`
@@ -1023,18 +772,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
             )}
 
             {!hasAgeKeys && (
-              <div
-                style={{
-                  background: theme.purpleDim,
-                  border: `1px solid ${theme.purple}44`,
-                  borderRadius: 8,
-                  padding: "14px 18px",
-                  marginBottom: 20,
-                  fontFamily: theme.sans,
-                  fontSize: 13,
-                  color: theme.purple,
-                }}
-              >
+              <div className="mb-5 rounded-lg border border-purple-400/30 bg-purple-400/10 px-4 py-3.5 font-sans text-[13px] text-purple-400">
                 All environments use KMS. No private keys to provision — runtimes authenticate via
                 IAM role.
               </div>
@@ -1043,55 +781,20 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
             <Label>Private keys</Label>
 
             {wasSharedRecipient && sharedKey ? (
-              // Shared mode: one block, all env badges, labeled CLEF_AGE_KEY
-              <div
-                style={{
-                  background: theme.surface,
-                  border: `1px solid ${theme.accent}44`,
-                  borderRadius: 8,
-                  padding: "14px 18px",
-                  marginBottom: 10,
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginBottom: 10,
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span
-                      style={{
-                        fontFamily: theme.mono,
-                        fontSize: 11,
-                        color: theme.accent,
-                        fontWeight: 600,
-                      }}
-                    >
+              <div className="mb-2.5 rounded-lg border border-gold-500/30 bg-ink-850 px-4 py-3.5">
+                <div className="mb-2.5 flex items-center justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-[11px] font-semibold text-gold-500">
                       CLEF_AGE_KEY
                     </span>
-                    <span style={{ fontFamily: theme.sans, fontSize: 11, color: theme.textDim }}>
-                      —
-                    </span>
+                    <span className="font-sans text-[11px] text-ash-dim">—</span>
                     {sharedEnvNames.map((e) => (
                       <EnvBadge key={e} env={e} small />
                     ))}
                   </div>
                   <CopyButton text={sharedKey} />
                 </div>
-                <div
-                  style={{
-                    fontFamily: theme.mono,
-                    fontSize: 11,
-                    color: theme.textMuted,
-                    wordBreak: "break-all",
-                    background: theme.bg,
-                    borderRadius: 4,
-                    padding: "8px 10px",
-                  }}
-                >
+                <div className="break-all rounded bg-ink-950 px-2.5 py-2 font-mono text-[11px] text-ash">
                   {sharedKey}
                 </div>
               </div>
@@ -1099,43 +802,20 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
               Object.entries(privateKeys).map(([envName, key]) => (
                 <div
                   key={envName}
-                  style={{
-                    background: theme.surface,
-                    border: `1px solid ${theme.border}`,
-                    borderRadius: 8,
-                    padding: "14px 18px",
-                    marginBottom: 10,
-                  }}
+                  className="mb-2.5 rounded-lg border border-edge bg-ink-850 px-4 py-3.5"
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      marginBottom: 10,
-                    }}
-                  >
+                  <div className="mb-2.5 flex items-center justify-between">
                     <EnvBadge env={envName} />
                     <CopyButton text={key} />
                   </div>
-                  <div
-                    style={{
-                      fontFamily: theme.mono,
-                      fontSize: 11,
-                      color: theme.textMuted,
-                      wordBreak: "break-all",
-                      background: theme.bg,
-                      borderRadius: 4,
-                      padding: "8px 10px",
-                    }}
-                  >
+                  <div className="break-all rounded bg-ink-950 px-2.5 py-2 font-mono text-[11px] text-ash">
                     {key}
                   </div>
                 </div>
               ))
             )}
 
-            <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}>
+            <div className="mt-2 flex justify-end">
               <Button
                 variant="primary"
                 onClick={() => {
@@ -1170,158 +850,96 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
     });
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <TopBar
-        title="New service identity"
-        subtitle="Scope cryptographic access to specific namespaces"
-        actions={
-          <button
-            onClick={goList}
-            style={{
-              background: "none",
-              border: `1px solid ${theme.borderLight}`,
-              borderRadius: 6,
-              padding: "4px 12px",
-              cursor: "pointer",
-              fontFamily: theme.sans,
-              fontSize: 12,
-              color: theme.textMuted,
-            }}
-          >
-            {"\u2190"} Cancel
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <Toolbar>
+        <div>
+          <Toolbar.Title>New service identity</Toolbar.Title>
+          <Toolbar.Subtitle>Scope cryptographic access to specific namespaces</Toolbar.Subtitle>
+        </div>
+        <Toolbar.Actions>
+          <button onClick={goList} className={BACK_BUTTON}>
+            {"←"} Cancel
           </button>
-        }
-      />
-      <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-        <div style={{ maxWidth: 560, margin: "0 auto" }}>
+        </Toolbar.Actions>
+      </Toolbar>
+      <div className="flex-1 overflow-auto p-6">
+        <div className="mx-auto max-w-[560px]">
           {createError && <ErrorBanner>{createError}</ErrorBanner>}
 
-          {/* Name */}
-          <div style={{ marginBottom: 20 }}>
+          <div className="mb-5">
             <FieldLabel>Name</FieldLabel>
             <input
               data-testid="si-name-input"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. api-gateway"
-              style={inputStyle}
+              className={INPUT_BASE}
             />
             {nameError && (
-              <div
-                style={{
-                  fontFamily: theme.sans,
-                  fontSize: 12,
-                  color: theme.red,
-                  marginTop: 6,
-                }}
-              >
-                {nameError}
-              </div>
+              <div className="mt-1.5 font-sans text-[12px] text-stop-500">{nameError}</div>
             )}
           </div>
 
-          {/* Description */}
-          <div style={{ marginBottom: 24 }}>
+          <div className="mb-6">
             <FieldLabel>Description (optional)</FieldLabel>
             <input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="e.g. API gateway service account"
-              style={inputStyle}
+              className={INPUT_BASE}
             />
           </div>
 
-          {/* Role */}
-          <div style={{ marginBottom: 24 }}>
+          <div className="mb-6">
             <FieldLabel>Role</FieldLabel>
-            <div
-              style={{
-                display: "flex",
-                gap: 0,
-                borderRadius: 6,
-                overflow: "hidden",
-                border: `1px solid ${theme.border}`,
-                width: "fit-content",
-                marginBottom: 8,
-              }}
-            >
+            <div className="mb-2 flex w-fit overflow-hidden rounded-md border border-edge">
               {(["ci", "runtime"] as const).map((r) => (
                 <button
                   key={r}
                   data-testid={`role-${r}`}
                   onClick={() => {
                     setRole(r);
-                    // Auto-set shared-recipient to the role's natural default
                     const newDefault = r === "ci";
                     setSharedRecipient(newDefault);
                     setSharedRecipientOverridden(false);
                   }}
-                  style={{
-                    background: role === r ? theme.accent : "transparent",
-                    border: "none",
-                    padding: "7px 18px",
-                    cursor: "pointer",
-                    fontFamily: theme.sans,
-                    fontSize: 12,
-                    fontWeight: role === r ? 600 : 400,
-                    color: role === r ? "#fff" : theme.textMuted,
-                    transition: "all 0.12s",
-                  }}
+                  className={`cursor-pointer border-none px-4 py-1.5 font-sans text-[12px] transition-colors ${
+                    role === r
+                      ? "bg-gold-500 font-semibold text-ink-950"
+                      : "bg-transparent font-normal text-ash"
+                  }`}
                 >
                   {r === "ci" ? "CI" : "Runtime"}
                 </button>
               ))}
             </div>
-            <div
-              style={{
-                fontFamily: theme.sans,
-                fontSize: 12,
-                color: theme.textMuted,
-                lineHeight: 1.5,
-              }}
-            >
+            <div className="font-sans text-[12px] leading-relaxed text-ash">
               {role === "ci"
                 ? "Decrypts files directly. Keys are registered on encrypted SOPS files. Use for CI pipelines and local tools."
                 : "Decrypts packed artifacts only. Keys are NOT added to encrypted files — smaller blast radius for deployment targets (Lambda, ECS, containers)."}
             </div>
           </div>
 
-          {/* Namespaces */}
-          <div style={{ marginBottom: 24 }}>
+          <div className="mb-6">
             <FieldLabel>Namespaces</FieldLabel>
-            <div
-              style={{
-                fontFamily: theme.sans,
-                fontSize: 12,
-                color: theme.textMuted,
-                marginBottom: 10,
-              }}
-            >
+            <div className="mb-2.5 font-sans text-[12px] text-ash">
               This identity can decrypt secrets only from the selected namespaces.
             </div>
             {namespaces.length === 0 && (
-              <div style={{ fontFamily: theme.sans, fontSize: 12, color: theme.textDim }}>
+              <div className="font-sans text-[12px] text-ash-dim">
                 No namespaces defined in manifest.
               </div>
             )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div className="flex flex-col gap-1.5">
               {namespaces.map((ns) => {
                 const checked = selectedNamespaces.has(ns.name);
                 return (
                   <label
                     key={ns.name}
                     data-testid={`ns-checkbox-${ns.name}`}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "10px 14px",
-                      background: checked ? theme.accentDim : theme.surface,
-                      border: `1px solid ${checked ? theme.accent + "55" : theme.border}`,
-                      borderRadius: 6,
-                      cursor: "pointer",
-                      transition: "all 0.1s",
-                    }}
+                    className={`flex cursor-pointer items-center gap-2.5 rounded-md border px-3.5 py-2.5 transition-colors ${
+                      checked ? "border-gold-500/40 bg-gold-500/[0.08]" : "border-edge bg-ink-850"
+                    }`}
                   >
                     <input
                       type="checkbox"
@@ -1332,23 +950,15 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                         else next.delete(ns.name);
                         setSelectedNamespaces(next);
                       }}
-                      style={{ accentColor: theme.accent }}
+                      className="accent-gold-500"
                     />
                     <span
-                      style={{
-                        fontFamily: theme.mono,
-                        fontSize: 12,
-                        color: checked ? theme.accent : theme.text,
-                      }}
+                      className={`font-mono text-[12px] ${checked ? "text-gold-500" : "text-bone"}`}
                     >
                       {ns.name}
                     </span>
                     {ns.description && (
-                      <span
-                        style={{ fontFamily: theme.sans, fontSize: 11, color: theme.textMuted }}
-                      >
-                        — {ns.description}
-                      </span>
+                      <span className="font-sans text-[11px] text-ash">— {ns.description}</span>
                     )}
                   </label>
                 );
@@ -1356,98 +966,44 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
             </div>
           </div>
 
-          {/* Per-environment backend */}
-          <div style={{ marginBottom: 28 }}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 6,
-              }}
-            >
+          <div className="mb-7">
+            <div className="mb-1.5 flex items-center justify-between">
               <FieldLabel>Environment backends</FieldLabel>
-              {/* Shared recipient toggle */}
               <label
                 data-testid="shared-recipient-toggle"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
-                  cursor: "pointer",
-                  fontFamily: theme.sans,
-                  fontSize: 11,
-                  color: sharedRecipient ? theme.accent : theme.textMuted,
-                  userSelect: "none",
-                }}
+                className={`flex cursor-pointer select-none items-center gap-1.5 font-sans text-[11px] ${sharedRecipient ? "text-gold-500" : "text-ash"}`}
               >
                 <div
-                  style={{
-                    width: 28,
-                    height: 16,
-                    borderRadius: 8,
-                    background: sharedRecipient ? theme.accent : theme.border,
-                    position: "relative",
-                    transition: "background 0.15s",
-                    flexShrink: 0,
-                  }}
+                  className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${sharedRecipient ? "bg-gold-500" : "bg-edge"}`}
                 >
                   <div
-                    style={{
-                      position: "absolute",
-                      top: 2,
-                      left: sharedRecipient ? 14 : 2,
-                      width: 12,
-                      height: 12,
-                      borderRadius: "50%",
-                      background: "#fff",
-                      transition: "left 0.15s",
-                    }}
+                    className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${sharedRecipient ? "left-3.5" : "left-0.5"}`}
                   />
                   <input
                     type="checkbox"
                     checked={sharedRecipient}
                     onChange={(e) => {
                       setSharedRecipient(e.target.checked);
-                      // Track whether user manually overrode the role's default
                       const roleDefault = role === "ci";
                       setSharedRecipientOverridden(e.target.checked !== roleDefault);
                     }}
-                    style={{ position: "absolute", opacity: 0, width: 0, height: 0 }}
+                    className="absolute h-0 w-0 opacity-0"
                   />
                 </div>
                 Shared age key
               </label>
             </div>
 
-            <div
-              style={{
-                fontFamily: theme.sans,
-                fontSize: 12,
-                color: theme.textMuted,
-                marginBottom: 10,
-              }}
-            >
+            <div className="mb-2.5 font-sans text-[12px] text-ash">
               {sharedRecipient
                 ? "One age key pair for all environments — one CI secret, easier to provision."
                 : "Age generates a key pair per environment. KMS uses your cloud provider — no key material is provisioned."}
             </div>
 
-            {/* Warning when shared-recipient is overridden from role default */}
             {sharedRecipientOverridden && (
               <div
                 data-testid="shared-recipient-warning"
-                style={{
-                  background: "#1a1200",
-                  border: `1px solid ${theme.yellow}55`,
-                  borderRadius: 6,
-                  padding: "10px 14px",
-                  marginBottom: 10,
-                  fontFamily: theme.sans,
-                  fontSize: 12,
-                  color: theme.yellow,
-                  lineHeight: 1.5,
-                }}
+                className="mb-2.5 rounded-md border border-warn-500/40 bg-warn-500/[0.06] px-3.5 py-2.5 font-sans text-[12px] leading-relaxed text-warn-500"
               >
                 {role === "ci" && !sharedRecipient
                   ? "Most CI pipelines use a single key. Per-environment keys are useful when your CI environments have separate secret access controls (e.g. GitHub environment protection rules)."
@@ -1455,34 +1011,15 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
               </div>
             )}
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="flex flex-col gap-2">
               {sharedRecipient ? (
-                <div
-                  style={{
-                    background: theme.accentDim,
-                    border: `1px solid ${theme.accent}44`,
-                    borderRadius: 8,
-                    padding: "14px 16px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                  }}
-                >
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <div className="flex items-center gap-3 rounded-lg border border-gold-500/30 bg-gold-500/[0.08] px-4 py-3.5">
+                  <div className="flex flex-wrap gap-1.5">
                     {environments.map((env) => (
                       <EnvBadge key={env.name} env={env.name} small />
                     ))}
                   </div>
-                  <span
-                    style={{
-                      fontFamily: theme.mono,
-                      fontSize: 11,
-                      color: theme.accent,
-                      marginLeft: "auto",
-                    }}
-                  >
-                    age (shared)
-                  </span>
+                  <span className="ml-auto font-mono text-[11px] text-gold-500">age (shared)</span>
                 </div>
               ) : (
                 environments.map((env) => {
@@ -1490,68 +1027,45 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                   return (
                     <div
                       key={env.name}
-                      style={{
-                        background: theme.surface,
-                        border: `1px solid ${theme.border}`,
-                        borderRadius: 8,
-                        padding: "14px 16px",
-                      }}
+                      className="rounded-lg border border-edge bg-ink-850 px-4 py-3.5"
                     >
                       <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          marginBottom: cfg.type === "kms" ? 12 : 0,
-                        }}
+                        className={`flex items-center justify-between ${cfg.type === "kms" ? "mb-3" : ""}`}
                       >
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div className="flex items-center gap-2">
                           <EnvBadge env={env.name} />
                           {env.protected && (
-                            <span style={{ fontSize: 11, color: theme.red }}>{"\uD83D\uDD12"}</span>
+                            <span className="text-[11px] text-stop-500">{"🔒"}</span>
                           )}
                         </div>
-                        <div style={{ display: "flex", gap: 4 }}>
-                          {(["age", "kms"] as const).map((t) => (
-                            <button
-                              key={t}
-                              onClick={() =>
-                                setEnvBackends((prev) => ({
-                                  ...prev,
-                                  [env.name]: { ...cfg, type: t },
-                                }))
-                              }
-                              style={{
-                                background:
-                                  cfg.type === t
-                                    ? t === "kms"
-                                      ? theme.purple
-                                      : theme.accent
-                                    : "transparent",
-                                border: `1px solid ${
-                                  cfg.type === t
-                                    ? t === "kms"
-                                      ? theme.purple
-                                      : theme.accent
-                                    : theme.border
-                                }`,
-                                borderRadius: 4,
-                                padding: "3px 10px",
-                                cursor: "pointer",
-                                fontFamily: theme.mono,
-                                fontSize: 11,
-                                color: cfg.type === t ? "#fff" : theme.textMuted,
-                                transition: "all 0.1s",
-                              }}
-                            >
-                              {t.toUpperCase()}
-                            </button>
-                          ))}
+                        <div className="flex gap-1">
+                          {(["age", "kms"] as const).map((t) => {
+                            const isSelected = cfg.type === t;
+                            const buttonClass = isSelected
+                              ? t === "kms"
+                                ? "bg-purple-400 border-purple-400 text-ghost"
+                                : "bg-gold-500 border-gold-500 text-ink-950"
+                              : "bg-transparent border-edge text-ash";
+                            return (
+                              <button
+                                key={t}
+                                onClick={() =>
+                                  setEnvBackends((prev) => ({
+                                    ...prev,
+                                    [env.name]: { ...cfg, type: t },
+                                  }))
+                                }
+                                className={`cursor-pointer rounded border px-2.5 py-0.5 font-mono text-[11px] transition-colors ${buttonClass}`}
+                              >
+                                {t.toUpperCase()}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
 
                       {cfg.type === "kms" && (
-                        <div style={{ display: "flex", gap: 8 }}>
+                        <div className="flex gap-2">
                           <select
                             value={cfg.provider}
                             onChange={(e) =>
@@ -1560,12 +1074,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                                 [env.name]: { ...cfg, provider: e.target.value },
                               }))
                             }
-                            style={{
-                              ...inputStyle,
-                              width: 90,
-                              flexShrink: 0,
-                              padding: "7px 8px",
-                            }}
+                            className={`${SMALL_INPUT_BASE} w-[90px] shrink-0`}
                           >
                             <option value="aws">AWS</option>
                             <option value="gcp">GCP</option>
@@ -1580,7 +1089,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
                               }))
                             }
                             placeholder="arn:aws:kms:… or key resource ID"
-                            style={{ ...inputStyle, flex: 1 }}
+                            className={`${SMALL_INPUT_BASE} flex-1`}
                           />
                         </div>
                       )}
@@ -1591,7 +1100,7 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
             </div>
           </div>
 
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={goList} disabled={creating}>
               Cancel
             </Button>
@@ -1614,66 +1123,20 @@ export function ServiceIdentitiesScreen({ manifest }: ServiceIdentitiesScreenPro
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      style={{
-        fontFamily: theme.sans,
-        fontSize: 12,
-        fontWeight: 600,
-        color: theme.textMuted,
-        marginBottom: 6,
-        letterSpacing: "0.05em",
-        textTransform: "uppercase",
-      }}
-    >
+    <div className="mb-1.5 font-sans text-[12px] font-semibold uppercase tracking-[0.05em] text-ash">
       {children}
     </div>
   );
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        fontFamily: theme.sans,
-        fontSize: 12,
-        fontWeight: 600,
-        color: theme.textMuted,
-        marginBottom: 6,
-      }}
-    >
-      {children}
-    </div>
-  );
+  return <div className="mb-1.5 font-sans text-[12px] font-semibold text-ash">{children}</div>;
 }
 
 function ErrorBanner({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      style={{
-        background: theme.redDim,
-        border: `1px solid ${theme.red}44`,
-        borderRadius: 8,
-        padding: "12px 16px",
-        marginBottom: 16,
-        fontFamily: theme.sans,
-        fontSize: 13,
-        color: theme.red,
-      }}
-    >
+    <div className="mb-4 rounded-lg border border-stop-500/30 bg-stop-500/10 px-4 py-3 font-sans text-[13px] text-stop-500">
       {children}
     </div>
   );
 }
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  background: theme.surface,
-  border: `1px solid ${theme.border}`,
-  borderRadius: 6,
-  padding: "8px 12px",
-  fontFamily: theme.mono,
-  fontSize: 12,
-  color: theme.text,
-  outline: "none",
-  boxSizing: "border-box",
-};

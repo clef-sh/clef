@@ -1,0 +1,12 @@
+{
+  "source": "envelope.json",
+  "status": "ok",
+  "error": null,
+  "revealed": true,
+  "keys": ["API_KEY", "DB_URL", "REDIS_URL"],
+  "values": {
+    "DB_URL": "postgres://prod",
+    "REDIS_URL": "redis://prod",
+    "API_KEY": "sk-123"
+  }
+}

@@ -424,62 +424,59 @@ jobs:
         run: npm test
 
       # ── Publish to npm (public packages with provenance) ────────────────
+      #
+      # Auth: every @clef-sh/* package on npm has this workflow registered
+      # as its Trusted Publisher (npmjs.com → package settings → Trusted
+      # Publisher). The `id-token: write` permission at the top of this
+      # workflow lets the npm CLI exchange the workflow's OIDC token for a
+      # short-lived publish credential at run time — no long-lived
+      # NPM_TOKEN secret required.
+      #
+      # The publish-beta-npm.yml workflow still uses NPM_TOKEN. npm only
+      # honours one trusted publisher per package, so beta auth stays on
+      # the classic token until npm grows multi-publisher support.
 
       - name: Publish @clef-sh/core
         if: needs.prepare.outputs.core_released == 'true'
         continue-on-error: true
         working-directory: packages/core
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/core publish failed (may already exist)"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/cloud
         if: needs.prepare.outputs.cloud_released == 'true'
         continue-on-error: true
         working-directory: packages/cloud
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/cloud publish failed (may already exist)"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/analytics
         if: needs.prepare.outputs.analytics_released == 'true'
         continue-on-error: true
         working-directory: packages/analytics
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/analytics publish failed (may already exist)"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/runtime
         if: needs.prepare.outputs.runtime_released == 'true'
         continue-on-error: true
         working-directory: packages/runtime
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/runtime publish failed (may already exist)"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/broker
         if: needs.prepare.outputs.broker_released == 'true'
         continue-on-error: true
         working-directory: packages/broker
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/broker publish failed (may already exist)"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/agent
         if: needs.prepare.outputs.agent_released == 'true'
         continue-on-error: true
         working-directory: packages/agent
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/agent publish failed (may already exist)"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/cli
         if: needs.prepare.outputs.cli_released == 'true'
         continue-on-error: true
         working-directory: packages/cli
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/cli publish failed (may already exist)"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/ui
         if: needs.prepare.outputs.ui_released == 'true'
@@ -493,10 +490,6 @@ jobs:
         working-directory: packages/client
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/client publish failed (may already exist)"
 
-      # No NODE_AUTH_TOKEN: @clef-sh/cdk uses npm trusted-publisher + OIDC
-      # after its manual first-publish from a maintainer machine. The
-      # id-token:write permission at the top of this workflow is what
-      # lets `npm publish --provenance` authenticate.
       - name: Publish @clef-sh/cdk
         if: needs.prepare.outputs.cdk_released == 'true'
         continue-on-error: true

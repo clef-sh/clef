@@ -1,9 +1,24 @@
 version: 2
+
+# Cooldown is duplicated across entries on purpose — Dependabot's config
+# parser does not document YAML anchor support, and this file is hard to
+# test remotely. Repetition wins over a debugging round-trip.
+#
+# Why cooldown: most malicious npm publishes are detected and unpublished
+# within 24-72h. Waiting 5 days before pulling a new version means we are
+# rarely the canary. Security updates (the separate advisory pipeline) are
+# NOT subject to cooldown and still come through immediately.
+
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 5
+      semver-patch-days: 5
+      semver-minor-days: 5
+      semver-major-days: 14
     groups:
       patch-updates:
         update-types:
@@ -12,6 +27,11 @@ updates:
     directory: /docs
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 5
+      semver-patch-days: 5
+      semver-minor-days: 5
+      semver-major-days: 14
     groups:
       patch-updates:
         update-types:
@@ -20,6 +40,11 @@ updates:
     directory: /www
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 5
+      semver-patch-days: 5
+      semver-minor-days: 5
+      semver-major-days: 14
     groups:
       patch-updates:
         update-types:
@@ -28,3 +53,6 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 5
+      semver-major-days: 14

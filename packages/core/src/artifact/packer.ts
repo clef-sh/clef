@@ -6,6 +6,7 @@ import { PackConfig, PackResult, PackedArtifact } from "./types";
 import { FilePackOutput } from "./output";
 import { resolveIdentitySecrets } from "./resolve";
 import { buildSigningPayload, signEd25519, signKms } from "./signer";
+import { computeCiphertextHash } from "./hash";
 
 /**
  * Packs an encrypted artifact for a service identity + environment.
@@ -68,7 +69,7 @@ export class ArtifactPacker {
         const wrapped = await this.kms.wrap(kmsConfig.keyId, dek);
 
         const revision = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-        const ciphertextHash = crypto.createHash("sha256").update(ciphertext).digest("hex");
+        const ciphertextHash = computeCiphertextHash(ciphertext);
 
         artifact = {
           version: 1,
@@ -106,7 +107,7 @@ export class ArtifactPacker {
       }
 
       const revision = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-      const ciphertextHash = crypto.createHash("sha256").update(ciphertext).digest("hex");
+      const ciphertextHash = computeCiphertextHash(ciphertext);
 
       artifact = {
         version: 1,

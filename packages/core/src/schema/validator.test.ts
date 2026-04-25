@@ -19,8 +19,6 @@ function testSchema(): NamespaceSchema {
       DATABASE_POOL_SIZE: {
         type: "integer",
         required: false,
-        default: 10,
-        max: 100,
       },
       DATABASE_SSL: {
         type: "boolean",
@@ -120,8 +118,6 @@ describe("SchemaValidator", () => {
           POOL: {
             type: "integer",
             required: false,
-            default: 10,
-            max: 50,
             description: "Pool size",
           },
         },
@@ -129,9 +125,24 @@ describe("SchemaValidator", () => {
       mockFs.readFileSync.mockReturnValue(schemaYaml);
 
       const schema = validator.loadSchema("/repo/schemas/test.yaml");
-      expect(schema.keys.POOL.default).toBe(10);
-      expect(schema.keys.POOL.max).toBe(50);
       expect(schema.keys.POOL.description).toBe("Pool size");
+    });
+
+    it("should ignore legacy default and max fields", () => {
+      const schemaYaml = YAML.stringify({
+        keys: {
+          POOL: {
+            type: "integer",
+            required: false,
+            default: 10,
+            max: 50,
+          },
+        },
+      });
+      mockFs.readFileSync.mockReturnValue(schemaYaml);
+
+      const schema = validator.loadSchema("/repo/schemas/test.yaml");
+      expect(schema.keys.POOL).toEqual({ type: "integer", required: false });
     });
   });
 
@@ -297,42 +308,11 @@ describe("SchemaValidator", () => {
       expect(result.warnings[0].rule).toBe("undeclared");
     });
 
-    // Max exceeded (warning)
-    it("should warn when integer exceeds max", () => {
-      const result = validator.validate(
-        {
-          DATABASE_URL: "postgres://localhost/mydb",
-          DATABASE_POOL_SIZE: "200",
-          DATABASE_SSL: "true",
-        },
-        testSchema(),
-      );
-
-      expect(result.valid).toBe(true); // Max exceeded is a warning
-      expect(result.warnings).toHaveLength(1);
-      expect(result.warnings[0].key).toBe("DATABASE_POOL_SIZE");
-      expect(result.warnings[0].rule).toBe("max_exceeded");
-    });
-
-    it("should not warn when integer is within max", () => {
-      const result = validator.validate(
-        {
-          DATABASE_URL: "postgres://localhost/mydb",
-          DATABASE_POOL_SIZE: "50",
-          DATABASE_SSL: "true",
-        },
-        testSchema(),
-      );
-
-      expect(result.warnings).toHaveLength(0);
-    });
-
     // Multiple errors at once
     it("should collect multiple errors and warnings", () => {
       const result = validator.validate(
         {
           DATABASE_URL: "mysql://bad",
-          DATABASE_POOL_SIZE: "999",
           EXTRA: "val",
         },
         testSchema(),
@@ -341,8 +321,8 @@ describe("SchemaValidator", () => {
       expect(result.valid).toBe(false);
       // Missing required DATABASE_SSL + pattern mismatch on DATABASE_URL
       expect(result.errors.length).toBeGreaterThanOrEqual(2);
-      // Max exceeded on POOL_SIZE + undeclared EXTRA
-      expect(result.warnings.length).toBeGreaterThanOrEqual(2);
+      // Undeclared EXTRA
+      expect(result.warnings.some((w) => w.rule === "undeclared" && w.key === "EXTRA")).toBe(true);
     });
 
     // Empty values

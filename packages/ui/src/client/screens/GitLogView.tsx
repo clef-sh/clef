@@ -1,13 +1,17 @@
 // packages/ui/src/client/screens/GitLogView.tsx
 import React, { useState, useEffect, useCallback } from "react";
-import { theme } from "../theme";
 import { apiFetch } from "../api";
-import { TopBar } from "../components/TopBar";
+import { Toolbar, Table, EmptyState } from "../primitives";
 import type { ClefManifest, GitCommit } from "@clef-sh/core";
 
 interface GitLogViewProps {
   manifest: ClefManifest | null;
 }
+
+const SELECT_CLASSES =
+  "font-mono text-[12px] bg-ink-850 text-bone border border-edge rounded-sm px-2 py-0.5 outline-none focus-visible:border-gold-500";
+
+const SELECT_LABEL_CLASSES = "flex items-center gap-2 font-mono text-[12px] text-ash";
 
 export function GitLogView({ manifest }: GitLogViewProps) {
   const namespaces = manifest?.namespaces ?? [];
@@ -53,42 +57,19 @@ export function GitLogView({ manifest }: GitLogViewProps) {
   }, [loadLog]);
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <TopBar title="History" subtitle="Commit log per encrypted file" />
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <Toolbar>
+        <div>
+          <Toolbar.Title>History</Toolbar.Title>
+          <Toolbar.Subtitle>Commit log per encrypted file</Toolbar.Subtitle>
+        </div>
+      </Toolbar>
 
       {/* Selectors */}
-      <div
-        style={{
-          display: "flex",
-          gap: 12,
-          padding: "16px 24px",
-          borderBottom: `1px solid ${theme.border}`,
-        }}
-      >
-        <label
-          style={{
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            fontFamily: theme.mono,
-            fontSize: 12,
-            color: theme.textMuted,
-          }}
-        >
+      <div className="flex gap-3 px-6 py-4 border-b border-edge">
+        <label className={SELECT_LABEL_CLASSES}>
           Namespace
-          <select
-            value={ns}
-            onChange={(e) => setNs(e.target.value)}
-            style={{
-              fontFamily: theme.mono,
-              fontSize: 12,
-              background: theme.surface,
-              color: theme.text,
-              border: `1px solid ${theme.border}`,
-              borderRadius: 4,
-              padding: "3px 8px",
-            }}
-          >
+          <select value={ns} onChange={(e) => setNs(e.target.value)} className={SELECT_CLASSES}>
             {namespaces.map((n) => (
               <option key={n.name} value={n.name}>
                 {n.name}
@@ -96,30 +77,9 @@ export function GitLogView({ manifest }: GitLogViewProps) {
             ))}
           </select>
         </label>
-        <label
-          style={{
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            fontFamily: theme.mono,
-            fontSize: 12,
-            color: theme.textMuted,
-          }}
-        >
+        <label className={SELECT_LABEL_CLASSES}>
           Environment
-          <select
-            value={env}
-            onChange={(e) => setEnv(e.target.value)}
-            style={{
-              fontFamily: theme.mono,
-              fontSize: 12,
-              background: theme.surface,
-              color: theme.text,
-              border: `1px solid ${theme.border}`,
-              borderRadius: 4,
-              padding: "3px 8px",
-            }}
-          >
+          <select value={env} onChange={(e) => setEnv(e.target.value)} className={SELECT_CLASSES}>
             {environments.map((e) => (
               <option key={e.name} value={e.name}>
                 {e.name}
@@ -130,61 +90,43 @@ export function GitLogView({ manifest }: GitLogViewProps) {
       </div>
 
       {/* Content */}
-      <div style={{ flex: 1, overflow: "auto", padding: "0 24px 24px" }}>
-        {loading && (
-          <div
-            style={{ padding: 24, color: theme.textMuted, fontFamily: theme.mono, fontSize: 12 }}
-          >
-            Loading…
-          </div>
-        )}
+      <div className="flex-1 overflow-auto px-6 pb-6">
+        {loading && <div className="p-6 font-mono text-[12px] text-ash">Loading…</div>}
         {!loading && error && (
-          <div style={{ padding: 24, color: theme.red, fontFamily: theme.mono, fontSize: 12 }}>
-            {error}
-          </div>
+          <div className="p-6 font-mono text-[12px] text-stop-500">{error}</div>
         )}
         {!loading && !error && commits.length === 0 && (
-          <div
-            style={{ padding: 24, color: theme.textMuted, fontFamily: theme.mono, fontSize: 12 }}
-          >
-            No commits found for {ns}/{env}.
+          <div className="pt-6">
+            <EmptyState title="No commits found" body={`No history for ${ns}/${env}.`} />
           </div>
         )}
         {!loading && !error && commits.length > 0 && (
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              fontFamily: theme.mono,
-              fontSize: 12,
-              marginTop: 16,
-            }}
-          >
-            <thead>
-              <tr style={{ borderBottom: `1px solid ${theme.border}`, color: theme.textDim }}>
-                <th style={{ textAlign: "left", padding: "6px 12px 6px 0", fontWeight: 600 }}>
-                  Hash
-                </th>
-                <th style={{ textAlign: "left", padding: "6px 12px", fontWeight: 600 }}>Date</th>
-                <th style={{ textAlign: "left", padding: "6px 12px", fontWeight: 600 }}>Author</th>
-                <th style={{ textAlign: "left", padding: "6px 0", fontWeight: 600 }}>Message</th>
-              </tr>
-            </thead>
-            <tbody>
-              {commits.map((c) => (
-                <tr key={c.hash} style={{ borderBottom: `1px solid ${theme.border}22` }}>
-                  <td style={{ padding: "8px 12px 8px 0", color: theme.accent }}>
-                    {c.hash.slice(0, 7)}
-                  </td>
-                  <td style={{ padding: "8px 12px", color: theme.textMuted, whiteSpace: "nowrap" }}>
-                    {new Date(c.date).toLocaleDateString()}
-                  </td>
-                  <td style={{ padding: "8px 12px", color: theme.textMuted }}>{c.author}</td>
-                  <td style={{ padding: "8px 0", color: theme.text }}>{c.message}</td>
+          <div className="mt-4">
+            <Table>
+              <Table.Header>
+                <tr>
+                  <Table.HeaderCell>Hash</Table.HeaderCell>
+                  <Table.HeaderCell>Date</Table.HeaderCell>
+                  <Table.HeaderCell>Author</Table.HeaderCell>
+                  <Table.HeaderCell>Message</Table.HeaderCell>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </Table.Header>
+              <tbody>
+                {commits.map((c) => (
+                  <Table.Row key={c.hash}>
+                    <Table.Cell className="font-mono text-gold-500">
+                      {c.hash.slice(0, 7)}
+                    </Table.Cell>
+                    <Table.Cell className="text-ash whitespace-nowrap">
+                      {new Date(c.date).toLocaleDateString()}
+                    </Table.Cell>
+                    <Table.Cell className="text-ash">{c.author}</Table.Cell>
+                    <Table.Cell>{c.message}</Table.Cell>
+                  </Table.Row>
+                ))}
+              </tbody>
+            </Table>
+          </div>
         )}
       </div>
     </div>

@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { theme } from "../theme";
+import { ScanSearch } from "lucide-react";
 import { apiFetch } from "../api";
-import { TopBar } from "../components/TopBar";
 import { Button } from "../components/Button";
 import { CopyButton } from "../components/CopyButton";
+import { Toolbar } from "../primitives";
 import type { ScanResult } from "@clef-sh/core";
 
 type ScanState = "idle" | "scanning" | "clean" | "issues";
@@ -87,70 +87,50 @@ export function ScanScreen() {
   const totalIssues = (result?.matches.length ?? 0) + (result?.unencryptedMatrixFiles.length ?? 0);
   const durationSec = result ? (result.durationMs / 1000).toFixed(1) : "0.0";
 
-  return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <TopBar
-        title="Scan"
-        subtitle="clef scan — detect plaintext secrets"
-        actions={
-          scanState === "issues" || scanState === "clean" ? (
-            <Button onClick={runScan}>&#x21BA; Scan again</Button>
-          ) : undefined
-        }
-      />
+  const filterButtons: ReadonlyArray<{ key: MatchFilter; label: string }> = [
+    { key: "all", label: "All" },
+    { key: "unencrypted", label: "Unencrypted" },
+    { key: "pattern", label: "Pattern" },
+    { key: "entropy", label: "Entropy" },
+  ];
 
-      <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <Toolbar>
+        <div>
+          <Toolbar.Title>Scan</Toolbar.Title>
+          <Toolbar.Subtitle>clef scan — detect plaintext secrets</Toolbar.Subtitle>
+        </div>
+        {(scanState === "issues" || scanState === "clean") && (
+          <Toolbar.Actions>
+            <Button onClick={runScan}>↺ Scan again</Button>
+          </Toolbar.Actions>
+        )}
+      </Toolbar>
+
+      <div className="flex-1 overflow-auto p-6">
         {/* ── Idle ────────────────────────────────────────────────────── */}
         {scanState === "idle" && (
-          <div
-            data-testid="scan-idle"
-            style={{
-              maxWidth: 520,
-              margin: "0 auto",
-              paddingTop: 40,
-            }}
-          >
-            <div
-              style={{
-                fontFamily: theme.sans,
-                fontSize: 14,
-                color: theme.textMuted,
-                marginBottom: 24,
-                lineHeight: 1.6,
-              }}
-            >
-              Scans your repository for secrets that have escaped the Clef matrix — plaintext values
-              in files that should be encrypted.
+          <div data-testid="scan-idle" className="mx-auto max-w-[520px] pt-10">
+            <div className="mb-6 flex flex-col items-center gap-3 text-center">
+              <ScanSearch className="text-ash-dim" size={40} aria-hidden />
+              <div className="font-sans text-[14px] leading-relaxed text-ash">
+                Scans your repository for secrets that have escaped the Clef matrix — plaintext
+                values in files that should be encrypted.
+              </div>
             </div>
 
             {/* Severity selector */}
-            <div style={{ marginBottom: 24 }}>
-              <div
-                style={{
-                  fontFamily: theme.sans,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: theme.textMuted,
-                  marginBottom: 10,
-                  letterSpacing: "0.05em",
-                  textTransform: "uppercase",
-                }}
-              >
+            <div className="mb-6">
+              <div className="mb-2.5 font-sans text-[12px] font-semibold uppercase tracking-[0.05em] text-ash">
                 Severity
               </div>
               {(["all", "high"] as const).map((sev) => (
                 <label
                   key={sev}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    marginBottom: 8,
-                    cursor: "pointer",
-                    fontFamily: theme.sans,
-                    fontSize: 13,
-                    color: severity === sev ? theme.text : theme.textMuted,
-                  }}
+                  className={`mb-2 flex cursor-pointer items-center gap-2.5 font-sans text-[13px] ${
+                    severity === sev ? "text-bone" : "text-ash"
+                  }`}
                 >
                   <input
                     type="radio"
@@ -158,7 +138,7 @@ export function ScanScreen() {
                     value={sev}
                     checked={severity === sev}
                     onChange={() => setSeverity(sev)}
-                    style={{ accentColor: theme.accent }}
+                    className="accent-gold-500"
                     data-testid={`severity-${sev}`}
                   />
                   {sev === "all" ? "All (patterns + entropy)" : "High (patterns only)"}
@@ -170,20 +150,9 @@ export function ScanScreen() {
               Scan repository
             </Button>
 
-            <div
-              style={{
-                marginTop: 24,
-                padding: "12px 16px",
-                background: theme.surface,
-                border: `1px solid ${theme.border}`,
-                borderRadius: 8,
-                fontFamily: theme.sans,
-                fontSize: 12,
-                color: theme.textMuted,
-              }}
-            >
-              &#x2139;&#xFE0F; <code style={{ fontFamily: theme.mono }}>clef scan</code> runs
-              automatically on every commit via the pre-commit hook.
+            <div className="mt-6 rounded-md border border-edge bg-ink-850 px-4 py-3 font-sans text-[12px] text-ash">
+              ℹ️ <code className="font-mono">clef scan</code> runs automatically on every commit via
+              the pre-commit hook.
             </div>
           </div>
         )}
@@ -192,28 +161,10 @@ export function ScanScreen() {
         {scanState === "scanning" && (
           <div
             data-testid="scan-scanning"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 16,
-              paddingTop: 80,
-            }}
+            className="flex flex-col items-center justify-center gap-4 pt-20"
           >
-            <div
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: "50%",
-                border: `3px solid ${theme.accent}44`,
-                borderTopColor: theme.accent,
-                animation: "spin 0.8s linear infinite",
-              }}
-            />
-            <div style={{ fontFamily: theme.sans, fontSize: 14, color: theme.textMuted }}>
-              Scanning...
-            </div>
+            <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-gold-500/30 border-t-gold-500" />
+            <div className="font-sans text-[14px] text-ash">Scanning...</div>
           </div>
         )}
 
@@ -221,40 +172,16 @@ export function ScanScreen() {
         {scanState === "clean" && result && (
           <div
             data-testid="scan-clean"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 14,
-              paddingTop: 60,
-            }}
+            className="flex flex-col items-center justify-center gap-3.5 pt-14"
           >
-            <div
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: "50%",
-                background: theme.greenDim,
-                border: `1px solid ${theme.green}44`,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 24,
-                color: theme.green,
-              }}
-            >
-              &#x2713;
+            <div className="flex h-14 w-14 items-center justify-center rounded-full border border-go-500/30 bg-go-500/15 text-[24px] text-go-500">
+              ✓
             </div>
-            <div
-              style={{ fontFamily: theme.sans, fontWeight: 600, fontSize: 16, color: theme.green }}
-            >
-              No issues found
-            </div>
-            <div style={{ fontFamily: theme.mono, fontSize: 12, color: theme.textMuted }}>
+            <div className="font-sans text-[16px] font-semibold text-go-500">No issues found</div>
+            <div className="font-mono text-[12px] text-ash">
               {result.filesScanned} files scanned in {durationSec}s
             </div>
-            <div style={{ fontFamily: theme.mono, fontSize: 11, color: theme.textDim }}>
+            <div className="font-mono text-[11px] text-ash-dim">
               Last run: {formatRunAt(lastRunAt)}
             </div>
           </div>
@@ -264,50 +191,30 @@ export function ScanScreen() {
         {scanState === "issues" && result && (
           <div>
             {/* Summary */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                marginBottom: 20,
-                flexWrap: "wrap",
-              }}
-            >
-              <span
-                style={{ fontFamily: theme.sans, fontSize: 14, color: theme.text, fontWeight: 600 }}
-              >
+            <div className="mb-5 flex flex-wrap items-center gap-3">
+              <span className="font-sans text-[14px] font-semibold text-bone">
                 {totalIssues} issue{totalIssues !== 1 ? "s" : ""} found in {result.filesScanned}{" "}
                 files ({durationSec}s)
               </span>
-              <div style={{ flex: 1 }} />
+              <div className="flex-1" />
               {/* Filter */}
-              {(
-                [
-                  { key: "all", label: "All" },
-                  { key: "unencrypted", label: "Unencrypted" },
-                  { key: "pattern", label: "Pattern" },
-                  { key: "entropy", label: "Entropy" },
-                ] as { key: MatchFilter; label: string }[]
-              ).map(({ key, label }) => (
-                <button
-                  key={key}
-                  data-testid={`filter-${key}`}
-                  onClick={() => setFilter(key)}
-                  style={{
-                    padding: "4px 10px",
-                    borderRadius: 4,
-                    cursor: "pointer",
-                    fontFamily: theme.mono,
-                    fontSize: 11,
-                    fontWeight: filter === key ? 600 : 400,
-                    color: filter === key ? theme.accent : theme.textMuted,
-                    background: filter === key ? theme.accentDim : "transparent",
-                    border: `1px solid ${filter === key ? theme.accent + "55" : theme.borderLight}`,
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
+              {filterButtons.map(({ key, label }) => {
+                const active = filter === key;
+                return (
+                  <button
+                    key={key}
+                    data-testid={`filter-${key}`}
+                    onClick={() => setFilter(key)}
+                    className={`cursor-pointer rounded-md border px-2.5 py-1 font-mono text-[11px] ${
+                      active
+                        ? "border-gold-500/30 bg-gold-500/10 font-semibold text-gold-500"
+                        : "border-edge-strong bg-transparent text-ash"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Unencrypted matrix files */}
@@ -347,14 +254,7 @@ export function ScanScreen() {
             ))}
 
             {dismissedCount > 0 && (
-              <div
-                style={{
-                  fontFamily: theme.mono,
-                  fontSize: 11,
-                  color: theme.textDim,
-                  marginTop: 12,
-                }}
-              >
+              <div className="mt-3 font-mono text-[11px] text-ash-dim">
                 {dismissedCount} dismissed
               </div>
             )}
@@ -384,55 +284,26 @@ function IssueCard({
   onViewFile,
   onDismiss,
 }: IssueCardProps) {
-  const color = type === "error" ? theme.red : theme.yellow;
+  const stripeClass = type === "error" ? "border-l-stop-500/40" : "border-l-warn-500/40";
+  const tagClass =
+    type === "error"
+      ? "text-stop-500 bg-stop-500/15 border-stop-500/30"
+      : "text-warn-500 bg-warn-500/15 border-warn-500/30";
 
   return (
     <div
-      style={{
-        background: theme.surface,
-        border: `1px solid ${theme.border}`,
-        borderLeft: `3px solid ${color}66`,
-        borderRadius: 8,
-        padding: "14px 18px",
-        marginBottom: 12,
-        display: "flex",
-        alignItems: "flex-start",
-        gap: 14,
-      }}
+      className={`mb-3 flex items-start gap-3.5 rounded-md border border-edge border-l-[3px] bg-ink-850 px-4.5 py-3.5 ${stripeClass}`}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="min-w-0 flex-1">
         {/* Type badge + file */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            marginBottom: 6,
-            flexWrap: "wrap",
-          }}
-        >
+        <div className="mb-1.5 flex flex-wrap items-center gap-2">
           <span
-            style={{
-              fontFamily: theme.mono,
-              fontSize: 9,
-              fontWeight: 700,
-              color,
-              background: `${color}18`,
-              border: `1px solid ${color}33`,
-              borderRadius: 3,
-              padding: "2px 6px",
-              letterSpacing: "0.07em",
-            }}
+            className={`rounded-sm border px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-[0.07em] ${tagClass}`}
           >
             {typeLabel}
           </span>
           <span
-            style={{
-              fontFamily: theme.mono,
-              fontSize: 12,
-              color: theme.accent,
-              cursor: onViewFile ? "pointer" : "default",
-            }}
+            className={`font-mono text-[12px] text-gold-500 ${onViewFile ? "cursor-pointer" : ""}`}
             onClick={onViewFile}
             role={onViewFile ? "button" : undefined}
             tabIndex={onViewFile ? 0 : undefined}
@@ -449,30 +320,14 @@ function IssueCard({
         </div>
 
         {/* Message (preview) */}
-        <div
-          style={{ fontFamily: theme.mono, fontSize: 12, color: theme.text, marginBottom: 10 }}
-          data-testid="match-preview"
-        >
+        <div className="mb-2.5 font-mono text-[12px] text-bone" data-testid="match-preview">
           {message}
         </div>
 
         {/* Fix command */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            background: "#0D0F14",
-            border: `1px solid ${theme.borderLight}`,
-            borderRadius: 6,
-            padding: "6px 10px",
-            width: "fit-content",
-          }}
-        >
-          <span style={{ fontFamily: theme.mono, fontSize: 11, color: theme.green }}>$</span>
-          <span style={{ fontFamily: theme.mono, fontSize: 11, color: theme.text }}>
-            {fixCommand}
-          </span>
+        <div className="flex w-fit items-center gap-2 rounded-md border border-edge-strong bg-ink-800 px-2.5 py-1.5">
+          <span className="font-mono text-[11px] text-go-500">$</span>
+          <span className="font-mono text-[11px] text-bone">{fixCommand}</span>
           <CopyButton text={fixCommand} />
         </div>
 
@@ -481,17 +336,7 @@ function IssueCard({
           <button
             data-testid="view-file-button"
             onClick={onViewFile}
-            style={{
-              marginTop: 8,
-              background: "none",
-              border: `1px solid ${theme.borderLight}`,
-              borderRadius: 4,
-              cursor: "pointer",
-              color: theme.textMuted,
-              fontFamily: theme.sans,
-              fontSize: 11,
-              padding: "3px 8px",
-            }}
+            className="mt-2 cursor-pointer rounded-md border border-edge-strong bg-transparent px-2 py-0.5 font-sans text-[11px] text-ash"
           >
             View file
           </button>
@@ -504,18 +349,9 @@ function IssueCard({
           onClick={onDismiss}
           title="Dismiss"
           aria-label="Dismiss issue"
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            color: theme.textDim,
-            fontSize: 16,
-            flexShrink: 0,
-            padding: "0 4px",
-            lineHeight: 1,
-          }}
+          className="shrink-0 cursor-pointer border-none bg-transparent px-1 text-[16px] leading-none text-ash-dim"
         >
-          &#x00D7;
+          ×
         </button>
       )}
     </div>

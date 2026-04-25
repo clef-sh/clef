@@ -134,7 +134,9 @@ async function main(): Promise<void> {
     token: config.token,
     cache,
     cacheTtl: config.cacheTtl,
-    ...(jitMode ? { decryptor: poller.getDecryptor(), encryptedStore } : {}),
+    ...(jitMode
+      ? { decryptor: poller.getDecryptor(), encryptedStore }
+      : { refresh: () => poller.fetchAndDecrypt() }),
   });
 
   const onLog = (msg: string) => console.log(`[clef-agent] ${msg}`);

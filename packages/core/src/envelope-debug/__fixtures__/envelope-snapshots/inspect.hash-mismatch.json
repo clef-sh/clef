@@ -1,0 +1,26 @@
+{
+  "source": "envelope.json",
+  "version": 1,
+  "identity": "aws-lambda",
+  "environment": "dev",
+  "packedAt": "2026-04-23T06:00:00.000Z",
+  "packedAtAgeMs": 21600000,
+  "revision": "1776880279983-24310ee5",
+  "ciphertextHash": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+  "ciphertextHashVerified": false,
+  "ciphertextBytes": 31,
+  "expiresAt": null,
+  "expired": null,
+  "revokedAt": null,
+  "revoked": false,
+  "envelope": {
+    "provider": "age",
+    "kms": null
+  },
+  "signature": {
+    "present": false,
+    "algorithm": null,
+    "verified": null
+  },
+  "error": null
+}

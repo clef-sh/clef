@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { theme } from "../theme";
 import { apiFetch } from "../api";
-import { TopBar } from "../components/TopBar";
 import { Button } from "../components/Button";
+import { Toolbar } from "../primitives";
 import type { ClefManifest } from "@clef-sh/core";
 import type { ViewName } from "../components/Sidebar";
 
@@ -27,6 +26,12 @@ interface ApplyResult {
 
 type ImportFormatOption = "auto" | "dotenv" | "json" | "yaml";
 
+const SELECT_CLASSES =
+  "w-full rounded-md border border-edge bg-ink-850 px-2.5 py-1.5 font-sans text-[13px] text-bone outline-none cursor-pointer focus-visible:border-gold-500";
+
+const TEXTAREA_CLASSES =
+  "w-full box-border rounded-lg border border-edge bg-ink-850 p-3.5 font-mono text-[12px] text-bone outline-none resize-y focus-visible:border-gold-500";
+
 export function ImportScreen({ manifest, setView }: ImportScreenProps) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [namespace, setNamespace] = useState("");
@@ -39,7 +44,6 @@ export function ImportScreen({ manifest, setView }: ImportScreenProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Set defaults from manifest
   useEffect(() => {
     if (manifest) {
       if (!namespace && manifest.namespaces.length > 0) {
@@ -98,7 +102,6 @@ export function ImportScreen({ manifest, setView }: ImportScreenProps) {
     setLoading(true);
     setError(null);
 
-    // Keys to import: wouldImport + any overwrite-toggled ones
     const keysToImport = [
       ...preview.wouldImport,
       ...preview.wouldSkip.filter((s) => overwriteKeys.includes(s.key)).map((s) => s.key),
@@ -125,7 +128,6 @@ export function ImportScreen({ manifest, setView }: ImportScreenProps) {
 
       const data: ApplyResult = await res.json();
       setApplyResult(data);
-      // Clear content after successful apply
       setContent("");
       setStep(3);
     } catch (err) {
@@ -155,67 +157,43 @@ export function ImportScreen({ manifest, setView }: ImportScreenProps) {
     overwriteKeys.filter((k) => preview?.wouldSkip.some((s) => s.key === k)).length;
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <TopBar title="Import" subtitle="clef import — bulk migrate secrets" />
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <Toolbar>
+        <div>
+          <Toolbar.Title>Import</Toolbar.Title>
+          <Toolbar.Subtitle>clef import — bulk migrate secrets</Toolbar.Subtitle>
+        </div>
+      </Toolbar>
 
-      <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-        <div style={{ maxWidth: 620, margin: "0 auto" }}>
+      <div className="flex-1 overflow-auto p-6">
+        <div className="mx-auto max-w-[620px]">
           {/* Step indicator */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 0,
-              marginBottom: 32,
-            }}
-          >
+          <div className="mb-8 flex items-center">
             {([1, 2, 3] as const).map((s, i) => (
               <React.Fragment key={s}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                  }}
-                >
+                <div className="flex items-center gap-2">
                   <div
-                    style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: "50%",
-                      background: step >= s ? theme.accent : theme.surface,
-                      border: `1px solid ${step >= s ? theme.accent : theme.border}`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontFamily: theme.mono,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      color: step >= s ? "#000" : theme.textDim,
-                    }}
+                    className={`flex h-6 w-6 items-center justify-center rounded-full font-mono text-[11px] font-bold ${
+                      step >= s
+                        ? "bg-gold-500 border border-gold-500 text-ink-950"
+                        : "bg-ink-850 border border-edge text-ash-dim"
+                    }`}
                   >
                     {s}
                   </div>
                   <span
-                    style={{
-                      fontFamily: theme.sans,
-                      fontSize: 12,
-                      color: step >= s ? theme.text : theme.textDim,
-                      fontWeight: step === s ? 600 : 400,
-                    }}
+                    className={`font-sans text-[12px] ${
+                      step >= s ? "text-bone" : "text-ash-dim"
+                    } ${step === s ? "font-semibold" : "font-normal"}`}
                   >
                     {s === 1 ? "Source" : s === 2 ? "Preview" : "Done"}
                   </span>
                 </div>
                 {i < 2 && (
                   <div
-                    style={{
-                      flex: 1,
-                      height: 1,
-                      background: step > s ? theme.accent : theme.border,
-                      margin: "0 12px",
-                      minWidth: 40,
-                    }}
+                    className={`mx-3 h-px min-w-[40px] flex-1 ${
+                      step > s ? "bg-gold-500" : "bg-edge"
+                    }`}
                   />
                 )}
               </React.Fragment>
@@ -223,18 +201,7 @@ export function ImportScreen({ manifest, setView }: ImportScreenProps) {
           </div>
 
           {error && (
-            <div
-              style={{
-                background: theme.redDim,
-                border: `1px solid ${theme.red}44`,
-                borderRadius: 8,
-                padding: "12px 16px",
-                marginBottom: 16,
-                fontFamily: theme.sans,
-                fontSize: 13,
-                color: theme.red,
-              }}
-            >
+            <div className="mb-4 rounded-lg border border-stop-500/30 bg-stop-500/10 px-4 py-3 font-sans text-[13px] text-stop-500">
               {error}
             </div>
           )}
@@ -242,49 +209,49 @@ export function ImportScreen({ manifest, setView }: ImportScreenProps) {
           {/* ── Step 1: Source ─────────────────────────────────────────── */}
           {step === 1 && (
             <div>
-              {/* Target selectors */}
-              <div style={{ marginBottom: 20 }}>
+              <div className="mb-5">
                 <Label>Target</Label>
-                <div style={{ display: "flex", gap: 12 }}>
-                  <div style={{ flex: 1 }}>
+                <div className="flex gap-3">
+                  <div className="flex-1">
                     <SubLabel>Namespace</SubLabel>
-                    <Select value={namespace} onChange={(e) => setNamespace(e.target.value)}>
+                    <select
+                      value={namespace}
+                      onChange={(e) => setNamespace(e.target.value)}
+                      className={SELECT_CLASSES}
+                    >
                       {namespaces.map((ns) => (
                         <option key={ns.name} value={ns.name}>
                           {ns.name}
                         </option>
                       ))}
-                    </Select>
+                    </select>
                   </div>
-                  <div style={{ flex: 1 }}>
+                  <div className="flex-1">
                     <SubLabel>Environment</SubLabel>
-                    <Select value={environment} onChange={(e) => setEnvironment(e.target.value)}>
+                    <select
+                      value={environment}
+                      onChange={(e) => setEnvironment(e.target.value)}
+                      className={SELECT_CLASSES}
+                    >
                       {environments.map((env) => (
                         <option key={env.name} value={env.name}>
                           {env.name}
                         </option>
                       ))}
-                    </Select>
+                    </select>
                   </div>
                 </div>
               </div>
 
-              {/* Format selector */}
-              <div style={{ marginBottom: 20 }}>
+              <div className="mb-5">
                 <Label>Format</Label>
-                <div style={{ display: "flex", gap: 16 }}>
+                <div className="flex gap-4">
                   {(["auto", "dotenv", "json", "yaml"] as const).map((f) => (
                     <label
                       key={f}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                        cursor: "pointer",
-                        fontFamily: theme.sans,
-                        fontSize: 13,
-                        color: format === f ? theme.text : theme.textMuted,
-                      }}
+                      className={`flex cursor-pointer items-center gap-1.5 font-sans text-[13px] ${
+                        format === f ? "text-bone" : "text-ash"
+                      }`}
                     >
                       <input
                         type="radio"
@@ -292,7 +259,7 @@ export function ImportScreen({ manifest, setView }: ImportScreenProps) {
                         value={f}
                         checked={format === f}
                         onChange={() => setFormat(f)}
-                        style={{ accentColor: theme.accent }}
+                        className="accent-gold-500"
                       />
                       {f === "auto" ? "Auto" : f}
                     </label>
@@ -300,8 +267,7 @@ export function ImportScreen({ manifest, setView }: ImportScreenProps) {
                 </div>
               </div>
 
-              {/* Content textarea */}
-              <div style={{ marginBottom: 8 }}>
+              <div className="mb-2">
                 <Label>Paste secrets</Label>
                 <textarea
                   value={content}
@@ -314,36 +280,11 @@ export function ImportScreen({ manifest, setView }: ImportScreenProps) {
                         : "DB_HOST=localhost\nDB_PORT=5432\n# Comments are ignored"
                   }
                   rows={12}
-                  style={{
-                    width: "100%",
-                    background: theme.surface,
-                    border: `1px solid ${theme.border}`,
-                    borderRadius: 8,
-                    padding: 14,
-                    fontFamily: theme.mono,
-                    fontSize: 12,
-                    color: theme.text,
-                    resize: "vertical",
-                    outline: "none",
-                    boxSizing: "border-box",
-                  }}
+                  className={TEXTAREA_CLASSES}
                 />
               </div>
 
-              {/* Privacy notice */}
-              <div
-                style={{
-                  marginBottom: 24,
-                  padding: "10px 14px",
-                  background: theme.surface,
-                  border: `1px solid ${theme.border}`,
-                  borderRadius: 6,
-                  fontFamily: theme.sans,
-                  fontSize: 11,
-                  color: theme.textMuted,
-                  lineHeight: 1.5,
-                }}
-              >
+              <div className="mb-6 rounded-md border border-edge bg-ink-850 px-3.5 py-2.5 font-sans text-[11px] leading-relaxed text-ash">
                 Values are sent directly to the local Clef server (127.0.0.1) and encrypted
                 immediately. They are never stored in browser memory beyond this session.
               </div>
@@ -361,56 +302,38 @@ export function ImportScreen({ manifest, setView }: ImportScreenProps) {
           {/* ── Step 2: Preview ────────────────────────────────────────── */}
           {step === 2 && preview && (
             <div>
-              <div
-                style={{
-                  fontFamily: theme.sans,
-                  fontSize: 13,
-                  color: theme.textMuted,
-                  marginBottom: 20,
-                }}
-              >
+              <div className="mb-5 font-sans text-[13px] text-ash">
                 Importing to{" "}
-                <span style={{ color: theme.accent, fontWeight: 600 }}>
+                <span className="font-semibold text-gold-500">
                   {namespace}/{environment}
                 </span>
                 . {preview.totalKeys} key{preview.totalKeys !== 1 ? "s" : ""} parsed.
               </div>
 
-              {/* Warnings */}
               {preview.warnings.length > 0 && (
-                <div style={{ marginBottom: 16 }}>
+                <div className="mb-4">
                   {preview.warnings.map((w, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        fontFamily: theme.mono,
-                        fontSize: 11,
-                        color: theme.yellow,
-                        marginBottom: 4,
-                      }}
-                    >
+                    <div key={i} className="mb-1 font-mono text-[11px] text-warn-500">
                       &#9888; {w}
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* Would import */}
               {preview.wouldImport.length > 0 && (
-                <div style={{ marginBottom: 16 }}>
-                  <SectionLabel color={theme.green}>
+                <div className="mb-4">
+                  <SectionLabel toneClass="text-go-500">
                     New keys ({preview.wouldImport.length})
                   </SectionLabel>
                   {preview.wouldImport.map((key) => (
-                    <KeyRow key={key} icon="\u2192" iconColor={theme.green} label={key} />
+                    <KeyRow key={key} icon="→" iconClass="text-go-500" label={key} />
                   ))}
                 </div>
               )}
 
-              {/* Would skip / overwrite toggles */}
               {preview.wouldSkip.length > 0 && (
-                <div style={{ marginBottom: 16 }}>
-                  <SectionLabel color={theme.yellow}>
+                <div className="mb-4">
+                  <SectionLabel toneClass="text-warn-500">
                     Already exists ({preview.wouldSkip.length}) — toggle to overwrite
                   </SectionLabel>
                   {preview.wouldSkip.map(({ key, reason }) => {
@@ -418,45 +341,28 @@ export function ImportScreen({ manifest, setView }: ImportScreenProps) {
                     return (
                       <div
                         key={key}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                          padding: "6px 10px",
-                          borderRadius: 6,
-                          marginBottom: 4,
-                          background: willOverwrite ? theme.yellowDim : "transparent",
-                          border: `1px solid ${willOverwrite ? theme.yellow + "44" : theme.border}`,
-                        }}
+                        className={`mb-1 flex items-center gap-2.5 rounded-md border px-2.5 py-1.5 ${
+                          willOverwrite
+                            ? "border-warn-500/30 bg-warn-500/10"
+                            : "border-edge bg-transparent"
+                        }`}
                       >
                         <input
                           type="checkbox"
                           checked={willOverwrite}
                           onChange={() => toggleOverwrite(key)}
-                          style={{ accentColor: theme.yellow }}
+                          className="accent-warn-500"
                           id={`overwrite-${key}`}
                         />
                         <label
                           htmlFor={`overwrite-${key}`}
-                          style={{
-                            fontFamily: theme.mono,
-                            fontSize: 12,
-                            color: willOverwrite ? theme.yellow : theme.textMuted,
-                            flex: 1,
-                            cursor: "pointer",
-                          }}
+                          className={`flex-1 cursor-pointer font-mono text-[12px] ${
+                            willOverwrite ? "text-warn-500" : "text-ash"
+                          }`}
                         >
                           {key}
                         </label>
-                        <span
-                          style={{
-                            fontFamily: theme.sans,
-                            fontSize: 11,
-                            color: theme.textDim,
-                          }}
-                        >
-                          {reason}
-                        </span>
+                        <span className="font-sans text-[11px] text-ash-dim">{reason}</span>
                       </div>
                     );
                   })}
@@ -464,20 +370,12 @@ export function ImportScreen({ manifest, setView }: ImportScreenProps) {
               )}
 
               {preview.wouldImport.length === 0 && preview.wouldSkip.length === 0 && (
-                <div
-                  style={{
-                    fontFamily: theme.sans,
-                    fontSize: 13,
-                    color: theme.textMuted,
-                    padding: "24px 0",
-                    textAlign: "center",
-                  }}
-                >
+                <div className="py-6 text-center font-sans text-[13px] text-ash">
                   No importable keys found.
                 </div>
               )}
 
-              <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
+              <div className="mt-6 flex gap-2.5">
                 <Button variant="ghost" onClick={() => setStep(1)}>
                   Back
                 </Button>
@@ -497,80 +395,52 @@ export function ImportScreen({ manifest, setView }: ImportScreenProps) {
           {/* ── Step 3: Done ───────────────────────────────────────────── */}
           {step === 3 && applyResult && (
             <div>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  paddingTop: 20,
-                  paddingBottom: 32,
-                }}
-              >
+              <div className="flex flex-col items-center pt-5 pb-8">
                 <div
-                  style={{
-                    width: 56,
-                    height: 56,
-                    borderRadius: "50%",
-                    background: applyResult.failed.length > 0 ? theme.redDim : theme.greenDim,
-                    border: `1px solid ${applyResult.failed.length > 0 ? theme.red + "44" : theme.green + "44"}`,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 24,
-                    color: applyResult.failed.length > 0 ? theme.red : theme.green,
-                    marginBottom: 16,
-                  }}
+                  className={`mb-4 flex h-14 w-14 items-center justify-center rounded-full text-[24px] ${
+                    applyResult.failed.length > 0
+                      ? "border border-stop-500/30 bg-stop-500/10 text-stop-500"
+                      : "border border-go-500/30 bg-go-500/10 text-go-500"
+                  }`}
                 >
-                  {applyResult.failed.length > 0 ? "\u26a0" : "\u2713"}
+                  {applyResult.failed.length > 0 ? "⚠" : "✓"}
                 </div>
-
                 <div
-                  style={{
-                    fontFamily: theme.sans,
-                    fontWeight: 600,
-                    fontSize: 16,
-                    color: applyResult.failed.length > 0 ? theme.yellow : theme.green,
-                    marginBottom: 8,
-                  }}
+                  className={`mb-2 font-sans text-[16px] font-semibold ${
+                    applyResult.failed.length > 0 ? "text-warn-500" : "text-go-500"
+                  }`}
                 >
                   {applyResult.failed.length > 0
                     ? "Import completed with errors"
                     : "Import complete"}
                 </div>
-
-                <div
-                  style={{
-                    fontFamily: theme.mono,
-                    fontSize: 12,
-                    color: theme.textMuted,
-                  }}
-                >
+                <div className="font-mono text-[12px] text-ash">
                   {applyResult.imported.length} imported, {applyResult.skipped.length} skipped,{" "}
                   {applyResult.failed.length} failed
                 </div>
               </div>
 
               {applyResult.imported.length > 0 && (
-                <div style={{ marginBottom: 16 }}>
-                  <SectionLabel color={theme.green}>
+                <div className="mb-4">
+                  <SectionLabel toneClass="text-go-500">
                     Imported ({applyResult.imported.length})
                   </SectionLabel>
                   {applyResult.imported.map((key) => (
-                    <KeyRow key={key} icon="\u2713" iconColor={theme.green} label={key} />
+                    <KeyRow key={key} icon="✓" iconClass="text-go-500" label={key} />
                   ))}
                 </div>
               )}
 
               {applyResult.failed.length > 0 && (
-                <div style={{ marginBottom: 16 }}>
-                  <SectionLabel color={theme.red}>
+                <div className="mb-4">
+                  <SectionLabel toneClass="text-stop-500">
                     Failed ({applyResult.failed.length})
                   </SectionLabel>
                   {applyResult.failed.map(({ key, error: keyError }) => (
                     <KeyRow
                       key={key}
-                      icon="\u2717"
-                      iconColor={theme.red}
+                      icon="✗"
+                      iconClass="text-stop-500"
                       label={key}
                       note={keyError}
                     />
@@ -578,7 +448,7 @@ export function ImportScreen({ manifest, setView }: ImportScreenProps) {
                 </div>
               )}
 
-              <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
+              <div className="mt-6 flex gap-2.5">
                 <Button variant="primary" onClick={() => setView("matrix")}>
                   View in Matrix
                 </Button>
@@ -596,80 +466,20 @@ export function ImportScreen({ manifest, setView }: ImportScreenProps) {
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      style={{
-        fontFamily: theme.sans,
-        fontSize: 12,
-        fontWeight: 600,
-        color: theme.textMuted,
-        marginBottom: 8,
-        letterSpacing: "0.05em",
-        textTransform: "uppercase",
-      }}
-    >
+    <div className="mb-2 font-sans text-[12px] font-semibold uppercase tracking-[0.05em] text-ash">
       {children}
     </div>
   );
 }
 
 function SubLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        fontFamily: theme.sans,
-        fontSize: 11,
-        color: theme.textDim,
-        marginBottom: 4,
-      }}
-    >
-      {children}
-    </div>
-  );
+  return <div className="mb-1 font-sans text-[11px] text-ash-dim">{children}</div>;
 }
 
-function Select({
-  value,
-  onChange,
-  children,
-}: {
-  value: string;
-  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <select
-      value={value}
-      onChange={onChange}
-      style={{
-        width: "100%",
-        background: theme.surface,
-        border: `1px solid ${theme.border}`,
-        borderRadius: 6,
-        padding: "7px 10px",
-        fontFamily: theme.sans,
-        fontSize: 13,
-        color: theme.text,
-        outline: "none",
-        cursor: "pointer",
-      }}
-    >
-      {children}
-    </select>
-  );
-}
-
-function SectionLabel({ children, color }: { children: React.ReactNode; color: string }) {
+function SectionLabel({ children, toneClass }: { children: React.ReactNode; toneClass: string }) {
   return (
     <div
-      style={{
-        fontFamily: theme.sans,
-        fontSize: 11,
-        fontWeight: 600,
-        color,
-        letterSpacing: "0.06em",
-        textTransform: "uppercase",
-        marginBottom: 8,
-      }}
+      className={`mb-2 font-sans text-[11px] font-semibold uppercase tracking-[0.06em] ${toneClass}`}
     >
       {children}
     </div>
@@ -678,33 +488,20 @@ function SectionLabel({ children, color }: { children: React.ReactNode; color: s
 
 function KeyRow({
   icon,
-  iconColor,
+  iconClass,
   label,
   note,
 }: {
   icon: string;
-  iconColor: string;
+  iconClass: string;
   label: string;
   note?: string;
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "5px 10px",
-        borderRadius: 6,
-        marginBottom: 3,
-      }}
-    >
-      <span style={{ color: iconColor, fontFamily: theme.mono, fontSize: 13 }}>{icon}</span>
-      <span style={{ fontFamily: theme.mono, fontSize: 12, color: theme.text, flex: 1 }}>
-        {label}
-      </span>
-      {note && (
-        <span style={{ fontFamily: theme.sans, fontSize: 11, color: theme.textDim }}>{note}</span>
-      )}
+    <div className="mb-px flex items-center gap-2.5 rounded-md px-2.5 py-1">
+      <span className={`font-mono text-[13px] ${iconClass}`}>{icon}</span>
+      <span className="flex-1 font-mono text-[12px] text-bone">{label}</span>
+      {note && <span className="font-sans text-[11px] text-ash-dim">{note}</span>}
     </div>
   );
 }

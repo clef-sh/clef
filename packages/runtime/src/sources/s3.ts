@@ -15,34 +15,77 @@ interface S3Location {
   region: string;
 }
 
-/** Returns true if the URL looks like an S3 HTTPS URL. */
-export function isS3Url(url: string): boolean {
-  return parseS3UrlSafe(url) !== null;
-}
-
 /**
- * Parse bucket, key, and region from an S3 HTTPS URL.
- * Supports both virtual-hosted and path-style:
- *   https://bucket.s3.region.amazonaws.com/key
- *   https://bucket.s3.amazonaws.com/key  (us-east-1)
- *   https://s3.region.amazonaws.com/bucket/key
+ * Returns true if the URL is either the `s3://bucket/key` scheme or a
+ * recognized S3 HTTPS URL. Purely structural — does not verify AWS_REGION
+ * resolution for `s3://` URLs (that's deferred to {@link parseS3Url} so
+ * the caller sees a meaningful error at construction time).
  */
-function parseS3Url(url: string): S3Location {
-  const loc = parseS3UrlSafe(url);
-  if (!loc) throw new Error(`Not a valid S3 URL: ${url}`);
-  return loc;
-}
-
-function parseS3UrlSafe(url: string): S3Location | null {
+export function isS3Url(url: string): boolean {
   let u: URL;
   try {
     u = new URL(url);
   } catch {
-    return null;
+    return false;
   }
-  if (u.protocol !== "https:") return null;
+  if (u.protocol === "s3:") {
+    return !!u.hostname && u.pathname.length > 1;
+  }
+  if (u.protocol === "https:") {
+    return parseHttpsS3Url(u) !== null;
+  }
+  return false;
+}
+
+/**
+ * Parse bucket, key, and region from an S3 URL.
+ *
+ * Supported forms:
+ *   s3://bucket/key                                  (region from AWS_REGION env)
+ *   https://bucket.s3.region.amazonaws.com/key       (virtual-hosted)
+ *   https://bucket.s3.amazonaws.com/key              (virtual-hosted, us-east-1)
+ *   https://s3.region.amazonaws.com/bucket/key       (path-style)
+ *   https://s3.amazonaws.com/bucket/key              (path-style, us-east-1)
+ *
+ * Throws with a specific message when the URL shape is valid but the
+ * region cannot be resolved (s3:// without AWS_REGION).
+ */
+function parseS3Url(url: string): S3Location {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    throw new Error(`Not a valid URL: ${url}`);
+  }
+
+  if (u.protocol === "s3:") {
+    const bucket = u.hostname;
+    const key = u.pathname.slice(1);
+    if (!bucket || !key) {
+      throw new Error(`Invalid s3:// URL (missing bucket or key): ${url}`);
+    }
+    const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
+    if (!region) {
+      throw new Error(
+        `s3:// URLs require AWS_REGION or AWS_DEFAULT_REGION to be set. ` +
+          `Lambda and ECS set AWS_REGION automatically; set it explicitly for other environments, ` +
+          `or use the https://bucket.s3.region.amazonaws.com/key form instead. URL: ${url}`,
+      );
+    }
+    return { bucket, key, region };
+  }
+
+  if (u.protocol === "https:") {
+    const loc = parseHttpsS3Url(u);
+    if (loc) return loc;
+  }
+
+  throw new Error(`Not a valid S3 URL: ${url}`);
+}
+
+function parseHttpsS3Url(u: URL): S3Location | null {
   const host = u.hostname;
-  const key = u.pathname.slice(1); // strip leading /
+  const key = u.pathname.slice(1);
   if (!key) return null;
 
   // Virtual-hosted: bucket.s3.region.amazonaws.com or bucket.s3.amazonaws.com

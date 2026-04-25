@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { theme } from "./theme";
 import { apiFetch } from "./api";
 import { Sidebar, ViewName } from "./components/Sidebar";
 import { MatrixView } from "./screens/MatrixView";
 import { NamespaceEditor } from "./screens/NamespaceEditor";
+import { SchemaEditor } from "./screens/SchemaEditor";
 import { DiffView } from "./screens/DiffView";
 import { LintView } from "./screens/LintView";
 import { ScanScreen } from "./screens/ScanScreen";
@@ -15,6 +15,7 @@ import { ServiceIdentitiesScreen } from "./screens/ServiceIdentitiesScreen";
 import { BackendScreen } from "./screens/BackendScreen";
 import { ResetScreen } from "./screens/ResetScreen";
 import { GitLogView } from "./screens/GitLogView";
+import { EnvelopeScreen } from "./screens/EnvelopeScreen";
 import type { ClefManifest, MatrixStatus, GitStatus, LintResult } from "@clef-sh/core";
 
 export default function App() {
@@ -124,44 +125,23 @@ export default function App() {
 
   if (loading) {
     return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "100vh",
-          background: theme.bg,
-          color: theme.textMuted,
-          fontFamily: theme.sans,
-        }}
-      >
-        <div style={{ textAlign: "center" }}>
-          <div
-            style={{
-              fontSize: 24,
-              color: theme.accent,
-              marginBottom: 12,
-            }}
-          >
-            {"\u266A"}
-          </div>
-          <div style={{ fontSize: 13 }}>Loading...</div>
+      <div className="flex h-screen items-center justify-center bg-ink-950 font-sans text-ash">
+        <div className="text-center">
+          <img
+            src="/clef.svg"
+            alt=""
+            width="20"
+            height="44"
+            className="mx-auto mb-3 [filter:drop-shadow(0_0_10px_rgba(240,165,0,0.35))]"
+          />
+          <div className="text-[13px]">Loading...</div>
         </div>
       </div>
     );
   }
 
   return (
-    <div
-      style={{
-        display: "flex",
-        height: "100vh",
-        background: theme.bg,
-        color: theme.text,
-        fontFamily: theme.sans,
-        overflow: "hidden",
-      }}
-    >
+    <div className="flex h-screen overflow-hidden bg-ink-950 font-sans text-bone">
       <Sidebar
         activeView={view}
         setView={setView}
@@ -175,14 +155,7 @@ export default function App() {
         policyOverdueCount={policyOverdueCount}
       />
 
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-        }}
-      >
+      <div className="flex flex-1 flex-col overflow-hidden">
         {view === "matrix" && (
           <MatrixView
             setView={setView}
@@ -196,6 +169,7 @@ export default function App() {
         {view === "editor" && (
           <NamespaceEditor ns={activeNs} initialEnv={activeEnv} manifest={manifest} />
         )}
+        {view === "schema" && <SchemaEditor ns={activeNs} manifest={manifest} />}
         {view === "diff" && <DiffView manifest={manifest} />}
         {view === "lint" && <LintView setView={setView} setNs={setActiveNs} />}
         {view === "scan" && <ScanScreen />}
@@ -213,6 +187,7 @@ export default function App() {
         {view === "manifest" && (
           <ManifestScreen manifest={manifest} reloadManifest={loadManifest} />
         )}
+        {view === "envelope" && <EnvelopeScreen />}
       </div>
     </div>
   );

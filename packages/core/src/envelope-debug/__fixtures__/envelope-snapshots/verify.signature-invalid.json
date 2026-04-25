@@ -1,0 +1,22 @@
+{
+  "source": "envelope.json",
+  "checks": {
+    "hash": {
+      "status": "ok"
+    },
+    "signature": {
+      "status": "invalid",
+      "algorithm": "Ed25519"
+    },
+    "expiry": {
+      "status": "absent",
+      "expiresAt": null
+    },
+    "revocation": {
+      "status": "absent",
+      "revokedAt": null
+    }
+  },
+  "overall": "fail",
+  "error": null
+}
