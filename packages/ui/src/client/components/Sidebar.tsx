@@ -5,6 +5,7 @@ import type { ClefManifest, MatrixStatus, GitStatus as GitStatusType } from "@cl
 export type ViewName =
   | "matrix"
   | "editor"
+  | "schema"
   | "diff"
   | "lint"
   | "scan"
@@ -164,6 +165,12 @@ export function Sidebar({
           onClick={() => setView("scan")}
           badge={scanIssueCount > 0 ? String(scanIssueCount) : undefined}
           badgeColor={theme.yellow}
+        />
+        <NavItem
+          icon={"\u25a4"}
+          label="Schema"
+          active={activeView === "schema"}
+          onClick={() => setView("schema")}
         />
         <NavItem
           icon={"\u2696"}

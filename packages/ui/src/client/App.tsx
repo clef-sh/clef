@@ -4,6 +4,7 @@ import { apiFetch } from "./api";
 import { Sidebar, ViewName } from "./components/Sidebar";
 import { MatrixView } from "./screens/MatrixView";
 import { NamespaceEditor } from "./screens/NamespaceEditor";
+import { SchemaEditor } from "./screens/SchemaEditor";
 import { DiffView } from "./screens/DiffView";
 import { LintView } from "./screens/LintView";
 import { ScanScreen } from "./screens/ScanScreen";
@@ -203,6 +204,7 @@ export default function App() {
         {view === "editor" && (
           <NamespaceEditor ns={activeNs} initialEnv={activeEnv} manifest={manifest} />
         )}
+        {view === "schema" && <SchemaEditor ns={activeNs} manifest={manifest} />}
         {view === "diff" && <DiffView manifest={manifest} />}
         {view === "lint" && <LintView setView={setView} setNs={setActiveNs} />}
         {view === "scan" && <ScanScreen />}

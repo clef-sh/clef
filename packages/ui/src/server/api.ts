@@ -46,6 +46,9 @@ import {
   CLEF_POLICY_FILENAME,
   PolicyValidationError,
   runCompliance,
+  writeSchema,
+  NamespaceSchema,
+  SchemaKey,
 } from "@clef-sh/core";
 import type { BackendType, ImportFormat, MigrationProgressEvent, ResetScope } from "@clef-sh/core";
 import { registerEnvelopeRoutes } from "./envelope";
@@ -153,6 +156,58 @@ export function createApiRouter(deps: ApiDeps): Router {
 
   function zeroStringRecord(record: Record<string, string>): void {
     for (const k of Object.keys(record)) record[k] = "";
+  }
+
+  /**
+   * Strict-shape validator for an incoming schema payload from the UI.
+   * Returns a clean NamespaceSchema or throws with a user-readable message.
+   * Mirrors the same field set SchemaValidator.loadSchema accepts on disk.
+   */
+  function validateIncomingSchema(input: unknown): NamespaceSchema {
+    if (!input || typeof input !== "object") {
+      throw new Error("Schema payload must be an object with a 'keys' map.");
+    }
+    const obj = input as { keys?: unknown };
+    if (!obj.keys || typeof obj.keys !== "object") {
+      throw new Error("Schema payload is missing the required 'keys' map.");
+    }
+    const out: Record<string, SchemaKey> = {};
+    for (const [name, raw] of Object.entries(obj.keys as Record<string, unknown>)) {
+      if (!raw || typeof raw !== "object") {
+        throw new Error(`Key '${name}' must be an object with at least 'type' and 'required'.`);
+      }
+      const def = raw as Record<string, unknown>;
+      if (typeof def.type !== "string" || !["string", "integer", "boolean"].includes(def.type)) {
+        throw new Error(
+          `Key '${name}' has invalid type '${String(def.type)}'. Must be 'string', 'integer', or 'boolean'.`,
+        );
+      }
+      if (typeof def.required !== "boolean") {
+        throw new Error(`Key '${name}' must have boolean 'required'.`);
+      }
+      if (def.pattern !== undefined && def.pattern !== "") {
+        if (typeof def.pattern !== "string") {
+          throw new Error(`Key '${name}' has non-string 'pattern'.`);
+        }
+        try {
+          new RegExp(def.pattern);
+        } catch (err) {
+          throw new Error(`Key '${name}' pattern is not a valid regex: ${(err as Error).message}.`);
+        }
+      }
+      if (def.description !== undefined && typeof def.description !== "string") {
+        throw new Error(`Key '${name}' has non-string 'description'.`);
+      }
+      out[name] = {
+        type: def.type as SchemaKey["type"],
+        required: def.required,
+        ...(typeof def.pattern === "string" && def.pattern !== "" ? { pattern: def.pattern } : {}),
+        ...(typeof def.description === "string" && def.description !== ""
+          ? { description: def.description }
+          : {}),
+      };
+    }
+    return { keys: out };
   }
 
   function setNoCacheHeaders(res: Response): void {
@@ -646,6 +701,89 @@ export function createApiRouter(deps: ApiDeps): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to run lint";
       res.status(500).json({ error: message, code: "LINT_ERROR" });
+    }
+  });
+
+  // GET /api/namespaces/:ns/schema — fetch the schema attached to a namespace.
+  // Returns { attached, path, schema } where:
+  //   attached = false → namespace exists but no schema is wired up; schema is
+  //                      a blank { keys: {} } so the editor can start from
+  //                      something writable.
+  //   attached = true  → schema was loaded from disk at `path`.
+  router.get("/namespaces/:ns/schema", (req: Request<{ ns: string }>, res: Response) => {
+    setNoCacheHeaders(res);
+    try {
+      const manifest = loadManifest();
+      const { ns } = req.params;
+      const nsDef = manifest.namespaces.find((n) => n.name === ns);
+      if (!nsDef) {
+        res.status(404).json({ error: `Namespace '${ns}' not found.`, code: "NOT_FOUND" });
+        return;
+      }
+      if (!nsDef.schema) {
+        res.json({ namespace: ns, attached: false, path: null, schema: { keys: {} } });
+        return;
+      }
+      const absPath = path.resolve(deps.repoRoot, nsDef.schema);
+      if (!fs.existsSync(absPath)) {
+        res.status(500).json({
+          error: `Schema file '${nsDef.schema}' is attached to '${ns}' but does not exist on disk.`,
+          code: "SCHEMA_MISSING",
+        });
+        return;
+      }
+      const schema = schemaValidator.loadSchema(absPath);
+      res.json({ namespace: ns, attached: true, path: nsDef.schema, schema });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to read schema";
+      res.status(500).json({ error: message, code: "SCHEMA_READ_ERROR" });
+    }
+  });
+
+  // PUT /api/namespaces/:ns/schema — write the schema for a namespace.
+  // Body: { schema: NamespaceSchema, path?: string }. If the namespace has no
+  // attached schema yet, this endpoint creates the file at `path` (defaulting
+  // to schemas/<ns>.yaml) and attaches it via StructureManager — the same
+  // round-trip the CLI uses, so manifest formatting stays consistent.
+  router.put("/namespaces/:ns/schema", async (req: Request<{ ns: string }>, res: Response) => {
+    setNoCacheHeaders(res);
+    try {
+      const manifest = loadManifest();
+      const { ns } = req.params;
+      const body = req.body as { schema?: unknown; path?: unknown };
+
+      const nsDef = manifest.namespaces.find((n) => n.name === ns);
+      if (!nsDef) {
+        res.status(404).json({ error: `Namespace '${ns}' not found.`, code: "NOT_FOUND" });
+        return;
+      }
+
+      let validated: NamespaceSchema;
+      try {
+        validated = validateIncomingSchema(body.schema);
+      } catch (err) {
+        res.status(400).json({
+          error: err instanceof Error ? err.message : "Invalid schema payload.",
+          code: "INVALID_SCHEMA",
+        });
+        return;
+      }
+
+      const requestedRelPath =
+        typeof body.path === "string" && body.path.length > 0 ? body.path : null;
+      const relPath = nsDef.schema ?? requestedRelPath ?? `schemas/${ns}.yaml`;
+      const absPath = path.resolve(deps.repoRoot, relPath);
+
+      writeSchema(absPath, validated);
+
+      if (!nsDef.schema) {
+        await structureManager.editNamespace(ns, { schema: relPath }, manifest, deps.repoRoot);
+      }
+
+      res.json({ namespace: ns, attached: true, path: relPath, schema: validated });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to write schema";
+      res.status(500).json({ error: message, code: "SCHEMA_WRITE_ERROR" });
     }
   });
 
