@@ -44,6 +44,15 @@ interface ResolvedOptions {
 
 const STANDARD_TIER_VALUE_LIMIT_BYTES = 4096;
 
+// Linear-time trailing-slash trim. Avoids the polynomial-backtracking risk
+// CodeQL flags on `/\/+$/` when the input is library-controlled and could
+// be arbitrarily long.
+function stripTrailingSlashes(input: string): string {
+  let end = input.length;
+  while (end > 0 && input.charCodeAt(end - 1) === 47 /* '/' */) end--;
+  return input.slice(0, end);
+}
+
 function resolveOptions(raw: Record<string, unknown>): ResolvedOptions {
   const opts = raw as AwsParameterStoreOptions;
 
@@ -64,7 +73,7 @@ function resolveOptions(raw: Record<string, unknown>): ResolvedOptions {
   }
 
   return {
-    prefix: opts.prefix.replace(/\/+$/, ""),
+    prefix: stripTrailingSlashes(opts.prefix),
     region: opts.region,
     kmsKeyId: opts["kms-key-id"],
     prune: opts.prune === "true",
