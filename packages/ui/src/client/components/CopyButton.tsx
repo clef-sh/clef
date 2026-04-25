@@ -1,5 +1,4 @@
 import React, { useState, useCallback } from "react";
-import { theme } from "../theme";
 
 interface CopyButtonProps {
   text: string;
@@ -18,17 +17,11 @@ export function CopyButton({ text }: CopyButtonProps) {
     <button
       data-testid="copy-button"
       onClick={handleCopy}
-      style={{
-        background: copied ? theme.greenDim : "none",
-        border: `1px solid ${copied ? theme.green + "55" : theme.borderLight}`,
-        borderRadius: 4,
-        cursor: "pointer",
-        color: copied ? theme.green : theme.textDim,
-        fontFamily: theme.mono,
-        fontSize: 10,
-        padding: "2px 8px",
-        transition: "all 0.15s",
-      }}
+      className={`cursor-pointer rounded-sm border px-2 py-0.5 font-mono text-[10px] transition-colors ${
+        copied
+          ? "border-go-500/40 bg-go-500/10 text-go-500"
+          : "border-edge-strong bg-transparent text-ash-dim hover:bg-ink-800"
+      }`}
     >
       {copied ? "copied!" : "copy"}
     </button>

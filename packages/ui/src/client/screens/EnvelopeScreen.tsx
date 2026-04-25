@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { theme } from "../theme";
 import { apiFetch } from "../api";
-import { TopBar } from "../components/TopBar";
+import { Toolbar } from "../primitives";
 import { Button } from "../components/Button";
 import { CopyButton } from "../components/CopyButton";
 import type { DecryptResult, InspectResult, SignatureStatus, VerifyResult } from "@clef-sh/core";
@@ -34,6 +33,9 @@ function revealWarningText(singleKey?: string): string {
 // no workflow that needs the value visible for minutes at a time, and a
 // long visible window is the bigger risk on a shared screen.
 const REVEAL_TIMEOUT_MS = 15 * 1000;
+
+const TEXTAREA_BASE =
+  "w-full bg-ink-950 text-bone border border-edge-strong rounded-md outline-none font-mono focus-visible:border-gold-500";
 
 export function EnvelopeScreen() {
   // Paste + inspect
@@ -244,28 +246,23 @@ export function EnvelopeScreen() {
   const [showRawJson, setShowRawJson] = useState(false);
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <TopBar
-        title="Envelope Debugger"
-        subtitle={"paste a packed artifact — inspect, verify, decrypt"}
-        actions={
-          rawSnapshot ? (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <Toolbar>
+        <div>
+          <Toolbar.Title>Envelope Debugger</Toolbar.Title>
+          <Toolbar.Subtitle>paste a packed artifact — inspect, verify, decrypt</Toolbar.Subtitle>
+        </div>
+        {rawSnapshot ? (
+          <Toolbar.Actions>
             <Button onClick={() => setShowRawJson((s) => !s)}>
               {showRawJson ? "Hide raw JSON" : "View raw JSON"}
             </Button>
-          ) : undefined
-        }
-      />
+          </Toolbar.Actions>
+        ) : null}
+      </Toolbar>
 
       <div
-        style={{
-          flex: 1,
-          padding: "18px 24px",
-          overflowY: "auto",
-          display: "flex",
-          flexDirection: "column",
-          gap: 14,
-        }}
+        className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3.5"
         data-testid="envelope-screen"
       >
         <PasteArea
@@ -308,17 +305,7 @@ export function EnvelopeScreen() {
         {showRawJson && rawSnapshot && (
           <pre
             data-testid="raw-json"
-            style={{
-              fontFamily: theme.mono,
-              fontSize: 11,
-              background: theme.surface,
-              border: `1px solid ${theme.border}`,
-              borderRadius: 8,
-              padding: 14,
-              color: theme.textMuted,
-              maxHeight: 320,
-              overflowY: "auto",
-            }}
+            className="font-mono text-[11px] bg-ink-850 border border-edge rounded-lg p-3.5 text-ash max-h-[320px] overflow-y-auto"
           >
             {rawSnapshot}
           </pre>
@@ -352,6 +339,13 @@ function PasteArea({ rawJson, setRawJson, onLoad, loading }: PasteAreaProps) {
     }
   }, [rawJson]);
 
+  const statusColor =
+    parseState.state === "invalid"
+      ? "text-stop-500"
+      : parseState.state === "valid"
+        ? "text-go-500"
+        : "text-ash";
+
   return (
     <Card title="Paste" subtitle="paste a packed envelope JSON">
       <textarea
@@ -360,42 +354,10 @@ function PasteArea({ rawJson, setRawJson, onLoad, loading }: PasteAreaProps) {
         onChange={(e) => setRawJson(e.target.value)}
         placeholder={'{ "version": 1, "identity": "...", ... }'}
         spellCheck={false}
-        style={{
-          width: "100%",
-          minHeight: 120,
-          maxHeight: 280,
-          resize: "vertical",
-          fontFamily: theme.mono,
-          fontSize: 12,
-          background: theme.bg,
-          color: theme.text,
-          border: `1px solid ${theme.borderLight}`,
-          borderRadius: 6,
-          padding: 10,
-          outline: "none",
-        }}
+        className={`${TEXTAREA_BASE} min-h-[120px] max-h-[280px] resize-y text-[12px] p-2.5`}
       />
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginTop: 10,
-        }}
-      >
-        <span
-          style={{
-            fontFamily: theme.mono,
-            fontSize: 11,
-            color:
-              parseState.state === "invalid"
-                ? theme.red
-                : parseState.state === "valid"
-                  ? theme.green
-                  : theme.textMuted,
-          }}
-          data-testid="paste-status"
-        >
+      <div className="flex items-center justify-between mt-2.5">
+        <span className={`font-mono text-[11px] ${statusColor}`} data-testid="paste-status">
           {parseState.state === "valid"
             ? `✓ valid (${formatBytes(parseState.bytes)})`
             : parseState.state === "invalid"
@@ -450,7 +412,7 @@ function InspectCard({ result }: InspectCardProps) {
     ["revision", <Mono key="r">{result.revision ?? "?"}</Mono>],
     [
       "ciphertextHash",
-      <span key="ch" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <span key="ch" className="flex items-center gap-2">
         <Mono>{hash ? shortHash(hash) : "?"}</Mono>
         <StatusPill
           tone={
@@ -486,7 +448,7 @@ function InspectCard({ result }: InspectCardProps) {
     ],
     [
       "signature",
-      <span key="sig" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <span key="sig" className="flex items-center gap-2">
         {result.signature.present ? (
           <>
             <Mono>{result.signature.algorithm ?? "unknown"}</Mono>
@@ -500,7 +462,7 @@ function InspectCard({ result }: InspectCardProps) {
     [
       "expiry",
       result.expiresAt ? (
-        <span key="ex" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span key="ex" className="flex items-center gap-2">
           <Mono>{result.expiresAt}</Mono>
           <StatusPill
             tone={result.expired ? "fail" : "ok"}
@@ -523,7 +485,7 @@ function InspectCard({ result }: InspectCardProps) {
 
   return (
     <Card title="Inspect" subtitle="auto-populates from the pasted JSON">
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div className="flex flex-col gap-1.5">
         {rows.map(([label, value]) => (
           <KeyValueRow key={label} label={label} value={value} />
         ))}
@@ -557,6 +519,13 @@ function VerifyCard({
     ? "paste the signer public key (PEM or base64 DER SPKI) to verify the signature"
     : "no signature on this artifact — verify only checks hash / expiry / revocation";
 
+  const overallClasses =
+    result?.overall === "pass"
+      ? "bg-go-500/15 text-go-500"
+      : result?.overall === "fail"
+        ? "bg-stop-500/10 text-stop-500"
+        : "bg-edge text-ash";
+
   return (
     <Card title="Verify" subtitle={subtitle}>
       {signaturePresent && (
@@ -566,31 +535,17 @@ function VerifyCard({
           onChange={(e) => setSignerKey(e.target.value)}
           placeholder={"-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"}
           spellCheck={false}
-          style={{
-            width: "100%",
-            minHeight: 72,
-            maxHeight: 160,
-            resize: "vertical",
-            fontFamily: theme.mono,
-            fontSize: 11,
-            background: theme.bg,
-            color: theme.text,
-            border: `1px solid ${theme.borderLight}`,
-            borderRadius: 6,
-            padding: 8,
-            marginBottom: 10,
-            outline: "none",
-          }}
+          className={`${TEXTAREA_BASE} min-h-[72px] max-h-[160px] resize-y text-[11px] p-2 mb-2.5`}
         />
       )}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+      <div className="flex justify-end mb-2.5">
         <Button variant="primary" onClick={onVerify} disabled={loading}>
           {loading ? "Verifying…" : "Run verify"}
         </Button>
       </div>
       {result?.error && <ErrorRow code={result.error.code} message={result.error.message} />}
       {result && !result.error && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div className="flex flex-col gap-1.5">
           <CheckRow
             label="ciphertext hash"
             status={result.checks.hash.status === "ok" ? "pass" : "fail"}
@@ -620,27 +575,7 @@ function VerifyCard({
             detail={result.checks.revocation.revokedAt ?? "not revoked"}
           />
           <div
-            style={{
-              marginTop: 6,
-              padding: "8px 12px",
-              borderRadius: 6,
-              background:
-                result.overall === "pass"
-                  ? theme.greenDim
-                  : result.overall === "fail"
-                    ? theme.redDim
-                    : theme.border,
-              color:
-                result.overall === "pass"
-                  ? theme.green
-                  : result.overall === "fail"
-                    ? theme.red
-                    : theme.textMuted,
-              fontFamily: theme.sans,
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: "0.05em",
-            }}
+            className={`mt-1.5 px-3 py-2 rounded-md font-sans text-[12px] font-bold tracking-[0.05em] ${overallClasses}`}
             data-testid="verify-overall"
           >
             OVERALL: {result.overall.toUpperCase()}
@@ -704,17 +639,7 @@ function DecryptCard({
       {identityInline && (
         <div
           data-testid="inline-key-warning"
-          style={{
-            marginBottom: 12,
-            padding: "8px 12px",
-            borderRadius: 6,
-            background: theme.yellowDim,
-            border: `1px solid ${theme.yellow}44`,
-            color: theme.yellow,
-            fontFamily: theme.sans,
-            fontSize: 12,
-            lineHeight: 1.5,
-          }}
+          className="mb-3 px-3 py-2 rounded-md bg-warn-500/15 border border-warn-500/40 text-warn-500 font-sans text-[12px] leading-relaxed"
         >
           {"⚠ "} This key was passed inline via <code>$CLEF_AGE_KEY</code>, which lands the secret
           in your shell history (<code>~/.zsh_history</code>, <code>~/.bash_history</code>) and in{" "}
@@ -732,7 +657,7 @@ function DecryptCard({
       )}
 
       {!result && (
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <div className="flex justify-end">
           <Button
             variant="primary"
             onClick={onDecryptKeys}
@@ -749,69 +674,33 @@ function DecryptCard({
           {anyRevealed && (
             <div
               data-testid="reveal-banner"
-              style={{
-                marginBottom: 12,
-                padding: "10px 12px",
-                borderRadius: 6,
-                background: theme.yellowDim,
-                border: `1px solid ${theme.yellow}44`,
-                color: theme.yellow,
-                fontFamily: theme.sans,
-                fontSize: 12,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 10,
-              }}
+              className="mb-3 px-3 py-2.5 rounded-md bg-warn-500/15 border border-warn-500/40 text-warn-500 font-sans text-[12px] flex items-center justify-between gap-2.5"
             >
               <span>
                 {"⚠ "} {revealWarningText(singleKeyRevealed)}
               </span>
-              <span style={{ fontFamily: theme.mono, fontSize: 11 }} data-testid="reveal-countdown">
+              <span className="font-mono text-[11px]" data-testid="reveal-countdown">
                 auto-clears in {countdown}
               </span>
             </div>
           )}
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div className="flex flex-col gap-1.5">
             {result.keys.map((k) => {
               const revealed = Object.prototype.hasOwnProperty.call(revealedKeys, k);
               return (
                 <div
                   key={k}
                   data-testid={`decrypt-row-${k}`}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "8px 10px",
-                    background: theme.bg,
-                    border: `1px solid ${theme.border}`,
-                    borderRadius: 6,
-                  }}
+                  className="flex items-center gap-2.5 px-2.5 py-2 bg-ink-950 border border-edge rounded-md"
                 >
-                  <span
-                    style={{
-                      fontFamily: theme.mono,
-                      fontSize: 12,
-                      color: theme.text,
-                      flex: "0 0 200px",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
+                  <span className="font-mono text-[12px] text-bone basis-[200px] shrink-0 grow-0 overflow-hidden text-ellipsis">
                     {k}
                   </span>
                   <span
-                    style={{
-                      fontFamily: theme.mono,
-                      fontSize: 12,
-                      color: revealed ? theme.text : theme.textDim,
-                      flex: 1,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
+                    className={`font-mono text-[12px] flex-1 overflow-hidden text-ellipsis whitespace-nowrap ${
+                      revealed ? "text-bone" : "text-ash-dim"
+                    }`}
                     data-testid={`decrypt-value-${k}`}
                   >
                     {revealed ? revealedKeys[k] : "●".repeat(10)}
@@ -819,16 +708,7 @@ function DecryptCard({
                   <button
                     data-testid={`reveal-toggle-${k}`}
                     onClick={() => (revealed ? onHideOne(k) : onRevealOne(k))}
-                    style={{
-                      background: "transparent",
-                      border: `1px solid ${theme.borderLight}`,
-                      borderRadius: 4,
-                      cursor: "pointer",
-                      color: theme.textMuted,
-                      fontFamily: theme.mono,
-                      fontSize: 11,
-                      padding: "2px 8px",
-                    }}
+                    className="bg-transparent border border-edge-strong rounded text-ash font-mono text-[11px] px-2 py-0.5 cursor-pointer"
                   >
                     {revealed ? "hide" : "reveal"}
                   </button>
@@ -838,18 +718,11 @@ function DecryptCard({
             })}
           </div>
 
-          <div
-            style={{
-              marginTop: 14,
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 8,
-            }}
-          >
+          <div className="mt-3.5 flex justify-between gap-2">
             <Button onClick={onDecryptKeys} disabled={loading}>
               {"↻"} Re-fetch keys
             </Button>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div className="flex gap-2">
               {anyRevealed && (
                 <Button onClick={onExportJson} data-testid="export-json">
                   Export JSON
@@ -883,32 +756,15 @@ interface CardProps {
 }
 
 function Card({ title, subtitle, tone = "default", children }: CardProps) {
+  const borderClasses = tone === "error" ? "border-stop-500/40" : "border-edge";
   return (
     <div
-      style={{
-        background: theme.surface,
-        border: `1px solid ${tone === "error" ? theme.red + "44" : theme.border}`,
-        borderRadius: 8,
-        padding: 16,
-      }}
+      className={`bg-ink-850 border rounded-lg p-4 ${borderClasses}`}
       data-testid={`envelope-card-${title.toLowerCase()}`}
     >
-      <div style={{ marginBottom: 10 }}>
-        <div style={{ fontFamily: theme.sans, fontSize: 13, fontWeight: 700, color: theme.text }}>
-          {title}
-        </div>
-        {subtitle && (
-          <div
-            style={{
-              fontFamily: theme.mono,
-              fontSize: 10,
-              color: theme.textMuted,
-              marginTop: 2,
-            }}
-          >
-            {subtitle}
-          </div>
-        )}
+      <div className="mb-2.5">
+        <div className="font-sans text-[13px] font-bold text-bone">{title}</div>
+        {subtitle && <div className="font-mono text-[10px] text-ash mt-0.5">{subtitle}</div>}
       </div>
       {children}
     </div>
@@ -917,18 +773,9 @@ function Card({ title, subtitle, tone = "default", children }: CardProps) {
 
 function KeyValueRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      <span
-        style={{
-          fontFamily: theme.mono,
-          fontSize: 11,
-          color: theme.textMuted,
-          flex: "0 0 140px",
-        }}
-      >
-        {label}
-      </span>
-      <span style={{ flex: 1, minWidth: 0, fontSize: 12 }}>{value}</span>
+    <div className="flex items-center gap-2.5">
+      <span className="font-mono text-[11px] text-ash basis-[140px] shrink-0 grow-0">{label}</span>
+      <span className="flex-1 min-w-0 text-[12px]">{value}</span>
     </div>
   );
 }
@@ -944,75 +791,37 @@ function CheckRow({
 }) {
   const toneColor =
     status === "pass"
-      ? theme.green
+      ? "text-go-500"
       : status === "fail"
-        ? theme.red
+        ? "text-stop-500"
         : status === "warn"
-          ? theme.yellow
-          : theme.textMuted;
+          ? "text-warn-500"
+          : "text-ash";
   const icon = status === "pass" ? "✓" : status === "fail" ? "✕" : "·";
   return (
     <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "6px 10px",
-        background: theme.bg,
-        border: `1px solid ${theme.border}`,
-        borderRadius: 6,
-      }}
+      className="flex items-center gap-2.5 px-2.5 py-1.5 bg-ink-950 border border-edge rounded-md"
       data-testid={`verify-row-${label.replace(/\s+/g, "-")}`}
     >
-      <span style={{ color: toneColor, fontFamily: theme.mono, fontWeight: 700, width: 12 }}>
-        {icon}
-      </span>
-      <span
-        style={{
-          fontFamily: theme.sans,
-          fontSize: 12,
-          color: theme.text,
-          flex: "0 0 140px",
-        }}
-      >
-        {label}
-      </span>
-      <span style={{ fontFamily: theme.mono, fontSize: 11, color: theme.textMuted, flex: 1 }}>
-        {detail}
-      </span>
+      <span className={`font-mono font-bold w-3 ${toneColor}`}>{icon}</span>
+      <span className="font-sans text-[12px] text-bone basis-[140px] shrink-0 grow-0">{label}</span>
+      <span className="font-mono text-[11px] text-ash flex-1">{detail}</span>
     </div>
   );
 }
 
 function StatusPill({ tone, label }: { tone: "ok" | "fail" | "warn" | "muted"; label: string }) {
-  const color =
+  const toneClasses =
     tone === "ok"
-      ? theme.green
+      ? "text-go-500 bg-go-500/15 border-go-500/40"
       : tone === "fail"
-        ? theme.red
+        ? "text-stop-500 bg-stop-500/10 border-stop-500/40"
         : tone === "warn"
-          ? theme.yellow
-          : theme.textMuted;
-  const bg =
-    tone === "ok"
-      ? theme.greenDim
-      : tone === "fail"
-        ? theme.redDim
-        : tone === "warn"
-          ? theme.yellowDim
-          : `${theme.textMuted}20`;
+          ? "text-warn-500 bg-warn-500/15 border-warn-500/40"
+          : "text-ash bg-ash/10 border-ash/30";
   return (
     <span
-      style={{
-        fontFamily: theme.mono,
-        fontSize: 10,
-        fontWeight: 700,
-        color,
-        background: bg,
-        border: `1px solid ${color}44`,
-        borderRadius: 3,
-        padding: "1px 6px",
-      }}
+      className={`font-mono text-[10px] font-bold border rounded-sm px-1.5 py-px ${toneClasses}`}
     >
       {label}
     </span>
@@ -1029,15 +838,7 @@ function ErrorRow({ code, message, hint }: { code: string; message: string; hint
     <div
       role="alert"
       data-testid="envelope-error"
-      style={{
-        padding: "10px 12px",
-        background: theme.redDim,
-        border: `1px solid ${theme.red}44`,
-        borderRadius: 6,
-        fontFamily: theme.mono,
-        fontSize: 11,
-        color: theme.red,
-      }}
+      className="px-3 py-2.5 bg-stop-500/10 border border-stop-500/40 rounded-md font-mono text-[11px] text-stop-500"
     >
       <div>
         <strong>{code}</strong> {"—"} {message}
@@ -1045,31 +846,10 @@ function ErrorRow({ code, message, hint }: { code: string; message: string; hint
       {hint && (
         <div
           data-testid="envelope-error-hint"
-          style={{
-            marginTop: 10,
-            paddingTop: 10,
-            borderTop: `1px solid ${theme.red}33`,
-            color: theme.text,
-            fontFamily: theme.sans,
-            fontSize: 12,
-            lineHeight: 1.5,
-          }}
+          className="mt-2.5 pt-2.5 border-t border-stop-500/30 text-bone font-sans text-[12px] leading-relaxed"
         >
-          <div style={{ marginBottom: 8 }}>{hint.title}</div>
-          <pre
-            style={{
-              margin: 0,
-              padding: "8px 10px",
-              background: theme.bg,
-              border: `1px solid ${theme.border}`,
-              borderRadius: 4,
-              color: theme.accent,
-              fontFamily: theme.mono,
-              fontSize: 11,
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-all",
-            }}
-          >
+          <div className="mb-2">{hint.title}</div>
+          <pre className="m-0 px-2.5 py-2 bg-ink-950 border border-edge rounded text-gold-500 font-mono text-[11px] whitespace-pre-wrap break-all">
             {hint.commands.join("\n")}
           </pre>
         </div>
@@ -1118,9 +898,7 @@ function decryptErrorHint(
 }
 
 function Mono({ children }: { children: React.ReactNode }) {
-  return (
-    <span style={{ fontFamily: theme.mono, fontSize: 12, color: theme.text }}>{children}</span>
-  );
+  return <span className="font-mono text-[12px] text-bone">{children}</span>;
 }
 
 // ──────────────────────────────────────────────────────────────────────

@@ -1,9 +1,8 @@
 import React, { useState } from "react";
-import { theme } from "../theme";
-import { TopBar } from "../components/TopBar";
 import { Button } from "../components/Button";
 import { MatrixGrid } from "../components/MatrixGrid";
 import { SyncPanel } from "../components/SyncPanel";
+import { Toolbar } from "../primitives";
 import type { ViewName } from "../components/Sidebar";
 import type { ClefManifest, MatrixStatus } from "@clef-sh/core";
 
@@ -27,12 +26,15 @@ export function MatrixView({
   const [syncingNs, setSyncingNs] = useState<string | null>(null);
   if (!manifest) {
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-        <TopBar title="Secret Matrix" subtitle="Loading..." />
-        <div style={{ flex: 1, padding: 28 }}>
-          <p style={{ color: theme.textMuted, fontFamily: theme.sans, fontSize: 13 }}>
-            Loading manifest...
-          </p>
+      <div className="flex flex-1 flex-col">
+        <Toolbar>
+          <div>
+            <Toolbar.Title>Secret Matrix</Toolbar.Title>
+            <Toolbar.Subtitle>Loading...</Toolbar.Subtitle>
+          </div>
+        </Toolbar>
+        <div className="flex-1 p-7">
+          <p className="font-sans text-[13px] text-ash">Loading manifest...</p>
         </div>
       </div>
     );
@@ -54,92 +56,45 @@ export function MatrixView({
   const fileCount = namespaces.length * environments.length;
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <TopBar
-        title="Secret Matrix"
-        subtitle={`${namespaces.length} namespaces \u00B7 ${environments.length} environments \u00B7 ${fileCount} files`}
-        actions={
-          <>
-            <Button onClick={() => setView("lint")}>Lint All</Button>
-            <Button onClick={() => setView("manifest")} data-testid="matrix-add-environment-btn">
-              + Environment
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => setView("manifest")}
-              data-testid="matrix-add-namespace-btn"
-            >
-              + Namespace
-            </Button>
-          </>
-        }
-      />
-
-      <div style={{ flex: 1, overflow: "auto", padding: 28, position: "relative" }}>
-        {matrixLoading && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: `${theme.bg}dd`,
-              zIndex: 10,
-              borderRadius: 8,
-            }}
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <Toolbar>
+        <div>
+          <Toolbar.Title>Secret Matrix</Toolbar.Title>
+          <Toolbar.Subtitle>
+            {`${namespaces.length} namespaces · ${environments.length} environments · ${fileCount} files`}
+          </Toolbar.Subtitle>
+        </div>
+        <Toolbar.Actions>
+          <Button onClick={() => setView("lint")}>Lint All</Button>
+          <Button onClick={() => setView("manifest")} data-testid="matrix-add-environment-btn">
+            + Environment
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => setView("manifest")}
+            data-testid="matrix-add-namespace-btn"
           >
-            <div
-              style={{
-                background: theme.surface,
-                border: `1px solid ${theme.border}`,
-                borderRadius: 10,
-                padding: "24px 36px",
-                textAlign: "center",
-              }}
-            >
-              <div style={{ fontSize: 20, color: theme.accent, marginBottom: 8 }}>{"\u266A"}</div>
-              <div style={{ fontFamily: theme.sans, fontSize: 13, color: theme.textMuted }}>
-                Loading...
-              </div>
+            + Namespace
+          </Button>
+        </Toolbar.Actions>
+      </Toolbar>
+
+      <div className="relative flex-1 overflow-auto p-7">
+        {matrixLoading && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-ink-950/85 rounded-lg">
+            <div className="rounded-card border border-edge bg-ink-850 px-9 py-6 text-center">
+              <div className="mb-2 text-[20px] text-gold-500">{"♪"}</div>
+              <div className="font-sans text-[13px] text-ash">Loading...</div>
             </div>
           </div>
         )}
-        {/* Summary pills */}
-        <div style={{ display: "flex", gap: 10, marginBottom: 28 }}>
-          {[
-            { label: `${healthyCount} healthy`, color: theme.green },
-            { label: `${missingCount} missing keys`, color: theme.red },
-            {
-              label: `${warnCount} schema warning${warnCount !== 1 ? "s" : ""}`,
-              color: theme.yellow,
-            },
-            ...(totalPending > 0
-              ? [
-                  {
-                    label: `${totalPending} pending value${totalPending !== 1 ? "s" : ""}`,
-                    color: theme.accent,
-                  },
-                ]
-              : []),
-          ].map((p) => (
-            <div
-              key={p.label}
-              style={{
-                fontFamily: theme.sans,
-                fontSize: 12,
-                fontWeight: 500,
-                color: p.color,
-                background: `${p.color}14`,
-                border: `1px solid ${p.color}33`,
-                borderRadius: 20,
-                padding: "4px 14px",
-              }}
-            >
-              {p.label}
-            </div>
-          ))}
-        </div>
+
+        <SummaryPills
+          healthy={healthyCount}
+          missing={missingCount}
+          warn={warnCount}
+          pending={totalPending}
+        />
 
         <MatrixGrid
           namespaces={namespaces}
@@ -165,13 +120,42 @@ export function MatrixView({
           />
         )}
 
-        {/* Quick actions */}
-        <div style={{ marginTop: 20, display: "flex", gap: 10 }}>
+        <div className="mt-5 flex gap-2.5">
           <Button data-testid="diff-environments-btn" onClick={() => setView("diff")}>
             Diff environments
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+interface SummaryPillsProps {
+  healthy: number;
+  missing: number;
+  warn: number;
+  pending: number;
+}
+
+const PILL_BASE = "rounded-pill border px-3.5 py-1 font-sans text-[12px] font-medium";
+
+function SummaryPills({ healthy, missing, warn, pending }: SummaryPillsProps) {
+  return (
+    <div className="mb-7 flex gap-2.5">
+      <span className={`${PILL_BASE} text-go-500 bg-go-500/10 border-go-500/20`}>
+        {healthy} healthy
+      </span>
+      <span className={`${PILL_BASE} text-stop-500 bg-stop-500/10 border-stop-500/20`}>
+        {missing} missing keys
+      </span>
+      <span className={`${PILL_BASE} text-warn-500 bg-warn-500/10 border-warn-500/20`}>
+        {warn} schema warning{warn !== 1 ? "s" : ""}
+      </span>
+      {pending > 0 && (
+        <span className={`${PILL_BASE} text-gold-500 bg-gold-500/10 border-gold-500/20`}>
+          {pending} pending value{pending !== 1 ? "s" : ""}
+        </span>
+      )}
     </div>
   );
 }

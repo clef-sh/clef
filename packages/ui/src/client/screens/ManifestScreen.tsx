@@ -1,8 +1,7 @@
 import React, { useState, useCallback } from "react";
-import { theme } from "../theme";
 import { apiFetch } from "../api";
-import { TopBar } from "../components/TopBar";
 import { Button } from "../components/Button";
+import { Toolbar, Dialog, Field, Input } from "../primitives";
 import type { ClefManifest, ClefNamespace, ClefEnvironment } from "@clef-sh/core";
 
 interface ManifestScreenProps {
@@ -38,8 +37,13 @@ export function ManifestScreen({ manifest, reloadManifest }: ManifestScreenProps
 
   if (!manifest) {
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-        <TopBar title="Manifest" subtitle="Loading..." />
+      <div className="flex flex-1 flex-col">
+        <Toolbar>
+          <div>
+            <Toolbar.Title>Manifest</Toolbar.Title>
+            <Toolbar.Subtitle>Loading...</Toolbar.Subtitle>
+          </div>
+        </Toolbar>
       </div>
     );
   }
@@ -48,13 +52,17 @@ export function ManifestScreen({ manifest, reloadManifest }: ManifestScreenProps
   const environments = manifest.environments;
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <TopBar
-        title="Manifest"
-        subtitle={`${namespaces.length} namespaces \u00B7 ${environments.length} environments`}
-      />
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <Toolbar>
+        <div>
+          <Toolbar.Title>Manifest</Toolbar.Title>
+          <Toolbar.Subtitle>
+            {`${namespaces.length} namespaces · ${environments.length} environments`}
+          </Toolbar.Subtitle>
+        </div>
+      </Toolbar>
 
-      <div style={{ flex: 1, overflow: "auto", padding: 28 }}>
+      <div className="flex-1 overflow-auto p-7">
         {/* Namespaces section */}
         <Section
           title="Namespaces"
@@ -63,7 +71,7 @@ export function ManifestScreen({ manifest, reloadManifest }: ManifestScreenProps
           actionTestId="add-namespace-btn"
         >
           {namespaces.length === 0 ? (
-            <EmptyState message="No namespaces declared yet." />
+            <EmptyMessage message="No namespaces declared yet." />
           ) : (
             <EntityList>
               {namespaces.map((ns) => (
@@ -72,7 +80,7 @@ export function ManifestScreen({ manifest, reloadManifest }: ManifestScreenProps
                   testId={`namespace-row-${ns.name}`}
                   name={ns.name}
                   description={ns.description}
-                  badges={ns.schema ? [{ label: `schema: ${ns.schema}`, color: theme.purple }] : []}
+                  badges={ns.schema ? [{ label: `schema: ${ns.schema}`, tone: "purple" }] : []}
                   onEdit={() => setModal({ kind: "editNamespace", ns })}
                   onDelete={() => setModal({ kind: "removeNamespace", ns })}
                 />
@@ -82,7 +90,7 @@ export function ManifestScreen({ manifest, reloadManifest }: ManifestScreenProps
         </Section>
 
         {/* Environments section */}
-        <div style={{ marginTop: 36 }}>
+        <div className="mt-9">
           <Section
             title="Environments"
             actionLabel="+ Environment"
@@ -90,7 +98,7 @@ export function ManifestScreen({ manifest, reloadManifest }: ManifestScreenProps
             actionTestId="add-environment-btn"
           >
             {environments.length === 0 ? (
-              <EmptyState message="No environments declared yet." />
+              <EmptyMessage message="No environments declared yet." />
             ) : (
               <EntityList>
                 {environments.map((env) => (
@@ -99,7 +107,7 @@ export function ManifestScreen({ manifest, reloadManifest }: ManifestScreenProps
                     testId={`environment-row-${env.name}`}
                     name={env.name}
                     description={env.description}
-                    badges={env.protected ? [{ label: "protected", color: theme.red }] : []}
+                    badges={env.protected ? [{ label: "protected", tone: "stop" }] : []}
                     onEdit={() => setModal({ kind: "editEnvironment", env })}
                     onDelete={() => setModal({ kind: "removeEnvironment", env })}
                   />
@@ -111,29 +119,28 @@ export function ManifestScreen({ manifest, reloadManifest }: ManifestScreenProps
       </div>
 
       {/* Modals */}
-      {modal.kind === "addNamespace" && (
-        <AddNamespaceModal
-          onClose={closeModal}
-          onSubmit={async (data) => {
-            const res = await apiFetch("/api/namespaces", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(data),
-            });
-            if (!res.ok) {
-              const body = await res.json();
-              setError(body.error ?? "Failed to add namespace");
-              return false;
-            }
-            reloadManifest();
-            closeModal();
-            return true;
-          }}
-          existingNames={namespaces.map((n) => n.name)}
-          error={error}
-          setError={setError}
-        />
-      )}
+      <AddNamespaceModal
+        open={modal.kind === "addNamespace"}
+        onClose={closeModal}
+        onSubmit={async (data) => {
+          const res = await apiFetch("/api/namespaces", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data),
+          });
+          if (!res.ok) {
+            const body = await res.json();
+            setError(body.error ?? "Failed to add namespace");
+            return false;
+          }
+          reloadManifest();
+          closeModal();
+          return true;
+        }}
+        existingNames={namespaces.map((n) => n.name)}
+        error={error}
+        setError={setError}
+      />
 
       {modal.kind === "editNamespace" && (
         <EditNamespaceModal
@@ -184,29 +191,28 @@ export function ManifestScreen({ manifest, reloadManifest }: ManifestScreenProps
         />
       )}
 
-      {modal.kind === "addEnvironment" && (
-        <AddEnvironmentModal
-          existingNames={environments.map((e) => e.name)}
-          onClose={closeModal}
-          onSubmit={async (data) => {
-            const res = await apiFetch("/api/environments", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(data),
-            });
-            if (!res.ok) {
-              const body = await res.json();
-              setError(body.error ?? "Failed to add environment");
-              return false;
-            }
-            reloadManifest();
-            closeModal();
-            return true;
-          }}
-          error={error}
-          setError={setError}
-        />
-      )}
+      <AddEnvironmentModal
+        open={modal.kind === "addEnvironment"}
+        existingNames={environments.map((e) => e.name)}
+        onClose={closeModal}
+        onSubmit={async (data) => {
+          const res = await apiFetch("/api/environments", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data),
+          });
+          if (!res.ok) {
+            const body = await res.json();
+            setError(body.error ?? "Failed to add environment");
+            return false;
+          }
+          reloadManifest();
+          closeModal();
+          return true;
+        }}
+        error={error}
+        setError={setError}
+      />
 
       {modal.kind === "editEnvironment" && (
         <EditEnvironmentModal
@@ -275,24 +281,8 @@ function Section(props: {
 }) {
   return (
     <div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 14,
-        }}
-      >
-        <h2
-          style={{
-            fontFamily: theme.sans,
-            fontSize: 14,
-            fontWeight: 600,
-            color: theme.text,
-            margin: 0,
-            letterSpacing: "-0.01em",
-          }}
-        >
+      <div className="flex items-center justify-between mb-3.5">
+        <h2 className="font-sans text-[14px] font-semibold text-bone tracking-[-0.01em] m-0">
           {props.title}
         </h2>
         <Button variant="primary" onClick={props.onAction} data-testid={props.actionTestId}>
@@ -306,80 +296,44 @@ function Section(props: {
 
 function EntityList(props: { children: React.ReactNode }) {
   return (
-    <div
-      style={{
-        border: `1px solid ${theme.border}`,
-        borderRadius: 8,
-        background: theme.surface,
-        overflow: "hidden",
-      }}
-    >
-      {props.children}
-    </div>
+    <div className="border border-edge rounded-lg bg-ink-850 overflow-hidden">{props.children}</div>
   );
 }
+
+type BadgeTone = "purple" | "stop";
+
+const BADGE_TONE_CLASSES: Record<BadgeTone, string> = {
+  purple: "text-purple-400 bg-purple-400/10 border-purple-400/20",
+  stop: "text-stop-500 bg-stop-500/10 border-stop-500/20",
+};
 
 function EntityRow(props: {
   testId: string;
   name: string;
-  description: string;
-  badges: { label: string; color: string }[];
+  description: string | undefined;
+  badges: { label: string; tone: BadgeTone }[];
   onEdit: () => void;
   onDelete: () => void;
 }) {
   return (
     <div
       data-testid={props.testId}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        padding: "12px 16px",
-        borderBottom: `1px solid ${theme.border}`,
-        gap: 12,
-      }}
+      className="flex items-center px-4 py-3 border-b border-edge last:border-0 gap-3"
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontFamily: theme.mono,
-            fontSize: 13,
-            fontWeight: 600,
-            color: theme.text,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
+      <div className="flex-1 min-w-0">
+        <div className="font-mono text-[13px] font-semibold text-bone flex items-center gap-2">
           {props.name}
           {props.badges.map((b) => (
             <span
               key={b.label}
-              style={{
-                fontFamily: theme.sans,
-                fontSize: 10,
-                fontWeight: 500,
-                color: b.color,
-                background: `${b.color}14`,
-                border: `1px solid ${b.color}33`,
-                borderRadius: 10,
-                padding: "1px 8px",
-              }}
+              className={`font-sans text-[10px] font-medium border rounded-pill px-2 py-px ${BADGE_TONE_CLASSES[b.tone]}`}
             >
               {b.label}
             </span>
           ))}
         </div>
         {props.description && (
-          <div
-            style={{
-              fontFamily: theme.sans,
-              fontSize: 12,
-              color: theme.textMuted,
-              marginTop: 2,
-            }}
-          >
-            {props.description}
-          </div>
+          <div className="font-sans text-[12px] text-ash mt-0.5">{props.description}</div>
         )}
       </div>
       <Button onClick={props.onEdit} data-testid={`${props.testId}-edit`}>
@@ -392,19 +346,9 @@ function EntityRow(props: {
   );
 }
 
-function EmptyState(props: { message: string }) {
+function EmptyMessage(props: { message: string }) {
   return (
-    <div
-      style={{
-        padding: 24,
-        border: `1px dashed ${theme.border}`,
-        borderRadius: 8,
-        textAlign: "center",
-        fontFamily: theme.sans,
-        fontSize: 12,
-        color: theme.textMuted,
-      }}
-    >
+    <div className="p-6 border border-dashed border-edge rounded-lg text-center font-sans text-[12px] text-ash">
       {props.message}
     </div>
   );
@@ -412,125 +356,13 @@ function EmptyState(props: { message: string }) {
 
 // ── Modal primitives ─────────────────────────────────────────────────────
 
-function ModalShell(props: { title: string; onClose: () => void; children: React.ReactNode }) {
-  // a11y: backdrop click closes; Escape closes; dialog body traps inner clicks.
-  // Generate a stable id for aria-labelledby so AT can associate the dialog
-  // with its title — React 18's useId would be cleaner but requires import.
-  const titleId = React.useId();
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") props.onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [props]);
+function ModalHeading(props: { children: React.ReactNode }) {
+  // Tests rely on an actual heading element (`getByRole("heading")`), so we
+  // emit an h3 inside Dialog.Title's wrapper.
   return (
-    <div
-      data-testid="manifest-modal"
-      onClick={props.onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: theme.scrim,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 100,
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: theme.surface,
-          border: `1px solid ${theme.border}`,
-          borderRadius: 10,
-          padding: 24,
-          width: 480,
-          maxWidth: "90vw",
-        }}
-      >
-        <h3
-          id={titleId}
-          style={{
-            fontFamily: theme.sans,
-            fontSize: 16,
-            fontWeight: 600,
-            color: theme.text,
-            margin: "0 0 16px",
-          }}
-        >
-          {props.title}
-        </h3>
-        {props.children}
-      </div>
-    </div>
-  );
-}
-
-function FormField(props: { label: string; children: React.ReactNode; hint?: string }) {
-  return (
-    <div style={{ marginBottom: 14 }}>
-      <label
-        style={{
-          display: "block",
-          fontFamily: theme.sans,
-          fontSize: 11,
-          fontWeight: 600,
-          color: theme.textMuted,
-          marginBottom: 4,
-          textTransform: "uppercase",
-          letterSpacing: "0.05em",
-        }}
-      >
-        {props.label}
-      </label>
-      {props.children}
-      {props.hint && (
-        <div
-          style={{
-            fontFamily: theme.sans,
-            fontSize: 11,
-            color: theme.textMuted,
-            marginTop: 4,
-          }}
-        >
-          {props.hint}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TextInput(props: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  testId?: string;
-  autoFocus?: boolean;
-}) {
-  return (
-    <input
-      type="text"
-      value={props.value}
-      onChange={(e) => props.onChange(e.target.value)}
-      placeholder={props.placeholder}
-      data-testid={props.testId}
-      autoFocus={props.autoFocus}
-      style={{
-        width: "100%",
-        padding: "8px 12px",
-        background: theme.bg,
-        border: `1px solid ${theme.border}`,
-        borderRadius: 6,
-        color: theme.text,
-        fontFamily: theme.mono,
-        fontSize: 13,
-        boxSizing: "border-box",
-      }}
-    />
+    <Dialog.Title>
+      <h3 className="font-sans text-[16px] font-semibold text-bone m-0">{props.children}</h3>
+    </Dialog.Title>
   );
 }
 
@@ -538,33 +370,9 @@ function ErrorBanner(props: { message: string }) {
   return (
     <div
       data-testid="manifest-modal-error"
-      style={{
-        padding: "8px 12px",
-        background: `${theme.red}14`,
-        border: `1px solid ${theme.red}33`,
-        borderRadius: 6,
-        color: theme.red,
-        fontFamily: theme.sans,
-        fontSize: 12,
-        marginBottom: 12,
-      }}
+      className="px-3 py-2 bg-stop-500/10 border border-stop-500/20 rounded-md text-stop-500 font-sans text-[12px] mb-3"
     >
       {props.message}
-    </div>
-  );
-}
-
-function ModalActions(props: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "flex-end",
-        gap: 8,
-        marginTop: 8,
-      }}
-    >
-      {props.children}
     </div>
   );
 }
@@ -578,6 +386,7 @@ function isValidIdentifier(name: string): boolean {
 // ── Add Namespace ────────────────────────────────────────────────────────
 
 function AddNamespaceModal(props: {
+  open: boolean;
   existingNames: string[];
   onClose: () => void;
   onSubmit: (data: { name: string; description?: string; schema?: string }) => Promise<boolean>;
@@ -588,6 +397,16 @@ function AddNamespaceModal(props: {
   const [description, setDescription] = useState("");
   const [schema, setSchema] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Reset state when the dialog reopens fresh.
+  React.useEffect(() => {
+    if (props.open) {
+      setName("");
+      setDescription("");
+      setSchema("");
+      setBusy(false);
+    }
+  }, [props.open]);
 
   const trimmed = name.trim();
   const collides = props.existingNames.includes(trimmed);
@@ -601,37 +420,42 @@ function AddNamespaceModal(props: {
         : null;
 
   return (
-    <ModalShell title="Add namespace" onClose={props.onClose}>
-      {props.error && <ErrorBanner message={props.error} />}
-      <FormField label="Name" hint={localError ?? undefined}>
-        <TextInput
-          value={name}
-          onChange={(v) => {
-            setName(v);
-            props.setError(null);
-          }}
-          placeholder="payments"
-          testId="namespace-name-input"
-          autoFocus
-        />
-      </FormField>
-      <FormField label="Description">
-        <TextInput
-          value={description}
-          onChange={setDescription}
-          placeholder="Payment processing secrets"
-          testId="namespace-description-input"
-        />
-      </FormField>
-      <FormField label="Schema (optional)" hint="Path to a YAML schema file in the repo.">
-        <TextInput
-          value={schema}
-          onChange={setSchema}
-          placeholder="schemas/payments.yaml"
-          testId="namespace-schema-input"
-        />
-      </FormField>
-      <ModalActions>
+    <Dialog open={props.open} onClose={props.onClose}>
+      <ModalHeading>Add namespace</ModalHeading>
+      <Dialog.Body>
+        {props.error && <ErrorBanner message={props.error} />}
+        <div className="flex flex-col gap-3.5">
+          <Field label="Name" hint={localError ?? undefined}>
+            <Input
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                props.setError(null);
+              }}
+              placeholder="payments"
+              data-testid="namespace-name-input"
+              autoFocus
+            />
+          </Field>
+          <Field label="Description">
+            <Input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Payment processing secrets"
+              data-testid="namespace-description-input"
+            />
+          </Field>
+          <Field label="Schema (optional)" hint="Path to a YAML schema file in the repo.">
+            <Input
+              value={schema}
+              onChange={(e) => setSchema(e.target.value)}
+              placeholder="schemas/payments.yaml"
+              data-testid="namespace-schema-input"
+            />
+          </Field>
+        </div>
+      </Dialog.Body>
+      <Dialog.Footer>
         <Button onClick={props.onClose} data-testid="namespace-add-cancel">
           Cancel
         </Button>
@@ -651,8 +475,8 @@ function AddNamespaceModal(props: {
         >
           {busy ? "Adding..." : "Add namespace"}
         </Button>
-      </ModalActions>
-    </ModalShell>
+      </Dialog.Footer>
+    </Dialog>
   );
 }
 
@@ -688,30 +512,39 @@ function EditNamespaceModal(props: {
     isRename || description !== (props.ns.description ?? "") || schema !== (props.ns.schema ?? "");
 
   return (
-    <ModalShell title={`Edit namespace '${props.ns.name}'`} onClose={props.onClose}>
-      {props.error && <ErrorBanner message={props.error} />}
-      <FormField label="Name" hint={localError ?? undefined}>
-        <TextInput
-          value={rename}
-          onChange={(v) => {
-            setRename(v);
-            props.setError(null);
-          }}
-          testId="namespace-rename-input"
-          autoFocus
-        />
-      </FormField>
-      <FormField label="Description">
-        <TextInput
-          value={description}
-          onChange={setDescription}
-          testId="namespace-description-input"
-        />
-      </FormField>
-      <FormField label="Schema (optional)" hint="Empty to clear.">
-        <TextInput value={schema} onChange={setSchema} testId="namespace-schema-input" />
-      </FormField>
-      <ModalActions>
+    <Dialog open onClose={props.onClose}>
+      <ModalHeading>{`Edit namespace '${props.ns.name}'`}</ModalHeading>
+      <Dialog.Body>
+        {props.error && <ErrorBanner message={props.error} />}
+        <div className="flex flex-col gap-3.5">
+          <Field label="Name" hint={localError ?? undefined}>
+            <Input
+              value={rename}
+              onChange={(e) => {
+                setRename(e.target.value);
+                props.setError(null);
+              }}
+              data-testid="namespace-rename-input"
+              autoFocus
+            />
+          </Field>
+          <Field label="Description">
+            <Input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              data-testid="namespace-description-input"
+            />
+          </Field>
+          <Field label="Schema (optional)" hint="Empty to clear.">
+            <Input
+              value={schema}
+              onChange={(e) => setSchema(e.target.value)}
+              data-testid="namespace-schema-input"
+            />
+          </Field>
+        </div>
+      </Dialog.Body>
+      <Dialog.Footer>
         <Button onClick={props.onClose} data-testid="namespace-edit-cancel">
           Cancel
         </Button>
@@ -731,14 +564,15 @@ function EditNamespaceModal(props: {
         >
           {busy ? "Saving..." : "Save changes"}
         </Button>
-      </ModalActions>
-    </ModalShell>
+      </Dialog.Footer>
+    </Dialog>
   );
 }
 
 // ── Add Environment ──────────────────────────────────────────────────────
 
 function AddEnvironmentModal(props: {
+  open: boolean;
   existingNames: string[];
   onClose: () => void;
   onSubmit: (data: { name: string; description?: string; protected?: boolean }) => Promise<boolean>;
@@ -749,6 +583,15 @@ function AddEnvironmentModal(props: {
   const [description, setDescription] = useState("");
   const [isProtected, setIsProtected] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  React.useEffect(() => {
+    if (props.open) {
+      setName("");
+      setDescription("");
+      setIsProtected(false);
+      setBusy(false);
+    }
+  }, [props.open]);
 
   const trimmed = name.trim();
   const collides = props.existingNames.includes(trimmed);
@@ -762,50 +605,43 @@ function AddEnvironmentModal(props: {
         : null;
 
   return (
-    <ModalShell title="Add environment" onClose={props.onClose}>
-      {props.error && <ErrorBanner message={props.error} />}
-      <FormField label="Name" hint={localError ?? undefined}>
-        <TextInput
-          value={name}
-          onChange={(v) => {
-            setName(v);
-            props.setError(null);
-          }}
-          placeholder="staging"
-          testId="environment-name-input"
-          autoFocus
-        />
-      </FormField>
-      <FormField label="Description">
-        <TextInput
-          value={description}
-          onChange={setDescription}
-          placeholder="Pre-production"
-          testId="environment-description-input"
-        />
-      </FormField>
-      <div style={{ marginBottom: 14 }}>
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            fontFamily: theme.sans,
-            fontSize: 12,
-            color: theme.text,
-            cursor: "pointer",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={isProtected}
-            onChange={(e) => setIsProtected(e.target.checked)}
-            data-testid="environment-protected-checkbox"
-          />
-          Mark as protected
-        </label>
-      </div>
-      <ModalActions>
+    <Dialog open={props.open} onClose={props.onClose}>
+      <ModalHeading>Add environment</ModalHeading>
+      <Dialog.Body>
+        {props.error && <ErrorBanner message={props.error} />}
+        <div className="flex flex-col gap-3.5">
+          <Field label="Name" hint={localError ?? undefined}>
+            <Input
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                props.setError(null);
+              }}
+              placeholder="staging"
+              data-testid="environment-name-input"
+              autoFocus
+            />
+          </Field>
+          <Field label="Description">
+            <Input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Pre-production"
+              data-testid="environment-description-input"
+            />
+          </Field>
+          <label className="flex items-center gap-2 font-sans text-[12px] text-bone cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isProtected}
+              onChange={(e) => setIsProtected(e.target.checked)}
+              data-testid="environment-protected-checkbox"
+            />
+            Mark as protected
+          </label>
+        </div>
+      </Dialog.Body>
+      <Dialog.Footer>
         <Button onClick={props.onClose} data-testid="environment-add-cancel">
           Cancel
         </Button>
@@ -825,8 +661,8 @@ function AddEnvironmentModal(props: {
         >
           {busy ? "Adding..." : "Add environment"}
         </Button>
-      </ModalActions>
-    </ModalShell>
+      </Dialog.Footer>
+    </Dialog>
   );
 }
 
@@ -865,48 +701,41 @@ function EditEnvironmentModal(props: {
   const dirty = isRename || description !== (props.env.description ?? "") || protectedChanged;
 
   return (
-    <ModalShell title={`Edit environment '${props.env.name}'`} onClose={props.onClose}>
-      {props.error && <ErrorBanner message={props.error} />}
-      <FormField label="Name" hint={localError ?? undefined}>
-        <TextInput
-          value={rename}
-          onChange={(v) => {
-            setRename(v);
-            props.setError(null);
-          }}
-          testId="environment-rename-input"
-          autoFocus
-        />
-      </FormField>
-      <FormField label="Description">
-        <TextInput
-          value={description}
-          onChange={setDescription}
-          testId="environment-description-input"
-        />
-      </FormField>
-      <div style={{ marginBottom: 14 }}>
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            fontFamily: theme.sans,
-            fontSize: 12,
-            color: theme.text,
-            cursor: "pointer",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={isProtected}
-            onChange={(e) => setIsProtected(e.target.checked)}
-            data-testid="environment-protected-checkbox"
-          />
-          Protected (write operations require confirmation)
-        </label>
-      </div>
-      <ModalActions>
+    <Dialog open onClose={props.onClose}>
+      <ModalHeading>{`Edit environment '${props.env.name}'`}</ModalHeading>
+      <Dialog.Body>
+        {props.error && <ErrorBanner message={props.error} />}
+        <div className="flex flex-col gap-3.5">
+          <Field label="Name" hint={localError ?? undefined}>
+            <Input
+              value={rename}
+              onChange={(e) => {
+                setRename(e.target.value);
+                props.setError(null);
+              }}
+              data-testid="environment-rename-input"
+              autoFocus
+            />
+          </Field>
+          <Field label="Description">
+            <Input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              data-testid="environment-description-input"
+            />
+          </Field>
+          <label className="flex items-center gap-2 font-sans text-[12px] text-bone cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isProtected}
+              onChange={(e) => setIsProtected(e.target.checked)}
+              data-testid="environment-protected-checkbox"
+            />
+            Protected (write operations require confirmation)
+          </label>
+        </div>
+      </Dialog.Body>
+      <Dialog.Footer>
         <Button onClick={props.onClose} data-testid="environment-edit-cancel">
           Cancel
         </Button>
@@ -926,8 +755,8 @@ function EditEnvironmentModal(props: {
         >
           {busy ? "Saving..." : "Save changes"}
         </Button>
-      </ModalActions>
-    </ModalShell>
+      </Dialog.Footer>
+    </Dialog>
   );
 }
 
@@ -947,29 +776,24 @@ function ConfirmRemoveModal(props: {
   const matches = typedName === props.subjectName;
 
   return (
-    <ModalShell title={props.title} onClose={props.onClose}>
-      {props.error && <ErrorBanner message={props.error} />}
-      <p
-        style={{
-          fontFamily: theme.sans,
-          fontSize: 12,
-          color: theme.text,
-          margin: "0 0 12px",
-          lineHeight: 1.5,
-        }}
-      >
-        {props.impactDescription}
-      </p>
-      <FormField label={`Type the ${props.subjectKind} name to confirm`}>
-        <TextInput
-          value={typedName}
-          onChange={setTypedName}
-          placeholder={props.subjectName}
-          testId={`${props.subjectKind}-remove-confirm-input`}
-          autoFocus
-        />
-      </FormField>
-      <ModalActions>
+    <Dialog open onClose={props.onClose}>
+      <ModalHeading>{props.title}</ModalHeading>
+      <Dialog.Body>
+        {props.error && <ErrorBanner message={props.error} />}
+        <p className="font-sans text-[12px] text-bone m-0 mb-3 leading-relaxed">
+          {props.impactDescription}
+        </p>
+        <Field label={`Type the ${props.subjectKind} name to confirm`}>
+          <Input
+            value={typedName}
+            onChange={(e) => setTypedName(e.target.value)}
+            placeholder={props.subjectName}
+            data-testid={`${props.subjectKind}-remove-confirm-input`}
+            autoFocus
+          />
+        </Field>
+      </Dialog.Body>
+      <Dialog.Footer>
         <Button onClick={props.onClose} data-testid={`${props.subjectKind}-remove-cancel`}>
           Cancel
         </Button>
@@ -985,7 +809,7 @@ function ConfirmRemoveModal(props: {
         >
           {busy ? "Deleting..." : `Delete ${props.subjectKind}`}
         </Button>
-      </ModalActions>
-    </ModalShell>
+      </Dialog.Footer>
+    </Dialog>
   );
 }
