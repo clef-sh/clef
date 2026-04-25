@@ -75,6 +75,7 @@ jobs:
       ui_version: ${{ steps.ver.outputs.ui_version }}
       client_version: ${{ steps.ver.outputs.client_version }}
       cdk_version: ${{ steps.ver.outputs.cdk_version }}
+      param_store_version: ${{ steps.ver.outputs.param_store_version }}
     env:
       BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
       HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
@@ -120,6 +121,8 @@ jobs:
             || cp packages/client/package.json /tmp/client-main.json
           git show origin/main:packages/cdk/package.json > /tmp/cdk-main.json 2>/dev/null \
             || cp packages/cdk/package.json /tmp/cdk-main.json
+          git show origin/main:packages/pack/aws-parameter-store/package.json > /tmp/param-store-main.json 2>/dev/null \
+            || cp packages/pack/aws-parameter-store/package.json /tmp/param-store-main.json
 
           # Compute the next semver for a package by replaying the same bump rules
           # used by the release workflow against commits since the last release tag.
@@ -174,6 +177,7 @@ jobs:
           UI_BASE=$(node -p "require('/tmp/ui-main.json').version.replace(/-.*/, '')")
           CLIENT_BASE=$(node -p "require('/tmp/client-main.json').version.replace(/-.*/, '')")
           CDK_BASE=$(node -p "require('/tmp/cdk-main.json').version.replace(/-.*/, '')")
+          PARAM_STORE_BASE=$(node -p "require('/tmp/param-store-main.json').version.replace(/-.*/, '')")
 
           CORE_NEXT=$(next_version    "@clef-sh/core"    "packages/core"    "$CORE_BASE")
           CLOUD_NEXT=$(next_version     "@clef-sh/cloud"     "packages/cloud"     "$CLOUD_BASE")
@@ -185,6 +189,7 @@ jobs:
           UI_NEXT=$(next_version      "@clef-sh/ui"      "packages/ui"      "$UI_BASE")
           CLIENT_NEXT=$(next_version "@clef-sh/client"  "packages/client"  "$CLIENT_BASE")
           CDK_NEXT=$(next_version    "@clef-sh/cdk"     "packages/cdk"     "$CDK_BASE")
+          PARAM_STORE_NEXT=$(next_version "@clef-sh/pack-aws-parameter-store" "packages/pack/aws-parameter-store" "$PARAM_STORE_BASE")
 
           CORE_VER="${CORE_NEXT}-${PRE}.${{ github.run_number }}"
           CLOUD_VER="${CLOUD_NEXT}-${PRE}.${{ github.run_number }}"
@@ -196,6 +201,7 @@ jobs:
           UI_VER="${UI_NEXT}-${PRE}.${{ github.run_number }}"
           CLIENT_VER="${CLIENT_NEXT}-${PRE}.${{ github.run_number }}"
           CDK_VER="${CDK_NEXT}-${PRE}.${{ github.run_number }}"
+          PARAM_STORE_VER="${PARAM_STORE_NEXT}-${PRE}.${{ github.run_number }}"
 
           echo "dist_tag=${DIST_TAG}"            >> "$GITHUB_OUTPUT"
           echo "prerelease=${PRE}"               >> "$GITHUB_OUTPUT"
@@ -209,6 +215,7 @@ jobs:
           echo "ui_version=${UI_VER}"            >> "$GITHUB_OUTPUT"
           echo "client_version=${CLIENT_VER}"    >> "$GITHUB_OUTPUT"
           echo "cdk_version=${CDK_VER}"          >> "$GITHUB_OUTPUT"
+          echo "param_store_version=${PARAM_STORE_VER}" >> "$GITHUB_OUTPUT"
 
       # Beta: pre-create the git tag at HEAD_SHA and push it. We need a
       # real git tag (not just a release object) because build-sea checks
@@ -412,6 +419,7 @@ jobs:
           stamp packages/ui        "${{ needs.prepare.outputs.ui_version }}"
           stamp packages/client    "${{ needs.prepare.outputs.client_version }}"
           stamp packages/cdk       "${{ needs.prepare.outputs.cdk_version }}"
+          stamp packages/pack/aws-parameter-store "${{ needs.prepare.outputs.param_store_version }}"
 
       # Pin every in-monorepo `@clef-sh/*` dep to the exact version just
       # stamped above. Without this, published prerelease packages carry
@@ -512,6 +520,14 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Publish @clef-sh/pack-aws-parameter-store (alpha)
+        if: env.BRANCH == 'dev'
+        continue-on-error: true
+        working-directory: packages/pack/aws-parameter-store
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/pack-aws-parameter-store alpha publish failed (may already exist)"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # ── Beta (staging → GitHub Packages, public) ─────────────────────────
       #
       # Only runs if build-sea-bins succeeded above. SEA failure aborts the
@@ -597,6 +613,14 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Publish @clef-sh/pack-aws-parameter-store (beta)
+        if: env.BRANCH == 'staging'
+        continue-on-error: true
+        working-directory: packages/pack/aws-parameter-store
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/pack-aws-parameter-store beta publish failed (may already exist)"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Commit version stamps back to branch
         run: |
           if git diff --quiet packages/*/package.json; then
@@ -617,7 +641,8 @@ jobs:
             packages/broker/package.json \
             packages/ui/package.json \
             packages/client/package.json \
-            packages/cdk/package.json
+            packages/cdk/package.json \
+            packages/pack/aws-parameter-store/package.json
 
           PRE="${{ needs.prepare.outputs.prerelease }}"
           CLI_VER="${{ needs.prepare.outputs.cli_version }}"
@@ -643,6 +668,7 @@ jobs:
           echo "| \`@clef-sh/cli\` | \`${{ needs.prepare.outputs.cli_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/ui\` | \`${{ needs.prepare.outputs.ui_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/cdk\` | \`${{ needs.prepare.outputs.cdk_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/pack-aws-parameter-store\` | \`${{ needs.prepare.outputs.param_store_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Registry:** GitHub Packages (\`npm.pkg.github.com\`)" >> "$GITHUB_STEP_SUMMARY"
           echo "**Dist-tag:** \`${{ needs.prepare.outputs.dist_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
