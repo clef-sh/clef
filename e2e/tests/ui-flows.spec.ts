@@ -364,16 +364,30 @@ test.describe("clef diff → DiffView: compare environments", () => {
     page,
   }) => {
     await page.goto(server.url);
-    await page.getByTestId("nav-diff").click();
-    await expect(page.getByTestId("diff-table")).toBeVisible();
 
-    // Pre-toggle: the encrypted dev value sk_test_abc123 should not be in the
-    // DOM yet — diff loads with showValues=false so values come back redacted.
+    // Set up the masked-fetch wait BEFORE navigating so we don't miss it.
+    // The DiffView mounts on nav-diff click and immediately fires GET /api/diff
+    // with no showValues query. Under suite pressure that response can land
+    // before any post-click `waitForResponse` is attached.
+    const maskedResponse = page.waitForResponse(
+      (r) =>
+        /\/api\/diff\/payments\/[^/]+\/[^/]+(\?|$)/.test(r.url()) &&
+        !r.url().includes("showValues=true") &&
+        r.status() === 200,
+    );
+    await page.getByTestId("nav-diff").click();
+    await maskedResponse;
+    await expect(page.getByTestId("diff-table")).toBeVisible();
+    await expect(page.getByTestId("diff-table")).toContainText("STRIPE_KEY");
     await expect(page.getByTestId("diff-table")).not.toContainText("sk_test_abc123");
 
+    // Toggle on, and wait for the plaintext fetch to land before asserting.
+    const plaintextResponse = page.waitForResponse(
+      (r) => r.url().includes("showValues=true") && r.status() === 200,
+    );
     await page.getByTestId("show-values-toggle").click();
+    await plaintextResponse;
 
-    // Post-toggle: dev's STRIPE_KEY value materialises in the diff cell.
     await expect(page.getByTestId("diff-table")).toContainText("sk_test_abc123", {
       timeout: 15_000,
     });
@@ -421,7 +435,7 @@ test.describe("clef lint → LintView: full repo health check", () => {
   test("[positive] Re-run button is present", async ({ page }) => {
     await page.goto(server.url);
     await page.getByTestId("nav-lint").click();
-    await expect(page.getByRole("button", { name: "↻ Re-run" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Re-run/ })).toBeVisible();
   });
 
   test("[positive] clicking a file ref on a lint issue navigates to the namespace editor", async ({
