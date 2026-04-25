@@ -1,5 +1,22 @@
 import React from "react";
-import { theme } from "../theme";
+import {
+  ArrowLeftRight,
+  CheckCircle2,
+  Clock,
+  FileText,
+  Hash,
+  KeyRound,
+  LayoutGrid,
+  Mail,
+  RefreshCw,
+  RotateCcw,
+  Scale,
+  ScanSearch,
+  Table2,
+  Upload,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import type { ClefManifest, MatrixStatus, GitStatus as GitStatusType } from "@clef-sh/core";
 
 export type ViewName =
@@ -32,6 +49,8 @@ interface SidebarProps {
   policyOverdueCount: number;
 }
 
+type BadgeTone = "stop" | "warn" | "purple";
+
 export function Sidebar({
   activeView,
   setView,
@@ -51,149 +70,94 @@ export function Sidebar({
   const namespaces = manifest?.namespaces ?? [];
 
   return (
-    <div
-      style={{
-        width: 220,
-        // Fixed viewport height (not minHeight) so the flex column can
-        // actually clip overflow.  Paired with overflowY: auto on the nav
-        // block below, this lets the middle section scroll when the list
-        // grows or the user zooms in, while the logo and footer stay pinned.
-        height: "100vh",
-        background: theme.surface,
-        borderRight: `1px solid ${theme.border}`,
-        display: "flex",
-        flexDirection: "column",
-        flexShrink: 0,
-      }}
-    >
-      {/* Logo */}
-      <div
-        style={{
-          padding: "20px 20px 16px",
-          borderBottom: `1px solid ${theme.border}`,
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-        }}
-      >
+    // Fixed viewport height (not minHeight) so the flex column can actually
+    // clip overflow. Paired with overflow-y-auto on the nav block below, this
+    // lets the middle section scroll when the list grows or the user zooms in,
+    // while the logo and footer stay pinned.
+    <div className="flex h-screen w-[220px] shrink-0 flex-col border-r border-edge bg-ink-850">
+      <div className="flex items-center gap-2.5 border-b border-edge px-5 pt-5 pb-4">
         <div
-          style={{
-            width: 30,
-            height: 30,
-            background: theme.accentDim,
-            border: `1px solid ${theme.accent}44`,
-            borderRadius: 7,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
           aria-hidden="true"
+          className="flex h-[30px] w-[30px] items-center justify-center rounded-md border border-gold-500/30 bg-gold-500/[0.08]"
         >
           <img
             src="/clef.svg"
             alt=""
             width={12}
             height={20}
-            style={{ filter: `drop-shadow(0 0 8px ${theme.accent}55)` }}
+            className="[filter:drop-shadow(0_0_8px_rgba(240,165,0,0.33))]"
           />
         </div>
         <div>
-          <div
-            style={{
-              fontFamily: theme.mono,
-              fontWeight: 700,
-              fontSize: 18,
-              color: theme.text,
-              letterSpacing: "-0.02em",
-              lineHeight: 1,
-            }}
-          >
+          <div className="font-mono text-[18px] font-bold leading-none tracking-[-0.02em] text-bone">
             Clef
           </div>
-          <div
-            style={{
-              fontFamily: theme.mono,
-              fontSize: 9,
-              color: theme.textMuted,
-              marginTop: 4,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-            }}
-          >
+          <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.12em] text-ash">
             {manifest?.sops.default_backend ?? "local"} / main
           </div>
         </div>
       </div>
 
-      {/* Nav */}
-      <div
-        style={{
-          padding: "12px 10px",
-          flex: 1,
-          // minHeight: 0 is the standard flex quirk — without it, a flex
-          // child's scrollable content never shrinks below its intrinsic
-          // size, so overflowY: auto would never actually clip.
-          minHeight: 0,
-          overflowY: "auto",
-          overflowX: "hidden",
-        }}
-      >
+      {/* min-h-0 is the standard flex quirk — without it, a flex child's
+          scrollable content never shrinks below its intrinsic size, so
+          overflow-y-auto would never actually clip. */}
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2.5 py-3">
         <NavItem
-          icon={"\u229E"}
+          icon={LayoutGrid}
           label="Matrix"
           active={activeView === "matrix"}
           onClick={() => setView("matrix")}
         />
         <NavItem
-          icon={"\u21C4"}
+          icon={ArrowLeftRight}
           label="Diff"
           active={activeView === "diff"}
           onClick={() => setView("diff")}
         />
         <NavItem
-          icon={"\u2714"}
+          icon={CheckCircle2}
           label="Lint"
           active={activeView === "lint"}
           onClick={() => setView("lint")}
           badge={lintErrorCount > 0 ? String(lintErrorCount) : undefined}
-          badgeColor={theme.red}
+          badgeTone="stop"
         />
         <NavItem
-          icon={"\u2315"}
+          icon={ScanSearch}
           label="Scan"
           active={activeView === "scan"}
           onClick={() => setView("scan")}
           badge={scanIssueCount > 0 ? String(scanIssueCount) : undefined}
-          badgeColor={theme.yellow}
+          badgeTone="warn"
         />
         <NavItem
-          icon={"\u25a4"}
+          icon={Table2}
           label="Schema"
           active={activeView === "schema"}
           onClick={() => setView("schema")}
         />
         <NavItem
-          icon={"\u2696"}
+          icon={Scale}
           label="Policy"
           active={activeView === "policy"}
           onClick={() => setView("policy")}
           badge={policyOverdueCount > 0 ? String(policyOverdueCount) : undefined}
-          badgeColor={theme.red}
+          badgeTone="stop"
         />
         <NavItem
-          icon={"\u2B06"}
+          icon={Upload}
           label="Import"
           active={activeView === "import"}
           onClick={() => setView("import")}
         />
         <NavItem
-          icon={"\u2662"}
+          icon={Users}
           label="Recipients"
           active={activeView === "recipients"}
           onClick={() => setView("recipients")}
         />
         <NavItem
-          icon={"\u2699"}
+          icon={KeyRound}
           label="Service IDs"
           active={activeView === "identities"}
           onClick={() => setView("identities")}
@@ -202,50 +166,41 @@ export function Sidebar({
               ? String(manifest.service_identities.length)
               : undefined
           }
-          badgeColor={theme.purple}
+          badgeTone="purple"
         />
         <NavItem
-          icon={"\u21BB"}
+          icon={RefreshCw}
           label="Backend"
           active={activeView === "backend"}
           onClick={() => setView("backend")}
         />
         <NavItem
-          icon={"\u2421"}
+          icon={RotateCcw}
           label="Reset"
           active={activeView === "reset"}
           onClick={() => setView("reset")}
         />
         <NavItem
-          icon={"\u2630"}
+          icon={FileText}
           label="Manifest"
           active={activeView === "manifest"}
           onClick={() => setView("manifest")}
         />
         <NavItem
-          icon={"\u2709"}
+          icon={Mail}
           label="Envelope"
           active={activeView === "envelope"}
           onClick={() => setView("envelope")}
         />
         <NavItem
-          icon={"\u23F1"}
+          icon={Clock}
           label="History"
           active={activeView === "history"}
           onClick={() => setView("history")}
         />
 
-        <div style={{ marginTop: 20, marginBottom: 6, padding: "0 8px" }}>
-          <span
-            style={{
-              fontFamily: theme.sans,
-              fontSize: 10,
-              fontWeight: 600,
-              color: theme.textDim,
-              letterSpacing: "0.1em",
-              textTransform: "uppercase",
-            }}
-          >
+        <div className="mt-5 mb-1.5 px-2">
+          <span className="font-sans text-[10px] font-semibold uppercase tracking-[0.1em] text-ash-deep">
             Namespaces
           </span>
         </div>
@@ -257,17 +212,7 @@ export function Sidebar({
           return (
             <NavItem
               key={ns.name}
-              icon={
-                <span
-                  style={{
-                    fontFamily: theme.mono,
-                    fontSize: 10,
-                    color: theme.textMuted,
-                  }}
-                >
-                  //
-                </span>
-              }
+              icon={Hash}
               label={ns.name}
               active={activeView === "editor" && activeNs === ns.name}
               onClick={() => {
@@ -275,49 +220,21 @@ export function Sidebar({
                 setNs(ns.name);
               }}
               badge={hasIssue ? "!" : undefined}
-              badgeColor={theme.yellow}
+              badgeTone="warn"
             />
           );
         })}
       </div>
 
-      {/* Footer */}
-      <div style={{ padding: "12px 16px", borderTop: `1px solid ${theme.border}` }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            color: theme.textMuted,
-          }}
-        >
-          <span style={{ fontFamily: theme.mono, fontSize: 10 }}>
-            {uncommittedCount} uncommitted
-          </span>
+      <div className="border-t border-edge px-4 py-3">
+        <div className="flex items-center gap-1.5 text-ash">
+          <span className="font-mono text-[10px]">{uncommittedCount} uncommitted</span>
         </div>
-        <div style={{ marginTop: 5 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              color: theme.green,
-            }}
-          >
-            <span
-              style={{
-                display: "inline-block",
-                width: 6,
-                height: 6,
-                borderRadius: "50%",
-                background: theme.green,
-                boxShadow: `0 0 5px ${theme.green}`,
-              }}
-            />
-            <span style={{ fontFamily: theme.mono, fontSize: 10 }}>
-              {manifest?.sops.default_backend ?? "age"} key loaded
-            </span>
-          </div>
+        <div className="mt-1.5 flex items-center gap-1.5 text-go-500">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-go-500 shadow-[0_0_5px_var(--color-go-500)]" />
+          <span className="font-mono text-[10px]">
+            {manifest?.sops.default_backend ?? "age"} key loaded
+          </span>
         </div>
       </div>
     </div>
@@ -325,15 +242,25 @@ export function Sidebar({
 }
 
 interface NavItemProps {
-  icon: React.ReactNode;
+  icon: LucideIcon;
   label: string;
   active: boolean;
   onClick: () => void;
   badge?: string;
-  badgeColor?: string;
+  badgeTone?: BadgeTone;
 }
 
-function NavItem({ icon, label, active, onClick, badge, badgeColor }: NavItemProps) {
+function NavItem({ icon: Icon, label, active, onClick, badge, badgeTone = "warn" }: NavItemProps) {
+  // Active-state treatment is the design-review polish item: 4px gold left
+  // rail + gold-500/10 fill + gold-500 text + bold weight. Inactive items get
+  // a true hover state (bg-ink-800) so the row feels alive on cursor entry —
+  // pre-Phase-3 every nav item was plateau-flat.
+  const base =
+    "relative flex items-center gap-2.5 rounded-md px-2.5 py-1.5 mb-0.5 cursor-pointer transition-colors";
+  const stateClasses = active
+    ? "bg-gold-500/10 text-gold-500 font-semibold border-l-4 border-gold-500 pl-[6px]"
+    : "border-l-4 border-transparent text-bone hover:bg-ink-800";
+
   return (
     <div
       role="button"
@@ -343,57 +270,32 @@ function NavItem({ icon, label, active, onClick, badge, badgeColor }: NavItemPro
       onKeyDown={(e) => {
         if (e.key === "Enter") onClick();
       }}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 9,
-        padding: "7px 10px",
-        borderRadius: 6,
-        cursor: "pointer",
-        background: active ? theme.accentDim : "transparent",
-        border: active ? `1px solid ${theme.accent}22` : "1px solid transparent",
-        marginBottom: 2,
-        transition: "all 0.12s",
-        position: "relative",
-      }}
+      className={`${base} ${stateClasses}`}
     >
-      <span
-        style={{
-          color: active ? theme.accent : theme.textMuted,
-          display: "flex",
-          alignItems: "center",
-          width: 14,
-        }}
-      >
-        {icon}
-      </span>
-      <span
-        style={{
-          fontFamily: theme.sans,
-          fontSize: 13,
-          fontWeight: active ? 600 : 400,
-          color: active ? theme.accent : theme.text,
-          flex: 1,
-        }}
-      >
-        {label}
-      </span>
-      {badge && badgeColor && (
-        <span
-          style={{
-            fontFamily: theme.mono,
-            fontSize: 9,
-            fontWeight: 700,
-            color: badgeColor,
-            background: `${badgeColor}20`,
-            border: `1px solid ${badgeColor}44`,
-            borderRadius: 3,
-            padding: "1px 5px",
-          }}
-        >
-          {badge}
-        </span>
-      )}
+      <Icon
+        size={14}
+        strokeWidth={1.75}
+        className={active ? "text-gold-500" : "text-ash"}
+        aria-hidden="true"
+      />
+      <span className="flex-1 font-sans text-[13px]">{label}</span>
+      {badge && <NavBadge tone={badgeTone}>{badge}</NavBadge>}
     </div>
+  );
+}
+
+const BADGE_TONE_CLASSES: Record<BadgeTone, string> = {
+  stop: "text-stop-500 bg-stop-500/15 border-stop-500/40",
+  warn: "text-warn-500 bg-warn-500/15 border-warn-500/40",
+  purple: "text-purple-400 bg-purple-400/15 border-purple-400/40",
+};
+
+function NavBadge({ tone, children }: { tone: BadgeTone; children: React.ReactNode }) {
+  return (
+    <span
+      className={`rounded-sm border px-1.5 py-px font-mono text-[9px] font-bold ${BADGE_TONE_CLASSES[tone]}`}
+    >
+      {children}
+    </span>
   );
 }

@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from "react";
-import { theme } from "./theme";
 import { apiFetch } from "./api";
 import { Sidebar, ViewName } from "./components/Sidebar";
 import { MatrixView } from "./screens/MatrixView";
@@ -126,50 +125,23 @@ export default function App() {
 
   if (loading) {
     return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "100vh",
-          background: theme.bg,
-          color: theme.textMuted,
-          fontFamily: theme.sans,
-        }}
-      >
-        <div style={{ textAlign: "center" }}>
-          <div
-            style={{
-              fontSize: 24,
-              color: theme.accent,
-              marginBottom: 12,
-            }}
-          >
-            <img
-              src="/clef.svg"
-              alt=""
-              width="20"
-              height="44"
-              style={{ filter: "drop-shadow(0 0 10px rgba(240,165,0,0.35))" }}
-            />
-          </div>
-          <div style={{ fontSize: 13 }}>Loading...</div>
+      <div className="flex h-screen items-center justify-center bg-ink-950 font-sans text-ash">
+        <div className="text-center">
+          <img
+            src="/clef.svg"
+            alt=""
+            width="20"
+            height="44"
+            className="mx-auto mb-3 [filter:drop-shadow(0_0_10px_rgba(240,165,0,0.35))]"
+          />
+          <div className="text-[13px]">Loading...</div>
         </div>
       </div>
     );
   }
 
   return (
-    <div
-      style={{
-        display: "flex",
-        height: "100vh",
-        background: theme.bg,
-        color: theme.text,
-        fontFamily: theme.sans,
-        overflow: "hidden",
-      }}
-    >
+    <div className="flex h-screen overflow-hidden bg-ink-950 font-sans text-bone">
       <Sidebar
         activeView={view}
         setView={setView}
@@ -183,14 +155,7 @@ export default function App() {
         policyOverdueCount={policyOverdueCount}
       />
 
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-        }}
-      >
+      <div className="flex flex-1 flex-col overflow-hidden">
         {view === "matrix" && (
           <MatrixView
             setView={setView}
