@@ -29,7 +29,11 @@ function revealWarningText(singleKey?: string): string {
   return "all decrypted values will be printed in this window until the reveal timer expires";
 }
 
-const REVEAL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes — matches NamespaceEditor
+// Short on purpose: the envelope debugger is for momentary peeks during
+// triage (paste artifact, glance at value, move on), not editing — there's
+// no workflow that needs the value visible for minutes at a time, and a
+// long visible window is the bigger risk on a shared screen.
+const REVEAL_TIMEOUT_MS = 15 * 1000;
 
 export function EnvelopeScreen() {
   // Paste + inspect

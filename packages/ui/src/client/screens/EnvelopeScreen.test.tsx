@@ -296,10 +296,10 @@ describe("EnvelopeScreen", () => {
     expect(screen.getByTestId("decrypt-value-DB_URL").textContent).toBe("postgres://prod");
     expect(screen.getByTestId("decrypt-value-API_KEY").textContent).toBe("sk-123");
     expect(screen.getByTestId("reveal-banner").textContent).toMatch(/all decrypted values/);
-    expect(screen.getByTestId("reveal-countdown").textContent).toMatch(/5:\d{2}|4:\d{2}/);
+    expect(screen.getByTestId("reveal-countdown").textContent).toMatch(/0:1[0-5]/);
   });
 
-  it("clears revealed values after the 5-minute auto-clear timer fires", async () => {
+  it("clears revealed values after the 15-second auto-clear timer fires", async () => {
     global.fetch = routeStubs([
       { match: (u) => u.endsWith("/api/envelope/config"), body: configConfigured },
       { match: (u) => u.endsWith("/api/envelope/inspect"), body: inspectOk },
@@ -335,7 +335,7 @@ describe("EnvelopeScreen", () => {
     expect(screen.getByTestId("decrypt-value-DB_URL").textContent).toBe("postgres://prod");
 
     await act(async () => {
-      jest.advanceTimersByTime(5 * 60 * 1000 + 10);
+      jest.advanceTimersByTime(15 * 1000 + 10);
     });
 
     expect(screen.getByTestId("decrypt-value-DB_URL").textContent).toMatch(/●/);
