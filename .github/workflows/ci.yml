@@ -20,9 +20,14 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      # Root build walks workspaces in topological order (see package.json
-      # workspaces array). Cheaper than enumerating per-job and keeps new
-      # cross-workspace imports from silently breaking individual jobs.
+      # Root build walks workspaces in the order they appear in
+      # package.json's `workspaces` array. That array is hand-sorted in
+      # topological dependency order: leaves (core, analytics, client) →
+      # tier-1 (runtime, cloud) → tier-2 (ui, broker, agent, cdk) →
+      # tier-3 (cli). Re-check the ordering when you add a new
+      # @clef-sh/* dependency to any package — putting a dependent
+      # before its dependency breaks `tsc` here on a clean checkout
+      # (the dependency's dist/*.d.ts won't exist yet).
       - run: npm run build
       - name: Test with coverage
         run: npm run test:coverage --workspaces --if-present
