@@ -80,24 +80,72 @@ export function shouldIgnoreMatch(match: ScanMatch, rules: ClefIgnoreRules): boo
 }
 
 function matchesGlob(filePath: string, pattern: string): boolean {
-  // Convert glob to regex: support *, **, and ? wildcards.
-  // Step 1: stash ** segments, Step 2: escape all regex metacharacters,
-  // Step 3: restore wildcards as their regex equivalents.
-  const DOUBLE_STAR = "\x00DS\x00";
-  const SINGLE_STAR = "\x00SS\x00";
-  const QUESTION = "\x00QM\x00";
+  const body = globToRegex(pattern);
+  // Exact match — pattern matches the full path.
+  const exact = new RegExp("^" + body + "$");
+  // Also match if the pattern matches a directory prefix, so a file pattern
+  // like `node_modules` (no trailing slash) also catches files inside it.
+  const prefix = new RegExp("^" + body + "/");
+  return exact.test(filePath) || prefix.test(filePath);
+}
 
-  const escaped = pattern
-    .replace(/\*\*/g, DOUBLE_STAR)
-    .replace(/\*/g, SINGLE_STAR)
-    .replace(/\?/g, QUESTION)
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(DOUBLE_STAR, ".*")
-    .replace(SINGLE_STAR, "[^/]*")
-    .replace(QUESTION, "[^/]");
-
-  const regex = new RegExp("^" + escaped + "$");
-  // Also match if the pattern matches a prefix directory
-  const prefixRegex = new RegExp("^" + escaped + "/");
-  return regex.test(filePath) || prefixRegex.test(filePath);
+/**
+ * Convert a glob pattern (gitignore-style) to a regex body.
+ *
+ * Globstar semantics — `**` denotes zero-or-more path segments. The four
+ * positions where `**` can appear each get distinct treatment:
+ *
+ *   `**\/foo`   — leading: zero-or-more segments, including zero. So
+ *                 `**\/package.json` must match `package.json` at the root
+ *                 just as it matches `apps/web/package.json`.
+ *   `foo/**\/bar` — interior: zero-or-more segments between, so `src/**\/x`
+ *                 matches `src/x` (zero segments) and `src/a/b/x`.
+ *   `foo/**`    — trailing: matches the directory itself plus everything
+ *                 inside it.
+ *   bare `**`   — matches anything across separators (rare in real configs).
+ *
+ * Single `*` matches anything except `/`. `?` matches one non-slash char.
+ * Regex metacharacters in literal segments are escaped.
+ */
+function globToRegex(pattern: string): string {
+  let out = "";
+  let i = 0;
+  while (i < pattern.length) {
+    // /**/ — interior globstar: zero-or-more segments between two literals.
+    if (pattern.startsWith("/**/", i)) {
+      out += "/(?:.*/)?";
+      i += 4;
+      continue;
+    }
+    // **/ at the very start — leading globstar: zero-or-more segments at root.
+    if (i === 0 && pattern.startsWith("**/")) {
+      out += "(?:.*/)?";
+      i += 3;
+      continue;
+    }
+    // /** at the very end — trailing globstar: the dir itself + everything inside.
+    if (pattern.startsWith("/**", i) && i + 3 === pattern.length) {
+      out += "(?:/.*)?";
+      i += 3;
+      continue;
+    }
+    // bare ** elsewhere — degenerate but treated as "anything across slashes".
+    if (pattern.startsWith("**", i)) {
+      out += ".*";
+      i += 2;
+      continue;
+    }
+    const ch = pattern[i];
+    if (ch === "*") {
+      out += "[^/]*";
+    } else if (ch === "?") {
+      out += "[^/]";
+    } else if (/[.+^${}()|[\]\\]/.test(ch)) {
+      out += "\\" + ch;
+    } else {
+      out += ch;
+    }
+    i++;
+  }
+  return out;
 }

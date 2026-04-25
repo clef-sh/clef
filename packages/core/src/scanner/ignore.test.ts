@@ -91,6 +91,67 @@ describe("shouldIgnoreFile", () => {
   });
 });
 
+describe("shouldIgnoreFile — globstar (**) semantics", () => {
+  it("leading **/ matches the file at the root (zero intermediate segments)", () => {
+    const rules = { files: ["**/package.json"], patterns: [], paths: [] };
+    expect(shouldIgnoreFile("package.json", rules)).toBe(true);
+  });
+
+  it("leading **/ matches the file at any nesting depth", () => {
+    const rules = { files: ["**/package.json"], patterns: [], paths: [] };
+    expect(shouldIgnoreFile("apps/package.json", rules)).toBe(true);
+    expect(shouldIgnoreFile("apps/web/package.json", rules)).toBe(true);
+    expect(shouldIgnoreFile("a/b/c/d/package.json", rules)).toBe(true);
+  });
+
+  it("leading **/ does not match a similarly-named directory or unrelated file", () => {
+    const rules = { files: ["**/package.json"], patterns: [], paths: [] };
+    expect(shouldIgnoreFile("package.jsonx", rules)).toBe(false);
+    expect(shouldIgnoreFile("xpackage.json", rules)).toBe(false);
+  });
+
+  it("interior /**/ matches with zero intermediate segments", () => {
+    const rules = { files: ["src/**/test.js"], patterns: [], paths: [] };
+    expect(shouldIgnoreFile("src/test.js", rules)).toBe(true);
+  });
+
+  it("interior /**/ matches with one or more intermediate segments", () => {
+    const rules = { files: ["src/**/test.js"], patterns: [], paths: [] };
+    expect(shouldIgnoreFile("src/foo/test.js", rules)).toBe(true);
+    expect(shouldIgnoreFile("src/foo/bar/test.js", rules)).toBe(true);
+  });
+
+  it("interior /**/ does not match outside its prefix", () => {
+    const rules = { files: ["src/**/test.js"], patterns: [], paths: [] };
+    expect(shouldIgnoreFile("test.js", rules)).toBe(false);
+    expect(shouldIgnoreFile("lib/test.js", rules)).toBe(false);
+  });
+
+  it("trailing /** matches everything under the prefix", () => {
+    const rules = { files: ["build/**"], patterns: [], paths: [] };
+    expect(shouldIgnoreFile("build/index.js", rules)).toBe(true);
+    expect(shouldIgnoreFile("build/nested/deep/file.js", rules)).toBe(true);
+  });
+
+  it("trailing /** matches the directory entry itself", () => {
+    const rules = { files: ["build/**"], patterns: [], paths: [] };
+    expect(shouldIgnoreFile("build", rules)).toBe(true);
+  });
+
+  it("single * does not cross path separators", () => {
+    const rules = { files: ["src/*.ts"], patterns: [], paths: [] };
+    expect(shouldIgnoreFile("src/app.ts", rules)).toBe(true);
+    expect(shouldIgnoreFile("src/nested/app.ts", rules)).toBe(false);
+  });
+
+  it("escapes regex metacharacters in literal segments", () => {
+    // Without escaping, the `.` in package.json would match any char.
+    const rules = { files: ["**/package.json"], patterns: [], paths: [] };
+    expect(shouldIgnoreFile("package_json", rules)).toBe(false);
+    expect(shouldIgnoreFile("apps/packageXjson", rules)).toBe(false);
+  });
+});
+
 describe("shouldIgnoreMatch", () => {
   const rules = {
     files: [],
