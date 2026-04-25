@@ -379,7 +379,10 @@ test.describe("clef diff → DiffView: compare environments", () => {
     await maskedResponse;
     await expect(page.getByTestId("diff-table")).toBeVisible();
     await expect(page.getByTestId("diff-table")).toContainText("STRIPE_KEY");
-    await expect(page.getByTestId("diff-table")).not.toContainText("sk_test_abc123");
+    // Assert on the production fixture value — the dev value is mutated by
+    // an earlier save test in this spec (single shared beforeAll repo), so
+    // sk_test_abc123 no longer exists by the time this test runs.
+    await expect(page.getByTestId("diff-table")).not.toContainText("sk_live_prod456");
 
     // Toggle on, and wait for the plaintext fetch to land before asserting.
     const plaintextResponse = page.waitForResponse(
@@ -388,7 +391,7 @@ test.describe("clef diff → DiffView: compare environments", () => {
     await page.getByTestId("show-values-toggle").click();
     await plaintextResponse;
 
-    await expect(page.getByTestId("diff-table")).toContainText("sk_test_abc123", {
+    await expect(page.getByTestId("diff-table")).toContainText("sk_live_prod456", {
       timeout: 15_000,
     });
   });
