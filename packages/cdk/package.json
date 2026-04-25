@@ -21,6 +21,13 @@
     "@clef-sh/core": "0.1.20",
     "@clef-sh/runtime": "0.1.23"
   },
+  "optionalDependencies": {
+    "@clef-sh/sops-darwin-arm64": "3.9.4",
+    "@clef-sh/sops-darwin-x64": "3.9.4",
+    "@clef-sh/sops-linux-arm64": "3.9.4",
+    "@clef-sh/sops-linux-x64": "3.9.4",
+    "@clef-sh/sops-win32-x64": "3.9.4"
+  },
   "peerDependencies": {
     "@aws-sdk/client-kms": "^3.500.0",
     "aws-cdk-lib": "^2.100.0",
