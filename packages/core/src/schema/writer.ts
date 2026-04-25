@@ -62,34 +62,34 @@ export function writeSchema(
  * with commented-out example keys) to disk, creating parent directories as
  * needed. Callers using a structured {@link NamespaceSchema} should prefer
  * {@link writeSchema}. Same `rootDir` containment rule as {@link writeSchema}.
+ *
+ * The sanitizer is inlined at the sink rather than extracted into a helper so
+ * that CodeQL's `js/path-injection` data flow analysis can see the barrier
+ * adjacent to the `fs.mkdirSync` / `writeFileAtomic.sync` calls. Pattern
+ * follows CodeQL's documented recommendation: reject absolute input,
+ * `fs.realpathSync` the trusted root to canonicalize past symlinks, then
+ * `startsWith` containment.
  */
 export function writeSchemaRaw(rootDir: string, relPath: string, contents: string): void {
-  const safePath = assertPathWithinRoot(rootDir, relPath);
+  // 1. Reject absolute candidates. `path.resolve(root, abs)` returns `abs`
+  //    and ignores `root`, so any absolute input is a redirection.
+  if (path.isAbsolute(relPath)) {
+    throw new Error(`Refusing to write schema using an absolute path: ${relPath}`);
+  }
+  // 2. Canonicalize the root (resolves symlinks). The root is always under
+  //    the operator's own filesystem and exists when this is called.
+  const realRoot = fs.realpathSync(path.resolve(rootDir));
+  // 3. Resolve the relative candidate against the canonical root, then
+  //    require the result to live under `realRoot + path.sep`. Strict
+  //    prefix containment is the sanitizer barrier the CodeQL query
+  //    recognizes.
+  const safePath = path.resolve(realRoot, relPath);
+  const rootWithSep = realRoot.endsWith(path.sep) ? realRoot : `${realRoot}${path.sep}`;
+  if (safePath !== realRoot && !safePath.startsWith(rootWithSep)) {
+    throw new Error(`Refusing to write schema outside the repository root: ${relPath}`);
+  }
   fs.mkdirSync(path.dirname(safePath), { recursive: true });
   writeFileAtomic.sync(safePath, contents);
-}
-
-/**
- * Build an absolute write target inside `root` from a *relative* `candidate`.
- * Two-step sanitizer:
- *   1. Reject absolute candidates upfront — `path.resolve(root, abs)` returns
- *      `abs` and ignores `root`, so any absolute input is a redirection.
- *   2. Resolve relative candidate against canonical root, then require the
- *      result to equal `root` or live under `root + path.sep`. Canonical
- *      prefix containment is the shape CodeQL's `js/path-injection` query
- *      recognizes as a sanitizer barrier.
- */
-function assertPathWithinRoot(root: string, candidate: string): string {
-  if (path.isAbsolute(candidate)) {
-    throw new Error(`Refusing to write schema using an absolute path: ${candidate}`);
-  }
-  const resolvedRoot = path.resolve(root);
-  const resolvedPath = path.resolve(resolvedRoot, candidate);
-  const rootWithSep = resolvedRoot.endsWith(path.sep) ? resolvedRoot : `${resolvedRoot}${path.sep}`;
-  if (resolvedPath !== resolvedRoot && !resolvedPath.startsWith(rootWithSep)) {
-    throw new Error(`Refusing to write schema outside the repository root: ${candidate}`);
-  }
-  return resolvedPath;
 }
 
 /**
