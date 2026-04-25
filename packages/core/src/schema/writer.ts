@@ -83,7 +83,11 @@ export function writeSchemaRaw(rootDir: string, relPath: string, contents: strin
   //    containment via relative-path semantics.
   const safePath = path.resolve(realRoot, normalizedRelPath);
   const relCandidate = path.relative(realRoot, safePath);
-  if (relCandidate === ".." || relCandidate.startsWith(`..${path.sep}`) || path.isAbsolute(relCandidate)) {
+  if (
+    relCandidate === ".." ||
+    relCandidate.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relCandidate)
+  ) {
     throw new Error(`Refusing to write schema outside the repository root: ${relPath}`);
   }
   // 4. Create parent directory, then canonicalize the parent and re-check
