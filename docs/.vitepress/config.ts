@@ -85,6 +85,10 @@ export default withMermaid({
             { text: "Service Identities", link: "/guide/service-identities" },
             { text: "Dynamic Secrets", link: "/guide/dynamic-secrets" },
             { text: "Pack Backend Plugins", link: "/guide/pack-plugins" },
+            {
+              text: "AWS Parameter Store Backend",
+              link: "/guide/pack-aws-parameter-store",
+            },
             { text: "CDK Constructs (AWS)", link: "/guide/cdk" },
             { text: "Runtime Agent", link: "/guide/agent" },
             { text: "Client SDK", link: "/guide/client" },

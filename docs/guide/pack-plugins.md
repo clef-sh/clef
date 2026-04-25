@@ -216,6 +216,10 @@ Plugins declare `@clef-sh/core` as a peer dependency with a semver range. Breaki
 
 The CLI performs a runtime shape check (`id: string`, `pack: function`) before invoking your backend. Plugins that don't satisfy the minimum shape are rejected with a clear error before `pack` is called.
 
+## Reference plugins
+
+- **[AWS Parameter Store](./pack-aws-parameter-store.md)** — `@clef-sh/pack-aws-parameter-store`. Source: [`packages/pack-aws-parameter-store`](https://github.com/clef-sh/clef/tree/main/packages/pack-aws-parameter-store). Use this as a worked example when writing your own backend.
+
 ## Reference
 
 - Interface declarations: [`packages/core/src/pack/types.ts`](https://github.com/clef-sh/clef/blob/main/packages/core/src/pack/types.ts)
