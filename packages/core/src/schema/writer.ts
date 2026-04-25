@@ -79,17 +79,24 @@ export function writeSchemaRaw(rootDir: string, relPath: string, contents: strin
   // 2. Canonicalize the root (resolves symlinks). The root is always under
   //    the operator's own filesystem and exists when this is called.
   const realRoot = fs.realpathSync(path.resolve(rootDir));
-  // 3. Resolve the relative candidate against the canonical root, then
-  //    require the result to live under `realRoot + path.sep`. Strict
-  //    prefix containment is the sanitizer barrier the CodeQL query
-  //    recognizes.
+  // 3. Resolve the relative candidate against the canonical root.
   const safePath = path.resolve(realRoot, relPath);
   const rootWithSep = realRoot.endsWith(path.sep) ? realRoot : `${realRoot}${path.sep}`;
   if (safePath !== realRoot && !safePath.startsWith(rootWithSep)) {
     throw new Error(`Refusing to write schema outside the repository root: ${relPath}`);
   }
+  // 4. Create parent directory, then canonicalize the parent and re-check
+  //    containment using path.relative. This catches a symlink planted
+  //    between the initial canonicalization and the actual write — the
+  //    TOCTOU defense CodeQL's `js/path-injection` query expects.
   fs.mkdirSync(path.dirname(safePath), { recursive: true });
-  writeFileAtomic.sync(safePath, contents);
+  const canonicalParent = fs.realpathSync(path.dirname(safePath));
+  const canonicalTarget = path.join(canonicalParent, path.basename(safePath));
+  const relToRoot = path.relative(realRoot, canonicalTarget);
+  if (relToRoot === ".." || relToRoot.startsWith(`..${path.sep}`) || path.isAbsolute(relToRoot)) {
+    throw new Error(`Refusing to write schema outside the repository root: ${relPath}`);
+  }
+  writeFileAtomic.sync(canonicalTarget, contents);
 }
 
 /**
