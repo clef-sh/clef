@@ -859,7 +859,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
-      writeSchema(deps.repoRoot, absPath, validated);
+      writeSchema(deps.repoRoot, relPath, validated);
 
       if (!nsDef.schema) {
         await structureManager.editNamespace(ns, { schema: relPath }, manifest, deps.repoRoot);

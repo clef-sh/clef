@@ -98,47 +98,46 @@ describe("schema writer", () => {
   describe("writeSchema", () => {
     it("creates parent directories and writes atomically", () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-schema-writer-"));
-      const nested = path.join(tmpDir, "schemas", "nested", "auth.yaml");
+      const relPath = path.join("schemas", "nested", "auth.yaml");
 
-      writeSchema(tmpDir, nested, { keys: { K: { type: "string", required: true } } });
+      writeSchema(tmpDir, relPath, { keys: { K: { type: "string", required: true } } });
 
-      expect(fs.existsSync(nested)).toBe(true);
-      const loaded = new SchemaValidator().loadSchema(nested);
+      const written = path.join(tmpDir, relPath);
+      expect(fs.existsSync(written)).toBe(true);
+      const loaded = new SchemaValidator().loadSchema(written);
       expect(loaded.keys.K).toEqual({ type: "string", required: true });
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
     it("overwrites an existing file", () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-schema-writer-"));
-      const file = path.join(tmpDir, "s.yaml");
-      writeSchema(tmpDir, file, { keys: { A: { type: "string", required: true } } });
-      writeSchema(tmpDir, file, { keys: { B: { type: "integer", required: false } } });
+      writeSchema(tmpDir, "s.yaml", { keys: { A: { type: "string", required: true } } });
+      writeSchema(tmpDir, "s.yaml", { keys: { B: { type: "integer", required: false } } });
 
-      const loaded = new SchemaValidator().loadSchema(file);
+      const loaded = new SchemaValidator().loadSchema(path.join(tmpDir, "s.yaml"));
       expect(Object.keys(loaded.keys)).toEqual(["B"]);
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    it("refuses to write outside the rootDir via traversal", () => {
+    it("refuses to write outside the rootDir via `..` traversal", () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-schema-writer-"));
-      const escapedAbs = path.join(tmpDir, "..", "outside.yaml");
       expect(() =>
-        writeSchema(tmpDir, escapedAbs, { keys: { K: { type: "string", required: true } } }),
+        writeSchema(tmpDir, "../outside.yaml", {
+          keys: { K: { type: "string", required: true } },
+        }),
       ).toThrow(/outside the repository root/);
-      expect(fs.existsSync(escapedAbs)).toBe(false);
+      expect(fs.existsSync(path.join(tmpDir, "..", "outside.yaml"))).toBe(false);
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
-    it("refuses to write outside the rootDir via an absolute redirection", () => {
+    it("refuses to write to an absolute candidate path", () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-schema-writer-"));
-      // path.resolve(rootDir, absoluteOther) returns absoluteOther as-is —
-      // exactly the case the sanitizer must catch.
       const otherDir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-schema-other-"));
-      const target = path.join(otherDir, "stolen.yaml");
+      const absTarget = path.join(otherDir, "stolen.yaml");
       expect(() =>
-        writeSchema(tmpDir, target, { keys: { K: { type: "string", required: true } } }),
-      ).toThrow(/outside the repository root/);
-      expect(fs.existsSync(target)).toBe(false);
+        writeSchema(tmpDir, absTarget, { keys: { K: { type: "string", required: true } } }),
+      ).toThrow(/absolute path/);
+      expect(fs.existsSync(absTarget)).toBe(false);
       fs.rmSync(tmpDir, { recursive: true, force: true });
       fs.rmSync(otherDir, { recursive: true, force: true });
     });

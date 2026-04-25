@@ -91,7 +91,7 @@ export function registerSchemaNewCommand(
 
         const contents =
           template === "example" ? exampleTemplate(namespace) : emptyTemplate(namespace);
-        writeSchemaRaw(repoRoot, absSchemaPath, contents);
+        writeSchemaRaw(repoRoot, relSchemaPath, contents);
 
         const { structure, cleanup } = await makeStructureManager(repoRoot, deps.runner, manifest);
         try {

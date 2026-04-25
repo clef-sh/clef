@@ -93,9 +93,9 @@ describe("clef schema new", () => {
     await program.parseAsync(["node", "clef", "--dir", "/repo", "schema", "new", "auth"]);
 
     expect(mockWriteSchemaRaw).toHaveBeenCalledTimes(1);
-    const [writtenRoot, writtenPath, contents] = mockWriteSchemaRaw.mock.calls[0];
+    const [writtenRoot, writtenRelPath, contents] = mockWriteSchemaRaw.mock.calls[0];
     expect(writtenRoot).toBe("/repo");
-    expect(writtenPath).toBe(path.resolve("/repo", "schemas/auth.yaml"));
+    expect(writtenRelPath).toBe(path.join("schemas", "auth.yaml"));
     expect(contents).toMatch(/namespace 'auth'/);
 
     expect(mockEditNamespace).toHaveBeenCalledWith(
@@ -128,7 +128,7 @@ describe("clef schema new", () => {
 
     expect(mockWriteSchemaRaw).toHaveBeenCalledWith(
       "/repo",
-      path.resolve("/repo", "schemas/custom/auth.yaml"),
+      "schemas/custom/auth.yaml",
       expect.any(String),
     );
     expect(mockEditNamespace).toHaveBeenCalledWith(
