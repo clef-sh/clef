@@ -1,7 +1,7 @@
 {
   "name": "@clef-sh/design",
   "version": "0.1.0",
-  "description": "Shared Tailwind v4 @theme tokens + TS mirror — single source of truth for Clef Cloud and the Clef local UI.",
+  "description": "Internal Clef design tokens (Tailwind v4 @theme + TS mirror). Implementation detail of the @clef-sh/* workspaces — not a public API.",
   "repository": {
     "type": "git",
     "url": "https://github.com/clef-sh/clef",
