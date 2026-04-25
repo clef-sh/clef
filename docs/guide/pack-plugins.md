@@ -219,6 +219,7 @@ The CLI performs a runtime shape check (`id: string`, `pack: function`) before i
 ## Reference plugins
 
 - **[AWS Parameter Store](./pack-aws-parameter-store.md)** — `@clef-sh/pack-aws-parameter-store`. Source: [`packages/pack/aws-parameter-store`](https://github.com/clef-sh/clef/tree/main/packages/pack/aws-parameter-store). Use this as a worked example when writing your own backend.
+- **[AWS Secrets Manager](./pack-aws-secrets-manager.md)** — `@clef-sh/pack-aws-secrets-manager`. Source: [`packages/pack/aws-secrets-manager`](https://github.com/clef-sh/clef/tree/main/packages/pack/aws-secrets-manager). Demonstrates dual emission modes (JSON-bundle and one-secret-per-key) and the `CreateSecret` → `PutSecretValue` upsert pattern.
 
 ## Reference
 

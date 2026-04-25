@@ -86,6 +86,8 @@ jobs:
       cdk_released: ${{ steps.versions.outputs.cdk_released }}
       param_store_version: ${{ steps.versions.outputs.param_store_version }}
       param_store_released: ${{ steps.versions.outputs.param_store_released }}
+      secrets_manager_version: ${{ steps.versions.outputs.secrets_manager_version }}
+      secrets_manager_released: ${{ steps.versions.outputs.secrets_manager_released }}
       design_version: ${{ steps.versions.outputs.design_version }}
       design_released: ${{ steps.versions.outputs.design_released }}
 
@@ -140,6 +142,7 @@ jobs:
           stamp_stable packages/client    client
           stamp_stable packages/cdk       cdk
           stamp_stable packages/pack/aws-parameter-store param_store
+          stamp_stable packages/pack/aws-secrets-manager secrets_manager
           stamp_stable packages/design   design
 
       # ── Verify CLI was bumped (early gate) ───────────────────────────────
@@ -216,6 +219,7 @@ jobs:
           tag_if_released client    client    "${{ steps.versions.outputs.client_released }}"    "${{ steps.versions.outputs.client_version }}"
           tag_if_released cdk       cdk       "${{ steps.versions.outputs.cdk_released }}"       "${{ steps.versions.outputs.cdk_version }}"
           tag_if_released pack-aws-parameter-store pack-aws-parameter-store "${{ steps.versions.outputs.param_store_released }}" "${{ steps.versions.outputs.param_store_version }}"
+          tag_if_released pack-aws-secrets-manager pack-aws-secrets-manager "${{ steps.versions.outputs.secrets_manager_released }}" "${{ steps.versions.outputs.secrets_manager_version }}"
           tag_if_released design    design    "${{ steps.versions.outputs.design_released }}"    "${{ steps.versions.outputs.design_version }}"
 
           # Push only tags that don't yet exist on remote. The plain
@@ -288,6 +292,7 @@ jobs:
             add_row client    "${{ steps.versions.outputs.client_released }}"    "${{ steps.versions.outputs.client_version }}"
             add_row cdk       "${{ steps.versions.outputs.cdk_released }}"       "${{ steps.versions.outputs.cdk_version }}"
             add_row pack-aws-parameter-store "${{ steps.versions.outputs.param_store_released }}" "${{ steps.versions.outputs.param_store_version }}"
+            add_row pack-aws-secrets-manager "${{ steps.versions.outputs.secrets_manager_released }}" "${{ steps.versions.outputs.secrets_manager_version }}"
             add_row design    "${{ steps.versions.outputs.design_released }}"    "${{ steps.versions.outputs.design_version }}"
             echo ""
             echo "Install: \`npm install -g @clef-sh/cli\`"
@@ -512,6 +517,12 @@ jobs:
         continue-on-error: true
         working-directory: packages/pack/aws-parameter-store
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/pack-aws-parameter-store publish failed (may already exist)"
+
+      - name: Publish @clef-sh/pack-aws-secrets-manager
+        if: needs.prepare.outputs.secrets_manager_released == 'true'
+        continue-on-error: true
+        working-directory: packages/pack/aws-secrets-manager
+        run: npm publish --provenance --access public || echo "::warning::@clef-sh/pack-aws-secrets-manager publish failed (may already exist)"
 
       - name: Publish @clef-sh/design
         if: needs.prepare.outputs.design_released == 'true'

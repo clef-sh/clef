@@ -89,6 +89,10 @@ export default withMermaid({
               text: "AWS Parameter Store Backend",
               link: "/guide/pack-aws-parameter-store",
             },
+            {
+              text: "AWS Secrets Manager Backend",
+              link: "/guide/pack-aws-secrets-manager",
+            },
             { text: "CDK Constructs (AWS)", link: "/guide/cdk" },
             { text: "Runtime Agent", link: "/guide/agent" },
             { text: "Client SDK", link: "/guide/client" },

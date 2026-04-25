@@ -76,6 +76,7 @@ jobs:
       client_version: ${{ steps.ver.outputs.client_version }}
       cdk_version: ${{ steps.ver.outputs.cdk_version }}
       param_store_version: ${{ steps.ver.outputs.param_store_version }}
+      secrets_manager_version: ${{ steps.ver.outputs.secrets_manager_version }}
       design_version: ${{ steps.ver.outputs.design_version }}
     env:
       BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
@@ -124,6 +125,8 @@ jobs:
             || cp packages/cdk/package.json /tmp/cdk-main.json
           git show origin/main:packages/pack/aws-parameter-store/package.json > /tmp/param-store-main.json 2>/dev/null \
             || cp packages/pack/aws-parameter-store/package.json /tmp/param-store-main.json
+          git show origin/main:packages/pack/aws-secrets-manager/package.json > /tmp/secrets-manager-main.json 2>/dev/null \
+            || cp packages/pack/aws-secrets-manager/package.json /tmp/secrets-manager-main.json
           git show origin/main:packages/design/package.json > /tmp/design-main.json 2>/dev/null \
             || cp packages/design/package.json /tmp/design-main.json
 
@@ -181,6 +184,7 @@ jobs:
           CLIENT_BASE=$(node -p "require('/tmp/client-main.json').version.replace(/-.*/, '')")
           CDK_BASE=$(node -p "require('/tmp/cdk-main.json').version.replace(/-.*/, '')")
           PARAM_STORE_BASE=$(node -p "require('/tmp/param-store-main.json').version.replace(/-.*/, '')")
+          SECRETS_MANAGER_BASE=$(node -p "require('/tmp/secrets-manager-main.json').version.replace(/-.*/, '')")
           DESIGN_BASE=$(node -p "require('/tmp/design-main.json').version.replace(/-.*/, '')")
 
           CORE_NEXT=$(next_version    "@clef-sh/core"    "packages/core"    "$CORE_BASE")
@@ -194,6 +198,7 @@ jobs:
           CLIENT_NEXT=$(next_version "@clef-sh/client"  "packages/client"  "$CLIENT_BASE")
           CDK_NEXT=$(next_version    "@clef-sh/cdk"     "packages/cdk"     "$CDK_BASE")
           PARAM_STORE_NEXT=$(next_version "@clef-sh/pack-aws-parameter-store" "packages/pack/aws-parameter-store" "$PARAM_STORE_BASE")
+          SECRETS_MANAGER_NEXT=$(next_version "@clef-sh/pack-aws-secrets-manager" "packages/pack/aws-secrets-manager" "$SECRETS_MANAGER_BASE")
           DESIGN_NEXT=$(next_version  "@clef-sh/design"  "packages/design"  "$DESIGN_BASE")
 
           CORE_VER="${CORE_NEXT}-${PRE}.${{ github.run_number }}"
@@ -207,6 +212,7 @@ jobs:
           CLIENT_VER="${CLIENT_NEXT}-${PRE}.${{ github.run_number }}"
           CDK_VER="${CDK_NEXT}-${PRE}.${{ github.run_number }}"
           PARAM_STORE_VER="${PARAM_STORE_NEXT}-${PRE}.${{ github.run_number }}"
+          SECRETS_MANAGER_VER="${SECRETS_MANAGER_NEXT}-${PRE}.${{ github.run_number }}"
           DESIGN_VER="${DESIGN_NEXT}-${PRE}.${{ github.run_number }}"
 
           echo "dist_tag=${DIST_TAG}"            >> "$GITHUB_OUTPUT"
@@ -222,6 +228,7 @@ jobs:
           echo "client_version=${CLIENT_VER}"    >> "$GITHUB_OUTPUT"
           echo "cdk_version=${CDK_VER}"          >> "$GITHUB_OUTPUT"
           echo "param_store_version=${PARAM_STORE_VER}" >> "$GITHUB_OUTPUT"
+          echo "secrets_manager_version=${SECRETS_MANAGER_VER}" >> "$GITHUB_OUTPUT"
           echo "design_version=${DESIGN_VER}"     >> "$GITHUB_OUTPUT"
 
       # Beta: pre-create the git tag at HEAD_SHA and push it. We need a
@@ -427,6 +434,7 @@ jobs:
           stamp packages/client    "${{ needs.prepare.outputs.client_version }}"
           stamp packages/cdk       "${{ needs.prepare.outputs.cdk_version }}"
           stamp packages/pack/aws-parameter-store "${{ needs.prepare.outputs.param_store_version }}"
+          stamp packages/pack/aws-secrets-manager "${{ needs.prepare.outputs.secrets_manager_version }}"
           stamp packages/design    "${{ needs.prepare.outputs.design_version }}"
 
       # Pin every in-monorepo `@clef-sh/*` dep to the exact version just
@@ -536,6 +544,14 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Publish @clef-sh/pack-aws-secrets-manager (alpha)
+        if: env.BRANCH == 'dev'
+        continue-on-error: true
+        working-directory: packages/pack/aws-secrets-manager
+        run: npm publish --tag alpha --access restricted --no-provenance || echo "::warning::@clef-sh/pack-aws-secrets-manager alpha publish failed (may already exist)"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Publish @clef-sh/design (alpha)
         if: env.BRANCH == 'dev'
         continue-on-error: true
@@ -637,6 +653,14 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Publish @clef-sh/pack-aws-secrets-manager (beta)
+        if: env.BRANCH == 'staging'
+        continue-on-error: true
+        working-directory: packages/pack/aws-secrets-manager
+        run: npm publish --tag beta --access public --no-provenance || echo "::warning::@clef-sh/pack-aws-secrets-manager beta publish failed (may already exist)"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Publish @clef-sh/design (beta)
         if: env.BRANCH == 'staging'
         continue-on-error: true
@@ -667,6 +691,7 @@ jobs:
             packages/client/package.json \
             packages/cdk/package.json \
             packages/pack/aws-parameter-store/package.json \
+            packages/pack/aws-secrets-manager/package.json \
             packages/design/package.json
 
           PRE="${{ needs.prepare.outputs.prerelease }}"
@@ -694,6 +719,7 @@ jobs:
           echo "| \`@clef-sh/ui\` | \`${{ needs.prepare.outputs.ui_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/cdk\` | \`${{ needs.prepare.outputs.cdk_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/pack-aws-parameter-store\` | \`${{ needs.prepare.outputs.param_store_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/pack-aws-secrets-manager\` | \`${{ needs.prepare.outputs.secrets_manager_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/design\` | \`${{ needs.prepare.outputs.design_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Registry:** GitHub Packages (\`npm.pkg.github.com\`)" >> "$GITHUB_STEP_SUMMARY"
