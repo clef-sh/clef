@@ -43,25 +43,46 @@ export function serializeSchema(
 
 /**
  * Atomically write a schema YAML file to disk, creating parent directories as
- * needed.
+ * needed. `filePath` must resolve within `rootDir` — paths that would escape
+ * via `..` segments or absolute redirection are refused. The repo root is the
+ * natural boundary for every clef caller, so making it required keeps the
+ * file-write sink sanitized at its only entry point.
  */
 export function writeSchema(
+  rootDir: string,
   filePath: string,
   schema: NamespaceSchema,
   opts: SerializeSchemaOptions = {},
 ): void {
-  writeSchemaRaw(filePath, serializeSchema(schema, opts));
+  writeSchemaRaw(rootDir, filePath, serializeSchema(schema, opts));
 }
 
 /**
  * Atomically write pre-serialized schema content (e.g. a scaffolding template
  * with commented-out example keys) to disk, creating parent directories as
  * needed. Callers using a structured {@link NamespaceSchema} should prefer
- * {@link writeSchema}.
+ * {@link writeSchema}. Same `rootDir` containment rule as {@link writeSchema}.
  */
-export function writeSchemaRaw(filePath: string, contents: string): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  writeFileAtomic.sync(filePath, contents);
+export function writeSchemaRaw(rootDir: string, filePath: string, contents: string): void {
+  const safePath = assertPathWithinRoot(rootDir, filePath);
+  fs.mkdirSync(path.dirname(safePath), { recursive: true });
+  writeFileAtomic.sync(safePath, contents);
+}
+
+/**
+ * Resolve `candidate` against `root`, then verify the canonicalized result
+ * stays within `root`. Throws on `..` traversal or absolute redirection. The
+ * shape — `path.relative` + prefix check + throw — is what CodeQL recognizes
+ * as a path-injection sanitizer barrier.
+ */
+function assertPathWithinRoot(root: string, candidate: string): string {
+  const resolvedRoot = path.resolve(root);
+  const resolvedPath = path.resolve(resolvedRoot, candidate);
+  const rel = path.relative(resolvedRoot, resolvedPath);
+  if (rel !== "" && (rel.startsWith("..") || path.isAbsolute(rel))) {
+    throw new Error(`Refusing to write schema outside the repository root: ${candidate}`);
+  }
+  return resolvedPath;
 }
 
 /**

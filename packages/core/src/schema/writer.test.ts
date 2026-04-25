@@ -100,7 +100,7 @@ describe("schema writer", () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-schema-writer-"));
       const nested = path.join(tmpDir, "schemas", "nested", "auth.yaml");
 
-      writeSchema(nested, { keys: { K: { type: "string", required: true } } });
+      writeSchema(tmpDir, nested, { keys: { K: { type: "string", required: true } } });
 
       expect(fs.existsSync(nested)).toBe(true);
       const loaded = new SchemaValidator().loadSchema(nested);
@@ -111,12 +111,36 @@ describe("schema writer", () => {
     it("overwrites an existing file", () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-schema-writer-"));
       const file = path.join(tmpDir, "s.yaml");
-      writeSchema(file, { keys: { A: { type: "string", required: true } } });
-      writeSchema(file, { keys: { B: { type: "integer", required: false } } });
+      writeSchema(tmpDir, file, { keys: { A: { type: "string", required: true } } });
+      writeSchema(tmpDir, file, { keys: { B: { type: "integer", required: false } } });
 
       const loaded = new SchemaValidator().loadSchema(file);
       expect(Object.keys(loaded.keys)).toEqual(["B"]);
       fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("refuses to write outside the rootDir via traversal", () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-schema-writer-"));
+      const escapedAbs = path.join(tmpDir, "..", "outside.yaml");
+      expect(() =>
+        writeSchema(tmpDir, escapedAbs, { keys: { K: { type: "string", required: true } } }),
+      ).toThrow(/outside the repository root/);
+      expect(fs.existsSync(escapedAbs)).toBe(false);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("refuses to write outside the rootDir via an absolute redirection", () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-schema-writer-"));
+      // path.resolve(rootDir, absoluteOther) returns absoluteOther as-is —
+      // exactly the case the sanitizer must catch.
+      const otherDir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-schema-other-"));
+      const target = path.join(otherDir, "stolen.yaml");
+      expect(() =>
+        writeSchema(tmpDir, target, { keys: { K: { type: "string", required: true } } }),
+      ).toThrow(/outside the repository root/);
+      expect(fs.existsSync(target)).toBe(false);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(otherDir, { recursive: true, force: true });
     });
   });
 

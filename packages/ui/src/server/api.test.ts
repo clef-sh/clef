@@ -714,6 +714,7 @@ describe("API routes", () => {
         expect(res.body.attached).toBe(true);
         expect(res.body.path).toBe("schemas/database.yaml");
         expect(mockWriteSchema).toHaveBeenCalledWith(
+          "/repo",
           expect.stringContaining("schemas/database.yaml"),
           expect.objectContaining({
             keys: expect.objectContaining({ API_KEY: expect.objectContaining({ type: "string" }) }),

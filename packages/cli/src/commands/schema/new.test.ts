@@ -28,7 +28,8 @@ jest.mock("@clef-sh/core", () => {
     StructureManager: jest.fn().mockImplementation(() => ({ editNamespace: mockEditNamespace })),
     GitIntegration: jest.fn().mockImplementation(() => ({})),
     TransactionManager: jest.fn().mockImplementation(() => ({ run: jest.fn() })),
-    writeSchemaRaw: (filePath: string, contents: string) => mockWriteSchemaRaw(filePath, contents),
+    writeSchemaRaw: (rootDir: string, filePath: string, contents: string) =>
+      mockWriteSchemaRaw(rootDir, filePath, contents),
   };
 });
 
@@ -92,7 +93,8 @@ describe("clef schema new", () => {
     await program.parseAsync(["node", "clef", "--dir", "/repo", "schema", "new", "auth"]);
 
     expect(mockWriteSchemaRaw).toHaveBeenCalledTimes(1);
-    const [writtenPath, contents] = mockWriteSchemaRaw.mock.calls[0];
+    const [writtenRoot, writtenPath, contents] = mockWriteSchemaRaw.mock.calls[0];
+    expect(writtenRoot).toBe("/repo");
     expect(writtenPath).toBe(path.resolve("/repo", "schemas/auth.yaml"));
     expect(contents).toMatch(/namespace 'auth'/);
 
@@ -125,6 +127,7 @@ describe("clef schema new", () => {
     ]);
 
     expect(mockWriteSchemaRaw).toHaveBeenCalledWith(
+      "/repo",
       path.resolve("/repo", "schemas/custom/auth.yaml"),
       expect.any(String),
     );
@@ -150,7 +153,7 @@ describe("clef schema new", () => {
       "example",
     ]);
 
-    const [, contents] = mockWriteSchemaRaw.mock.calls[0];
+    const [, , contents] = mockWriteSchemaRaw.mock.calls[0];
     expect(contents).toMatch(/#\s+API_KEY:/);
   });
 
