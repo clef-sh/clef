@@ -4,6 +4,7 @@
   "private": true,
   "description": "Git-native config and secrets management built on Mozilla SOPS",
   "workspaces": [
+    "packages/design",
     "packages/core",
     "packages/analytics",
     "packages/client",

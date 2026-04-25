@@ -35,12 +35,15 @@
   },
   "dependencies": {
     "@clef-sh/core": "0.1.20",
+    "@clef-sh/design": "0.1.0",
     "@clef-sh/runtime": "0.1.23",
     "express": "^5.1.0",
     "express-rate-limit": "^8.3.2",
+    "lucide-react": "^0.468.0",
     "yaml": "^2.8.3"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
     "@testing-library/jest-dom": "^6.4.0",
     "@testing-library/react": "^14.2.0",
     "@testing-library/user-event": "^14.5.0",
@@ -56,6 +59,7 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "supertest": "^7.2.2",
+    "tailwindcss": "^4.1.0",
     "ts-jest": "^29.4.9",
     "typescript": "^5.9.3",
     "vite": "^8.0.9"
