@@ -2,29 +2,18 @@
  * Local UI stylesheet — Tailwind v4 + shared design tokens.
  *
  * Imports the @theme block from @clef-sh/design so utility classes like
- * `bg-ink-850`, `text-ash-dim`, `border-edge` resolve at build time.
- *
- * During the Phase-5 screen migrations, this file will grow a small set of
- * primitive component classes (or @apply layers) to absorb patterns Tailwind
- * utilities don't express well. For now it is intentionally minimal —
- * inline styles still drive every screen, and Tailwind is wired in
- * additively so we can migrate one screen at a time without flag-flips.
+ * `bg-ink-850`, `text-ash-dim`, `border-edge` resolve at build time. Add
+ * any global selectors (focus rings, scrollbar, etc.) inside `@layer base`
+ * so Tailwind utility classes (which live in `@layer utilities`) can still
+ * override them — unlayered rules would beat utilities at equal specificity.
  */
 @import "tailwindcss";
 @import "@clef-sh/design/theme.css";
 
-/**
- * Global focus rings for keyboard users.
- *
- * Pre-Phase-3 the UI had no `:focus-visible` styling at all — `role="button"`
- * divs in Sidebar / MatrixGrid were invisible to keyboard navigation. This
- * gives every interactive element a single consistent gold ring that respects
- * the user's keyboard-vs-mouse intent.
- *
- * Primitives can opt out by setting their own `focus-visible:` classes in
- * Tailwind, which override these globals due to specificity.
- */
 @layer base {
+  /* Global focus rings. Pre-Phase-3 the UI had no `:focus-visible` styling
+     at all — `role="button"` divs in Sidebar / MatrixGrid were invisible to
+     keyboard navigation. */
   button:focus-visible,
   a:focus-visible,
   input:focus-visible,
@@ -37,6 +26,41 @@
     outline: 2px solid var(--color-gold-500);
     outline-offset: 2px;
     border-radius: 4px;
+  }
+
+  /* Body defaults — Tailwind's preflight handles margin/padding/box-sizing
+     resets; we only need the bg, text color, and font-family for the
+     pre-React paint. App.tsx's outer div re-applies these via Tailwind
+     classes once the React tree mounts. */
+  body {
+    background-color: var(--color-ink-950);
+    color: var(--color-bone);
+    font-family: var(--font-sans);
+  }
+
+  /* Scrollbar styling (webkit) — keeps the dark theme consistent inside
+     scrollable containers. */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-edge-strong);
+    border-radius: 3px;
+  }
+
+  /* Native dropdown options inherit the OS default light background unless
+     forced. Match the surface scale. */
+  select option {
+    background: var(--color-ink-800);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--color-ash-dim);
   }
 }
 
