@@ -794,6 +794,32 @@ describe("API routes", () => {
           "/repo",
         );
       });
+
+      it("rejects body.path that escapes the repository root via traversal", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        const res = await request(app)
+          .put("/api/namespaces/database/schema")
+          .send({
+            schema: { keys: {} },
+            path: "../../../etc/clef-injected.yaml",
+          });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe("SCHEMA_PATH_INVALID");
+        expect(mockWriteSchema).not.toHaveBeenCalled();
+      });
+
+      it("rejects body.path that is absolute", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        const res = await request(app)
+          .put("/api/namespaces/database/schema")
+          .send({
+            schema: { keys: {} },
+            path: "/etc/clef-injected.yaml",
+          });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe("SCHEMA_PATH_INVALID");
+        expect(mockWriteSchema).not.toHaveBeenCalled();
+      });
     });
   });
 

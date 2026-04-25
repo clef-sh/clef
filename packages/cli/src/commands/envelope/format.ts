@@ -193,8 +193,8 @@ export function renderDecryptHuman(r: DecryptResult): string {
 }
 
 function escapeKeyValue(value: string): string {
-  if (/[\s="#]|\n/.test(value)) {
-    return `"${value.replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`;
+  if (/[\s="#\\]|\n/.test(value)) {
+    return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`;
   }
   return value;
 }

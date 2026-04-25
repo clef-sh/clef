@@ -218,6 +218,21 @@ export function createApiRouter(deps: ApiDeps): Router {
     });
   }
 
+  // Resolve `relPath` against `root` and reject anything that escapes the root
+  // via `..` or absolute redirection. Returns null when the candidate would
+  // land outside, so callers reply with a 4xx instead of touching the FS.
+  // Defense in depth: the UI binds 127.0.0.1 + bearer token, but schema paths
+  // come from the manifest YAML and (for PUT) the request body, so clamp.
+  function resolvePathWithinRoot(root: string, relPath: string): string | null {
+    const resolvedRoot = path.resolve(root);
+    const resolved = path.resolve(resolvedRoot, relPath);
+    const rel = path.relative(resolvedRoot, resolved);
+    if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) {
+      return resolved;
+    }
+    return null;
+  }
+
   // Defense-in-depth rate limit applied to every /api route.  This server
   // binds to 127.0.0.1 only and gates /api on a session bearer token, so
   // remote DoS is not the threat model — the limiter exists to bound a
@@ -724,7 +739,14 @@ export function createApiRouter(deps: ApiDeps): Router {
         res.json({ namespace: ns, attached: false, path: null, schema: { keys: {} } });
         return;
       }
-      const absPath = path.resolve(deps.repoRoot, nsDef.schema);
+      const absPath = resolvePathWithinRoot(deps.repoRoot, nsDef.schema);
+      if (!absPath) {
+        res.status(400).json({
+          error: `Schema path '${nsDef.schema}' attached to '${ns}' resolves outside the repository root.`,
+          code: "SCHEMA_PATH_INVALID",
+        });
+        return;
+      }
       if (!fs.existsSync(absPath)) {
         res.status(500).json({
           error: `Schema file '${nsDef.schema}' is attached to '${ns}' but does not exist on disk.`,
@@ -772,7 +794,14 @@ export function createApiRouter(deps: ApiDeps): Router {
       const requestedRelPath =
         typeof body.path === "string" && body.path.length > 0 ? body.path : null;
       const relPath = nsDef.schema ?? requestedRelPath ?? `schemas/${ns}.yaml`;
-      const absPath = path.resolve(deps.repoRoot, relPath);
+      const absPath = resolvePathWithinRoot(deps.repoRoot, relPath);
+      if (!absPath) {
+        res.status(400).json({
+          error: "Schema path must resolve within the repository root.",
+          code: "SCHEMA_PATH_INVALID",
+        });
+        return;
+      }
 
       writeSchema(absPath, validated);
 

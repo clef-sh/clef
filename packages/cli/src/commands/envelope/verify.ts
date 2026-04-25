@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import type { Command } from "commander";
 import {
   InvalidArtifactError,
@@ -24,6 +25,7 @@ import { renderVerifyHuman } from "./format";
 
 interface VerifyOptions {
   signerKey?: string;
+  signerKeyFile?: string;
 }
 
 /**
@@ -47,11 +49,18 @@ export function registerVerifyCommand(parent: Command): void {
         "packed artifact. Non-zero exit code lets CI gate on failures.",
     )
     .option(
-      "--signer-key <pem|path|base64>",
-      "Ed25519/ECDSA public key for signature verification (PEM string, file path, or base64 DER SPKI)",
+      "--signer-key <pem|base64>",
+      "Ed25519/ECDSA public key as a PEM string or base64 DER SPKI blob",
+    )
+    .option(
+      "--signer-key-file <path>",
+      "Path to a file containing the Ed25519/ECDSA public key (PEM or base64 DER SPKI)",
     )
     .action(async (source: string, options: VerifyOptions) => {
-      const result = await verifyOne(source, { signerKey: options.signerKey });
+      const result = await verifyOne(source, {
+        signerKey: options.signerKey,
+        signerKeyFile: options.signerKeyFile,
+      });
 
       if (isJsonMode()) {
         formatter.json(result);
@@ -67,6 +76,7 @@ export function registerVerifyCommand(parent: Command): void {
 
 interface VerifyParams {
   signerKey?: string;
+  signerKeyFile?: string;
 }
 
 async function verifyOne(source: string, params: VerifyParams): Promise<VerifyResult> {
@@ -111,10 +121,35 @@ async function verifyOne(source: string, params: VerifyParams): Promise<VerifyRe
     algorithm: artifact.signatureAlgorithm ?? null,
   };
   if (typeof artifact.signature === "string") {
+    // Resolve the inline value: --signer-key wins; --signer-key-file is read
+    // from disk only at this explicit operator-intent boundary. Mutual
+    // exclusion keeps the precedence obvious at the CLI surface.
+    let signerKeyMaterial: string | undefined;
+    if (params.signerKey && params.signerKeyFile) {
+      return buildVerifyError(
+        source,
+        "signer_key_invalid",
+        "--signer-key and --signer-key-file are mutually exclusive",
+      );
+    }
     if (params.signerKey) {
+      signerKeyMaterial = params.signerKey;
+    } else if (params.signerKeyFile) {
+      try {
+        signerKeyMaterial = fs.readFileSync(params.signerKeyFile, "utf-8");
+      } catch (err) {
+        return buildVerifyError(
+          source,
+          "signer_key_invalid",
+          `could not read --signer-key-file: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    if (signerKeyMaterial !== undefined) {
       let signerKeyBase64: string;
       try {
-        signerKeyBase64 = parseSignerKey(params.signerKey, { allowFilePaths: true });
+        signerKeyBase64 = parseSignerKey(signerKeyMaterial);
       } catch (err) {
         return buildVerifyError(source, "signer_key_invalid", (err as Error).message);
       }

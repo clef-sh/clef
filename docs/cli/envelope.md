@@ -6,7 +6,7 @@ Inspect, verify, and decrypt packed artifacts produced by [`clef pack`](/cli/pac
 
 ```bash
 clef envelope inspect <source>...
-clef envelope verify  <source> --signer-key <key>
+clef envelope verify  <source> [--signer-key <pem|base64> | --signer-key-file <path>]
 clef envelope decrypt <source> --identity <path> [--reveal | --key <name>]
 ```
 
@@ -55,7 +55,7 @@ Note: `inspect` is strictly informational. A hash mismatch shows `(MISMATCH)` in
 Single-source integrity and signature check with CI-gateable exit codes.
 
 ```bash
-$ clef envelope verify ./artifact.json --signer-key ./signer.pub.pem
+$ clef envelope verify ./artifact.json --signer-key-file ./signer.pub.pem
 source:         ./artifact.json
 ciphertextHash: OK
 signature:      valid (Ed25519, signer matches --signer-key)
@@ -66,9 +66,10 @@ overall:        PASS
 
 **Flags**
 
-| Flag                               | Type   | Description                                                                                                                                                       |
-| ---------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--signer-key <pem\|path\|base64>` | string | Ed25519 or ECDSA public key. Accepts a PEM string (starts with `-----BEGIN`), an existing file path, or a base64-encoded DER SPKI blob. Precedence in that order. |
+| Flag                         | Type   | Description                                                                                                                                                         |
+| ---------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--signer-key <pem\|base64>` | string | Ed25519 or ECDSA public key inline. Accepts a PEM string (starts with `-----BEGIN`) or a base64-encoded DER SPKI blob. Mutually exclusive with `--signer-key-file`. |
+| `--signer-key-file <path>`   | string | Path to a file containing the Ed25519/ECDSA public key (PEM or base64 DER SPKI). Mutually exclusive with `--signer-key`.                                            |
 
 **Exit codes**
 
@@ -153,7 +154,7 @@ clef envelope inspect s3://my-bucket/aws-lambda/dev.json
 **"Gate CI on signature validity"**
 
 ```bash
-clef envelope verify ./artifact.json --signer-key ./team-signer.pub.pem \
+clef envelope verify ./artifact.json --signer-key-file ./team-signer.pub.pem \
   || exit 1
 ```
 

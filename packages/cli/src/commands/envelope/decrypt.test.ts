@@ -228,7 +228,15 @@ describe("clef envelope decrypt — --reveal", () => {
   });
 
   it("quote-escapes values with special characters in KEY=value output", async () => {
-    const specials = { SIMPLE: "abc", QUOTED: "has spaces", WITH_EQ: "a=b" };
+    const specials = {
+      SIMPLE: "abc",
+      QUOTED: "has spaces",
+      WITH_EQ: "a=b",
+      // Backslashes must double-escape so the output round-trips through a
+      // shell-style parser without `\b` etc. being interpreted as escape codes.
+      WITH_BACKSLASH: "C:\\path\\to\\thing",
+      WITH_QUOTE_AND_BACKSLASH: 'a"b\\c',
+    };
     mockArtifactDecrypt.mockResolvedValue({
       values: specials,
       keys: Object.keys(specials),
@@ -252,6 +260,8 @@ describe("clef envelope decrypt — --reveal", () => {
     expect(prints).toContain("SIMPLE=abc");
     expect(prints).toContain('QUOTED="has spaces"');
     expect(prints).toContain('WITH_EQ="a=b"');
+    expect(prints).toContain('WITH_BACKSLASH="C:\\\\path\\\\to\\\\thing"');
+    expect(prints).toContain('WITH_QUOTE_AND_BACKSLASH="a\\"b\\\\c"');
   });
 });
 

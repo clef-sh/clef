@@ -1,4 +1,7 @@
 import * as crypto from "crypto";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import { Command } from "commander";
 import type { PackedArtifact } from "@clef-sh/core";
 import { buildSigningPayload, computeCiphertextHash } from "@clef-sh/core";
@@ -359,5 +362,90 @@ describe("clef envelope verify — failure cases", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
     const msg = (formatter.error as jest.Mock).mock.calls[0][0] as string;
     expect(msg).toContain("invalid_artifact");
+  });
+});
+
+// ── --signer-key-file flag ────────────────────────────────────────────────
+
+describe("clef envelope verify — --signer-key-file", () => {
+  let tmpDir: string;
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-verify-test-"));
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("reads the public key from a file path and verifies the signature", async () => {
+    const { signed, publicKeyBase64 } = signArtifact(makeArtifact());
+    fakeFetch.mockResolvedValue({ raw: JSON.stringify(signed) });
+    const keyFile = path.join(tmpDir, "signer.b64");
+    fs.writeFileSync(keyFile, publicKeyBase64);
+    (isJsonMode as jest.Mock).mockReturnValue(true);
+
+    const program = makeProgram();
+    await program.parseAsync([
+      "node",
+      "clef",
+      "envelope",
+      "verify",
+      "--signer-key-file",
+      keyFile,
+      "envelope.json",
+    ]);
+
+    expect(mockExit).toHaveBeenCalledWith(0);
+    const payload = (formatter.json as jest.Mock).mock.calls[0][0];
+    expect(payload.checks.signature.status).toBe("valid");
+  });
+
+  it("exits 1 with signer_key_invalid when the file does not exist", async () => {
+    const { signed } = signArtifact(makeArtifact());
+    fakeFetch.mockResolvedValue({ raw: JSON.stringify(signed) });
+    (isJsonMode as jest.Mock).mockReturnValue(true);
+
+    const program = makeProgram();
+    await program.parseAsync([
+      "node",
+      "clef",
+      "envelope",
+      "verify",
+      "--signer-key-file",
+      path.join(tmpDir, "does-not-exist.pem"),
+      "envelope.json",
+    ]);
+
+    expect(mockExit).toHaveBeenCalledWith(1);
+    const payload = (formatter.json as jest.Mock).mock.calls[0][0];
+    expect(payload.error.code).toBe("signer_key_invalid");
+    expect(payload.error.message).toContain("could not read --signer-key-file");
+  });
+
+  it("rejects passing both --signer-key and --signer-key-file", async () => {
+    const { signed, publicKeyBase64 } = signArtifact(makeArtifact());
+    fakeFetch.mockResolvedValue({ raw: JSON.stringify(signed) });
+    const keyFile = path.join(tmpDir, "dup.b64");
+    fs.writeFileSync(keyFile, publicKeyBase64);
+    (isJsonMode as jest.Mock).mockReturnValue(true);
+
+    const program = makeProgram();
+    await program.parseAsync([
+      "node",
+      "clef",
+      "envelope",
+      "verify",
+      "--signer-key",
+      publicKeyBase64,
+      "--signer-key-file",
+      keyFile,
+      "envelope.json",
+    ]);
+
+    expect(mockExit).toHaveBeenCalledWith(1);
+    const payload = (formatter.json as jest.Mock).mock.calls[0][0];
+    expect(payload.error.code).toBe("signer_key_invalid");
+    expect(payload.error.message).toContain("mutually exclusive");
   });
 });

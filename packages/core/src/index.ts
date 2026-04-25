@@ -147,7 +147,6 @@ export type {
   DecryptStatus,
   DecryptResult,
   DecryptSuccessInputs,
-  ParseSignerKeyOptions,
 } from "./envelope-debug";
 export {
   buildInspectError,

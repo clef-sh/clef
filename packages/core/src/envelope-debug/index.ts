@@ -22,4 +22,3 @@ export {
 } from "./builders";
 export { REVEAL_WARNING, formatRevealWarning } from "./warnings";
 export { parseSignerKey } from "./signer-key";
-export type { ParseSignerKeyOptions } from "./signer-key";
