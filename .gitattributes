@@ -1,0 +1,36 @@
+# Force LF line endings on checkout for every text file, regardless of
+# the contributor's platform. Without this, Windows clones with the default
+# core.autocrlf=true silently materialize text files with CRLF, which has
+# bitten cross-platform regex assertions in the e2e suite.
+* text=auto eol=lf
+
+# Explicit binary types — never run through line-ending normalization.
+# `text=auto` heuristics catch most of these on their own, but being
+# explicit avoids accidental corruption if heuristics misclassify.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.tgz   binary
+*.tar   binary
+*.bz2   binary
+*.xz    binary
+*.exe   binary
+*.dll   binary
+*.so    binary
+*.dylib binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.eot   binary
+*.mp4   binary
+*.mov   binary
+*.webm  binary
+*.tape  binary
+*.bin   binary
