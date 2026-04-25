@@ -359,6 +359,49 @@ test.describe("clef diff → DiffView: compare environments", () => {
       await expect(page.getByTestId("coming-soon-toast")).toBeVisible();
     }
   });
+
+  test("[positive] show values toggle reveals decrypted values in the diff table", async ({
+    page,
+  }) => {
+    await page.goto(server.url);
+    await page.getByTestId("nav-diff").click();
+    await expect(page.getByTestId("diff-table")).toBeVisible();
+
+    // Pre-toggle: the encrypted dev value sk_test_abc123 should not be in the
+    // DOM yet — diff loads with showValues=false so values come back redacted.
+    await expect(page.getByTestId("diff-table")).not.toContainText("sk_test_abc123");
+
+    await page.getByTestId("show-values-toggle").click();
+
+    // Post-toggle: dev's STRIPE_KEY value materialises in the diff cell.
+    await expect(page.getByTestId("diff-table")).toContainText("sk_test_abc123", {
+      timeout: 15_000,
+    });
+  });
+
+  test("[negative] /api/diff failure leaves the diff table empty without crashing", async ({
+    page,
+  }) => {
+    // Force the diff endpoint to 500 before the screen mounts.  Catches the
+    // silent-failure path (DiffView swallows errors and renders an empty
+    // table) — the migration must keep that contract or the user will see a
+    // hard crash on transient API hiccups.
+    await page.route("**/api/diff/**", async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "synthetic", code: "DIFF_ERROR" }),
+      });
+    });
+
+    await page.goto(server.url);
+    await page.getByTestId("nav-diff").click();
+
+    // Header still renders and the table shell is still present (just empty).
+    await expect(page.getByText("Environment Diff")).toBeVisible();
+    await expect(page.getByTestId("diff-table")).toBeVisible();
+    await expect(page.getByTestId("diff-table")).not.toContainText("STRIPE_KEY");
+  });
 });
 
 // ── clef lint → LintView: full repo health check ─────────────────────────────
@@ -379,6 +422,45 @@ test.describe("clef lint → LintView: full repo health check", () => {
     await page.goto(server.url);
     await page.getByTestId("nav-lint").click();
     await expect(page.getByRole("button", { name: "↻ Re-run" })).toBeVisible();
+  });
+
+  test("[positive] clicking a file ref on a lint issue navigates to the namespace editor", async ({
+    page,
+  }) => {
+    // The scaffolded repo lints clean, so inject a synthetic issue via route
+    // mocking.  This isolates the click-to-navigate behaviour — the migration
+    // must preserve that contract because LintView is a primary entry-point
+    // for users responding to drift.
+    await page.route("**/api/lint", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          issues: [
+            {
+              severity: "error",
+              category: "matrix",
+              type: "missing_keys",
+              file: "payments/dev.enc.yaml",
+              message: "Synthetic missing-key issue for e2e click-through.",
+              key: "STRIPE_KEY",
+            },
+          ],
+          summary: { errors: 1, warnings: 0, infos: 0 },
+        }),
+      });
+    });
+
+    await page.goto(server.url);
+    await page.getByTestId("nav-lint").click();
+
+    const fileRef = page.getByTestId("file-ref-payments/dev.enc.yaml");
+    await expect(fileRef).toBeVisible({ timeout: 15_000 });
+    await fileRef.click();
+
+    // After navigation the editor for `payments` should be visible — the
+    // ns is derived from the file path's parent segment.
+    await expect(page.getByText("STRIPE_KEY")).toBeVisible({ timeout: 15_000 });
   });
 });
 
