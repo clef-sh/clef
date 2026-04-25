@@ -71,26 +71,28 @@ export function writeSchema(
  * `startsWith` containment.
  */
 export function writeSchemaRaw(rootDir: string, relPath: string, contents: string): void {
-  // 1. Reject absolute candidates. `path.resolve(root, abs)` returns `abs`
-  //    and ignores `root`, so any absolute input is a redirection.
-  if (path.isAbsolute(relPath)) {
+  // 1. Normalize user-controlled relative input, then reject absolute/empty.
+  const normalizedRelPath = path.normalize(relPath);
+  if (!normalizedRelPath || normalizedRelPath === "." || path.isAbsolute(normalizedRelPath)) {
     throw new Error(`Refusing to write schema using an absolute path: ${relPath}`);
   }
   // 2. Canonicalize the root (resolves symlinks). The root is always under
   //    the operator's own filesystem and exists when this is called.
   const realRoot = fs.realpathSync(path.resolve(rootDir));
-  // 3. Resolve the relative candidate against the canonical root.
-  const safePath = path.resolve(realRoot, relPath);
-  const rootWithSep = realRoot.endsWith(path.sep) ? realRoot : `${realRoot}${path.sep}`;
-  if (safePath !== realRoot && !safePath.startsWith(rootWithSep)) {
+  // 3. Resolve normalized relative candidate against canonical root and ensure
+  //    containment via relative-path semantics.
+  const safePath = path.resolve(realRoot, normalizedRelPath);
+  const relCandidate = path.relative(realRoot, safePath);
+  if (relCandidate === ".." || relCandidate.startsWith(`..${path.sep}`) || path.isAbsolute(relCandidate)) {
     throw new Error(`Refusing to write schema outside the repository root: ${relPath}`);
   }
   // 4. Create parent directory, then canonicalize the parent and re-check
   //    containment using path.relative. This catches a symlink planted
   //    between the initial canonicalization and the actual write — the
   //    TOCTOU defense CodeQL's `js/path-injection` query expects.
-  fs.mkdirSync(path.dirname(safePath), { recursive: true });
-  const canonicalParent = fs.realpathSync(path.dirname(safePath));
+  const safeParent = path.dirname(safePath);
+  fs.mkdirSync(safeParent, { recursive: true });
+  const canonicalParent = fs.realpathSync(safeParent);
   const canonicalTarget = path.join(canonicalParent, path.basename(safePath));
   const relToRoot = path.relative(realRoot, canonicalTarget);
   if (relToRoot === ".." || relToRoot.startsWith(`..${path.sep}`) || path.isAbsolute(relToRoot)) {
