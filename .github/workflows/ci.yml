@@ -55,7 +55,12 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      # --ignore-scripts: defense against malicious postinstall in a freshly-
+      # published transitive dep. Lint/format/commitlint don't need any
+      # platform binaries that download via lifecycle scripts. Test/build
+      # jobs intentionally retain script execution because they exercise
+      # the actual install path users see.
+      - run: npm ci --ignore-scripts
       - run: npm run format:check
 
   lint:
@@ -67,7 +72,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm run lint
 
   commitlint:
@@ -82,8 +87,26 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }}
+
+  # Verify every package in the lockfile has a valid sigstore/provenance
+  # attestation. Non-blocking initially: the npm ecosystem still has
+  # unsigned packages, and we want visibility into how clean our tree is
+  # before promoting this to a hard gate. To make blocking, drop the
+  # `continue-on-error: true` line.
+  audit-signatures:
+    name: Audit signatures
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm audit signatures
 
   build:
     name: Build

@@ -75,6 +75,26 @@ expected vs actual behaviour.
 Do not open a public GitHub issue. Email `security@clef.sh`. We acknowledge within 48 hours and
 resolve critical issues within 14 days.
 
+## Supply chain policy
+
+Clef handles secrets, so we treat npm dependency updates with extra suspicion. Three rules:
+
+1. **Cooldown.** Dependabot waits 5 days before proposing a patch/minor bump and 14 days
+   before a major. Most malicious npm publishes are caught and unpublished within 24-72h —
+   waiting means we are rarely the canary. Security advisories (the separate Dependabot
+   security pipeline) are NOT subject to cooldown and ship immediately.
+2. **No lifecycle scripts in lint/format CI.** The `lint`, `format-check`, `commitlint`, and
+   `audit-signatures` jobs install with `npm ci --ignore-scripts`. The vast majority of npm
+   malware delivers its payload via `postinstall`. Test/build jobs deliberately keep scripts
+   on so we exercise the same install path users see.
+3. **Signature audit.** `npm audit signatures` runs on every PR. It is non-blocking today
+   (the npm ecosystem still has unsigned packages) but we monitor the output to track how
+   quickly we can promote it to a hard gate.
+
+If you are adding a new dependency, prefer one published by a well-known maintainer with
+provenance attestations enabled. Avoid packages with active install-time scripts unless
+there is no alternative.
+
 ## Intentionally unsupported features
 
 Before opening a feature request, check
