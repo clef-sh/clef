@@ -218,7 +218,7 @@ The CLI performs a runtime shape check (`id: string`, `pack: function`) before i
 
 ## Reference plugins
 
-- **[AWS Parameter Store](./pack-aws-parameter-store.md)** — `@clef-sh/pack-aws-parameter-store`. Source: [`packages/pack-aws-parameter-store`](https://github.com/clef-sh/clef/tree/main/packages/pack-aws-parameter-store). Use this as a worked example when writing your own backend.
+- **[AWS Parameter Store](./pack-aws-parameter-store.md)** — `@clef-sh/pack-aws-parameter-store`. Source: [`packages/pack/aws-parameter-store`](https://github.com/clef-sh/clef/tree/main/packages/pack/aws-parameter-store). Use this as a worked example when writing your own backend.
 
 ## Reference
 

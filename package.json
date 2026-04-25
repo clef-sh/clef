@@ -15,7 +15,7 @@
     "packages/agent",
     "packages/cdk",
     "packages/cli",
-    "packages/pack-aws-parameter-store"
+    "packages/pack/*"
   ],
   "scripts": {
     "test": "npm test --workspaces --if-present",

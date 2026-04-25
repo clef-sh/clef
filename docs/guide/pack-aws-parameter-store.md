@@ -111,4 +111,4 @@ This is a pack-only integration. Clef does not consume secrets from Parameter St
 ## See also
 
 - [Pack Backend Plugins](./pack-plugins.md) — write your own backend.
-- Source: [`packages/pack-aws-parameter-store`](https://github.com/clef-sh/clef/tree/main/packages/pack-aws-parameter-store)
+- Source: [`packages/pack/aws-parameter-store`](https://github.com/clef-sh/clef/tree/main/packages/pack/aws-parameter-store)
