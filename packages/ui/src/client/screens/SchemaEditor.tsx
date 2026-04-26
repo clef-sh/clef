@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "../api";
 import { Button } from "../components/Button";
 import { Toolbar, EmptyState } from "../primitives";
@@ -46,6 +46,12 @@ export function SchemaEditor({ ns, manifest }: SchemaEditorProps) {
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [savedPath, setSavedPath] = useState<string | null>(null);
 
+  // Tracks whether the user has touched rows since the in-flight loadSchema
+  // started.  If they have, the response handler skips the setRows reset so
+  // a click during initial load doesn't silently discard the row the user
+  // just added.  Reset to false at the start of every fetch.
+  const userEditedSinceLoadRef = useRef(false);
+
   const environments = manifest?.environments ?? [];
 
   useEffect(() => {
@@ -57,6 +63,7 @@ export function SchemaEditor({ ns, manifest }: SchemaEditorProps) {
 
   const loadSchema = useCallback(async () => {
     if (!ns) return;
+    userEditedSinceLoadRef.current = false;
     setLoading(true);
     setError(null);
     try {
@@ -64,13 +71,13 @@ export function SchemaEditor({ ns, manifest }: SchemaEditorProps) {
       const body = await res.json();
       if (!res.ok) {
         setError(body.error || "Failed to load schema");
-        setRows([]);
+        if (!userEditedSinceLoadRef.current) setRows([]);
         return;
       }
       const data = body as SchemaResponse;
       setAttached(data.attached);
       setPathOnDisk(data.path);
-      setRows(schemaToRows(data.schema));
+      if (!userEditedSinceLoadRef.current) setRows(schemaToRows(data.schema));
     } catch {
       setError("Failed to load schema");
     } finally {
@@ -133,6 +140,7 @@ export function SchemaEditor({ ns, manifest }: SchemaEditorProps) {
   };
 
   const handleAddRow = () => {
+    userEditedSinceLoadRef.current = true;
     setRows((prev) => [
       ...prev,
       {
@@ -147,10 +155,12 @@ export function SchemaEditor({ ns, manifest }: SchemaEditorProps) {
   };
 
   const handleRemoveRow = (idx: number) => {
+    userEditedSinceLoadRef.current = true;
     setRows((prev) => prev.filter((_, i) => i !== idx));
   };
 
   const updateRow = (idx: number, patch: Partial<KeyRow>) => {
+    userEditedSinceLoadRef.current = true;
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
   };
 

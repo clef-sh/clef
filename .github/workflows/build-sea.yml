@@ -320,7 +320,7 @@ jobs:
           ref: ${{ needs.check-tag.outputs.tag }}
 
       - name: Download Linux binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: packages/agent/docker-context
           pattern: clef-agent-linux-*
