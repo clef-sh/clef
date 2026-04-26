@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/design",
-  "version": "0.1.2-beta.160",
+  "version": "0.1.3-beta.161",
   "description": "Internal Clef design tokens (Tailwind v4 @theme + TS mirror). Implementation detail of the @clef-sh/* workspaces — not a public API.",
   "repository": {
     "type": "git",
