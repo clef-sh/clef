@@ -1,15 +1,25 @@
 # Pack Backend Plugins
 
-A pack backend is the destination `clef pack` writes secrets to. The default `json-envelope` backend writes the encrypted Clef artifact JSON to a local file. Plugins let you write to anywhere else — HashiCorp Vault, AWS Secrets Manager, Doppler, Infisical, your own internal store — with a single `clef pack --backend <id>` invocation.
+A pack backend is the destination `clef pack` writes secrets to. The default `json-envelope` backend writes the encrypted Clef artifact JSON to a local file. Plugins let you write to anywhere else — AWS Secrets Manager, AWS Parameter Store, GCP Secret Manager, Azure Key Vault, your own internal store — with a single `clef pack --backend <id>` invocation.
 
 This guide walks through writing and publishing a third-party pack backend.
 
+## When a pack plugin makes sense
+
+The pack plugin model fits cleanly with one category of target and uneasily with another. Worth understanding the distinction before you write or adopt a plugin.
+
+**Pack-friendly: cloud consumption surfaces.** AWS Parameter Store, AWS Secrets Manager, GCP Secret Manager, Azure Key Vault, Kubernetes `Secret` objects, ECS task definitions. These are read-mostly storage primitives that runtime services (Lambda, Cloud Run, GKE pods, ECS tasks) load secrets from natively. They expect to be populated from _somewhere_ — CI, IaC, a deploy pipeline. They have no opinion about source of truth. `clef pack --backend <cloud-target>` is the canonical workflow.
+
+**Awkward fit: source-of-truth secret managers.** HashiCorp Vault, Doppler, Infisical, 1Password Connect, Akeyless, Bitwarden Secrets Manager. These products _position themselves_ as the boundary where secrets live, rotate, and get audited. Their docs and pricing pages frame the product as the system of record. Pushing secrets _into_ them from Clef implies "Clef is source of truth, X is sink" — which contradicts the architecture customers chose those products for. The narrow legitimate use is **bootstrapping** (seeding a new Vault cluster, disaster-recovery seed) where a git-tracked snapshot is genuinely useful. If you write a plugin in this category, document the bootstrap framing — don't position it as steady-state delivery.
+
+If your target is a generic blob store (S3, GCS, Azure Blob), use the built-in `json-envelope` backend with a custom `PackOutput` rather than a separate plugin — you only need a plugin when the destination has its own API shape.
+
 ## Who this is for
 
-- **Platform engineers** who want `clef pack` to deliver secrets to a system their team already uses.
-- **Vendor integrators** wanting to offer official Clef compatibility for a secrets store.
+- **Platform engineers** who want `clef pack` to deliver secrets to a cloud consumption surface their team already uses.
+- **Vendor integrators** wanting to offer official Clef compatibility for a target that fits the pack-friendly category above.
 
-If you're just choosing a backend, see [the `clef pack` command reference](/cli/pack.md) — picking a backend is `--backend vault`, no integration work required.
+If you're just choosing a backend, see [the `clef pack` command reference](/cli/pack.md) — picking a backend is `--backend aws-parameter-store`, no integration work required.
 
 ## Package naming convention
 
@@ -47,12 +57,14 @@ A single npm package that default-exports a `PackBackend` object.
 
 ### `src/index.ts`
 
+The example below uses HashiCorp Vault's HTTP API because it's a recognizable shape that's compact to illustrate. Per the framing above, pack-to-Vault is a bootstrap-only workflow — we're using it here for code clarity, not as a recommended steady-state pattern.
+
 ```typescript
 import type { PackBackend, BackendPackResult } from "@clef-sh/core";
 
 const backend: PackBackend = {
   id: "vault",
-  description: "HashiCorp Vault KV v2 backend",
+  description: "HashiCorp Vault KV v2 backend (bootstrap/seed only)",
 
   validateOptions(raw) {
     const opts = raw as { path?: string };
