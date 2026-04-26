@@ -175,8 +175,14 @@ test.describe("clef schema → SchemaEditor: save flow", () => {
     );
     // Wire it up through the manifest. The structure manager would commit, but
     // we're simulating "previous session" so direct write + commit is fine.
+    //
+    // Normalize line endings before the regex replace: on Windows runners
+    // `git reset --hard` (in beforeEach) materializes the manifest with CRLF
+    // when autocrlf is on, which makes the `\n`-anchored regex below silently
+    // miss and the schema attachment never lands. Coerce to LF so the test
+    // behaves identically across platforms.
     const manifestPath = path.join(repo.dir, "clef.yaml");
-    const manifest = fs.readFileSync(manifestPath, "utf-8");
+    const manifest = fs.readFileSync(manifestPath, "utf-8").replace(/\r\n/g, "\n");
     fs.writeFileSync(
       manifestPath,
       manifest.replace(

@@ -67,6 +67,9 @@ jobs:
           echo "ui=$(node -p "require('./packages/ui/package.json').version")" >> "$GITHUB_OUTPUT"
           echo "client=$(node -p "require('./packages/client/package.json').version")" >> "$GITHUB_OUTPUT"
           echo "cdk=$(node -p "require('./packages/cdk/package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "param_store=$(node -p "require('./packages/pack/aws-parameter-store/package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "secrets_manager=$(node -p "require('./packages/pack/aws-secrets-manager/package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "design=$(node -p "require('./packages/design/package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Publish @clef-sh/core
         continue-on-error: true
@@ -138,6 +141,27 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Publish @clef-sh/pack-aws-parameter-store
+        continue-on-error: true
+        working-directory: packages/pack/aws-parameter-store
+        run: npm publish --tag beta --access public --provenance || echo "::warning::@clef-sh/pack-aws-parameter-store publish failed (may already exist)"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @clef-sh/pack-aws-secrets-manager
+        continue-on-error: true
+        working-directory: packages/pack/aws-secrets-manager
+        run: npm publish --tag beta --access public --provenance || echo "::warning::@clef-sh/pack-aws-secrets-manager publish failed (may already exist)"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @clef-sh/design
+        continue-on-error: true
+        working-directory: packages/design
+        run: npm publish --tag beta --access public --provenance || echo "::warning::@clef-sh/design publish failed (may already exist)"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       # Tag the promoted commit so it's traceable from npm back to source
       - name: Tag promoted commit
         env:
@@ -189,6 +213,9 @@ jobs:
           echo "| \`@clef-sh/ui\` | \`${{ steps.ver.outputs.ui }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/client\` | \`${{ steps.ver.outputs.client }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/cdk\` | \`${{ steps.ver.outputs.cdk }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/pack-aws-parameter-store\` | \`${{ steps.ver.outputs.param_store }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/pack-aws-secrets-manager\` | \`${{ steps.ver.outputs.secrets_manager }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/design\` | \`${{ steps.ver.outputs.design }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Install: \`npm install @clef-sh/cli@beta\`" >> "$GITHUB_STEP_SUMMARY"
           echo "SEA binaries attached to release \`v${{ steps.ver.outputs.cli }}\`" >> "$GITHUB_STEP_SUMMARY"

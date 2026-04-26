@@ -37,9 +37,30 @@ const rootPkgPath = path.join(root, "package.json");
 const rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, "utf-8"));
 const workspaces = rootPkg.workspaces ?? [];
 
+/**
+ * Expand workspace entries into concrete package directories. Supports a
+ * trailing `*` glob (e.g. `packages/pack/*`) so nested categories like
+ * pack backends can be added without listing every package by hand.
+ */
+function expandWorkspace(ws) {
+  if (!ws.endsWith("/*")) {
+    return [ws];
+  }
+  const parent = ws.slice(0, -2);
+  const parentAbs = path.join(root, parent);
+  if (!fs.existsSync(parentAbs)) return [];
+  return fs
+    .readdirSync(parentAbs, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => path.posix.join(parent, d.name))
+    .filter((p) => fs.existsSync(path.join(root, p, "package.json")));
+}
+
+const expandedWorkspaces = workspaces.flatMap(expandWorkspace);
+
 /** Collect name -> version for every workspace that lives in this monorepo. */
 const versions = new Map();
-for (const ws of workspaces) {
+for (const ws of expandedWorkspaces) {
   const pkgPath = path.join(root, ws, "package.json");
   if (!fs.existsSync(pkgPath)) continue;
   const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
@@ -65,7 +86,7 @@ if (versions.size === 0) {
 const FIELDS = ["dependencies", "peerDependencies", "optionalDependencies", "devDependencies"];
 let touched = 0;
 
-for (const ws of workspaces) {
+for (const ws of expandedWorkspaces) {
   const pkgPath = path.join(root, ws, "package.json");
   if (!fs.existsSync(pkgPath)) continue;
   const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));

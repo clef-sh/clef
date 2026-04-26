@@ -1,5 +1,14 @@
 # @clef-sh/design
 
+> **Implementation detail — not a public API.**
+>
+> This package is published to npm so the `@clef-sh/*` workspaces (the
+> Clef local UI, Clef Cloud) can share one set of design tokens. It is
+> **not intended for external consumption**. Token names, file structure,
+> and module shape can change in any release — including patch versions —
+> without a deprecation cycle. If you depend on this from outside the
+> Clef organization, expect breakage.
+
 Single source of truth for the Clef design system. Both Clef Cloud and the
 Clef local UI (`packages/ui`) import from this package so token edits land
 in one place.
