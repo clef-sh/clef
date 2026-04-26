@@ -28,7 +28,12 @@ Age-based encryption (Clef's quick-start path) addresses operations — no serve
 
 ### 1.1 Is Clef Right for You?
 
-Not every team needs what Clef provides. Honest guidance before investing in the rest of this paper:
+Not every team needs what Clef provides. Before the bullets, the relationship Clef has with the rest of the secrets-management landscape, stated plainly:
+
+- **Substitutes** (pick one): HashiCorp Vault, Doppler, Infisical, Akeyless, 1Password Connect, Bitwarden Secrets Manager, and Clef. These all want to be the **source of truth** for secrets — the place where they live, get reviewed, get rotated. A team adopting any of them is making the same kind of decision; they just land in a different operational model. Vault and the SaaS managers run a centralized server that holds plaintext under their custody; Clef stores encrypted values in your git repository and delegates trust to your existing KMS or age keys. **Clef does not "integrate with" these tools — it competes with them.** The exception is bootstrap or disaster-recovery seeding, which is a one-shot use case, not a steady-state architecture.
+- **Complements** (Clef populates them): AWS Secrets Manager, AWS Parameter Store, GCP Secret Manager, Azure Key Vault, Kubernetes `Secret` objects, ECS task definitions. These are read-mostly storage primitives that runtime services (Lambda, Cloud Run, GKE pods, ECS tasks) load from natively. They do **not** want to be source of truth — they expect to be populated from CI, IaC, or a deploy pipeline. Clef's pack backends (Section 4.6) deliver to them so the consuming workload keeps using the native cloud SDK it already uses; no Clef code in the runtime. Two official plugins ship today (`@clef-sh/pack-aws-parameter-store`, `@clef-sh/pack-aws-secrets-manager`).
+
+The honest version of "is Clef right for you" depends primarily on which side of that split your existing toolchain lives on. Specific guidance:
 
 **A small team on a PaaS with a handful of environment variables**: Doppler or the platform's native secrets. The overhead of git-native encryption, SOPS, and age key management may not be justified for five secrets.
 
