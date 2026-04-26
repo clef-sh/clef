@@ -671,7 +671,13 @@ jobs:
 
       - name: Commit version stamps back to branch
         run: |
-          if git diff --quiet packages/*/package.json; then
+          # Match every workspace package.json — top-level (`packages/<pkg>/`)
+          # and nested categories like `packages/pack/<backend>/`. Using a
+          # glob here (vs. an explicit per-package list) means new plugins
+          # added under packages/pack/* are picked up automatically, so a
+          # new package can never silently get stamped-but-not-staged and
+          # leave the working tree dirty for the rebase below.
+          if git diff --quiet packages/*/package.json packages/*/*/package.json; then
             echo "No version changes to commit"
             exit 0
           fi
@@ -679,20 +685,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add \
-            packages/core/package.json \
-            packages/cloud/package.json \
-            packages/analytics/package.json \
-            packages/runtime/package.json \
-            packages/cli/package.json \
-            packages/agent/package.json \
-            packages/broker/package.json \
-            packages/ui/package.json \
-            packages/client/package.json \
-            packages/cdk/package.json \
-            packages/pack/aws-parameter-store/package.json \
-            packages/pack/aws-secrets-manager/package.json \
-            packages/design/package.json
+          git add packages/*/package.json packages/*/*/package.json
 
           PRE="${{ needs.prepare.outputs.prerelease }}"
           CLI_VER="${{ needs.prepare.outputs.cli_version }}"
@@ -712,11 +705,14 @@ jobs:
           echo "| Package | Version |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/core\` | \`${{ needs.prepare.outputs.core_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/cloud\` | \`${{ needs.prepare.outputs.cloud_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/analytics\` | \`${{ needs.prepare.outputs.analytics_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/runtime\` | \`${{ needs.prepare.outputs.runtime_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/agent\` | \`${{ needs.prepare.outputs.agent_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/broker\` | \`${{ needs.prepare.outputs.broker_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/cli\` | \`${{ needs.prepare.outputs.cli_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/ui\` | \`${{ needs.prepare.outputs.ui_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`@clef-sh/client\` | \`${{ needs.prepare.outputs.client_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/cdk\` | \`${{ needs.prepare.outputs.cdk_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/pack-aws-parameter-store\` | \`${{ needs.prepare.outputs.param_store_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`@clef-sh/pack-aws-secrets-manager\` | \`${{ needs.prepare.outputs.secrets_manager_version }}\` |" >> "$GITHUB_STEP_SUMMARY"
