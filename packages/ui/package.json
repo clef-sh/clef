@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/ui",
-  "version": "0.1.20",
+  "version": "0.1.21-alpha.149",
   "description": "Local web UI for Clef — git-native secrets management",
   "repository": {
     "type": "git",
@@ -34,9 +34,9 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "@clef-sh/core": "0.1.20",
-    "@clef-sh/design": "0.1.0",
-    "@clef-sh/runtime": "0.1.23",
+    "@clef-sh/core": "0.1.21-alpha.149",
+    "@clef-sh/design": "0.1.1-alpha.149",
+    "@clef-sh/runtime": "0.1.24-alpha.149",
     "express": "^5.1.0",
     "express-rate-limit": "^8.3.2",
     "lucide-react": "^0.468.0",
