@@ -79,7 +79,29 @@ test.describe.serial("clef policy → PolicyView: rotation verdicts", () => {
     removeRotationRecord(devMetaFile(), "STRIPE_KEY");
 
     await page.goto(server.url);
+
+    // Capture the /api/policy/check response so a failure on this assertion
+    // shows the actual HTTP status + body instead of a 15s mystery timeout.
+    // PolicyView swallows fetch errors and renders nothing, so without this
+    // hook a 500 looks identical to a slow render.
+    const checkResponse = page.waitForResponse(
+      (r) => r.url().includes("/api/policy/check"),
+      { timeout: 15_000 },
+    );
     await page.getByTestId("nav-policy").click();
+    const res = await checkResponse;
+    if (res.status() !== 200) {
+      const body = await res.text().catch(() => "<unreadable>");
+      throw new Error(`/api/policy/check returned ${res.status()}: ${body}`);
+    }
+
+    // If the UI rendered the error empty-state, surface its body before the
+    // generic visibility timeout fires.
+    const errorState = page.getByTestId("policy-load-error");
+    if (await errorState.isVisible().catch(() => false)) {
+      const text = await errorState.innerText();
+      throw new Error(`PolicyView load error surfaced: ${text}`);
+    }
 
     await expect(page.getByTestId("filter-unknown")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("filter-unknown")).toContainText("1");
