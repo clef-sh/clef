@@ -62,6 +62,13 @@ test.describe("clef schema → SchemaEditor: load + empty state", () => {
     await page.goto(server.url);
     await page.getByTestId("nav-schema").click();
 
+    // Wait for the empty-state placeholder before clicking Add Key.  Without
+    // this, the click can land in the brief window between activeNs being
+    // set and the per-namespace loadSchema completing — handleAddRow's
+    // newly-added row then gets clobbered when loadSchema's setRows([])
+    // resolves, and the test times out waiting for KEY_NAME.
+    await expect(page.getByText(/No keys declared yet/i)).toBeVisible();
+
     await page.getByRole("button", { name: "+ Add key" }).click();
 
     await expect(page.getByPlaceholder("KEY_NAME")).toBeVisible();
