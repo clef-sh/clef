@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+import { spawn, type ChildProcess } from "child_process";
 import * as fs from "fs";
 import * as net from "net";
 import * as path from "path";
@@ -22,6 +22,57 @@ function findFreePort(): Promise<number> {
       server.close(() => resolve(port));
     });
     server.on("error", reject);
+  });
+}
+
+/**
+ * Stop a spawned child process and resolve when it actually exits.
+ *
+ * The naive `proc.kill("SIGTERM"); proc.once("exit", res)` pattern hangs
+ * the test runner's `afterAll` hook in two cases:
+ *   1. Process already exited before `stop()` was called — `proc.kill` is
+ *      a no-op and the `exit` event already fired before our listener
+ *      was attached, so the promise never resolves.
+ *   2. SIGTERM is ignored or the process is wedged — no exit event ever
+ *      fires.
+ *
+ * This helper handles both: it short-circuits if the process is already
+ * dead, escalates to SIGKILL after a 5s grace, and unconditionally
+ * resolves after a 10s ceiling so test teardown can never deadlock.
+ */
+function stopProcess(proc: ChildProcess): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (proc.exitCode !== null || proc.signalCode !== null) {
+      resolve();
+      return;
+    }
+
+    let resolved = false;
+    const settle = (): void => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(killTimer);
+      clearTimeout(forceTimer);
+      resolve();
+    };
+
+    proc.once("exit", settle);
+    proc.kill("SIGTERM");
+
+    // Escalate to SIGKILL if SIGTERM didn't take effect within 5s.
+    const killTimer = setTimeout(() => {
+      if (!resolved) {
+        try {
+          proc.kill("SIGKILL");
+        } catch {
+          // Process may have died between the check and the kill — ignore.
+        }
+      }
+    }, 5_000);
+
+    // Final safety: resolve no matter what after 10s. The test suite
+    // cannot afford to deadlock on a stuck child.
+    const forceTimer = setTimeout(settle, 10_000);
   });
 }
 
@@ -89,11 +140,7 @@ export async function startClefUI(repoDir: string, ageKeyFilePath: string): Prom
         settled = true;
         resolve({
           url: match[0],
-          stop: () =>
-            new Promise<void>((res) => {
-              proc.kill("SIGTERM");
-              proc.once("exit", () => res());
-            }),
+          stop: () => stopProcess(proc),
         });
       }
     };
@@ -202,11 +249,7 @@ export async function startClefServe(
         resolve({
           url: `http://127.0.0.1:${port}`,
           token: match[1],
-          stop: () =>
-            new Promise<void>((res) => {
-              proc.kill("SIGTERM");
-              proc.once("exit", () => res());
-            }),
+          stop: () => stopProcess(proc),
         });
       }
     };
