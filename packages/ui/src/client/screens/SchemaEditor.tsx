@@ -170,7 +170,7 @@ export function SchemaEditor({ ns, manifest }: SchemaEditorProps) {
           </Toolbar.Subtitle>
         </div>
         <Toolbar.Actions>
-          <Button onClick={handleAddRow} disabled={!ns}>
+          <Button onClick={handleAddRow} disabled={!ns || loading}>
             + Add key
           </Button>
           <Button variant="primary" onClick={handleSave} disabled={!ns || saving || !validation.ok}>
