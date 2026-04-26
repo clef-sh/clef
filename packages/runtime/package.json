@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/runtime",
-  "version": "0.1.24-alpha.149",
+  "version": "0.1.24-beta.154",
   "description": "Lightweight runtime secrets engine for Clef — VCS-native fetch, age decrypt, in-memory cache",
   "repository": {
     "type": "git",
@@ -18,14 +18,14 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "@clef-sh/core": "0.1.21-alpha.149",
+    "@clef-sh/core": "0.1.21-beta.154",
     "age-encryption": "^0.3.0"
   },
   "peerDependencies": {
     "@aws-sdk/client-kms": "^3.500.0",
     "@azure/identity": "^4.0.0",
     "@azure/keyvault-keys": "^4.8.0",
-    "@clef-sh/client": "0.3.0-alpha.149",
+    "@clef-sh/client": "0.3.0-beta.154",
     "@google-cloud/kms": "^4.0.0"
   },
   "peerDependenciesMeta": {
