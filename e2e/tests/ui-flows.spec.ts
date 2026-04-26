@@ -1028,13 +1028,38 @@ test.describe("clef service → ServiceIdentitiesScreen: update backends flow", 
 test.describe("clef service → ServiceIdentitiesScreen: delete flow", () => {
   test.beforeEach(async ({ request }) => {
     const { base, headers } = serverApi(server.url);
-    // Ensure a fresh identity exists for each delete test
+    // Ensure a fresh identity exists for each delete test. The DELETE may
+    // 404 (previous test already removed the identity) — we swallow that
+    // because the goal is just "make sure it's gone before we recreate."
     await request.delete(`${base}/api/service-identities/to-delete`, { headers }).catch(() => {});
-    const res = await request.post(`${base}/api/service-identities`, {
+
+    // The previous test in this describe may have committed via the UI;
+    // git commits and manifest writes are fast but not instant. Retry the
+    // POST once on transient failure to absorb that window. If it still
+    // fails, surface the real status and body so we can debug.
+    let res = await request.post(`${base}/api/service-identities`, {
       headers,
       data: { name: "to-delete", namespaces: ["payments"] },
     });
-    expect(res.ok()).toBe(true);
+    if (!res.ok()) {
+      const firstStatus = res.status();
+      const firstBody = await res.text();
+      // Brief backoff, then one retry.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await request.delete(`${base}/api/service-identities/to-delete`, { headers }).catch(() => {});
+      res = await request.post(`${base}/api/service-identities`, {
+        headers,
+        data: { name: "to-delete", namespaces: ["payments"] },
+      });
+      if (!res.ok()) {
+        const secondBody = await res.text();
+        throw new Error(
+          `Failed to create 'to-delete' service identity in beforeEach.\n` +
+            `First attempt: ${firstStatus} — ${firstBody}\n` +
+            `Retry: ${res.status()} — ${secondBody}`,
+        );
+      }
+    }
   });
 
   test("[positive] delete removes the identity from the list", async ({ page }) => {
