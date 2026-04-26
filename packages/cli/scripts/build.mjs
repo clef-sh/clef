@@ -55,6 +55,18 @@ const BASE_CONFIG = {
     "@clef-sh/cloud/cli": resolve(repoRoot, "packages/cloud/src/cli.ts"),
     "@clef-sh/ui": resolve(repoRoot, "packages/ui/src/server/index.ts"),
     "@clef-sh/analytics": resolve(repoRoot, "packages/analytics/src/index.ts"),
+    // Official pack backend plugins are bundled into the CLI so SEA users
+    // (and npm users) get `--backend aws-parameter-store` /
+    // `--backend aws-secrets-manager` out of the box. The plugin seam
+    // still works for community packages via dynamic import.
+    "@clef-sh/pack-aws-parameter-store": resolve(
+      repoRoot,
+      "packages/pack/aws-parameter-store/src/index.ts",
+    ),
+    "@clef-sh/pack-aws-secrets-manager": resolve(
+      repoRoot,
+      "packages/pack/aws-secrets-manager/src/index.ts",
+    ),
   },
 };
 
