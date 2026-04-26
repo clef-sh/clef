@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { theme } from "../theme";
 import { apiFetch } from "../api";
 import { Button } from "./Button";
 import { EnvBadge } from "./EnvBadge";
@@ -95,90 +94,48 @@ export function SyncPanel({ namespace, onComplete, onCancel }: SyncPanelProps) {
   return (
     <div
       data-testid="sync-panel"
-      style={{
-        background: theme.surface,
-        border: `1px solid ${theme.border}`,
-        borderRadius: 8,
-        padding: "16px 20px",
-        marginTop: 8,
-        marginBottom: 8,
-      }}
+      className="my-2 rounded-lg border border-edge bg-ink-850 px-5 py-4"
     >
       {phase === "loading" && (
-        <div style={{ fontFamily: theme.sans, fontSize: 13, color: theme.textMuted }}>
-          Loading sync preview...
-        </div>
+        <div className="font-sans text-[13px] text-ash">Loading sync preview...</div>
       )}
 
       {phase === "preview" && plan && (
         <>
           {plan.totalKeys === 0 ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span
-                data-testid="sync-in-sync"
-                style={{ fontFamily: theme.sans, fontSize: 13, color: theme.green }}
-              >
+            <div className="flex items-center gap-2.5">
+              <span data-testid="sync-in-sync" className="font-sans text-[13px] text-go-500">
                 All environments in sync
               </span>
               <Button onClick={onCancel}>Close</Button>
             </div>
           ) : (
             <>
-              <div
-                style={{
-                  fontFamily: theme.sans,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: theme.text,
-                  marginBottom: 10,
-                }}
-              >
+              <div className="mb-2.5 font-sans text-[13px] font-semibold text-bone">
                 Sync {namespace} — {plan.totalKeys} key{plan.totalKeys !== 1 ? "s" : ""} to scaffold
               </div>
 
               {plan.hasProtectedEnvs && (
-                <div
-                  style={{
-                    fontFamily: theme.sans,
-                    fontSize: 12,
-                    color: theme.yellow,
-                    background: theme.yellowDim,
-                    border: `1px solid ${theme.yellow}33`,
-                    borderRadius: 5,
-                    padding: "6px 12px",
-                    marginBottom: 10,
-                  }}
-                >
+                <div className="mb-2.5 rounded border border-warn-500/20 bg-warn-500/10 px-3 py-1.5 font-sans text-[12px] text-warn-500">
                   Includes protected environment(s)
                 </div>
               )}
 
-              <div data-testid="sync-preview-list" style={{ marginBottom: 12 }}>
+              <div data-testid="sync-preview-list" className="mb-3">
                 {plan.cells.map((cell) => (
                   <div
                     key={`${cell.namespace}/${cell.environment}`}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      padding: "4px 0",
-                    }}
+                    className="flex items-center gap-2 py-1"
                   >
                     <EnvBadge env={cell.environment} />
-                    <span
-                      style={{
-                        fontFamily: theme.mono,
-                        fontSize: 12,
-                        color: theme.textMuted,
-                      }}
-                    >
+                    <span className="font-mono text-[12px] text-ash">
                       {cell.missingKeys.join(", ")}
                     </span>
                   </div>
                 ))}
               </div>
 
-              <div style={{ display: "flex", gap: 8 }}>
+              <div className="flex gap-2">
                 <Button variant="primary" data-testid="sync-execute-btn" onClick={handleSync}>
                   Sync Now
                 </Button>
@@ -191,15 +148,10 @@ export function SyncPanel({ namespace, onComplete, onCancel }: SyncPanelProps) {
         </>
       )}
 
-      {phase === "syncing" && (
-        <div style={{ fontFamily: theme.sans, fontSize: 13, color: theme.accent }}>Syncing...</div>
-      )}
+      {phase === "syncing" && <div className="font-sans text-[13px] text-gold-500">Syncing...</div>}
 
       {phase === "done" && result && (
-        <div
-          data-testid="sync-done"
-          style={{ fontFamily: theme.sans, fontSize: 13, color: theme.green }}
-        >
+        <div data-testid="sync-done" className="font-sans text-[13px] text-go-500">
           Synced {result.totalKeysScaffolded} key{result.totalKeysScaffolded !== 1 ? "s" : ""}{" "}
           across {result.modifiedCells.length} environment
           {result.modifiedCells.length !== 1 ? "s" : ""}
@@ -207,8 +159,8 @@ export function SyncPanel({ namespace, onComplete, onCancel }: SyncPanelProps) {
       )}
 
       {phase === "error" && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontFamily: theme.sans, fontSize: 13, color: theme.red }}>{error}</span>
+        <div className="flex items-center gap-2.5">
+          <span className="font-sans text-[13px] text-stop-500">{error}</span>
           <Button onClick={onCancel}>Close</Button>
         </div>
       )}

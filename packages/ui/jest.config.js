@@ -24,6 +24,7 @@ module.exports = {
         // the source lets the write-file-atomic module mapping below
         // intercept SopsClient.encrypt's atomic write.
         "^@clef-sh/core$": "<rootDir>/../core/src/index.ts",
+        "^@clef-sh/runtime$": "<rootDir>/../runtime/src/index.ts",
         "^age-encryption$": "<rootDir>/../core/src/__mocks__/age-encryption.ts",
         "^write-file-atomic$": "<rootDir>/../core/src/__mocks__/write-file-atomic.ts",
       },

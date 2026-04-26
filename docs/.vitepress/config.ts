@@ -13,7 +13,20 @@ export default withMermaid({
 
   appearance: "dark",
 
-  head: [["link", { rel: "icon", href: "/logo.svg" }]],
+  head: [
+    ["link", { rel: "icon", href: "/logo.svg" }],
+    // Docs is all-Inter (no Instrument Serif here — that's reserved for
+    // the marketing surface). JetBrains Mono for code blocks + terminal.
+    ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
+    ["link", { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "" }],
+    [
+      "link",
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap",
+      },
+    ],
+  ],
 
   themeConfig: {
     logo: "/logo.svg",
@@ -72,6 +85,14 @@ export default withMermaid({
             { text: "Service Identities", link: "/guide/service-identities" },
             { text: "Dynamic Secrets", link: "/guide/dynamic-secrets" },
             { text: "Pack Backend Plugins", link: "/guide/pack-plugins" },
+            {
+              text: "AWS Parameter Store Backend",
+              link: "/guide/pack-aws-parameter-store",
+            },
+            {
+              text: "AWS Secrets Manager Backend",
+              link: "/guide/pack-aws-secrets-manager",
+            },
             { text: "CDK Constructs (AWS)", link: "/guide/cdk" },
             { text: "Runtime Agent", link: "/guide/agent" },
             { text: "Client SDK", link: "/guide/client" },
@@ -106,6 +127,7 @@ export default withMermaid({
             { text: "clef migrate-backend", link: "/cli/migrate-backend" },
             { text: "clef service", link: "/cli/service" },
             { text: "clef pack", link: "/cli/pack" },
+            { text: "clef envelope", link: "/cli/envelope" },
             { text: "clef revoke", link: "/cli/revoke" },
             { text: "clef drift", link: "/cli/drift" },
             { text: "clef report", link: "/cli/report" },

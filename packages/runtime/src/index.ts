@@ -43,8 +43,8 @@ export { FileArtifactSource } from "./sources/file";
 export { VcsArtifactSource } from "./sources/vcs";
 export { S3ArtifactSource, isS3Url } from "./sources/s3";
 
-// Signature verification
-export { buildSigningPayload, verifySignature } from "./signature";
+// Signature verification (re-exported from @clef-sh/core to keep one source of truth)
+export { buildSigningPayload, verifySignature } from "@clef-sh/core";
 
 // High-level API
 import { SecretsCache } from "./secrets-cache";

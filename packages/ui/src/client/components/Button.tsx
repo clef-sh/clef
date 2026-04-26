@@ -1,5 +1,4 @@
 import React from "react";
-import { theme } from "../theme";
 
 interface ButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "type"> {
   children: React.ReactNode;
@@ -8,10 +7,10 @@ interface ButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>
   type?: "button" | "submit";
 }
 
-const VARIANT_STYLES = {
-  primary: { bg: theme.accent, color: "#000", border: "none" },
-  ghost: { bg: "transparent", color: theme.text, border: `1px solid ${theme.borderLight}` },
-  danger: { bg: theme.redDim, color: theme.red, border: `1px solid ${theme.red}44` },
+const VARIANT_CLASSES: Record<NonNullable<ButtonProps["variant"]>, string> = {
+  primary: "bg-gold-500 text-ink-950 border border-transparent hover:bg-gold-400",
+  ghost: "bg-transparent text-bone border border-edge-strong hover:bg-ink-800",
+  danger: "bg-stop-500/15 text-stop-500 border border-stop-500/40 hover:bg-stop-500/25",
 };
 
 export function Button({
@@ -20,32 +19,24 @@ export function Button({
   onClick,
   icon,
   type = "button",
+  className,
   style: _styleProp,
   ...rest
 }: ButtonProps) {
-  const s = VARIANT_STYLES[variant];
   return (
     <button
       type={type}
       onClick={onClick}
       {...rest}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "5px 12px",
-        borderRadius: 6,
-        cursor: "pointer",
-        fontFamily: theme.sans,
-        fontSize: 12,
-        fontWeight: 600,
-        background: s.bg,
-        color: s.color,
-        border: s.border,
-        transition: "all 0.12s",
-      }}
+      className={[
+        "inline-flex items-center gap-1.5 rounded-md px-3 py-1 font-sans text-[12px] font-semibold cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+        VARIANT_CLASSES[variant],
+        className ?? "",
+      ]
+        .join(" ")
+        .trim()}
     >
-      {icon && <span style={{ display: "flex" }}>{icon}</span>}
+      {icon && <span className="flex">{icon}</span>}
       {children}
     </button>
   );

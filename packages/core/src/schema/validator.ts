@@ -80,9 +80,7 @@ export class SchemaValidator {
         type: type as "string" | "integer" | "boolean",
         required: def.required === true,
         ...(typeof def.pattern === "string" ? { pattern: def.pattern } : {}),
-        ...(def.default !== undefined ? { default: def.default } : {}),
         ...(typeof def.description === "string" ? { description: def.description } : {}),
-        ...(typeof def.max === "number" ? { max: def.max } : {}),
       };
     }
 
@@ -124,12 +122,6 @@ export class SchemaValidator {
               key: keyName,
               message: `Key '${keyName}' must be an integer, got '${value}'.`,
               rule: "type",
-            });
-          } else if (keyDef.max !== undefined && num > keyDef.max) {
-            warnings.push({
-              key: keyName,
-              message: `Key '${keyName}' value ${num} exceeds maximum ${keyDef.max}.`,
-              rule: "max_exceeded",
             });
           }
           break;

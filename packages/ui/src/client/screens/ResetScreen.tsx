@@ -1,8 +1,7 @@
 import React, { useState } from "react";
-import { theme } from "../theme";
 import { apiFetch } from "../api";
-import { TopBar } from "../components/TopBar";
 import { Button } from "../components/Button";
+import { Toolbar, Field, Input } from "../primitives";
 import type { BackendType, ClefManifest, ResetResult, ResetScope } from "@clef-sh/core";
 import type { ViewName } from "../components/Sidebar";
 
@@ -37,6 +36,9 @@ const KEY_PLACEHOLDERS: Record<string, string> = {
 
 type ScopeKind = "env" | "namespace" | "cell";
 type Phase = "idle" | "running" | "done";
+
+const SELECT_CLASSES =
+  "w-full bg-ink-850 border border-edge rounded-md px-2.5 py-1.5 font-sans text-[13px] text-bone outline-none cursor-pointer focus-visible:border-gold-500";
 
 export function ResetScreen({ manifest, setView, reloadManifest }: ResetScreenProps) {
   const environments = manifest?.environments ?? [];
@@ -151,24 +153,22 @@ export function ResetScreen({ manifest, setView, reloadManifest }: ResetScreenPr
   };
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <TopBar title="Reset" subtitle="clef reset — destructively scaffold fresh placeholders" />
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <Toolbar>
+        <div>
+          <Toolbar.Title>Reset</Toolbar.Title>
+          <Toolbar.Subtitle>
+            clef reset — destructively scaffold fresh placeholders
+          </Toolbar.Subtitle>
+        </div>
+      </Toolbar>
 
-      <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-        <div style={{ maxWidth: 620, margin: "0 auto" }}>
+      <div className="flex-1 overflow-auto p-6">
+        <div className="max-w-[620px] mx-auto">
           {error && (
             <div
               data-testid="reset-error"
-              style={{
-                background: theme.redDim,
-                border: `1px solid ${theme.red}44`,
-                borderRadius: 8,
-                padding: "12px 16px",
-                marginBottom: 16,
-                fontFamily: theme.sans,
-                fontSize: 13,
-                color: theme.red,
-              }}
+              className="bg-stop-500/10 border border-stop-500/40 rounded-lg px-4 py-3 mb-4 font-sans text-[13px] text-stop-500"
             >
               {error}
             </div>
@@ -176,21 +176,15 @@ export function ResetScreen({ manifest, setView, reloadManifest }: ResetScreenPr
 
           {phase === "idle" && (
             <div>
-              <div style={{ marginBottom: 20 }}>
+              <div className="mb-5">
                 <Label>Scope</Label>
-                <div style={{ display: "flex", gap: 16, marginBottom: 10 }}>
+                <div className="flex gap-4 mb-2.5">
                   {(["env", "namespace", "cell"] as const).map((k) => (
                     <label
                       key={k}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                        cursor: "pointer",
-                        fontFamily: theme.sans,
-                        fontSize: 13,
-                        color: scopeKind === k ? theme.text : theme.textMuted,
-                      }}
+                      className={`flex items-center gap-1.5 cursor-pointer font-sans text-[13px] ${
+                        scopeKind === k ? "text-bone" : "text-ash"
+                      }`}
                     >
                       <input
                         type="radio"
@@ -201,7 +195,7 @@ export function ResetScreen({ manifest, setView, reloadManifest }: ResetScreenPr
                           setTypedConfirm("");
                         }}
                         data-testid={`reset-scope-${k}`}
-                        style={{ accentColor: theme.accent }}
+                        className="accent-gold-500"
                       />
                       {k === "env" ? "Environment" : k === "namespace" ? "Namespace" : "Cell"}
                     </label>
@@ -216,7 +210,7 @@ export function ResetScreen({ manifest, setView, reloadManifest }: ResetScreenPr
                       setTypedConfirm("");
                     }}
                     data-testid="reset-env-select"
-                    style={selectStyle}
+                    className={SELECT_CLASSES}
                   >
                     {environments.map((env) => (
                       <option key={env.name} value={env.name}>
@@ -235,7 +229,7 @@ export function ResetScreen({ manifest, setView, reloadManifest }: ResetScreenPr
                       setTypedConfirm("");
                     }}
                     data-testid="reset-namespace-select"
-                    style={selectStyle}
+                    className={SELECT_CLASSES}
                   >
                     {namespaces.map((ns) => (
                       <option key={ns.name} value={ns.name}>
@@ -246,7 +240,7 @@ export function ResetScreen({ manifest, setView, reloadManifest }: ResetScreenPr
                 )}
 
                 {scopeKind === "cell" && (
-                  <div style={{ display: "flex", gap: 8 }}>
+                  <div className="flex gap-2">
                     <select
                       value={cellNs}
                       onChange={(e) => {
@@ -254,7 +248,7 @@ export function ResetScreen({ manifest, setView, reloadManifest }: ResetScreenPr
                         setTypedConfirm("");
                       }}
                       data-testid="reset-cell-namespace-select"
-                      style={{ ...selectStyle, flex: 1 }}
+                      className={`${SELECT_CLASSES} flex-1`}
                     >
                       {namespaces.map((ns) => (
                         <option key={ns.name} value={ns.name}>
@@ -269,7 +263,7 @@ export function ResetScreen({ manifest, setView, reloadManifest }: ResetScreenPr
                         setTypedConfirm("");
                       }}
                       data-testid="reset-cell-env-select"
-                      style={{ ...selectStyle, flex: 1 }}
+                      className={`${SELECT_CLASSES} flex-1`}
                     >
                       {environments.map((env) => (
                         <option key={env.name} value={env.name}>
@@ -282,51 +276,27 @@ export function ResetScreen({ manifest, setView, reloadManifest }: ResetScreenPr
                 )}
               </div>
 
-              <div style={{ marginBottom: 20 }}>
-                <label
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    cursor: "pointer",
-                    fontFamily: theme.sans,
-                    fontSize: 13,
-                    color: theme.text,
-                  }}
-                >
+              <div className="mb-5">
+                <label className="flex items-center gap-2 cursor-pointer font-sans text-[13px] text-bone">
                   <input
                     type="checkbox"
                     checked={switchBackend}
                     onChange={(e) => setSwitchBackend(e.target.checked)}
                     data-testid="reset-switch-backend"
-                    style={{ accentColor: theme.accent }}
+                    className="accent-gold-500"
                   />
                   Switch backend as part of reset
                 </label>
                 {switchBackend && (
-                  <div
-                    style={{
-                      marginTop: 12,
-                      padding: 14,
-                      background: theme.surface,
-                      border: `1px solid ${theme.border}`,
-                      borderRadius: 8,
-                    }}
-                  >
+                  <div className="mt-3 p-3.5 bg-ink-850 border border-edge rounded-lg">
                     <Label>Target Backend</Label>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div className="flex flex-col gap-1.5">
                       {ALL_BACKENDS.map((b) => (
                         <label
                           key={b}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                            cursor: "pointer",
-                            fontFamily: theme.sans,
-                            fontSize: 13,
-                            color: targetBackend === b ? theme.text : theme.textMuted,
-                          }}
+                          className={`flex items-center gap-2 cursor-pointer font-sans text-[13px] ${
+                            targetBackend === b ? "text-bone" : "text-ash"
+                          }`}
                         >
                           <input
                             type="radio"
@@ -337,23 +307,23 @@ export function ResetScreen({ manifest, setView, reloadManifest }: ResetScreenPr
                               setTargetKey("");
                             }}
                             data-testid={`reset-backend-radio-${b}`}
-                            style={{ accentColor: theme.accent }}
+                            className="accent-gold-500"
                           />
                           {BACKEND_LABELS[b]}
                         </label>
                       ))}
                     </div>
                     {targetBackend !== "age" && (
-                      <div style={{ marginTop: 12 }}>
-                        <Label>Key Identifier</Label>
-                        <input
-                          type="text"
-                          value={targetKey}
-                          onChange={(e) => setTargetKey(e.target.value)}
-                          placeholder={KEY_PLACEHOLDERS[targetBackend]}
-                          data-testid="reset-backend-key-input"
-                          style={textInputStyle}
-                        />
+                      <div className="mt-3">
+                        <Field label="Key Identifier">
+                          <Input
+                            type="text"
+                            value={targetKey}
+                            onChange={(e) => setTargetKey(e.target.value)}
+                            placeholder={KEY_PLACEHOLDERS[targetBackend]}
+                            data-testid="reset-backend-key-input"
+                          />
+                        </Field>
                       </div>
                     )}
                   </div>
@@ -361,65 +331,43 @@ export function ResetScreen({ manifest, setView, reloadManifest }: ResetScreenPr
               </div>
 
               {/* Optional explicit keys */}
-              <div style={{ marginBottom: 20 }}>
+              <div className="mb-5">
                 <Label>Explicit Keys (optional)</Label>
-                <input
+                <Input
                   type="text"
                   value={explicitKeys}
                   onChange={(e) => setExplicitKeys(e.target.value)}
                   placeholder="DB_URL, DB_PASSWORD"
                   data-testid="reset-keys-input"
-                  style={textInputStyle}
                 />
-                <div
-                  style={{
-                    fontFamily: theme.sans,
-                    fontSize: 11,
-                    color: theme.textMuted,
-                    marginTop: 6,
-                  }}
-                >
+                <div className="font-sans text-[11px] text-ash mt-1.5">
                   Comma-separated. Ignored when the namespace has a schema — schema keys are
                   authoritative.
                 </div>
               </div>
 
-              <div
-                style={{
-                  background: theme.redDim,
-                  border: `1px solid ${theme.red}44`,
-                  borderRadius: 8,
-                  padding: "14px 16px",
-                  marginBottom: 16,
-                  fontFamily: theme.sans,
-                  fontSize: 13,
-                  color: theme.red,
-                  lineHeight: 1.5,
-                }}
-              >
-                {"\u26A0"} This will <strong>ABANDON</strong> the current encrypted contents of the
+              <div className="bg-stop-500/10 border border-stop-500/40 rounded-lg px-4 py-3.5 mb-4 font-sans text-[13px] text-stop-500 leading-relaxed">
+                {"⚠"} This will <strong>ABANDON</strong> the current encrypted contents of the
                 affected cells. Decryption will <strong>NOT</strong> be attempted. This cannot be
                 undone except via <code>git revert</code>.
               </div>
 
-              <div style={{ marginBottom: 20 }}>
+              <div className="mb-5">
                 <Label>
-                  Type <code style={{ color: theme.text }}>{scopeLabel || "<scope>"}</code> to
-                  confirm
+                  Type <code className="text-bone">{scopeLabel || "<scope>"}</code> to confirm
                 </Label>
-                <input
+                <Input
                   type="text"
                   value={typedConfirm}
                   onChange={(e) => setTypedConfirm(e.target.value)}
                   placeholder={scopeLabel}
                   data-testid="reset-confirm-input"
                   disabled={!scope}
-                  style={textInputStyle}
                 />
               </div>
 
               <Button
-                variant="primary"
+                variant="danger"
                 onClick={handleReset}
                 disabled={!canSubmit}
                 data-testid="reset-submit"
@@ -430,85 +378,22 @@ export function ResetScreen({ manifest, setView, reloadManifest }: ResetScreenPr
           )}
 
           {phase === "running" && (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                paddingTop: 40,
-              }}
-              data-testid="reset-running"
-            >
-              <div
-                style={{
-                  width: 40,
-                  height: 40,
-                  border: `3px solid ${theme.border}`,
-                  borderTopColor: theme.accent,
-                  borderRadius: "50%",
-                  animation: "spin 1s linear infinite",
-                  marginBottom: 16,
-                }}
-              />
-              <div
-                style={{
-                  fontFamily: theme.sans,
-                  fontSize: 14,
-                  color: theme.textMuted,
-                }}
-              >
-                Resetting {scopeLabel}...
-              </div>
-              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            <div className="flex flex-col items-center pt-10" data-testid="reset-running">
+              <div className="w-10 h-10 border-[3px] border-edge border-t-gold-500 rounded-full mb-4 animate-spin" />
+              <div className="font-sans text-[14px] text-ash">Resetting {scopeLabel}...</div>
             </div>
           )}
 
           {phase === "done" && result && (
             <div data-testid="reset-done">
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  paddingTop: 20,
-                  paddingBottom: 24,
-                }}
-              >
-                <div
-                  style={{
-                    width: 56,
-                    height: 56,
-                    borderRadius: "50%",
-                    background: theme.greenDim,
-                    border: `1px solid ${theme.green}44`,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 24,
-                    color: theme.green,
-                    marginBottom: 16,
-                  }}
-                >
-                  {"\u2713"}
+              <div className="flex flex-col items-center pt-5 pb-6">
+                <div className="w-14 h-14 rounded-full bg-go-500/15 border border-go-500/40 flex items-center justify-center text-[24px] text-go-500 mb-4">
+                  {"✓"}
                 </div>
-                <div
-                  style={{
-                    fontFamily: theme.sans,
-                    fontWeight: 600,
-                    fontSize: 16,
-                    color: theme.green,
-                    marginBottom: 8,
-                  }}
-                >
+                <div className="font-sans font-semibold text-[16px] text-go-500 mb-2">
                   Reset complete
                 </div>
-                <div
-                  style={{
-                    fontFamily: theme.mono,
-                    fontSize: 12,
-                    color: theme.textMuted,
-                  }}
-                >
+                <div className="font-mono text-[12px] text-ash">
                   {result.scaffoldedCells.length} cell
                   {result.scaffoldedCells.length === 1 ? "" : "s"} scaffolded
                   {pendingCount > 0
@@ -518,38 +403,19 @@ export function ResetScreen({ manifest, setView, reloadManifest }: ResetScreenPr
               </div>
 
               {result.backendChanged && (
-                <div
-                  style={{
-                    background: theme.surface,
-                    border: `1px solid ${theme.border}`,
-                    borderRadius: 6,
-                    padding: "10px 14px",
-                    marginBottom: 16,
-                    fontFamily: theme.mono,
-                    fontSize: 11,
-                    color: theme.textMuted,
-                  }}
-                >
+                <div className="bg-ink-850 border border-edge rounded-md px-3.5 py-2.5 mb-4 font-mono text-[11px] text-ash">
                   Backend override written for: {result.affectedEnvironments.join(", ")}
                 </div>
               )}
 
               {pendingCount > 0 && (
-                <div
-                  style={{
-                    fontFamily: theme.sans,
-                    fontSize: 12,
-                    color: theme.textMuted,
-                    marginBottom: 16,
-                    lineHeight: 1.5,
-                  }}
-                >
+                <div className="font-sans text-[12px] text-ash mb-4 leading-relaxed">
                   Run <code>clef set</code> (or use the namespace editor) to replace placeholders
                   with real values.
                 </div>
               )}
 
-              <div style={{ display: "flex", gap: 10 }}>
+              <div className="flex gap-2.5">
                 <Button
                   variant="primary"
                   onClick={() => setView("matrix")}
@@ -571,44 +437,8 @@ export function ResetScreen({ manifest, setView, reloadManifest }: ResetScreenPr
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      style={{
-        fontFamily: theme.sans,
-        fontSize: 12,
-        fontWeight: 600,
-        color: theme.textMuted,
-        marginBottom: 8,
-        letterSpacing: "0.05em",
-        textTransform: "uppercase",
-      }}
-    >
+    <div className="font-sans text-[12px] font-semibold text-ash mb-2 uppercase tracking-[0.05em]">
       {children}
     </div>
   );
 }
-
-const selectStyle: React.CSSProperties = {
-  width: "100%",
-  background: theme.surface,
-  border: `1px solid ${theme.border}`,
-  borderRadius: 6,
-  padding: "7px 10px",
-  fontFamily: theme.sans,
-  fontSize: 13,
-  color: theme.text,
-  outline: "none",
-  cursor: "pointer",
-};
-
-const textInputStyle: React.CSSProperties = {
-  width: "100%",
-  background: theme.surface,
-  border: `1px solid ${theme.border}`,
-  borderRadius: 6,
-  padding: "8px 12px",
-  fontFamily: theme.mono,
-  fontSize: 12,
-  color: theme.text,
-  outline: "none",
-  boxSizing: "border-box",
-};

@@ -84,6 +84,12 @@ jobs:
       client_released: ${{ steps.versions.outputs.client_released }}
       cdk_version: ${{ steps.versions.outputs.cdk_version }}
       cdk_released: ${{ steps.versions.outputs.cdk_released }}
+      param_store_version: ${{ steps.versions.outputs.param_store_version }}
+      param_store_released: ${{ steps.versions.outputs.param_store_released }}
+      secrets_manager_version: ${{ steps.versions.outputs.secrets_manager_version }}
+      secrets_manager_released: ${{ steps.versions.outputs.secrets_manager_released }}
+      design_version: ${{ steps.versions.outputs.design_version }}
+      design_released: ${{ steps.versions.outputs.design_released }}
 
     steps:
       - uses: actions/checkout@v6
@@ -135,6 +141,9 @@ jobs:
           stamp_stable packages/ui        ui
           stamp_stable packages/client    client
           stamp_stable packages/cdk       cdk
+          stamp_stable packages/pack/aws-parameter-store param_store
+          stamp_stable packages/pack/aws-secrets-manager secrets_manager
+          stamp_stable packages/design   design
 
       # ── Verify CLI was bumped (early gate) ───────────────────────────────
       #
@@ -162,8 +171,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Stage only package.json files that changed
-          git add packages/*/package.json
+          # Stage only package.json files that changed (top-level + nested
+          # workspaces like packages/pack/<backend>/).
+          git add packages/*/package.json packages/*/*/package.json
           if git diff --cached --quiet; then
             echo "No version changes to commit"
             exit 0
@@ -208,6 +218,9 @@ jobs:
           tag_if_released ui        ui        "${{ steps.versions.outputs.ui_released }}"        "${{ steps.versions.outputs.ui_version }}"
           tag_if_released client    client    "${{ steps.versions.outputs.client_released }}"    "${{ steps.versions.outputs.client_version }}"
           tag_if_released cdk       cdk       "${{ steps.versions.outputs.cdk_released }}"       "${{ steps.versions.outputs.cdk_version }}"
+          tag_if_released pack-aws-parameter-store pack-aws-parameter-store "${{ steps.versions.outputs.param_store_released }}" "${{ steps.versions.outputs.param_store_version }}"
+          tag_if_released pack-aws-secrets-manager pack-aws-secrets-manager "${{ steps.versions.outputs.secrets_manager_released }}" "${{ steps.versions.outputs.secrets_manager_version }}"
+          tag_if_released design    design    "${{ steps.versions.outputs.design_released }}"    "${{ steps.versions.outputs.design_version }}"
 
           # Push only tags that don't yet exist on remote. The plain
           # `git push --tags` already skips existing matching tags but
@@ -278,6 +291,9 @@ jobs:
             add_row ui        "${{ steps.versions.outputs.ui_released }}"        "${{ steps.versions.outputs.ui_version }}"
             add_row client    "${{ steps.versions.outputs.client_released }}"    "${{ steps.versions.outputs.client_version }}"
             add_row cdk       "${{ steps.versions.outputs.cdk_released }}"       "${{ steps.versions.outputs.cdk_version }}"
+            add_row pack-aws-parameter-store "${{ steps.versions.outputs.param_store_released }}" "${{ steps.versions.outputs.param_store_version }}"
+            add_row pack-aws-secrets-manager "${{ steps.versions.outputs.secrets_manager_released }}" "${{ steps.versions.outputs.secrets_manager_version }}"
+            add_row design    "${{ steps.versions.outputs.design_released }}"    "${{ steps.versions.outputs.design_version }}"
             echo ""
             echo "Install: \`npm install -g @clef-sh/cli\`"
             echo ""
@@ -424,62 +440,59 @@ jobs:
         run: npm test
 
       # ── Publish to npm (public packages with provenance) ────────────────
+      #
+      # Auth: every @clef-sh/* package on npm has this workflow registered
+      # as its Trusted Publisher (npmjs.com → package settings → Trusted
+      # Publisher). The `id-token: write` permission at the top of this
+      # workflow lets the npm CLI exchange the workflow's OIDC token for a
+      # short-lived publish credential at run time — no long-lived
+      # NPM_TOKEN secret required.
+      #
+      # The publish-beta-npm.yml workflow still uses NPM_TOKEN. npm only
+      # honours one trusted publisher per package, so beta auth stays on
+      # the classic token until npm grows multi-publisher support.
 
       - name: Publish @clef-sh/core
         if: needs.prepare.outputs.core_released == 'true'
         continue-on-error: true
         working-directory: packages/core
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/core publish failed (may already exist)"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/cloud
         if: needs.prepare.outputs.cloud_released == 'true'
         continue-on-error: true
         working-directory: packages/cloud
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/cloud publish failed (may already exist)"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/analytics
         if: needs.prepare.outputs.analytics_released == 'true'
         continue-on-error: true
         working-directory: packages/analytics
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/analytics publish failed (may already exist)"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/runtime
         if: needs.prepare.outputs.runtime_released == 'true'
         continue-on-error: true
         working-directory: packages/runtime
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/runtime publish failed (may already exist)"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/broker
         if: needs.prepare.outputs.broker_released == 'true'
         continue-on-error: true
         working-directory: packages/broker
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/broker publish failed (may already exist)"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/agent
         if: needs.prepare.outputs.agent_released == 'true'
         continue-on-error: true
         working-directory: packages/agent
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/agent publish failed (may already exist)"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/cli
         if: needs.prepare.outputs.cli_released == 'true'
         continue-on-error: true
         working-directory: packages/cli
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/cli publish failed (may already exist)"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @clef-sh/ui
         if: needs.prepare.outputs.ui_released == 'true'
@@ -493,15 +506,29 @@ jobs:
         working-directory: packages/client
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/client publish failed (may already exist)"
 
-      # No NODE_AUTH_TOKEN: @clef-sh/cdk uses npm trusted-publisher + OIDC
-      # after its manual first-publish from a maintainer machine. The
-      # id-token:write permission at the top of this workflow is what
-      # lets `npm publish --provenance` authenticate.
       - name: Publish @clef-sh/cdk
         if: needs.prepare.outputs.cdk_released == 'true'
         continue-on-error: true
         working-directory: packages/cdk
         run: npm publish --provenance --access public || echo "::warning::@clef-sh/cdk publish failed (may already exist)"
+
+      - name: Publish @clef-sh/pack-aws-parameter-store
+        if: needs.prepare.outputs.param_store_released == 'true'
+        continue-on-error: true
+        working-directory: packages/pack/aws-parameter-store
+        run: npm publish --provenance --access public || echo "::warning::@clef-sh/pack-aws-parameter-store publish failed (may already exist)"
+
+      - name: Publish @clef-sh/pack-aws-secrets-manager
+        if: needs.prepare.outputs.secrets_manager_released == 'true'
+        continue-on-error: true
+        working-directory: packages/pack/aws-secrets-manager
+        run: npm publish --provenance --access public || echo "::warning::@clef-sh/pack-aws-secrets-manager publish failed (may already exist)"
+
+      - name: Publish @clef-sh/design
+        if: needs.prepare.outputs.design_released == 'true'
+        continue-on-error: true
+        working-directory: packages/design
+        run: npm publish --provenance --access public || echo "::warning::@clef-sh/design publish failed (may already exist)"
 
       # ── Flip draft to published ─────────────────────────────────────────
       #

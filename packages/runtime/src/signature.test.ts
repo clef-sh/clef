@@ -1,5 +1,5 @@
 import * as crypto from "crypto";
-import { buildSigningPayload, verifySignature } from "./signature";
+import { buildSigningPayload, verifySignature } from "./index";
 
 import type { PackedArtifact } from "@clef-sh/core";
 
@@ -16,23 +16,23 @@ function makeArtifact(overrides: Partial<PackedArtifact> = {}): PackedArtifact {
   };
 }
 
-describe("buildSigningPayload (runtime)", () => {
-  it("should produce the same payload as core for identical artifacts", () => {
+describe("signature helpers re-exported from @clef-sh/core", () => {
+  it("buildSigningPayload produces the canonical v3 payload", () => {
     const artifact = makeArtifact();
-    const payload = buildSigningPayload(artifact);
+    const payload = buildSigningPayload(artifact).toString("utf-8");
 
-    expect(payload.toString("utf-8")).toContain("clef-sig-v3");
-    expect(payload.toString("utf-8")).toContain("api-gateway");
-    expect(payload.toString("utf-8")).toContain("production");
+    expect(payload).toContain("clef-sig-v3");
+    expect(payload).toContain("api-gateway");
+    expect(payload).toContain("production");
   });
 
-  it("should produce deterministic payloads without keys", () => {
+  it("buildSigningPayload is deterministic", () => {
     const a1 = makeArtifact();
     const a2 = makeArtifact();
     expect(buildSigningPayload(a1).equals(buildSigningPayload(a2))).toBe(true);
   });
 
-  it("should include envelope fields when present", () => {
+  it("buildSigningPayload includes envelope fields when present", () => {
     const artifact = makeArtifact({
       envelope: {
         provider: "aws",
@@ -47,10 +47,8 @@ describe("buildSigningPayload (runtime)", () => {
     expect(payload).toContain("aws");
     expect(payload).toContain("arn:aws:kms:test");
   });
-});
 
-describe("verifySignature (runtime)", () => {
-  it("should verify a valid Ed25519 signature", () => {
+  it("verifySignature accepts a valid Ed25519 signature", () => {
     const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
     const pubBase64 = (publicKey.export({ type: "spki", format: "der" }) as Buffer).toString(
       "base64",
@@ -61,7 +59,7 @@ describe("verifySignature (runtime)", () => {
     expect(verifySignature(payload, signature, pubBase64)).toBe(true);
   });
 
-  it("should reject an invalid Ed25519 signature", () => {
+  it("verifySignature rejects a signature from a different key", () => {
     const kp1 = crypto.generateKeyPairSync("ed25519");
     const kp2 = crypto.generateKeyPairSync("ed25519");
     const pubBase64 = (kp2.publicKey.export({ type: "spki", format: "der" }) as Buffer).toString(
@@ -73,7 +71,7 @@ describe("verifySignature (runtime)", () => {
     expect(verifySignature(payload, signature, pubBase64)).toBe(false);
   });
 
-  it("should verify a valid ECDSA_SHA256 signature", () => {
+  it("verifySignature accepts a valid ECDSA_SHA256 signature", () => {
     const { publicKey, privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
     const pubBase64 = (publicKey.export({ type: "spki", format: "der" }) as Buffer).toString(
       "base64",
@@ -84,7 +82,7 @@ describe("verifySignature (runtime)", () => {
     expect(verifySignature(payload, signature, pubBase64)).toBe(true);
   });
 
-  it("should reject a tampered payload", () => {
+  it("verifySignature rejects a tampered payload", () => {
     const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
     const pubBase64 = (publicKey.export({ type: "spki", format: "der" }) as Buffer).toString(
       "base64",
@@ -96,7 +94,7 @@ describe("verifySignature (runtime)", () => {
     expect(verifySignature(tampered, signature, pubBase64)).toBe(false);
   });
 
-  it("should throw for unsupported key types", () => {
+  it("verifySignature throws for unsupported key types", () => {
     const { publicKey } = crypto.generateKeyPairSync("rsa", {
       modulusLength: 2048,
     });
@@ -107,13 +105,11 @@ describe("verifySignature (runtime)", () => {
 
     expect(() => verifySignature(payload, "dGVzdA==", pubBase64)).toThrow("Unsupported key type");
   });
-});
 
-describe("cross-package payload contract", () => {
-  it("produces canonical payload matching core signer specification", () => {
-    // Uses the EXACT same artifact and expected output as
-    // core/src/artifact/signer.test.ts "produces canonical payload matching runtime specification".
-    // If either implementation drifts, both this test and the core test will fail.
+  it("produces canonical payload matching the locked v3 format", () => {
+    // This test pins the exact byte layout of the signing payload.
+    // If core's signer.ts changes this format, both this test and
+    // core/src/artifact/signer.test.ts should fail together.
     const artifact = makeArtifact({
       expiresAt: "2026-03-22T12:00:00.000Z",
       envelope: {

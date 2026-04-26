@@ -59,6 +59,8 @@ const mockSyncSync = jest.fn().mockResolvedValue({
   totalKeysScaffolded: 1,
 });
 
+const mockWriteSchema = jest.fn();
+
 // StructureManager method stubs — default to success. Tests override per-case
 // for error scenarios.
 const mockAddNamespace = jest.fn().mockResolvedValue(undefined);
@@ -117,6 +119,7 @@ jest.mock("@clef-sh/core", () => {
     recordRotation: jest.fn().mockResolvedValue(undefined),
     removeRotation: jest.fn().mockResolvedValue(undefined),
     generateRandomValue: jest.fn().mockReturnValue("a".repeat(64)),
+    writeSchema: (...args: unknown[]) => mockWriteSchema(...args),
   };
 });
 
@@ -620,6 +623,246 @@ describe("API routes", () => {
   });
 
   // GET /api/lint/:namespace
+  describe("schema endpoints", () => {
+    const schemaYaml = YAML.stringify({
+      keys: {
+        API_KEY: { type: "string", required: true, pattern: "^sk_" },
+        FLAG: { type: "boolean", required: false },
+      },
+    });
+
+    /**
+     * Build the app with route-aware fs mocks. `createApp` sets blanket
+     * `readFileSync`/`existsSync` mocks, so we apply path-routed overrides
+     * AFTER it and return both. Tests can further override existsSync to
+     * simulate a missing schema file on disk.
+     */
+    function makeAppWithSchema(opts: { attached: boolean }) {
+      const manifest = opts.attached
+        ? {
+            ...validManifest,
+            namespaces: [{ name: "database", description: "DB", schema: "schemas/database.yaml" }],
+          }
+        : validManifest;
+      const manifestYaml = YAML.stringify(manifest);
+      const app = createApp();
+      mockFs.readFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+        const sp = String(p);
+        if (sp.endsWith("schemas/database.yaml")) return schemaYaml;
+        return manifestYaml;
+      });
+      mockFs.existsSync.mockReturnValue(true);
+      return app;
+    }
+
+    describe("GET /api/namespaces/:ns/schema", () => {
+      it("returns attached:false with an empty schema when none is wired up", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        const res = await request(app).get("/api/namespaces/database/schema");
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({
+          namespace: "database",
+          attached: false,
+          path: null,
+          schema: { keys: {} },
+        });
+      });
+
+      it("returns attached:true with the parsed schema when one is wired up", async () => {
+        const app = makeAppWithSchema({ attached: true });
+        const res = await request(app).get("/api/namespaces/database/schema");
+        expect(res.status).toBe(200);
+        expect(res.body.attached).toBe(true);
+        expect(res.body.path).toBe("schemas/database.yaml");
+        expect(res.body.schema.keys.API_KEY).toMatchObject({
+          type: "string",
+          required: true,
+          pattern: "^sk_",
+        });
+      });
+
+      it("returns 404 for an unknown namespace", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        const res = await request(app).get("/api/namespaces/ghost/schema");
+        expect(res.status).toBe(404);
+        expect(res.body.code).toBe("NOT_FOUND");
+      });
+
+      it("returns 500 when an attached schema file is missing on disk", async () => {
+        const app = makeAppWithSchema({ attached: true });
+        mockFs.existsSync.mockImplementation(
+          (p: fs.PathLike) => !String(p).endsWith("schemas/database.yaml"),
+        );
+        const res = await request(app).get("/api/namespaces/database/schema");
+        expect(res.status).toBe(500);
+        expect(res.body.code).toBe("SCHEMA_MISSING");
+      });
+    });
+
+    describe("PUT /api/namespaces/:ns/schema", () => {
+      it("writes the schema and attaches it on first save when none is wired up", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        const payload = {
+          schema: {
+            keys: {
+              API_KEY: { type: "string", required: true, pattern: "^sk_" },
+            },
+          },
+        };
+        const res = await request(app).put("/api/namespaces/database/schema").send(payload);
+        expect(res.status).toBe(200);
+        expect(res.body.attached).toBe(true);
+        expect(res.body.path).toBe("schemas/database.yaml");
+        expect(mockWriteSchema).toHaveBeenCalledWith(
+          "/repo",
+          "schemas/database.yaml",
+          expect.objectContaining({
+            keys: expect.objectContaining({ API_KEY: expect.objectContaining({ type: "string" }) }),
+          }),
+        );
+        expect(mockEditNamespace).toHaveBeenCalledWith(
+          "database",
+          { schema: "schemas/database.yaml" },
+          expect.anything(),
+          "/repo",
+        );
+      });
+
+      it("writes the schema and skips re-attachment when already attached", async () => {
+        const app = makeAppWithSchema({ attached: true });
+        const res = await request(app)
+          .put("/api/namespaces/database/schema")
+          .send({
+            schema: { keys: { FLAG: { type: "boolean", required: false } } },
+          });
+        expect(res.status).toBe(200);
+        expect(mockWriteSchema).toHaveBeenCalledTimes(1);
+        expect(mockEditNamespace).not.toHaveBeenCalled();
+      });
+
+      it("rejects payloads with an invalid type", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        const res = await request(app)
+          .put("/api/namespaces/database/schema")
+          .send({
+            schema: { keys: { K: { type: "float", required: true } } },
+          });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe("INVALID_SCHEMA");
+        expect(mockWriteSchema).not.toHaveBeenCalled();
+      });
+
+      it("rejects payloads with an invalid regex", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        const res = await request(app)
+          .put("/api/namespaces/database/schema")
+          .send({
+            schema: { keys: { K: { type: "string", required: true, pattern: "([" } } },
+          });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe("INVALID_SCHEMA");
+      });
+
+      it("rejects payloads missing the keys map", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        const res = await request(app).put("/api/namespaces/database/schema").send({ schema: {} });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe("INVALID_SCHEMA");
+      });
+
+      it("returns 404 for an unknown namespace", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        const res = await request(app)
+          .put("/api/namespaces/ghost/schema")
+          .send({ schema: { keys: {} } });
+        expect(res.status).toBe(404);
+      });
+
+      it("respects an explicit body.path on first save", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        const res = await request(app)
+          .put("/api/namespaces/database/schema")
+          .send({
+            schema: { keys: {} },
+            path: "schemas/custom/db.yaml",
+          });
+        expect(res.status).toBe(200);
+        expect(res.body.path).toBe("schemas/custom/db.yaml");
+        expect(mockEditNamespace).toHaveBeenCalledWith(
+          "database",
+          { schema: "schemas/custom/db.yaml" },
+          expect.anything(),
+          "/repo",
+        );
+      });
+
+      it("rejects body.path that escapes the repository root via traversal", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        const res = await request(app)
+          .put("/api/namespaces/database/schema")
+          .send({
+            schema: { keys: {} },
+            path: "../../../etc/clef-injected.yaml",
+          });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe("SCHEMA_PATH_INVALID");
+        expect(mockWriteSchema).not.toHaveBeenCalled();
+      });
+
+      it("rejects body.path that is absolute", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        const res = await request(app)
+          .put("/api/namespaces/database/schema")
+          .send({
+            schema: { keys: {} },
+            path: "/etc/clef-injected.yaml",
+          });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe("SCHEMA_PATH_INVALID");
+        expect(mockWriteSchema).not.toHaveBeenCalled();
+      });
+
+      it("rejects body.path that hides a `..` segment behind a safe-looking prefix", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        const res = await request(app)
+          .put("/api/namespaces/database/schema")
+          .send({
+            schema: { keys: {} },
+            path: "schemas/../../../etc/clef-injected.yaml",
+          });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe("SCHEMA_PATH_INVALID");
+        expect(mockWriteSchema).not.toHaveBeenCalled();
+      });
+
+      it("rejects body.path containing a NUL byte", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        const res = await request(app)
+          .put("/api/namespaces/database/schema")
+          .send({
+            schema: { keys: {} },
+            path: "schemas/db\0.yaml",
+          });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe("SCHEMA_PATH_INVALID");
+        expect(mockWriteSchema).not.toHaveBeenCalled();
+      });
+
+      it("rejects a namespace param that does not match the safe identifier pattern", async () => {
+        const app = makeAppWithSchema({ attached: false });
+        // Uppercase fails the lowercase-only whitelist (clef's own
+        // ENV_NAME_PATTERN). The default `schemas/${ns}.yaml` fallback must
+        // never be built from a name that hasn't been pattern-checked.
+        const res = await request(app)
+          .put("/api/namespaces/BadNs/schema")
+          .send({ schema: { keys: {} } });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe("INVALID_NAMESPACE");
+        expect(mockWriteSchema).not.toHaveBeenCalled();
+      });
+    });
+  });
+
   describe("GET /api/lint/:namespace", () => {
     it("should return lint issues filtered by namespace", async () => {
       const app = createApp();

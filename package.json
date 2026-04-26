@@ -4,16 +4,18 @@
   "private": true,
   "description": "Git-native config and secrets management built on Mozilla SOPS",
   "workspaces": [
+    "packages/design",
     "packages/core",
-    "packages/cloud",
-    "packages/ui",
-    "packages/runtime",
-    "packages/broker",
-    "packages/agent",
     "packages/analytics",
     "packages/client",
+    "packages/runtime",
+    "packages/cloud",
+    "packages/ui",
+    "packages/broker",
+    "packages/agent",
+    "packages/cdk",
     "packages/cli",
-    "packages/cdk"
+    "packages/pack/*"
   ],
   "scripts": {
     "test": "npm test --workspaces --if-present",

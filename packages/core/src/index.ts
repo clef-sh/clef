@@ -15,6 +15,14 @@ export {
 export type { ScanMatch, ScanResult, ScanOptions, ClefIgnoreRules } from "./scanner";
 export { MatrixManager } from "./matrix/manager";
 export { SchemaValidator } from "./schema/validator";
+export {
+  serializeSchema,
+  writeSchema,
+  writeSchemaRaw,
+  emptyTemplate,
+  exampleTemplate,
+} from "./schema/writer";
+export type { SerializeSchemaOptions } from "./schema/writer";
 export { DiffEngine } from "./diff/engine";
 export { BulkOps } from "./bulk/ops";
 export { GitIntegration } from "./git/integration";
@@ -125,6 +133,32 @@ export {
   verifySignature,
   detectAlgorithm,
 } from "./artifact/signer";
+export { computeCiphertextHash } from "./artifact/hash";
+export type {
+  InspectEnvelope,
+  InspectResult,
+  HashStatus,
+  SignatureStatus,
+  ExpiryStatus,
+  RevocationStatus,
+  OverallStatus,
+  VerifyResult,
+  VerifyInputs,
+  DecryptStatus,
+  DecryptResult,
+  DecryptSuccessInputs,
+} from "./envelope-debug";
+export {
+  buildInspectError,
+  buildInspectResult,
+  buildVerifyError,
+  buildVerifyResult,
+  buildDecryptError,
+  buildDecryptResult,
+  REVEAL_WARNING,
+  formatRevealWarning,
+  parseSignerKey,
+} from "./envelope-debug";
 export { PackBackendRegistry } from "./pack/registry";
 export type {
   PackBackend,

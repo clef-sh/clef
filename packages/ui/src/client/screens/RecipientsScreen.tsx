@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { theme } from "../theme";
 import { apiFetch } from "../api";
-import { TopBar } from "../components/TopBar";
 import { Button } from "../components/Button";
+import { Toolbar, EmptyState } from "../primitives";
 import type { ClefManifest, Recipient, AgeKeyValidation } from "@clef-sh/core";
 import type { ViewName } from "../components/Sidebar";
 
@@ -10,6 +9,12 @@ interface RecipientsScreenProps {
   manifest: ClefManifest | null;
   setView: (view: ViewName) => void;
 }
+
+const KEY_INPUT_BASE =
+  "w-full box-border rounded-md bg-ink-950 px-3 py-2 font-mono text-[12px] text-bone outline-none focus-visible:border-gold-500 placeholder:text-ash-dim";
+
+const TEXT_INPUT_BASE =
+  "w-full box-border rounded-md border border-edge bg-ink-950 px-3 py-2 font-sans text-[13px] text-bone outline-none focus-visible:border-gold-500 placeholder:text-ash-dim";
 
 export function RecipientsScreen({ manifest: _manifest, setView }: RecipientsScreenProps) {
   const [recipients, setRecipients] = useState<Recipient[]>([]);
@@ -21,18 +26,15 @@ export function RecipientsScreen({ manifest: _manifest, setView }: RecipientsScr
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Remove flow state
   const [removeTarget, setRemoveTarget] = useState<Recipient | null>(null);
   const [removeStep, setRemoveStep] = useState<0 | 1 | 2>(0);
   const [acknowledgedWarning, setAcknowledgedWarning] = useState(false);
 
-  // Post-removal banner
   const [removalBanner, setRemovalBanner] = useState<{
     name: string;
     targets: string[];
   } | null>(null);
 
-  // Debounce timer ref for key validation
   const validateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadRecipients = useCallback(async () => {
@@ -52,17 +54,12 @@ export function RecipientsScreen({ manifest: _manifest, setView }: RecipientsScr
     loadRecipients();
   }, [loadRecipients]);
 
-  // Real-time key validation with debounce
   useEffect(() => {
     if (!addKey.trim()) {
       setKeyValidation(null);
       return;
     }
-
-    if (validateTimerRef.current) {
-      clearTimeout(validateTimerRef.current);
-    }
-
+    if (validateTimerRef.current) clearTimeout(validateTimerRef.current);
     validateTimerRef.current = setTimeout(async () => {
       try {
         const res = await apiFetch(
@@ -78,18 +75,14 @@ export function RecipientsScreen({ manifest: _manifest, setView }: RecipientsScr
     }, 300);
 
     return () => {
-      if (validateTimerRef.current) {
-        clearTimeout(validateTimerRef.current);
-      }
+      if (validateTimerRef.current) clearTimeout(validateTimerRef.current);
     };
   }, [addKey]);
 
   const handleAdd = async () => {
     if (!keyValidation?.valid) return;
-
     setLoading(true);
     setError(null);
-
     try {
       const res = await apiFetch("/api/recipients/add", {
         method: "POST",
@@ -99,13 +92,11 @@ export function RecipientsScreen({ manifest: _manifest, setView }: RecipientsScr
           label: addLabel.trim() || undefined,
         }),
       });
-
       if (!res.ok) {
         const data = await res.json();
         setError(data.error ?? "Failed to add recipient");
         return;
       }
-
       const data = await res.json();
       setRecipients(data.recipients);
       setShowAddForm(false);
@@ -133,33 +124,26 @@ export function RecipientsScreen({ manifest: _manifest, setView }: RecipientsScr
 
   const handleRemove = async () => {
     if (!removeTarget) return;
-
     setLoading(true);
     setError(null);
-
     try {
       const res = await apiFetch("/api/recipients/remove", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: removeTarget.key }),
       });
-
       if (!res.ok) {
         const data = await res.json();
         setError(data.error ?? "Failed to remove recipient");
         return;
       }
-
       const data = await res.json();
       setRecipients(data.recipients);
-
-      // Show rotation reminder
       const name = removeTarget.label ?? removeTarget.preview;
       setRemovalBanner({
         name,
         targets: data.rotationReminder ?? [],
       });
-
       cancelRemove();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to remove recipient");
@@ -168,94 +152,59 @@ export function RecipientsScreen({ manifest: _manifest, setView }: RecipientsScr
     }
   };
 
+  const keyBorderClass = keyValidation
+    ? keyValidation.valid
+      ? "border border-go-500/40"
+      : "border border-stop-500/40"
+    : "border border-edge";
+
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <TopBar
-        title="Recipients"
-        subtitle="clef recipients -- manage age encryption keys"
-        actions={
-          !showAddForm && removeStep === 0 ? (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <Toolbar>
+        <div>
+          <Toolbar.Title>Recipients</Toolbar.Title>
+          <Toolbar.Subtitle>clef recipients -- manage age encryption keys</Toolbar.Subtitle>
+        </div>
+        {!showAddForm && removeStep === 0 && (
+          <Toolbar.Actions>
             <Button variant="primary" onClick={() => setShowAddForm(true)}>
               + Add recipient
             </Button>
-          ) : undefined
-        }
-      />
+          </Toolbar.Actions>
+        )}
+      </Toolbar>
 
-      <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
-        <div style={{ maxWidth: 620, margin: "0 auto" }}>
-          {/* Error banner */}
+      <div className="flex-1 overflow-auto p-6">
+        <div className="mx-auto max-w-[620px]">
           {error && (
-            <div
-              style={{
-                background: theme.redDim,
-                border: `1px solid ${theme.red}44`,
-                borderRadius: 8,
-                padding: "12px 16px",
-                marginBottom: 16,
-                fontFamily: theme.sans,
-                fontSize: 13,
-                color: theme.red,
-              }}
-            >
+            <div className="mb-4 rounded-lg border border-stop-500/30 bg-stop-500/10 px-4 py-3 font-sans text-[13px] text-stop-500">
               {error}
             </div>
           )}
 
-          {/* Post-removal rotation reminder banner */}
           {removalBanner && (
             <div
               data-testid="rotation-banner"
-              style={{
-                background: theme.yellowDim,
-                border: `1px solid ${theme.yellow}44`,
-                borderRadius: 8,
-                padding: "14px 18px",
-                marginBottom: 20,
-              }}
+              className="mb-5 rounded-lg border border-warn-500/30 bg-warn-500/10 px-4 py-3.5"
             >
-              <div
-                style={{
-                  fontFamily: theme.sans,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: theme.yellow,
-                  marginBottom: 8,
-                }}
-              >
+              <div className="mb-2 font-sans text-[13px] font-semibold text-warn-500">
                 Rotation reminder
               </div>
-              <div
-                style={{
-                  fontFamily: theme.sans,
-                  fontSize: 13,
-                  color: theme.text,
-                  marginBottom: 10,
-                  lineHeight: 1.5,
-                }}
-              >
+              <div className="mb-2.5 font-sans text-[13px] leading-relaxed text-bone">
                 <strong>{removalBanner.name}</strong> has been removed and files re-encrypted.
                 However, the removed key may still decrypt old versions of these files from git
                 history. Rotate secret values in the following targets to complete revocation:
               </div>
               {removalBanner.targets.length > 0 && (
-                <div
-                  style={{
-                    fontFamily: theme.mono,
-                    fontSize: 11,
-                    color: theme.textMuted,
-                    marginBottom: 12,
-                    paddingLeft: 12,
-                  }}
-                >
+                <div className="mb-3 pl-3 font-mono text-[11px] text-ash">
                   {removalBanner.targets.map((t) => (
-                    <div key={t} style={{ marginBottom: 2 }}>
+                    <div key={t} className="mb-px">
                       {t}
                     </div>
                   ))}
                 </div>
               )}
-              <div style={{ display: "flex", gap: 10 }}>
+              <div className="flex gap-2.5">
                 <Button variant="primary" onClick={() => setView("matrix")}>
                   Go to Matrix to rotate
                 </Button>
@@ -266,32 +215,16 @@ export function RecipientsScreen({ manifest: _manifest, setView }: RecipientsScr
             </div>
           )}
 
-          {/* Add form */}
           {showAddForm && (
             <div
               data-testid="add-form"
-              style={{
-                background: theme.surface,
-                border: `1px solid ${theme.border}`,
-                borderRadius: 10,
-                padding: 20,
-                marginBottom: 24,
-              }}
+              className="mb-6 rounded-lg border border-edge bg-ink-850 p-5"
             >
-              <div
-                style={{
-                  fontFamily: theme.sans,
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: theme.text,
-                  marginBottom: 16,
-                }}
-              >
+              <div className="mb-4 font-sans text-[14px] font-semibold text-bone">
                 Add recipient
               </div>
 
-              {/* Key input */}
-              <div style={{ marginBottom: 14 }}>
+              <div className="mb-3.5">
                 <Label>Age public key</Label>
                 <input
                   type="text"
@@ -299,53 +232,19 @@ export function RecipientsScreen({ manifest: _manifest, setView }: RecipientsScr
                   onChange={(e) => setAddKey(e.target.value)}
                   placeholder="age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
                   data-testid="add-key-input"
-                  style={{
-                    width: "100%",
-                    background: theme.bg,
-                    border: `1px solid ${
-                      keyValidation
-                        ? keyValidation.valid
-                          ? theme.green + "66"
-                          : theme.red + "66"
-                        : theme.border
-                    }`,
-                    borderRadius: 6,
-                    padding: "8px 12px",
-                    fontFamily: theme.mono,
-                    fontSize: 12,
-                    color: theme.text,
-                    outline: "none",
-                    boxSizing: "border-box",
-                  }}
+                  className={`${KEY_INPUT_BASE} ${keyBorderClass}`}
                 />
                 {keyValidation && !keyValidation.valid && (
-                  <div
-                    style={{
-                      fontFamily: theme.sans,
-                      fontSize: 11,
-                      color: theme.red,
-                      marginTop: 4,
-                    }}
-                  >
+                  <div className="mt-1 font-sans text-[11px] text-stop-500">
                     {keyValidation.error}
                   </div>
                 )}
                 {keyValidation?.valid && (
-                  <div
-                    style={{
-                      fontFamily: theme.sans,
-                      fontSize: 11,
-                      color: theme.green,
-                      marginTop: 4,
-                    }}
-                  >
-                    Valid age public key
-                  </div>
+                  <div className="mt-1 font-sans text-[11px] text-go-500">Valid age public key</div>
                 )}
               </div>
 
-              {/* Label input */}
-              <div style={{ marginBottom: 14 }}>
+              <div className="mb-3.5">
                 <Label>Label (optional)</Label>
                 <input
                   type="text"
@@ -353,41 +252,16 @@ export function RecipientsScreen({ manifest: _manifest, setView }: RecipientsScr
                   onChange={(e) => setAddLabel(e.target.value)}
                   placeholder="e.g. alice@example.com"
                   data-testid="add-label-input"
-                  style={{
-                    width: "100%",
-                    background: theme.bg,
-                    border: `1px solid ${theme.border}`,
-                    borderRadius: 6,
-                    padding: "8px 12px",
-                    fontFamily: theme.sans,
-                    fontSize: 13,
-                    color: theme.text,
-                    outline: "none",
-                    boxSizing: "border-box",
-                  }}
+                  className={TEXT_INPUT_BASE}
                 />
               </div>
 
-              {/* Re-encryption warning */}
-              <div
-                style={{
-                  marginBottom: 16,
-                  padding: "10px 14px",
-                  background: theme.yellowDim,
-                  border: `1px solid ${theme.yellow}44`,
-                  borderRadius: 6,
-                  fontFamily: theme.sans,
-                  fontSize: 12,
-                  color: theme.yellow,
-                  lineHeight: 1.5,
-                }}
-              >
+              <div className="mb-4 rounded-md border border-warn-500/30 bg-warn-500/10 px-3.5 py-2.5 font-sans text-[12px] leading-relaxed text-warn-500">
                 Adding a recipient will re-encrypt {totalFiles} file
                 {totalFiles !== 1 ? "s" : ""}. This may take a moment.
               </div>
 
-              {/* Actions */}
-              <div style={{ display: "flex", gap: 10 }}>
+              <div className="flex gap-2.5">
                 <Button
                   variant="ghost"
                   onClick={() => {
@@ -411,87 +285,37 @@ export function RecipientsScreen({ manifest: _manifest, setView }: RecipientsScr
             </div>
           )}
 
-          {/* Remove flow: Step 1 — Revocation warning */}
           {removeStep === 1 && removeTarget && (
             <div
               data-testid="remove-dialog"
-              style={{
-                background: theme.surface,
-                border: `1px solid ${theme.red}44`,
-                borderRadius: 10,
-                padding: 20,
-                marginBottom: 24,
-              }}
+              className="mb-6 rounded-lg border border-stop-500/30 bg-ink-850 p-5"
             >
-              <div
-                style={{
-                  fontFamily: theme.sans,
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: theme.red,
-                  marginBottom: 12,
-                }}
-              >
+              <div className="mb-3 font-sans text-[14px] font-semibold text-stop-500">
                 Remove recipient
               </div>
-
-              <div
-                style={{
-                  fontFamily: theme.sans,
-                  fontSize: 13,
-                  color: theme.text,
-                  lineHeight: 1.6,
-                  marginBottom: 16,
-                }}
-              >
+              <div className="mb-4 font-sans text-[13px] leading-relaxed text-bone">
                 You are about to remove{" "}
-                <strong style={{ color: theme.accent }}>
+                <strong className="text-gold-500">
                   {removeTarget.label ?? removeTarget.preview}
                 </strong>{" "}
                 ({removeTarget.preview}). All {totalFiles} encrypted file
                 {totalFiles !== 1 ? "s" : ""} will be re-encrypted without this key.
               </div>
-
-              <div
-                style={{
-                  background: theme.redDim,
-                  border: `1px solid ${theme.red}44`,
-                  borderRadius: 6,
-                  padding: "12px 14px",
-                  marginBottom: 16,
-                  fontFamily: theme.sans,
-                  fontSize: 12,
-                  color: theme.red,
-                  lineHeight: 1.5,
-                }}
-              >
+              <div className="mb-4 rounded-md border border-stop-500/30 bg-stop-500/10 px-3.5 py-3 font-sans text-[12px] leading-relaxed text-stop-500">
                 Re-encryption only removes <em>future</em> access. The removed key can still decrypt
                 old versions from git history. You must rotate all secret values after removal.
               </div>
-
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: 10,
-                  cursor: "pointer",
-                  fontFamily: theme.sans,
-                  fontSize: 13,
-                  color: theme.text,
-                  marginBottom: 16,
-                }}
-              >
+              <label className="mb-4 flex cursor-pointer items-start gap-2.5 font-sans text-[13px] text-bone">
                 <input
                   type="checkbox"
                   checked={acknowledgedWarning}
                   onChange={(e) => setAcknowledgedWarning(e.target.checked)}
                   data-testid="acknowledge-checkbox"
-                  style={{ accentColor: theme.red, marginTop: 2 }}
+                  className="mt-0.5 accent-stop-500"
                 />
                 I understand — I will rotate secrets after removal
               </label>
-
-              <div style={{ display: "flex", gap: 10 }}>
+              <div className="flex gap-2.5">
                 <Button variant="ghost" onClick={cancelRemove}>
                   Cancel
                 </Button>
@@ -506,48 +330,23 @@ export function RecipientsScreen({ manifest: _manifest, setView }: RecipientsScr
             </div>
           )}
 
-          {/* Remove flow: Step 2 — Final confirmation */}
           {removeStep === 2 && removeTarget && (
             <div
               data-testid="remove-confirm-dialog"
-              style={{
-                background: theme.surface,
-                border: `1px solid ${theme.red}44`,
-                borderRadius: 10,
-                padding: 20,
-                marginBottom: 24,
-              }}
+              className="mb-6 rounded-lg border border-stop-500/30 bg-ink-850 p-5"
             >
-              <div
-                style={{
-                  fontFamily: theme.sans,
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: theme.red,
-                  marginBottom: 12,
-                }}
-              >
+              <div className="mb-3 font-sans text-[14px] font-semibold text-stop-500">
                 Confirm removal
               </div>
-
-              <div
-                style={{
-                  fontFamily: theme.sans,
-                  fontSize: 13,
-                  color: theme.text,
-                  lineHeight: 1.6,
-                  marginBottom: 16,
-                }}
-              >
+              <div className="mb-4 font-sans text-[13px] leading-relaxed text-bone">
                 This will remove{" "}
-                <strong style={{ color: theme.accent }}>
+                <strong className="text-gold-500">
                   {removeTarget.label ?? removeTarget.preview}
                 </strong>{" "}
                 and re-encrypt all {totalFiles} file{totalFiles !== 1 ? "s" : ""}. This cannot be
                 undone.
               </div>
-
-              <div style={{ display: "flex", gap: 10 }}>
+              <div className="flex gap-2.5">
                 <Button variant="ghost" onClick={cancelRemove}>
                   Cancel
                 </Button>
@@ -558,97 +357,37 @@ export function RecipientsScreen({ manifest: _manifest, setView }: RecipientsScr
             </div>
           )}
 
-          {/* Recipients list */}
           {recipients.length === 0 && !showAddForm && (
-            <div
-              style={{
-                textAlign: "center",
-                paddingTop: 40,
-                fontFamily: theme.sans,
-                fontSize: 14,
-                color: theme.textMuted,
-              }}
-            >
-              No recipients configured. Add an age public key to get started.
-            </div>
+            <EmptyState
+              title="No recipients configured"
+              body="Add an age public key to get started."
+            />
           )}
 
           {recipients.length > 0 && (
             <div>
-              <div
-                style={{
-                  fontFamily: theme.sans,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: theme.textMuted,
-                  letterSpacing: "0.05em",
-                  textTransform: "uppercase",
-                  marginBottom: 10,
-                }}
-              >
+              <div className="mb-2.5 font-sans text-[12px] font-semibold uppercase tracking-[0.05em] text-ash">
                 Recipients ({recipients.length})
               </div>
-
               {recipients.map((r) => (
                 <div
                   key={r.key}
                   data-testid="recipient-row"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 14,
-                    padding: "12px 16px",
-                    background: theme.surface,
-                    border: `1px solid ${theme.border}`,
-                    borderRadius: 8,
-                    marginBottom: 8,
-                  }}
+                  className="mb-2 flex items-center gap-3.5 rounded-lg border border-edge bg-ink-850 px-4 py-3"
                 >
-                  <div
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 6,
-                      background: theme.accentDim,
-                      border: `1px solid ${theme.accent}44`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 14,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {"\uD83D\uDD11"}
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-gold-500/30 bg-gold-500/10 text-[14px]">
+                    {"🔑"}
                   </div>
-
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="min-w-0 flex-1">
                     {r.label && (
-                      <div
-                        style={{
-                          fontFamily: theme.sans,
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: theme.text,
-                          marginBottom: 2,
-                        }}
-                      >
+                      <div className="mb-0.5 font-sans text-[13px] font-semibold text-bone">
                         {r.label}
                       </div>
                     )}
-                    <div
-                      style={{
-                        fontFamily: theme.mono,
-                        fontSize: 11,
-                        color: theme.textMuted,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
+                    <div className="overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11px] text-ash">
                       {r.preview}
                     </div>
                   </div>
-
                   <Button
                     variant="ghost"
                     onClick={() => startRemove(r)}
@@ -658,15 +397,7 @@ export function RecipientsScreen({ manifest: _manifest, setView }: RecipientsScr
                   </Button>
                 </div>
               ))}
-
-              <div
-                style={{
-                  fontFamily: theme.mono,
-                  fontSize: 11,
-                  color: theme.textDim,
-                  marginTop: 12,
-                }}
-              >
+              <div className="mt-3 font-mono text-[11px] text-ash-dim">
                 {totalFiles} encrypted file{totalFiles !== 1 ? "s" : ""} in the matrix
               </div>
             </div>
@@ -679,17 +410,7 @@ export function RecipientsScreen({ manifest: _manifest, setView }: RecipientsScr
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      style={{
-        fontFamily: theme.sans,
-        fontSize: 12,
-        fontWeight: 600,
-        color: theme.textMuted,
-        marginBottom: 6,
-        letterSpacing: "0.05em",
-        textTransform: "uppercase",
-      }}
-    >
+    <div className="mb-1.5 font-sans text-[12px] font-semibold uppercase tracking-[0.05em] text-ash">
       {children}
     </div>
   );

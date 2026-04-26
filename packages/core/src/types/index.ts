@@ -207,10 +207,7 @@ export interface SchemaKey {
   required: boolean;
   /** Regex pattern the value must match (strings only). */
   pattern?: string;
-  default?: unknown;
   description?: string;
-  /** Maximum numeric value (integers only). */
-  max?: number;
 }
 
 /** A hard validation error produced by `SchemaValidator.validate`. */
@@ -224,7 +221,7 @@ export interface ValidationError {
 export interface ValidationWarning {
   key: string;
   message: string;
-  rule: "undeclared" | "max_exceeded";
+  rule: "undeclared";
 }
 
 /** Result of validating a set of decrypted values against a namespace schema. */

@@ -84,6 +84,14 @@ Split client (Vite/React) and server (Express). Server binds `127.0.0.1` only. V
 - TypeScript: ES2022 target, strict mode, commonjs modules
 - Conventional Commits: `type(scope): description` — types: feat, fix, docs, chore, refactor, test, ci
 
+## UI Styling (`packages/ui`)
+
+- **Tailwind v4 only.** Design tokens come from `@clef-sh/design/theme.css` (the `@theme` block); use the generated utility classes (`bg-ink-850`, `text-ash`, `border-edge`, `shadow-plate`, etc.).
+- **No inline `style={{}}`** in new code without a comment explaining why. Existing surfaces have all been migrated; the audit is `grep -r "style={{" packages/ui/src/client/` returning empty.
+- **Build on the primitive layer.** `packages/ui/src/client/primitives/` ships `Toolbar`, `Card`, `Table`, `Tabs`, `Field` + `Input`/`Textarea`, `EmptyState`, `Dialog`, `Toast` + `useToast`, `Badge`, `Stat`. Use these instead of re-rolling bordered surfaces, modals, or table chrome.
+- **Icons are `lucide-react`.** Don't reach for unicode glyphs in chrome; use the icon set already imported in `Sidebar.tsx`.
+- **Token edits land in `packages/design/`.** Both `theme.css` (Tailwind v4 `@theme`) and `theme.ts` (TS mirror) need to update together — the TS mirror exists for legacy inline-style call sites and dynamic SVG fills only.
+
 ## After Every Change
 
 Always run these commands from the repo root before considering a task done:

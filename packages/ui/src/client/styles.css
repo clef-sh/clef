@@ -1,0 +1,77 @@
+/**
+ * Local UI stylesheet — Tailwind v4 + shared design tokens.
+ *
+ * Imports the @theme block from @clef-sh/design so utility classes like
+ * `bg-ink-850`, `text-ash-dim`, `border-edge` resolve at build time. Add
+ * any global selectors (focus rings, scrollbar, etc.) inside `@layer base`
+ * so Tailwind utility classes (which live in `@layer utilities`) can still
+ * override them — unlayered rules would beat utilities at equal specificity.
+ */
+@import "tailwindcss";
+@import "@clef-sh/design/theme.css";
+
+@layer base {
+  /* Global focus rings. Pre-Phase-3 the UI had no `:focus-visible` styling
+     at all — `role="button"` divs in Sidebar / MatrixGrid were invisible to
+     keyboard navigation. */
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [role="button"]:focus-visible,
+  [role="tab"]:focus-visible,
+  [role="link"]:focus-visible,
+  [tabindex]:not([tabindex="-1"]):focus-visible {
+    outline: 2px solid var(--color-gold-500);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Body defaults — Tailwind's preflight handles margin/padding/box-sizing
+     resets; we only need the bg, text color, and font-family for the
+     pre-React paint. App.tsx's outer div re-applies these via Tailwind
+     classes once the React tree mounts. */
+  body {
+    background-color: var(--color-ink-950);
+    color: var(--color-bone);
+    font-family: var(--font-sans);
+  }
+
+  /* Scrollbar styling (webkit) — keeps the dark theme consistent inside
+     scrollable containers. */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-edge-strong);
+    border-radius: 3px;
+  }
+
+  /* Native dropdown options inherit the OS default light background unless
+     forced. Match the surface scale. */
+  select option {
+    background: var(--color-ink-800);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--color-ash-dim);
+  }
+}
+
+/**
+ * SchemaEditor's row-validation spinner used to inject this keyframe via a
+ * style tag at module load time (see SchemaEditor.tsx around line 444). We
+ * lift it here so it lives in one place and can be `animate-[name]` from
+ * any future primitive without re-injecting the global style tag.
+ */
+@keyframes clef-schema-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

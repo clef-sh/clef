@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { theme, SEVERITY_META, CATEGORY_META } from "../theme";
+import { RefreshCw } from "lucide-react";
 import { apiFetch } from "../api";
-import { TopBar } from "../components/TopBar";
 import { Button } from "../components/Button";
 import { EnvBadge } from "../components/EnvBadge";
 import { CopyButton } from "../components/CopyButton";
+import { Toolbar, Card, Badge, EmptyState } from "../primitives";
+import type { BadgeTone } from "../primitives";
 import type { ViewName } from "../components/Sidebar";
 import type { LintResult, LintIssue } from "@clef-sh/core";
 
@@ -13,8 +14,77 @@ interface LintViewProps {
   setNs: (ns: string) => void;
 }
 
+type Severity = "error" | "warning" | "info";
+type Category = "matrix" | "schema" | "sops";
+
+const SEVERITY_TW: Record<
+  Severity,
+  {
+    label: string;
+    icon: string;
+    text: string;
+    bg: string;
+    border: string;
+    rowStripe: string;
+  }
+> = {
+  error: {
+    label: "Error",
+    icon: "✕",
+    text: "text-stop-500",
+    bg: "bg-stop-500/10",
+    border: "border-stop-500/30",
+    rowStripe: "border-l-[3px] border-l-stop-500/40",
+  },
+  warning: {
+    label: "Warning",
+    icon: "⚠",
+    text: "text-warn-500",
+    bg: "bg-warn-500/10",
+    border: "border-warn-500/30",
+    rowStripe: "border-l-[3px] border-l-warn-500/40",
+  },
+  info: {
+    label: "Info",
+    icon: "i",
+    text: "text-blue-400",
+    bg: "bg-blue-400/10",
+    border: "border-blue-400/30",
+    rowStripe: "border-l-[3px] border-l-blue-400/40",
+  },
+};
+
+const CATEGORY_TW: Record<Category, { label: string; tone: BadgeTone }> = {
+  matrix: { label: "Matrix", tone: "gold" },
+  schema: { label: "Schema", tone: "blue" },
+  sops: { label: "SOPS", tone: "purple" },
+};
+
+const FILTER_TW: Record<string, { text: string; bgActive: string; borderActive: string }> = {
+  all: {
+    text: "text-ash",
+    bgActive: "bg-ash/15",
+    borderActive: "border-ash/30",
+  },
+  error: {
+    text: "text-stop-500",
+    bgActive: "bg-stop-500/15",
+    borderActive: "border-stop-500/40",
+  },
+  warning: {
+    text: "text-warn-500",
+    bgActive: "bg-warn-500/15",
+    borderActive: "border-warn-500/40",
+  },
+  info: {
+    text: "text-blue-400",
+    bgActive: "bg-blue-400/15",
+    borderActive: "border-blue-400/40",
+  },
+};
+
 export function LintView({ setView, setNs }: LintViewProps) {
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState<string>("all");
   const [dismissed, setDismissed] = useState<number[]>([]);
   const [lintResult, setLintResult] = useState<LintResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -60,123 +130,84 @@ export function LintView({ setView, setNs }: LintViewProps) {
 
   const allClear = visible.length === 0;
 
+  const severityFilters: Array<{
+    key: string;
+    label: string;
+    count: number;
+  }> = [
+    { key: "all", label: "All issues", count: issues.length },
+    { key: "error", label: "Errors", count: errors.length },
+    { key: "warning", label: "Warnings", count: warnings.length },
+    { key: "info", label: "Info", count: infos.length },
+  ];
+
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <TopBar
-        title="Lint"
-        subtitle={"clef lint \u2014 full repo health check"}
-        actions={
-          <>
-            <Button onClick={loadLint}>{"\u21BB"} Re-run</Button>
-            {errors.length === 0 && <Button variant="primary">All clear {"\u2014"} commit</Button>}
-          </>
-        }
-      />
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <Toolbar>
+        <div>
+          <Toolbar.Title>Lint</Toolbar.Title>
+          <Toolbar.Subtitle>clef lint &mdash; full repo health check</Toolbar.Subtitle>
+        </div>
+        <Toolbar.Actions>
+          <Button onClick={loadLint}>
+            <RefreshCw size={12} className="mr-1 inline-block align-[-2px]" />
+            Re-run
+          </Button>
+          {errors.length === 0 && <Button variant="primary">All clear &mdash; commit</Button>}
+        </Toolbar.Actions>
+      </Toolbar>
 
       {/* Summary bar — only shown when there are issues */}
       {!loading && !allClear && (
-        <div
-          style={{
-            padding: "14px 24px",
-            background: "#0D0F14",
-            borderBottom: `1px solid ${theme.border}`,
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            flexWrap: "wrap",
-          }}
-        >
+        <div className="flex flex-wrap items-center gap-2.5 border-b border-edge bg-ink-800 px-6 py-3.5">
           {/* Severity filters */}
-          {[
-            {
-              key: "all",
-              label: "All issues",
-              count: issues.length,
-              color: theme.textMuted,
-            },
-            {
-              key: "error",
-              label: "Errors",
-              count: errors.length,
-              color: theme.red,
-            },
-            {
-              key: "warning",
-              label: "Warnings",
-              count: warnings.length,
-              color: theme.yellow,
-            },
-            {
-              key: "info",
-              label: "Info",
-              count: infos.length,
-              color: theme.blue,
-            },
-          ].map((f) => (
-            <button
-              key={f.key}
-              data-testid={`filter-${f.key}`}
-              onClick={() => setFilter(f.key)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "5px 12px",
-                borderRadius: 20,
-                cursor: "pointer",
-                fontFamily: theme.sans,
-                fontSize: 12,
-                fontWeight: filter === f.key ? 600 : 400,
-                color: filter === f.key ? f.color : theme.textMuted,
-                background: filter === f.key ? `${f.color}18` : "transparent",
-                border: `1px solid ${filter === f.key ? `${f.color}55` : theme.border}`,
-                transition: "all 0.12s",
-              }}
-            >
-              <span
-                style={{
-                  fontFamily: theme.mono,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  color: f.color,
-                }}
+          {severityFilters.map((f) => {
+            const tw = FILTER_TW[f.key];
+            const active = filter === f.key;
+            const baseClasses =
+              "flex items-center gap-1.5 rounded-pill border px-3 py-1 font-sans text-[12px] transition-colors";
+            const activeClasses = active
+              ? `${tw.text} ${tw.bgActive} ${tw.borderActive} font-semibold`
+              : "text-ash border-edge font-normal hover:border-edge-strong";
+            return (
+              <button
+                key={f.key}
+                data-testid={`filter-${f.key}`}
+                onClick={() => setFilter(f.key)}
+                className={`${baseClasses} ${activeClasses}`}
               >
-                {f.count}
-              </span>
-              {f.label}
-            </button>
-          ))}
+                <span className={`font-mono text-[11px] font-bold ${tw.text}`}>{f.count}</span>
+                {f.label}
+              </button>
+            );
+          })}
 
-          <div style={{ flex: 1 }} />
+          <div className="flex-1" />
 
           {/* Category filters */}
           {(["matrix", "schema", "sops"] as const).map((cat) => {
-            const m = CATEGORY_META[cat];
+            const m = CATEGORY_TW[cat];
+            const active = filter === cat;
             return (
               <button
                 key={cat}
-                onClick={() => setFilter(filter === cat ? "all" : cat)}
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  fontFamily: theme.mono,
-                  fontSize: 10,
-                  fontWeight: 600,
-                  color: filter === cat ? m.color : theme.textDim,
-                  background: filter === cat ? `${m.color}18` : "transparent",
-                  border: `1px solid ${filter === cat ? `${m.color}55` : theme.borderLight}`,
-                  letterSpacing: "0.06em",
-                }}
+                onClick={() => setFilter(active ? "all" : cat)}
+                className={`rounded-sm border px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.06em] transition-colors ${
+                  active
+                    ? "bg-ink-800 border-edge-strong text-bone"
+                    : "border-edge-strong text-ash-dim hover:text-ash"
+                }`}
               >
-                {m.label}
+                <Badge tone={m.tone} variant={active ? "solid" : "outline"}>
+                  {m.label}
+                </Badge>
               </button>
             );
           })}
         </div>
       )}
 
-      <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
+      <div className="flex-1 overflow-auto p-6">
         {loading && (
           <>
             <style>{`
@@ -191,103 +222,35 @@ export function LintView({ setView, setNs }: LintViewProps) {
                 0%, 100% { opacity: 0.4; }
                 50% { opacity: 1; }
               }
+              .clef-scan-line { animation: clef-scan-line 1.8s ease-in-out infinite; transform-origin: left; opacity: 0; }
+              .clef-scan-line-0 { animation-delay: 0s; width: 120px; }
+              .clef-scan-line-1 { animation-delay: 0.3s; width: 90px; }
+              .clef-scan-line-2 { animation-delay: 0.6s; width: 105px; }
+              .clef-scan-glow { animation: clef-scan-glow 1.8s ease-in-out infinite; }
             `}</style>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: "48px 24px",
-              }}
-            >
-              <div
-                style={{
-                  background: theme.surface,
-                  border: `1px solid ${theme.border}`,
-                  borderRadius: 10,
-                  padding: "28px 40px",
-                  textAlign: "center",
-                  minWidth: 200,
-                }}
-              >
-                <div style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 6 }}>
-                  {[0, 0.3, 0.6].map((delay, i) => (
+            <div className="flex items-center justify-center px-6 py-12">
+              <div className="min-w-[200px] rounded-card border border-edge bg-ink-850 px-10 py-7 text-center">
+                <div className="mb-4 flex flex-col gap-1.5">
+                  {[0, 1, 2].map((i) => (
                     <div
                       key={i}
-                      style={{
-                        height: 3,
-                        borderRadius: 2,
-                        background: theme.accent,
-                        transformOrigin: "left",
-                        animation: `clef-scan-line 1.8s ease-in-out ${delay}s infinite`,
-                        opacity: 0,
-                        width: [120, 90, 105][i],
-                      }}
+                      className={`h-[3px] rounded-sm bg-gold-500 clef-scan-line clef-scan-line-${i}`}
                     />
                   ))}
                 </div>
-                <div
-                  style={{
-                    fontFamily: theme.mono,
-                    fontSize: 11,
-                    color: theme.textMuted,
-                    animation: "clef-scan-glow 1.8s ease-in-out infinite",
-                  }}
-                >
-                  Linting...
-                </div>
+                <div className="font-mono text-[11px] text-ash clef-scan-glow">Linting...</div>
               </div>
             </div>
           </>
         )}
 
         {!loading && allClear && (
-          <div
+          <EmptyState
             data-testid="all-clear"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 14,
-              padding: "60px 0",
-            }}
-          >
-            <div
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: "50%",
-                background: theme.greenDim,
-                border: `1px solid ${theme.green}44`,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 24,
-              }}
-            >
-              {"\u2713"}
-            </div>
-            <div
-              style={{
-                fontFamily: theme.sans,
-                fontWeight: 600,
-                fontSize: 16,
-                color: theme.green,
-              }}
-            >
-              All clear
-            </div>
-            <div
-              style={{
-                fontFamily: theme.mono,
-                fontSize: 12,
-                color: theme.textMuted,
-              }}
-            >
-              No issues found across {fileCount} files
-            </div>
-          </div>
+            icon={<span className="text-go-500">{"✓"}</span>}
+            title="All clear"
+            body={`No issues found across ${fileCount} files`}
+          />
         )}
 
         {/* Grouped issues */}
@@ -296,127 +259,58 @@ export function LintView({ setView, setNs }: LintViewProps) {
           (["error", "warning", "info"] as const).map((sev) => {
             const group = visible.filter((i) => i.severity === sev);
             if (!group.length) return null;
-            const meta = SEVERITY_META[sev];
+            const meta = SEVERITY_TW[sev];
 
             return (
-              <div key={sev} style={{ marginBottom: 24 }}>
+              <div key={sev} className="mb-6">
                 {/* Group header */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    marginBottom: 10,
-                  }}
-                >
+                <div className="mb-2.5 flex items-center gap-2.5">
                   <div
-                    style={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: "50%",
-                      background: meta.bg,
-                      border: `1px solid ${meta.color}44`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontFamily: theme.mono,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      color: meta.color,
-                    }}
+                    className={`flex h-[22px] w-[22px] items-center justify-center rounded-full border font-mono text-[11px] font-bold ${meta.bg} ${meta.border} ${meta.text}`}
                   >
                     {meta.icon}
                   </div>
-                  <span
-                    style={{
-                      fontFamily: theme.sans,
-                      fontWeight: 600,
-                      fontSize: 13,
-                      color: meta.color,
-                    }}
-                  >
+                  <span className={`font-sans text-[13px] font-semibold ${meta.text}`}>
                     {meta.label}s
                   </span>
                   <span
-                    style={{
-                      fontFamily: theme.mono,
-                      fontSize: 10,
-                      color: meta.color,
-                      background: meta.bg,
-                      border: `1px solid ${meta.color}33`,
-                      borderRadius: 10,
-                      padding: "1px 8px",
-                    }}
+                    className={`rounded-pill border px-2 py-px font-mono text-[10px] ${meta.bg} ${meta.border} ${meta.text}`}
                   >
                     {group.length}
                   </span>
                 </div>
 
                 {/* Issue cards */}
-                <div
-                  style={{
-                    background: theme.surface,
-                    border: `1px solid ${theme.border}`,
-                    borderRadius: 10,
-                    overflow: "hidden",
-                  }}
-                >
+                <Card>
                   {group.map((issue, i) => {
-                    const catMeta = CATEGORY_META[issue.category] ?? {
+                    const catKey = (issue.category as Category) ?? "matrix";
+                    const catMeta = CATEGORY_TW[catKey] ?? {
                       label: issue.category,
-                      color: theme.textMuted,
+                      tone: "default" as BadgeTone,
                     };
                     const fileParts = issue.file?.split("/") ?? [];
                     const envName =
                       fileParts.length >= 2
                         ? fileParts[fileParts.length - 1]?.replace(".enc.yaml", "")
                         : undefined;
+                    const isLast = i === group.length - 1;
 
                     return (
                       <div
                         key={issue._idx}
-                        style={{
-                          display: "flex",
-                          alignItems: "flex-start",
-                          borderBottom: i < group.length - 1 ? `1px solid ${theme.border}` : "none",
-                          borderLeft: `3px solid ${meta.color}66`,
-                          transition: "background 0.1s",
-                          padding: "14px 18px",
-                          gap: 14,
-                        }}
+                        className={`flex items-start gap-3.5 px-[18px] py-3.5 ${meta.rowStripe} ${
+                          !isLast ? "border-b border-edge" : ""
+                        }`}
                       >
                         {/* Category badge */}
-                        <div style={{ flexShrink: 0, paddingTop: 2 }}>
-                          <span
-                            style={{
-                              fontFamily: theme.mono,
-                              fontSize: 9,
-                              fontWeight: 700,
-                              color: catMeta.color,
-                              background: `${catMeta.color}18`,
-                              border: `1px solid ${catMeta.color}33`,
-                              borderRadius: 3,
-                              padding: "2px 6px",
-                              letterSpacing: "0.07em",
-                              textTransform: "uppercase",
-                            }}
-                          >
-                            {catMeta.label}
-                          </span>
+                        <div className="shrink-0 pt-0.5">
+                          <Badge tone={catMeta.tone}>{catMeta.label}</Badge>
                         </div>
 
                         {/* Main content */}
-                        <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="min-w-0 flex-1">
                           {/* File + key */}
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 8,
-                              marginBottom: 4,
-                              flexWrap: "wrap",
-                            }}
-                          >
+                          <div className="mb-1 flex flex-wrap items-center gap-2">
                             <span
                               data-testid={`file-ref-${issue.file}`}
                               role="link"
@@ -425,41 +319,18 @@ export function LintView({ setView, setNs }: LintViewProps) {
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") handleNavigate(issue);
                               }}
-                              style={{
-                                fontFamily: theme.mono,
-                                fontSize: 12,
-                                fontWeight: 600,
-                                color: theme.accent,
-                                cursor: issue.file ? "pointer" : "default",
-                                textDecoration: issue.file ? "underline" : "none",
-                                textDecorationColor: `${theme.accent}55`,
-                                textDecorationStyle: "dotted",
-                              }}
+                              className={`font-mono text-[12px] font-semibold text-gold-500 ${
+                                issue.file
+                                  ? "cursor-pointer underline decoration-gold-500/40 decoration-dotted"
+                                  : "cursor-default no-underline"
+                              }`}
                             >
                               {issue.file}
                             </span>
                             {issue.key && (
                               <>
-                                <span
-                                  style={{
-                                    fontFamily: theme.mono,
-                                    fontSize: 11,
-                                    color: theme.textDim,
-                                  }}
-                                >
-                                  {"\u2192"}
-                                </span>
-                                <span
-                                  style={{
-                                    fontFamily: theme.mono,
-                                    fontSize: 11,
-                                    color: theme.text,
-                                    background: "#1A1F2B",
-                                    border: `1px solid ${theme.borderLight}`,
-                                    borderRadius: 3,
-                                    padding: "1px 7px",
-                                  }}
-                                >
+                                <span className="font-mono text-[11px] text-ash-dim">{"→"}</span>
+                                <span className="rounded-sm border border-edge-strong bg-ink-900 px-[7px] py-px font-mono text-[11px] text-bone">
                                   {issue.key}
                                 </span>
                               </>
@@ -469,46 +340,16 @@ export function LintView({ setView, setNs }: LintViewProps) {
 
                           {/* Message */}
                           <div
-                            style={{
-                              fontFamily: theme.sans,
-                              fontSize: 12,
-                              color: theme.textMuted,
-                              marginBottom: issue.fixCommand ? 10 : 0,
-                            }}
+                            className={`font-sans text-[12px] text-ash ${issue.fixCommand ? "mb-2.5" : ""}`}
                           >
                             {issue.message}
                           </div>
 
                           {/* Fix command */}
                           {issue.fixCommand && (
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 8,
-                                background: "#0D0F14",
-                                border: `1px solid ${theme.borderLight}`,
-                                borderRadius: 6,
-                                padding: "6px 10px",
-                                width: "fit-content",
-                              }}
-                            >
-                              <span
-                                style={{
-                                  fontFamily: theme.mono,
-                                  fontSize: 11,
-                                  color: theme.green,
-                                }}
-                              >
-                                $
-                              </span>
-                              <span
-                                style={{
-                                  fontFamily: theme.mono,
-                                  fontSize: 11,
-                                  color: theme.text,
-                                }}
-                              >
+                            <div className="flex w-fit items-center gap-2 rounded-md border border-edge-strong bg-ink-800 px-2.5 py-1.5">
+                              <span className="font-mono text-[11px] text-go-500">$</span>
+                              <span className="font-mono text-[11px] text-bone">
                                 {issue.fixCommand}
                               </span>
                               <CopyButton text={issue.fixCommand} />
@@ -521,62 +362,26 @@ export function LintView({ setView, setNs }: LintViewProps) {
                           onClick={() => setDismissed((d) => [...d, issue._idx])}
                           title="Dismiss"
                           aria-label="Dismiss issue"
-                          style={{
-                            background: "none",
-                            border: "none",
-                            cursor: "pointer",
-                            color: theme.textDim,
-                            fontSize: 16,
-                            flexShrink: 0,
-                            padding: "0 4px",
-                            lineHeight: 1,
-                            transition: "color 0.1s",
-                          }}
+                          className="shrink-0 cursor-pointer border-none bg-transparent px-1 text-[16px] leading-none text-ash-dim transition-colors hover:text-bone"
                         >
-                          {"\u00D7"}
+                          {"×"}
                         </button>
                       </div>
                     );
                   })}
-                </div>
+                </Card>
               </div>
             );
           })}
 
         {/* Footer hint */}
         {!loading && !allClear && (
-          <div
-            style={{
-              marginTop: 8,
-              padding: "12px 16px",
-              background: theme.surface,
-              border: `1px solid ${theme.border}`,
-              borderRadius: 8,
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-            }}
-          >
-            <span style={{ fontSize: 14 }}>{"\uD83D\uDCA1"}</span>
-            <span
-              style={{
-                fontFamily: theme.sans,
-                fontSize: 12,
-                color: theme.textMuted,
-              }}
-            >
-              Fix all errors before committing. Warnings and info items won't block commits but
+          <div className="mt-2 flex items-center gap-3 rounded-md border border-edge bg-ink-850 px-4 py-3">
+            <span className="text-[14px]">{"💡"}</span>
+            <span className="font-sans text-[12px] text-ash">
+              Fix all errors before committing. Warnings and info items won&apos;t block commits but
               should be reviewed. Run{" "}
-              <code
-                style={{
-                  fontFamily: theme.mono,
-                  fontSize: 11,
-                  color: theme.accent,
-                  background: theme.accentDim,
-                  padding: "1px 6px",
-                  borderRadius: 3,
-                }}
-              >
+              <code className="rounded-sm bg-gold-500/15 px-1.5 py-px font-mono text-[11px] text-gold-500">
                 clef lint --fix
               </code>{" "}
               to auto-resolve safe issues.
