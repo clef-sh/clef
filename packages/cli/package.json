@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/cli",
-  "version": "0.1.21",
+  "version": "0.1.22-beta.157",
   "description": "CLI for Clef — git-native secrets management",
   "repository": {
     "type": "git",
@@ -31,9 +31,9 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "@clef-sh/analytics": "0.1.26",
-    "@clef-sh/cloud": "0.1.27",
-    "@clef-sh/ui": "0.1.21"
+    "@clef-sh/analytics": "0.1.27-beta.157",
+    "@clef-sh/cloud": "0.1.28-beta.157",
+    "@clef-sh/ui": "0.1.22-beta.157"
   },
   "optionalDependencies": {
     "@clef-sh/keyservice-darwin-arm64": "^0.1.9",
@@ -47,12 +47,10 @@
     "@clef-sh/sops-win32-x64": "3.9.4"
   },
   "devDependencies": {
-    "@clef-sh/analytics": "0.1.26",
-    "@clef-sh/cloud": "0.1.27",
-    "@clef-sh/core": "0.1.21",
-    "@clef-sh/pack-aws-parameter-store": "0.1.1",
-    "@clef-sh/pack-aws-secrets-manager": "0.1.1",
-    "@clef-sh/ui": "0.1.21",
+    "@clef-sh/analytics": "0.1.27-beta.157",
+    "@clef-sh/cloud": "0.1.28-beta.157",
+    "@clef-sh/core": "0.1.22-beta.157",
+    "@clef-sh/ui": "0.1.22-beta.157",
     "@types/diff": "^5.2.3",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.19.39",
