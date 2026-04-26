@@ -84,10 +84,9 @@ test.describe.serial("clef policy → PolicyView: rotation verdicts", () => {
     // shows the actual HTTP status + body instead of a 15s mystery timeout.
     // PolicyView swallows fetch errors and renders nothing, so without this
     // hook a 500 looks identical to a slow render.
-    const checkResponse = page.waitForResponse(
-      (r) => r.url().includes("/api/policy/check"),
-      { timeout: 15_000 },
-    );
+    const checkResponse = page.waitForResponse((r) => r.url().includes("/api/policy/check"), {
+      timeout: 15_000,
+    });
     await page.getByTestId("nav-policy").click();
     const res = await checkResponse;
     if (res.status() !== 200) {
