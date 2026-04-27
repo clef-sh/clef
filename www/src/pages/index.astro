@@ -7,6 +7,15 @@ import HowItWorks from "../components/HowItWorks.astro";
 import Features from "../components/Features.astro";
 import CtaSection from "../components/CtaSection.astro";
 import Footer from "../components/Footer.astro";
+
+// Preload the latin variant of each variable font so the woff2 fetch
+// starts during HTML parse rather than after CSS parse — the bit
+// where self-hosted actually beats CDN. `?url` returns the build-time
+// hashed asset URL. We preload only the `latin` slice (the only one
+// the marketing copy needs); `latin-ext` streams in via @font-face if
+// the user navigates to a page with extended characters.
+import sansLatinUrl from "@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2?url";
+import monoLatinUrl from "@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2?url";
 ---
 
 <!doctype html>
@@ -66,11 +75,12 @@ import Footer from "../components/Footer.astro";
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-title" content="Clef" />
     <link rel="manifest" href="/site.webmanifest" />
-    <!-- Fonts: @clef-sh/design/fonts-cdn.css (imported from
-         src/styles/global.css) loads the brand families from Google Fonts.
-         The two preconnects below shave a round-trip off first paint. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Fonts: self-hosted via @clef-sh/design/fonts.css (imported from
+         src/styles/global.css). Preloads below start the woff2 fetch
+         during HTML parse so the swap happens earlier; only the `latin`
+         slice is preloaded since that's what the marketing copy uses. -->
+    <link rel="preload" href={sansLatinUrl} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={monoLatinUrl} as="font" type="font/woff2" crossorigin />
   </head>
   <body
     class="min-h-screen bg-clef-bg font-sans text-clef-text antialiased"

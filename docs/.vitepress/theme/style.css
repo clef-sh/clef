@@ -1,7 +1,9 @@
-/* Brand fonts via @clef-sh/design. Docs is served on the open internet,
-   so it uses the CDN variant — cross-site cache + smaller bundle. The
-   local UI is the only consumer that uses self-hosted woff2. */
-@import "@clef-sh/design/fonts-cdn.css";
+/* Self-hosted brand fonts + design tokens via @clef-sh/design. VitePress
+   doesn't run Tailwind, so we import the raw `tokens.css` (plain `:root`
+   variables) rather than `theme.css` (which adds a Tailwind v4 `@theme`
+   layer that VitePress would skip). */
+@import "@clef-sh/design/fonts.css";
+@import "@clef-sh/design/tokens.css";
 
 /* ── Clef design tokens ───────────────────────────────────────────────
  * Source of truth: cloud/static/src/style.css. Mirrored here because

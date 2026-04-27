@@ -26,13 +26,7 @@ export default withMermaid({
     },
   },
 
-  head: [
-    ["link", { rel: "icon", href: "/logo.svg" }],
-    // Fonts come from @clef-sh/design/fonts-cdn.css (imported from
-    // theme/style.css) — Google Fonts CDN. Preconnects shave first-paint.
-    ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
-    ["link", { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "" }],
-  ],
+  head: [["link", { rel: "icon", href: "/logo.svg" }]],
 
   themeConfig: {
     logo: "/logo.svg",

@@ -1,9 +1,9 @@
-/* Brand fonts and design tokens — single source of truth in @clef-sh/design.
- * The registry is only ever served on the open internet, so it pulls fonts
- * from Google's CDN (cross-site cache, smaller bundle). The local UI uses
- * the `fonts.css` sibling for self-hosted woff2 instead. */
-@import "@clef-sh/design/fonts-cdn.css";
-@import "@clef-sh/design/theme.css";
+/* Self-hosted brand fonts + design tokens — single source of truth in
+ * @clef-sh/design. VitePress doesn't run Tailwind, so we import the raw
+ * `tokens.css` (plain `:root` variables) rather than `theme.css` (which
+ * adds a Tailwind v4 `@theme` layer that VitePress would skip). */
+@import "@clef-sh/design/fonts.css";
+@import "@clef-sh/design/tokens.css";
 
 /* ── VitePress variable mapping ───────────────────────────────────────
  * Bind VitePress's `--vp-*` runtime variables to the canonical Clef

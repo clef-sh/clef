@@ -1,18 +1,13 @@
-/* Network @import for Google Fonts must come BEFORE @import "tailwindcss"
- * — Tailwind's CSS-first plugin processes its own @import chain and strips
- * url-style imports it finds inside. Keeping this first means the browser
- * sees a normal `@import url(...)` rule in the bundled output. */
-@import "@clef-sh/design/fonts-cdn.css";
 @import "tailwindcss";
 
-/* Design tokens are the canonical source of truth — `@clef-sh/design` ships
- * the @theme block. This is a public marketing surface (always online), so
- * we load fonts from Google's CDN above; the local UI uses the `fonts.css`
- * sibling for self-hosted woff2 instead.
+/* Self-hosted brand fonts + design tokens — single source of truth in
+ * @clef-sh/design. Cache partitioning eliminated the CDN's cross-site cache
+ * benefit; self-hosting saves the third-party round trips on first paint.
  *
  * Note: `--font-display` is now Instrument Sans (matches body); editorial
  * display copy on this surface uses `--font-serif` (Instrument Serif) via
  * the `.clef-display` / `.clef-display-italic` utilities. */
+@import "@clef-sh/design/fonts.css";
 @import "@clef-sh/design/theme.css";
 
 @theme {

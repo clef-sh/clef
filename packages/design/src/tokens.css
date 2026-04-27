@@ -1,0 +1,137 @@
+/**
+ * Raw `:root` design tokens for any CSS engine.
+ *
+ * This is the single source of truth for the Clef design system's CSS
+ * variables. Plain `:root { --token: value; }` so it works in any
+ * consumer — Tailwind users get this via theme.css (which imports this
+ * file and adds the Tailwind v4 `@theme` layer on top), non-Tailwind
+ * users (VitePress docs, registry, etc.) import this file directly.
+ *
+ *   import:
+ *     packages/ui      → theme.css (Tailwind utilities + tokens)
+ *     www/             → theme.css (Tailwind utilities + tokens)
+ *     docs/, registry/ → tokens.css (raw vars only, no Tailwind)
+ *
+ * Naming convention: kebab-case (`--color-ink-950`, `--font-sans`),
+ * matching the Tailwind v4 generator shape so utilities like
+ * `bg-ink-950` and `text-ash-dim` resolve correctly when Tailwind is
+ * processing the @theme block in theme.css.
+ */
+
+:root {
+  /* ── Type ─────────────────────────────────────────────────────────────── */
+  /* Family names use the Fontsource-Variable convention (suffix "Variable")
+     with the non-variable family as a graceful fallback. Sans/UI/display
+     all share Instrument Sans — the serif token is reserved for editorial
+     display copy on the marketing surface and is unused by the local UI. */
+  --font-sans:
+    "Instrument Sans Variable", "Instrument Sans", -apple-system, "Helvetica Neue", Arial,
+    sans-serif;
+  --font-ui:
+    "Instrument Sans Variable", "Instrument Sans", -apple-system, "Helvetica Neue", Arial,
+    sans-serif;
+  --font-display:
+    "Instrument Sans Variable", "Instrument Sans", -apple-system, "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono:
+    "JetBrains Mono Variable", "JetBrains Mono", "Berkeley Mono", ui-monospace, monospace;
+  --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+
+  /* ── Surface scale (near-black → elevated) ────────────────────────────── */
+  --color-ink-950: #06070b;
+  --color-ink-900: #0a0c12;
+  --color-ink-850: #0d1018;
+  --color-ink-800: #10131d;
+  --color-ink-750: #151925;
+  --color-ink-700: #1a1f2e;
+  --color-ink-600: #242a3b;
+  --color-ink-500: #2f3649;
+
+  /* ── Borders ──────────────────────────────────────────────────────────── */
+  --color-edge: #1c2030;
+  --color-edge-strong: #2a3146;
+
+  /* ── Text ─────────────────────────────────────────────────────────────── */
+  --color-ghost: #f4f5f8;
+  --color-bone: #e4e6ed;
+  --color-ash: #9ba3b7;
+  --color-ash-dim: #6b7388;
+  --color-ash-deep: #464d60;
+
+  /* ── Gold accent — full scale ─────────────────────────────────────────── */
+  --color-gold-50: #fff8e6;
+  --color-gold-100: #ffe9a8;
+  --color-gold-200: #ffd77a;
+  --color-gold-300: #ffc24a;
+  --color-gold-400: #ffb020;
+  --color-gold-500: #f0a500;
+  --color-gold-600: #c88400;
+  --color-gold-700: #9a6700;
+  --color-gold-800: #6b4800;
+  --color-gold-900: #3d2900;
+
+  /* ── Semantic ─────────────────────────────────────────────────────────── */
+  --color-go-500: #34d399;
+  --color-go-700: #065f46;
+  --color-go-900: #022c22;
+  --color-warn-500: #fbbf24;
+  --color-warn-700: #a16207;
+  --color-warn-900: #3b2a05;
+  --color-stop-500: #f87171;
+  --color-stop-700: #991b1b;
+  --color-stop-900: #3f0d0d;
+
+  /* Local-UI-only — used by lint/category UI. No cloud equivalent yet. */
+  --color-blue-400: #60a5fa;
+  --color-purple-400: #a78bfa;
+
+  /* ── Gradients ──────────────────────────────────────────────────────────
+   * Five canonical gold gradient treatments, lifted from per-surface inline
+   * copies (each with slightly drifting alpha values). */
+  --gradient-gold-accent: linear-gradient(
+    120deg,
+    var(--color-gold-300),
+    var(--color-gold-500) 60%,
+    var(--color-gold-400)
+  );
+  --gradient-gold-button: linear-gradient(
+    180deg,
+    var(--color-gold-300) 0%,
+    var(--color-gold-500) 100%
+  );
+  --gradient-hero-halo: radial-gradient(ellipse, rgb(240 165 0 / 0.08) 0%, transparent 70%);
+  --gradient-page-ambient:
+    radial-gradient(ellipse 80% 60% at 0% 0%, rgb(240 165 0 / 0.04) 0%, transparent 50%),
+    radial-gradient(ellipse 70% 60% at 100% 100%, rgb(30 58 138 / 0.07) 0%, transparent 55%);
+  --gradient-gold-rule: linear-gradient(90deg, transparent, var(--color-gold-500), transparent);
+
+  /* ── Radii / shadows ──────────────────────────────────────────────────── */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-card: 10px;
+  --shadow-plate: 0 1px 0 0 rgb(255 255 255 / 0.03) inset, 0 24px 48px -24px rgb(0 0 0 / 0.6);
+  --shadow-halo: 0 0 0 1px rgb(240 165 0 / 0.25), 0 10px 40px -10px rgb(240 165 0 / 0.35);
+  --shadow-soft-drop: 0 8px 32px rgb(0 0 0 / 0.3);
+
+  /* ── Back-compat aliases — map old token names to the new scale. ──────── */
+  /* Cloud and the local UI both still reference these names; remove only   */
+  /* once both surfaces' migrations have completed.                         */
+  --color-bg-base: var(--color-ink-950);
+  --color-bg-panel: var(--color-ink-900);
+  --color-bg-surface: var(--color-ink-850);
+  --color-bg-elevated: var(--color-ink-800);
+  --color-border: var(--color-edge);
+  --color-border-mid: var(--color-edge-strong);
+  --color-text-primary: var(--color-bone);
+  --color-text-secondary: var(--color-ash);
+  --color-text-muted: var(--color-ash-dim);
+  --color-accent: var(--color-gold-500);
+  --color-accent-hover: var(--color-gold-400);
+  --color-accent-dim: rgba(240, 165, 0, 0.08);
+  --color-status-success: var(--color-go-500);
+  --color-status-warning: var(--color-warn-500);
+  --color-status-active: #4d9fff;
+  --color-status-failed: var(--color-stop-500);
+  --color-status-neutral: #2d3f55;
+}
