@@ -8,7 +8,7 @@
 
 **Git-native secrets management built on [Mozilla SOPS](https://github.com/getsops/sops) — structured, validated, and always encrypted in your own repo.**
 
-> **Get started in 10 minutes** — clone [`clef-sh/quick-start`](https://github.com/clef-sh/quick-start), a tutorial-style starter project that takes you from `clef init` through deploying secrets to AWS Secrets Manager with the CDK, then verifies the round-trip.
+> **Get started in 10 minutes** — clone [`clef-sh/quick-start`](https://github.com/clef-sh/quick-start), a secrets-as-code tutorial-style starter project that takes you from `clef init` through deploying secrets to AWS Secrets Manager with the CDK, then verifies the round-trip.
 >
 > **Early release** — Clef is under active development. Please [open an issue](https://github.com/clef-sh/clef/issues) if you happen to find one; we will fix it fast.
 >
@@ -168,17 +168,6 @@ schemas/
 ```
 
 All encryption and decryption is performed by SOPS via subprocess — Clef never implements any cryptography. Decrypted values exist only in memory and are never written to disk.
-
-## Packages
-
-| Package                                | npm                                                                                                         | Description                                                           |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| [`@clef-sh/cli`](packages/cli)         | [![npm](https://img.shields.io/npm/v/@clef-sh/cli.svg)](https://www.npmjs.com/package/@clef-sh/cli)         | CLI — init, get, set, diff, lint, exec, pack, install, search         |
-| [`@clef-sh/core`](packages/core)       | [![npm](https://img.shields.io/npm/v/@clef-sh/core.svg)](https://www.npmjs.com/package/@clef-sh/core)       | Core library — manifest, matrix, SOPS client, schema, diff, lint      |
-| [`@clef-sh/runtime`](packages/runtime) | [![npm](https://img.shields.io/npm/v/@clef-sh/runtime.svg)](https://www.npmjs.com/package/@clef-sh/runtime) | Lightweight runtime — artifact fetch, age decrypt, KMS, caching       |
-| [`@clef-sh/agent`](packages/agent)     | [![npm](https://img.shields.io/npm/v/@clef-sh/agent.svg)](https://www.npmjs.com/package/@clef-sh/agent)     | Sidecar agent — HTTP API on 127.0.0.1:7779, polling, Lambda extension |
-| [`@clef-sh/broker`](packages/broker)   | [![npm](https://img.shields.io/npm/v/@clef-sh/broker.svg)](https://www.npmjs.com/package/@clef-sh/broker)   | Broker SDK — dynamic credential envelope construction + serving       |
-| [`@clef-sh/ui`](packages/ui)           | [![npm](https://img.shields.io/npm/v/@clef-sh/ui.svg)](https://www.npmjs.com/package/@clef-sh/ui)           | Local web UI — matrix view, editor, diff, lint, scan                  |
 
 ## Security
 
