@@ -26,6 +26,17 @@ export default withMermaid({
     },
   },
 
+  // Tell Vue to pass <clef-wordmark> through as a real DOM element instead
+  // of resolving it as a Vue component. The custom element is registered
+  // client-side in theme/index.ts via @clef-sh/design/wordmark.
+  vue: {
+    template: {
+      compilerOptions: {
+        isCustomElement: (tag: string) => tag === "clef-wordmark",
+      },
+    },
+  },
+
   head: [["link", { rel: "icon", href: "/logo.svg" }]],
 
   themeConfig: {

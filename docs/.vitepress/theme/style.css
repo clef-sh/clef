@@ -120,13 +120,17 @@ body {
   -webkit-text-fill-color: transparent;
 }
 
-/* Nav-bar wordmark — mono, matching the Cloud app's .clef-wordmark.
- * VitePress renders the site title as `.VPNavBarTitle .title`; the mono
- * stack keeps the brand coherent across app / docs / marketing. */
+/* Nav-bar wordmark — the default logo image and title text are replaced
+ * by the <clef-wordmark> custom element slotted in via the
+ * `nav-bar-title-before` slot (see theme/index.ts). Hiding both keeps a
+ * single brand mark in the nav bar. */
+.VPNavBarTitle .VPImage,
 .VPNavBarTitle .title {
-  font-family: var(--clef-font-mono);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  display: none;
+}
+.VPNavBarTitle a {
+  display: inline-flex;
+  align-items: center;
 }
 
 /* Text selection — matches the cloud system */

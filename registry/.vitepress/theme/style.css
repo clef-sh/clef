@@ -16,6 +16,10 @@
   --vp-c-brand-3: var(--color-gold-500);
   --vp-c-brand-soft: rgba(240, 165, 0, 0.08);
 
+  /* <clef-wordmark> theming. Light-mode default — `.dark` overrides below. */
+  --clef-accent: var(--color-gold-500);
+  --clef-text: var(--color-ink-950);
+
   /* Light-mode page surfaces. Cream tints to keep the registry feeling
      editorial — a deliberate contrast with docs' default dark theme. */
   --vp-c-bg: #fafaf8;
@@ -31,6 +35,9 @@
   --vp-c-brand-2: var(--color-gold-400);
   --vp-c-brand-3: var(--color-gold-500);
   --vp-c-brand-soft: rgba(240, 165, 0, 0.14);
+
+  /* <clef-wordmark> dark-mode text */
+  --clef-text: var(--color-bone, #e7eaf3);
 
   --vp-c-bg: var(--color-ink-950);
   --vp-c-bg-soft: var(--color-ink-850);
@@ -376,6 +383,19 @@
 .copy-btn.copied {
   border-color: #10b981;
   color: #10b981;
+}
+
+/* ── Nav-bar wordmark ──
+ * The default logo image and title text are replaced by <clef-wordmark>
+ * slotted in via `nav-bar-title-before` (see theme/index.ts). Hide both
+ * so the slotted custom element is the only brand mark. */
+.VPNavBarTitle .VPImage,
+.VPNavBarTitle .title {
+  display: none;
+}
+.VPNavBarTitle a {
+  display: inline-flex;
+  align-items: center;
 }
 
 /* ── Empty state ── */
