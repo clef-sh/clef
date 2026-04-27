@@ -13,6 +13,19 @@ export default withMermaid({
 
   appearance: "dark",
 
+  // Two chunks land over Vite's default 500 KB warning threshold:
+  //   - `app.*.js` (~600 KB) — VitePress runtime + theme + minisearch.
+  //   - `@localSearchIndexroot.*.js` (~1.4 MB) — the indexed corpus, shipped
+  //     client-side for local search. Both are loaded once and cached;
+  //     manualChunks splitting wouldn't help since the main app chunk is
+  //     on every page anyway. Bump the limit so the build output stays
+  //     signal, not noise.
+  vite: {
+    build: {
+      chunkSizeWarningLimit: 1500,
+    },
+  },
+
   head: [
     ["link", { rel: "icon", href: "/logo.svg" }],
     // Docs is all-Inter (no Instrument Serif here — that's reserved for
