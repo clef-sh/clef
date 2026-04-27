@@ -8,7 +8,7 @@
 
 **Git-native secrets management built on [Mozilla SOPS](https://github.com/getsops/sops) — structured, validated, and always encrypted in your own repo.**
 
-> **Get started in 10 minutes** — clone [`clef-sh/quick-start`](https://github.com/clef-sh/quick-start), a tutorial-style starter project that takes you from `clef init` to running a service with secrets injected.
+> **Get started in 10 minutes** — clone [`clef-sh/quick-start`](https://github.com/clef-sh/quick-start), a tutorial-style starter project that takes you from `clef init` through deploying secrets to AWS Secrets Manager with the CDK, then verifies the round-trip.
 >
 > **Early release** — Clef is under active development. Please [open an issue](https://github.com/clef-sh/clef/issues) if you happen to find one; we will fix it fast.
 >
