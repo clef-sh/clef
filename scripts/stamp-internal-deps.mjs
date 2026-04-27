@@ -91,6 +91,7 @@ for (const ws of expandedWorkspaces) {
   const pkgPath = path.join(root, ws, "package.json");
   if (!fs.existsSync(pkgPath)) continue;
   const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+  if (pkg.private === true) continue;
   let changed = false;
 
   for (const field of FIELDS) {
