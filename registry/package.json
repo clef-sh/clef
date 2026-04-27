@@ -9,6 +9,7 @@
   },
   "devDependencies": {
     "@clef-sh/design": "*",
+    "@types/node": "^25.6.0",
     "markdown-it": "^14.0.0",
     "vitepress": "^1.6.4",
     "vue": "^3.4.0",

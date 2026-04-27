@@ -36,5 +36,8 @@
     "@fontsource-variable/instrument-sans": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@fontsource/instrument-serif": "^5.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0"
   }
 }

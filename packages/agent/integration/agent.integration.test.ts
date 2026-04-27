@@ -45,7 +45,7 @@ beforeAll(async () => {
   // Decrypt via subprocess and load into cache
   const secrets = decryptArtifact(fixture.artifactPath, fixture.keys.privateKey);
   cache = new SecretsCache();
-  cache.swap(secrets, Object.keys(secrets), "rev-001");
+  cache.swap({ default: secrets }, "rev-001");
 
   handle = await startAgentServer({ port: TEST_PORT, token: TOKEN, cache });
 }, 30_000);
@@ -116,7 +116,7 @@ describe("secrets retrieval", () => {
       TOKEN,
     );
     expect(status).toBe(200);
-    expect(body).toEqual(TEST_SECRETS);
+    expect(body).toEqual({ default: TEST_SECRETS });
   });
 
   it("GET /v1/secrets/:key route is removed (returns 404)", async () => {
@@ -131,7 +131,9 @@ describe("secrets retrieval", () => {
   it("GET /v1/keys returns key names", async () => {
     const { status, body } = await agentFetch(`http://127.0.0.1:${TEST_PORT}`, "/v1/keys", TOKEN);
     expect(status).toBe(200);
-    expect(new Set(body as string[])).toEqual(new Set(Object.keys(TEST_SECRETS)));
+    expect(new Set(body as string[])).toEqual(
+      new Set(Object.keys(TEST_SECRETS).map((k) => `default__${k}`)),
+    );
   });
 });
 
@@ -174,7 +176,7 @@ describe("cache refresh", () => {
     // Write and decrypt
     fs.writeFileSync(fixture.artifactPath, newArtifact);
     const decrypted = decryptArtifact(fixture.artifactPath, fixture.keys.privateKey);
-    cache.swap(decrypted, Object.keys(decrypted), "rev-002");
+    cache.swap({ default: decrypted }, "rev-002");
 
     const { status, body } = await agentFetch(
       `http://127.0.0.1:${TEST_PORT}`,
@@ -182,7 +184,7 @@ describe("cache refresh", () => {
       TOKEN,
     );
     expect(status).toBe(200);
-    expect(body).toEqual(newSecrets);
+    expect(body).toEqual({ default: newSecrets });
 
     const { body: healthBody } = await agentFetch(`http://127.0.0.1:${TEST_PORT}`, "/v1/health");
     expect((healthBody as Record<string, unknown>).revision).toBe("rev-002");
@@ -194,7 +196,7 @@ describe("cache refresh", () => {
 describe("cache wipe", () => {
   it("returns 503 after cache is wiped", async () => {
     // Restore cache first
-    cache.swap(TEST_SECRETS, Object.keys(TEST_SECRETS), "rev-003");
+    cache.swap({ default: TEST_SECRETS }, "rev-003");
 
     // Verify serving
     const { status: before } = await agentFetch(
@@ -220,7 +222,7 @@ describe("cache wipe", () => {
     expect(after).toBe(503);
 
     // Restore for subsequent tests
-    cache.swap(TEST_SECRETS, Object.keys(TEST_SECRETS), "rev-004");
+    cache.swap({ default: TEST_SECRETS }, "rev-004");
   });
 });
 
@@ -252,7 +254,7 @@ describe("cache TTL guard", () => {
   });
 
   it("returns 200 when cache is fresh", async () => {
-    ttlCache.swap({ KEY: "val" }, ["KEY"], "rev-ttl");
+    ttlCache.swap({ default: { KEY: "val" } }, "rev-ttl");
     const { status } = await agentFetch(`http://127.0.0.1:${TTL_PORT}`, "/v1/secrets", TOKEN);
     expect(status).toBe(200);
   });
