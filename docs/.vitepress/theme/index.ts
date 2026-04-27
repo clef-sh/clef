@@ -9,8 +9,7 @@ export default {
   Layout() {
     return h(DefaultTheme.Layout, null, {
       "home-features-before": () => h(DocHero),
-      "nav-bar-title-before": () =>
-        h("clef-wordmark", { size: "22", "aria-label": "Clef" }),
+      "nav-bar-title-before": () => h("clef-wordmark", { size: "22", "aria-label": "Clef" }),
     });
   },
   enhanceApp() {
