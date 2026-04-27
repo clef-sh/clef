@@ -68,9 +68,7 @@
     inset: 0;
     z-index: 0;
     pointer-events: none;
-    background:
-      radial-gradient(ellipse 80% 60% at 0% 0%, rgb(240 165 0 / 0.04) 0%, transparent 50%),
-      radial-gradient(ellipse 70% 60% at 100% 100%, rgb(30 58 138 / 0.07) 0%, transparent 55%);
+    background: var(--gradient-page-ambient);
   }
 
   body > * {
@@ -131,10 +129,9 @@
     letter-spacing: -0.02em;
   }
 
-  /* Editorial display face (Instrument Serif). Uses the `--font-serif`
-   * token from @clef-sh/design rather than `--font-display` because the
-   * design package's display font is Instrument Sans (matches body); the
-   * serif slot is reserved specifically for editorial copy on this surface. */
+  /* Editorial display face (Instrument Serif). Reserved for future editorial
+   * copy — heroes intentionally use sans + gold gradient (.clef-text-gradient
+   * below) for a more dev-focused feel. */
   .clef-display {
     font-family: var(--font-serif);
     font-weight: 400;
@@ -144,6 +141,18 @@
     font-family: var(--font-serif);
     font-style: italic;
     font-weight: 400;
+  }
+
+  /* Gold gradient text fill — sans-serif heroes paint accent words with
+   * the canonical `--gradient-gold-accent` token rather than reaching for
+   * the editorial serif. Apply on `<span>` around the accent word inside an
+   * otherwise solid headline. */
+  .clef-text-gradient {
+    background: var(--gradient-gold-accent);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
   }
 
   /* Primary card surface */
@@ -222,7 +231,7 @@
     font-weight: 500;
     font-size: 0.9375rem;
     color: var(--color-ink-950);
-    background: linear-gradient(180deg, var(--color-gold-300) 0%, var(--color-gold-500) 100%);
+    background: var(--gradient-gold-button);
     border: 1px solid var(--color-gold-600);
     box-shadow:
       0 1px 0 0 rgb(255 255 255 / 0.3) inset,
