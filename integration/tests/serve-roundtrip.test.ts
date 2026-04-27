@@ -183,10 +183,12 @@ describe("clef serve roundtrip", () => {
     });
     expect(response.status).toBe(200);
 
-    const body = (await response.json()) as Record<string, string>;
+    const body = (await response.json()) as Record<string, Record<string, string>>;
     expect(body).toEqual({
-      STRIPE_KEY: "sk_test_abc123",
-      STRIPE_WEBHOOK_SECRET: "whsec_xyz789",
+      payments: {
+        STRIPE_KEY: "sk_test_abc123",
+        STRIPE_WEBHOOK_SECRET: "whsec_xyz789",
+      },
     });
   });
 
@@ -209,6 +211,6 @@ describe("clef serve roundtrip", () => {
     expect(response.status).toBe(200);
 
     const body = (await response.json()) as string[];
-    expect(body.sort()).toEqual(["STRIPE_KEY", "STRIPE_WEBHOOK_SECRET"]);
+    expect(body.sort()).toEqual(["payments__STRIPE_KEY", "payments__STRIPE_WEBHOOK_SECRET"]);
   });
 });
