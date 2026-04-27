@@ -81,6 +81,11 @@ import monoLatinUrl from "@fontsource-variable/jetbrains-mono/files/jetbrains-mo
          slice is preloaded since that's what the marketing copy uses. -->
     <link rel="preload" href={sansLatinUrl} as="font" type="font/woff2" crossorigin />
     <link rel="preload" href={monoLatinUrl} as="font" type="font/woff2" crossorigin />
+    <script>
+      // Register <clef-wordmark> on the client. Astro bundles this and
+      // hoists it; the side-effect import calls customElements.define.
+      import "@clef-sh/design/wordmark";
+    </script>
   </head>
   <body
     class="min-h-screen bg-clef-bg font-sans text-clef-text antialiased"
@@ -109,9 +114,8 @@ import monoLatinUrl from "@fontsource-variable/jetbrains-mono/files/jetbrains-mo
       <div
         class="mx-auto flex w-full max-w-300 items-center justify-between px-6"
       >
-        <a href="/" class="flex items-center gap-2 text-clef-text no-underline">
-          <img src="/clef.svg" alt="" class="h-5 w-auto" aria-hidden="true" />
-          <span class="clef-wordmark text-[17px]">Clef</span>
+        <a href="/" class="flex items-center text-clef-text no-underline">
+          <clef-wordmark size="28"></clef-wordmark>
         </a>
         <a
           href="https://docs.clef.sh"

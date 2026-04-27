@@ -18,6 +18,10 @@
     "./tokens.css": "./src/tokens.css",
     "./fonts.css": "./src/fonts.css",
     "./fonts-cdn.css": "./src/fonts-cdn.css",
+    "./wordmark": {
+      "types": "./src/wordmark.ts",
+      "default": "./src/wordmark.ts"
+    },
     "./package.json": "./package.json"
   },
   "files": [
