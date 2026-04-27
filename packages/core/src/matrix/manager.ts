@@ -76,11 +76,17 @@ export class MatrixManager {
   }
 
   /**
-   * Decrypt each cell and return key counts, pending counts, and cross-environment issues.
+   * Read each cell and return key counts, pending counts, and cross-environment issues.
+   *
+   * The SOPS client parameter is currently unused — keys are read from the
+   * plaintext YAML structure directly, no decryption needed. It is retained
+   * in the signature for back-compat with callers that may need to swap to a
+   * decrypt-based implementation later (e.g. for backends that don't expose
+   * key names without decryption).
    *
    * @param manifest - Parsed manifest.
    * @param repoRoot - Absolute path to the repository root.
-   * @param sopsClient - SOPS client used to decrypt each cell.
+   * @param _sopsClient - Reserved for future use; pass any `EncryptionBackend`.
    */
   async getMatrixStatus(
     manifest: ClefManifest,
