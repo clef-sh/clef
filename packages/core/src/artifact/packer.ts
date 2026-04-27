@@ -145,7 +145,16 @@ export class ArtifactPacker {
     const output = config.output ?? new FilePackOutput(config.outputPath ?? "artifact.json");
     await output.write(artifact, json);
 
-    const keys = Object.keys(resolved.values);
+    // PackResult.keys is a flat list of qualified `<namespace>__<key>` names —
+    // back-compat surface for the CDK shape-template validator (Stream A will
+    // reshape this to nested when the validator changes). Values stay nested
+    // inside the ciphertext; only the names are listed here, in plaintext.
+    const keys: string[] = [];
+    for (const [ns, bucket] of Object.entries(resolved.values)) {
+      for (const k of Object.keys(bucket)) {
+        keys.push(`${ns}__${k}`);
+      }
+    }
     return {
       outputPath: config.outputPath ?? "",
       namespaceCount: resolved.identity.namespaces.length,

@@ -188,11 +188,19 @@ async function decryptOne(source: string, params: DecryptParams): Promise<Decryp
     }
   }
 
-  // Decrypt via ArtifactDecryptor — handles age and KMS uniformly.
+  // Decrypt via ArtifactDecryptor — handles age and KMS uniformly. The
+  // decryptor returns nested namespace → key → value; the envelope CLI
+  // surfaces a flat `<namespace>__<key>` view, matching the debugger UI.
   let values: Record<string, string>;
   try {
     const decryptor = new ArtifactDecryptor({ privateKey });
-    ({ values } = await decryptor.decrypt(artifact));
+    const decrypted = await decryptor.decrypt(artifact);
+    values = {};
+    for (const [ns, bucket] of Object.entries(decrypted.values)) {
+      for (const [k, v] of Object.entries(bucket)) {
+        values[`${ns}__${k}`] = v;
+      }
+    }
   } catch (err) {
     return buildDecryptError(source, "decrypt_failed", (err as Error).message);
   }

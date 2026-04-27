@@ -57,7 +57,11 @@ jest.mock("./source", () => ({
 
 const mockAgeResolveKey = jest.fn<string, [string | undefined, string | undefined]>();
 const mockArtifactDecrypt = jest.fn<
-  Promise<{ values: Record<string, string>; keys: string[]; revision: string }>,
+  Promise<{
+    values: Record<string, Record<string, string>>;
+    keys: string[];
+    revision: string;
+  }>,
   [unknown]
 >();
 jest.mock("@clef-sh/runtime", () => ({
@@ -115,7 +119,8 @@ function makeArtifact(overrides: Partial<PackedArtifact> = {}): PackedArtifact {
   };
 }
 
-const FAKE_SECRETS = { DB_URL: "postgres://prod", API_KEY: "sk-123" };
+const FAKE_NESTED = { app: { DB_URL: "postgres://prod", API_KEY: "sk-123" } };
+const FAKE_FLAT_KEYS = ["app__DB_URL", "app__API_KEY"];
 
 function makeProgram(): Command {
   const program = new Command();
@@ -129,8 +134,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockAgeResolveKey.mockReturnValue("resolved-key");
   mockArtifactDecrypt.mockResolvedValue({
-    values: FAKE_SECRETS,
-    keys: Object.keys(FAKE_SECRETS),
+    values: FAKE_NESTED,
+    keys: FAKE_FLAT_KEYS,
     revision: "test-revision",
   });
   fakeFetch.mockResolvedValue({ raw: JSON.stringify(makeArtifact()) });
@@ -141,7 +146,10 @@ type Scenario = { label: string; args: string[] };
 const SCENARIOS: Scenario[] = [
   { label: "default (keys only)", args: ["--identity", "/fake/key.txt"] },
   { label: "--reveal (all values)", args: ["--identity", "/fake/key.txt", "--reveal"] },
-  { label: "--key DB_URL (one value)", args: ["--identity", "/fake/key.txt", "--key", "DB_URL"] },
+  {
+    label: "--key app__DB_URL (one value)",
+    args: ["--identity", "/fake/key.txt", "--key", "app__DB_URL"],
+  },
 ];
 
 describe("plaintext-never-to-disk invariant", () => {

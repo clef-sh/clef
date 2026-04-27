@@ -85,13 +85,15 @@ describe("resolveIdentitySecrets", () => {
       matrixManager,
     );
 
-    expect(result.values).toEqual({ DATABASE_URL: "postgres://...", API_KEY: "secret123" });
+    expect(result.values).toEqual({
+      api: { DATABASE_URL: "postgres://...", API_KEY: "secret123" },
+    });
     expect(result.identity.name).toBe("api-gateway");
     expect(result.recipient).toBe("age1devkey");
     expect(result.envConfig).toEqual({ recipient: "age1devkey" });
   });
 
-  it("should use namespace-prefixed keys for multi-namespace identity", async () => {
+  it("should bucket keys by namespace for multi-namespace identity", async () => {
     const apiDecrypted: DecryptedFile = {
       values: { API_KEY: "key1" },
       metadata: { backend: "age", recipients: ["age1multidev"], lastModified: new Date() },
@@ -111,7 +113,10 @@ describe("resolveIdentitySecrets", () => {
       matrixManager,
     );
 
-    expect(result.values).toEqual({ api__API_KEY: "key1", database__DB_HOST: "localhost" });
+    expect(result.values).toEqual({
+      api: { API_KEY: "key1" },
+      database: { DB_HOST: "localhost" },
+    });
   });
 
   it("should throw if identity not found", async () => {
@@ -140,7 +145,7 @@ describe("resolveIdentitySecrets", () => {
     ).rejects.toThrow("not found");
   });
 
-  it("should namespace-prefix keys to avoid collisions across namespaces", async () => {
+  it("should isolate same-named keys across namespaces", async () => {
     const apiDecrypted: DecryptedFile = {
       values: { SAME_KEY: "val_a" },
       metadata: { backend: "age", recipients: ["age1multidev"], lastModified: new Date() },
@@ -160,9 +165,8 @@ describe("resolveIdentitySecrets", () => {
       matrixManager,
     );
 
-    // With multi-namespace, keys are prefixed, so no collision
-    expect(result.values["api__SAME_KEY"]).toBe("val_a");
-    expect(result.values["database__SAME_KEY"]).toBe("val_b");
+    expect(result.values.api.SAME_KEY).toBe("val_a");
+    expect(result.values.database.SAME_KEY).toBe("val_b");
   });
 
   it("should resolve envConfig for KMS identity", async () => {
@@ -214,6 +218,7 @@ describe("resolveIdentitySecrets", () => {
       matrixManager,
     );
 
-    expect(Object.keys(result.values)).toHaveLength(0);
+    // Single-namespace identity → one outer bucket, zero keys inside.
+    expect(result.values).toEqual({ api: {} });
   });
 });

@@ -156,7 +156,7 @@ export function registerServeCommand(program: Command, deps: { runner: Subproces
         // Load into cache
         const { SecretsCache } = await import("@clef-sh/runtime");
         const cache = new SecretsCache();
-        cache.swap(decrypted.values, decrypted.keys, decrypted.revision);
+        cache.swap(decrypted.values, decrypted.revision);
 
         // Start server
         const token = randomBytes(32).toString("hex");

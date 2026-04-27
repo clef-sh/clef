@@ -203,13 +203,13 @@ test.describe("envelope debugger → decrypt + reveal", () => {
 
     await page.getByTestId("decrypt-keys").click();
 
-    await expect(page.getByTestId("decrypt-row-STRIPE_KEY")).toBeVisible();
-    await expect(page.getByTestId("decrypt-row-STRIPE_WEBHOOK_SECRET")).toBeVisible();
+    await expect(page.getByTestId("decrypt-row-payments__STRIPE_KEY")).toBeVisible();
+    await expect(page.getByTestId("decrypt-row-payments__STRIPE_WEBHOOK_SECRET")).toBeVisible();
 
     // Masked values: literal bullet character × 10. The actual decrypted
     // value (sk_test_abc123) must NOT be in the DOM yet.
-    await expect(page.getByTestId("decrypt-value-STRIPE_KEY")).toHaveText("●●●●●●●●●●");
-    await expect(page.getByTestId("decrypt-row-STRIPE_KEY")).not.toContainText("sk_test_abc123");
+    await expect(page.getByTestId("decrypt-value-payments__STRIPE_KEY")).toHaveText("●●●●●●●●●●");
+    await expect(page.getByTestId("decrypt-row-payments__STRIPE_KEY")).not.toContainText("sk_test_abc123");
   });
 
   test("[positive] Reveal all shows values + warning banner with countdown", async ({ page }) => {
@@ -220,7 +220,7 @@ test.describe("envelope debugger → decrypt + reveal", () => {
     await page.getByTestId("decrypt-keys").click();
     await page.getByTestId("reveal-all").click();
 
-    await expect(page.getByTestId("decrypt-value-STRIPE_KEY")).toHaveText("sk_test_abc123");
+    await expect(page.getByTestId("decrypt-value-payments__STRIPE_KEY")).toHaveText("sk_test_abc123");
     await expect(page.getByTestId("reveal-banner")).toBeVisible();
     await expect(page.getByTestId("reveal-countdown")).toContainText(/0:\d{2}/);
   });
@@ -238,6 +238,6 @@ test.describe("envelope debugger → decrypt + reveal", () => {
 
     // 15s timer + a small buffer for jitter / clock granularity.
     await expect(page.getByTestId("reveal-banner")).not.toBeVisible({ timeout: 17_000 });
-    await expect(page.getByTestId("decrypt-value-STRIPE_KEY")).toHaveText("●●●●●●●●●●");
+    await expect(page.getByTestId("decrypt-value-payments__STRIPE_KEY")).toHaveText("●●●●●●●●●●");
   });
 });

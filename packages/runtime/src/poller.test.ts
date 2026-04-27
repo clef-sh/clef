@@ -12,7 +12,9 @@ jest.mock(
   () => ({
     Decrypter: jest.fn().mockImplementation(() => ({
       addIdentity: jest.fn(),
-      decrypt: jest.fn().mockResolvedValue('{"DB_URL":"postgres://...","API_KEY":"secret"}'),
+      decrypt: jest
+        .fn()
+        .mockResolvedValue('{"app":{"DB_URL":"postgres://...","API_KEY":"secret"}}'),
     })),
   }),
   { virtual: true },
@@ -76,7 +78,7 @@ function makeArtifact(
  */
 function makeKmsArtifact(
   testDek: Buffer,
-  values: Record<string, string>,
+  values: Record<string, Record<string, string>>,
   overrides: { revision?: string } = {},
 ): string {
   const iv = crypto.randomBytes(12);
@@ -245,7 +247,7 @@ describe("ArtifactPoller", () => {
       const testDek = crypto.randomBytes(32);
       mockKmsUnwrap.mockResolvedValue(Buffer.from(testDek));
 
-      const testValues = { DB_URL: "postgres://...", API_KEY: "secret" };
+      const testValues = { app: { DB_URL: "postgres://...", API_KEY: "secret" } };
       const source = mockSource(makeKmsArtifact(testDek, testValues));
 
       const poller = new ArtifactPoller({
@@ -257,8 +259,8 @@ describe("ArtifactPoller", () => {
 
       expect(cache.isReady()).toBe(true);
       expect(cache.getRevision()).toBe("kms-rev");
-      expect(cache.get("DB_URL")).toBe("postgres://...");
-      expect(cache.get("API_KEY")).toBe("secret");
+      expect(cache.get("DB_URL", "app")).toBe("postgres://...");
+      expect(cache.get("API_KEY", "app")).toBe("secret");
       expect(mockKmsUnwrap).toHaveBeenCalledWith(
         "arn:aws:kms:us-east-1:111:key/test",
         expect.any(Buffer),
@@ -270,7 +272,7 @@ describe("ArtifactPoller", () => {
       const testDek = crypto.randomBytes(32);
       mockKmsUnwrap.mockResolvedValue(Buffer.from(testDek));
 
-      const raw = makeKmsArtifact(testDek, { KEY: "val" });
+      const raw = makeKmsArtifact(testDek, { app: { KEY: "val" } });
       const parsed = JSON.parse(raw);
       // Corrupt the authTag
       parsed.envelope.authTag = Buffer.from("corrupted-tag!!!").toString("base64");
@@ -290,7 +292,7 @@ describe("ArtifactPoller", () => {
       const testDek = crypto.randomBytes(32);
       mockKmsUnwrap.mockResolvedValue(Buffer.from(testDek));
 
-      const source = mockSource(makeKmsArtifact(testDek, { KEY: "val" }));
+      const source = mockSource(makeKmsArtifact(testDek, { app: { KEY: "val" } }));
 
       const poller = new ArtifactPoller({
         source,
@@ -668,7 +670,7 @@ describe("ArtifactPoller", () => {
       const source = mockSource(makeRevokedArtifact());
 
       // Pre-load cache
-      cache.swap({ K: "v" }, ["K"], "old-rev");
+      cache.swap({ ns: { K: "v" } }, "old-rev");
 
       const poller = new ArtifactPoller({
         source,

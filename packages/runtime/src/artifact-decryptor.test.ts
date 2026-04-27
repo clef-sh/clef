@@ -8,7 +8,9 @@ jest.mock(
   () => ({
     Decrypter: jest.fn().mockImplementation(() => ({
       addIdentity: jest.fn(),
-      decrypt: jest.fn().mockResolvedValue('{"DB_URL":"postgres://...","API_KEY":"secret"}'),
+      decrypt: jest
+        .fn()
+        .mockResolvedValue('{"app":{"DB_URL":"postgres://...","API_KEY":"secret"}}'),
     })),
   }),
   { virtual: true },
@@ -50,7 +52,7 @@ function makeAgeArtifact(overrides: Partial<PackedArtifact> = {}): PackedArtifac
  */
 function makeKmsArtifact(
   testDek: Buffer,
-  values: Record<string, string>,
+  values: Record<string, Record<string, string>>,
   overrides: Partial<PackedArtifact> = {},
 ): PackedArtifact {
   const iv = crypto.randomBytes(12);
@@ -107,8 +109,8 @@ describe("ArtifactDecryptor", () => {
       const decryptor = new ArtifactDecryptor({ privateKey: "AGE-SECRET-KEY-1TEST" });
       const result = await decryptor.decrypt(makeAgeArtifact());
 
-      expect(result.values).toEqual({ DB_URL: "postgres://...", API_KEY: "secret" });
-      expect(result.keys).toEqual(["DB_URL", "API_KEY"]);
+      expect(result.values).toEqual({ app: { DB_URL: "postgres://...", API_KEY: "secret" } });
+      expect(result.keys).toEqual(["app__DB_URL", "app__API_KEY"]);
       expect(result.revision).toBe("age-rev-1");
     });
 
@@ -156,14 +158,14 @@ describe("ArtifactDecryptor", () => {
       const testDek = crypto.randomBytes(32);
       mockKmsUnwrap.mockResolvedValue(Buffer.from(testDek));
 
-      const testValues = { DB_URL: "postgres://...", API_KEY: "secret" };
+      const testValues = { app: { DB_URL: "postgres://...", API_KEY: "secret" } };
       const artifact = makeKmsArtifact(testDek, testValues);
 
       const decryptor = new ArtifactDecryptor({});
       const result = await decryptor.decrypt(artifact);
 
       expect(result.values).toEqual(testValues);
-      expect(result.keys).toEqual(["DB_URL", "API_KEY"]);
+      expect(result.keys).toEqual(["app__DB_URL", "app__API_KEY"]);
       expect(result.revision).toBe("kms-rev");
       expect(mockKmsUnwrap).toHaveBeenCalledWith(
         "arn:aws:kms:us-east-1:111:key/test",
@@ -176,18 +178,18 @@ describe("ArtifactDecryptor", () => {
       const testDek = crypto.randomBytes(32);
       mockKmsUnwrap.mockResolvedValue(Buffer.from(testDek));
 
-      const artifact = makeKmsArtifact(testDek, { KEY: "val" });
+      const artifact = makeKmsArtifact(testDek, { app: { KEY: "val" } });
       const decryptor = new ArtifactDecryptor({}); // no privateKey
 
       const result = await decryptor.decrypt(artifact);
-      expect(result.values).toEqual({ KEY: "val" });
+      expect(result.values).toEqual({ app: { KEY: "val" } });
     });
 
     it("should throw on AES-GCM authentication failure (corrupted authTag)", async () => {
       const testDek = crypto.randomBytes(32);
       mockKmsUnwrap.mockResolvedValue(Buffer.from(testDek));
 
-      const artifact = makeKmsArtifact(testDek, { KEY: "val" });
+      const artifact = makeKmsArtifact(testDek, { app: { KEY: "val" } });
       artifact.envelope!.authTag = Buffer.from("corrupted-tag!!!").toString("base64");
 
       const decryptor = new ArtifactDecryptor({});
@@ -198,7 +200,7 @@ describe("ArtifactDecryptor", () => {
       mockKmsUnwrap.mockRejectedValue(new Error("KMS access denied"));
 
       const testDek = crypto.randomBytes(32);
-      const artifact = makeKmsArtifact(testDek, { KEY: "val" });
+      const artifact = makeKmsArtifact(testDek, { app: { KEY: "val" } });
 
       const telemetry = makeTelemetry();
       const decryptor = new ArtifactDecryptor({
@@ -216,7 +218,7 @@ describe("ArtifactDecryptor", () => {
       const testDek = crypto.randomBytes(32);
       mockKmsUnwrap.mockResolvedValue(Buffer.from(testDek));
 
-      const artifact = makeKmsArtifact(testDek, { KEY: "val" });
+      const artifact = makeKmsArtifact(testDek, { app: { KEY: "val" } });
       artifact.envelope!.authTag = Buffer.from("corrupted-tag!!!").toString("base64");
 
       const telemetry = makeTelemetry();
@@ -236,7 +238,7 @@ describe("ArtifactDecryptor", () => {
       const dekCopy = Buffer.from(testDek);
       mockKmsUnwrap.mockResolvedValue(dekCopy);
 
-      const artifact = makeKmsArtifact(testDek, { KEY: "val" });
+      const artifact = makeKmsArtifact(testDek, { app: { KEY: "val" } });
       artifact.envelope!.authTag = Buffer.from("corrupted-tag!!!").toString("base64");
 
       const decryptor = new ArtifactDecryptor({});
@@ -277,7 +279,7 @@ describe("ArtifactDecryptor", () => {
       mockKmsUnwrap.mockRejectedValue(new Error("KMS denied"));
 
       const testDek = crypto.randomBytes(32);
-      const artifact = makeKmsArtifact(testDek, { KEY: "val" });
+      const artifact = makeKmsArtifact(testDek, { app: { KEY: "val" } });
 
       const decryptor = new ArtifactDecryptor({
         telemetry: initial as unknown as TelemetryEmitter,
