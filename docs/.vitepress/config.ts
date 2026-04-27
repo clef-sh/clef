@@ -28,17 +28,8 @@ export default withMermaid({
 
   head: [
     ["link", { rel: "icon", href: "/logo.svg" }],
-    // Docs is all-Inter (no Instrument Serif here — that's reserved for
-    // the marketing surface). JetBrains Mono for code blocks + terminal.
-    ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
-    ["link", { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "" }],
-    [
-      "link",
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap",
-      },
-    ],
+    // Fonts are self-hosted via @clef-sh/design/fonts.css (imported from
+    // theme/style.css) — no runtime dependency on Google Fonts.
   ],
 
   themeConfig: {

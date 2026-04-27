@@ -15,6 +15,7 @@
       "default": "./src/theme.ts"
     },
     "./theme.css": "./src/theme.css",
+    "./fonts.css": "./src/fonts.css",
     "./package.json": "./package.json"
   },
   "files": [
@@ -28,5 +29,10 @@
     "access": "public",
     "provenance": true
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@fontsource-variable/instrument-sans": "^5.2.8",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@fontsource/instrument-serif": "^5.2.8"
+  }
 }

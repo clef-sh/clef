@@ -71,10 +71,13 @@ export const theme = {
   scrim: "rgba(4, 5, 8, 0.72)",
 
   // ── Type ─────────────────────────────────────────────────────────────
-  mono: "'JetBrains Mono', 'Berkeley Mono', ui-monospace, monospace",
-  sans: "'Inter', -apple-system, 'Helvetica Neue', Arial, sans-serif",
-  // Local UI does NOT use Instrument Serif — serif is reserved for the
-  // marketing surface where editorial display copy fits.
+  // Family names mirror the @theme block in theme.css — see that file for
+  // the rationale on the Fontsource-Variable suffix and the fallback chain.
+  // Local UI does NOT use Instrument Serif directly — `serif` is reserved
+  // for the marketing surface where editorial display copy fits.
+  mono: "'JetBrains Mono Variable', 'JetBrains Mono', 'Berkeley Mono', ui-monospace, monospace",
+  sans: "'Instrument Sans Variable', 'Instrument Sans', -apple-system, 'Helvetica Neue', Arial, sans-serif",
+  serif: "'Instrument Serif', Georgia, 'Times New Roman', serif",
 
   // ── Back-compat aliases ──────────────────────────────────────────────
   // Match the pattern from the @theme block. Keep these so existing

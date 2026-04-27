@@ -1,0 +1,19 @@
+/**
+ * Self-hosted font loader for the Clef design system.
+ *
+ * Consumers import this once — typically alongside `theme.css` — and the
+ * fonts referenced by `--font-sans` / `--font-mono` / `--font-serif`
+ * (defined in `theme.css`) load with no additional setup.
+ *
+ *   @import "@clef-sh/design/fonts.css";
+ *   @import "@clef-sh/design/theme.css";
+ *
+ * The fonts are bundled by Fontsource (woff2 + @font-face), so there's no
+ * runtime dependency on Google Fonts — important for offline use, regions
+ * where Google's CDN is blocked, and privacy-sensitive deployments. Variable
+ * fonts are used where available so all weights ship in a single file.
+ */
+
+@import "@fontsource-variable/instrument-sans/index.css";
+@import "@fontsource-variable/jetbrains-mono/index.css";
+@import "@fontsource/instrument-serif/index.css";

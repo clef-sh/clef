@@ -13,10 +13,23 @@
 
 @theme {
   /* ── Type ─────────────────────────────────────────────────────────────── */
-  --font-sans: "Inter", -apple-system, "Helvetica Neue", Arial, sans-serif;
-  --font-ui: "Inter", -apple-system, "Helvetica Neue", Arial, sans-serif;
-  --font-display: "Instrument Serif", "Inter", Georgia, serif;
-  --font-mono: "JetBrains Mono", "Berkeley Mono", ui-monospace, monospace;
+  /* Family names use the Fontsource-Variable convention (suffix "Variable")
+     with the non-variable family as a graceful fallback for consumers who
+     load the fonts a different way. Sans/UI/display all share Instrument
+     Sans — the serif token is reserved for editorial/display copy on the
+     marketing surface and is unused by the local UI. */
+  --font-sans:
+    "Instrument Sans Variable", "Instrument Sans", -apple-system, "Helvetica Neue", Arial,
+    sans-serif;
+  --font-ui:
+    "Instrument Sans Variable", "Instrument Sans", -apple-system, "Helvetica Neue", Arial,
+    sans-serif;
+  --font-display:
+    "Instrument Sans Variable", "Instrument Sans", -apple-system, "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono:
+    "JetBrains Mono Variable", "JetBrains Mono", "Berkeley Mono", ui-monospace, monospace;
+  --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
 
   /* ── Surface scale (near-black → elevated) ────────────────────────────── */
   --color-ink-950: #06070b;

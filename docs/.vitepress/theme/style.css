@@ -1,10 +1,11 @@
+/* Self-host the brand fonts via @clef-sh/design — no runtime dep on Google
+   Fonts, works in air-gapped/restricted-network environments. */
+@import "@clef-sh/design/fonts.css";
+
 /* ── Clef design tokens ───────────────────────────────────────────────
  * Source of truth: cloud/static/src/style.css. Mirrored here because
  * VitePress doesn't share a stylesheet with the marketing surface.
- * Sync when cloud tokens change.
- *
- * Docs stays all-Inter — no Instrument Serif here. The display serif
- * is reserved for the marketing surface where editorial headlines fit. */
+ * Sync when cloud tokens change. */
 :root {
   /* Surface scale */
   --clef-ink-950: #06070b;
@@ -42,9 +43,13 @@
   --clef-warn-500: #fbbf24;
   --clef-stop-500: #f87171;
 
-  /* Type */
-  --clef-font-sans: "Inter", -apple-system, "Helvetica Neue", Arial, sans-serif;
-  --clef-font-mono: "JetBrains Mono", "Berkeley Mono", ui-monospace, monospace;
+  /* Type — Instrument Sans for body, JetBrains Mono for code. Family names
+     mirror the @theme block in @clef-sh/design/theme.css. */
+  --clef-font-sans:
+    "Instrument Sans Variable", "Instrument Sans", -apple-system, "Helvetica Neue", Arial,
+    sans-serif;
+  --clef-font-mono:
+    "JetBrains Mono Variable", "JetBrains Mono", "Berkeley Mono", ui-monospace, monospace;
 
   /* Light-mode brand (VitePress default appears in light theme too) */
   --vp-c-brand-1: var(--clef-gold-500);
