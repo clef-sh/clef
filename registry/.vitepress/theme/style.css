@@ -1,30 +1,46 @@
-/* ── Brand colors (gold, shared with docs) ── */
+/* Brand fonts and design tokens — single source of truth in @clef-sh/design.
+ * The registry is only ever served on the open internet, so it pulls fonts
+ * from Google's CDN (cross-site cache, smaller bundle). The local UI uses
+ * the `fonts.css` sibling for self-hosted woff2 instead. */
+@import "@clef-sh/design/fonts-cdn.css";
+@import "@clef-sh/design/theme.css";
+
+/* ── VitePress variable mapping ───────────────────────────────────────
+ * Bind VitePress's `--vp-*` runtime variables to the canonical Clef
+ * tokens from @clef-sh/design. Same pattern docs uses (see
+ * docs/.vitepress/theme/style.css), kept in sync so registry and docs
+ * render with identical typography and brand colors. */
 :root {
-  --vp-c-brand-1: #f0a500;
-  --vp-c-brand-2: #d49300;
-  --vp-c-brand-3: #f0a500;
+  --vp-c-brand-1: var(--color-gold-500);
+  --vp-c-brand-2: var(--color-gold-600);
+  --vp-c-brand-3: var(--color-gold-500);
   --vp-c-brand-soft: rgba(240, 165, 0, 0.08);
 
+  /* Light-mode page surfaces. Cream tints to keep the registry feeling
+     editorial — a deliberate contrast with docs' default dark theme. */
   --vp-c-bg: #fafaf8;
   --vp-c-bg-soft: #f5f5f0;
   --vp-c-bg-mute: #eeeee8;
+
+  --vp-font-family-base: var(--font-sans);
+  --vp-font-family-mono: var(--font-mono);
 }
 
 .dark {
-  --vp-c-brand-1: #f0a500;
-  --vp-c-brand-2: #ffb733;
-  --vp-c-brand-3: #f0a500;
+  --vp-c-brand-1: var(--color-gold-500);
+  --vp-c-brand-2: var(--color-gold-400);
+  --vp-c-brand-3: var(--color-gold-500);
   --vp-c-brand-soft: rgba(240, 165, 0, 0.14);
 
-  --vp-c-bg: #0a0b0d;
-  --vp-c-bg-soft: #111318;
-  --vp-c-bg-mute: #161a22;
-  --vp-c-bg-elv: #111318;
+  --vp-c-bg: var(--color-ink-950);
+  --vp-c-bg-soft: var(--color-ink-850);
+  --vp-c-bg-mute: var(--color-ink-800);
+  --vp-c-bg-elv: var(--color-ink-850);
 
-  --vp-code-block-bg: #111318;
-  --vp-code-tab-bg: #111318;
-  --vp-code-tab-active-bar-color: #f0a500;
-  --vp-c-default-soft: #161a22;
+  --vp-code-block-bg: var(--color-ink-850);
+  --vp-code-tab-bg: var(--color-ink-850);
+  --vp-code-tab-active-bar-color: var(--color-gold-500);
+  --vp-c-default-soft: var(--color-ink-800);
 }
 
 /* ── Hero ── */
@@ -124,7 +140,7 @@
 
 .broker-card:hover {
   border-color: var(--vp-c-brand-1);
-  box-shadow: 0 4px 16px rgba(240, 165, 0, 0.08);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--color-gold-500) 8%, transparent);
 }
 
 .broker-card h3 {

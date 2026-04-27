@@ -8,6 +8,7 @@
     "preview": "vitepress preview"
   },
   "devDependencies": {
+    "@clef-sh/design": "*",
     "markdown-it": "^14.0.0",
     "vitepress": "^1.6.4",
     "vue": "^3.4.0",

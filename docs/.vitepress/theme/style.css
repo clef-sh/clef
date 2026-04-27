@@ -1,6 +1,7 @@
-/* Self-host the brand fonts via @clef-sh/design — no runtime dep on Google
-   Fonts, works in air-gapped/restricted-network environments. */
-@import "@clef-sh/design/fonts.css";
+/* Brand fonts via @clef-sh/design. Docs is served on the open internet,
+   so it uses the CDN variant — cross-site cache + smaller bundle. The
+   local UI is the only consumer that uses self-hosted woff2. */
+@import "@clef-sh/design/fonts-cdn.css";
 
 /* ── Clef design tokens ───────────────────────────────────────────────
  * Source of truth: cloud/static/src/style.css. Mirrored here because

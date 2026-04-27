@@ -7,7 +7,13 @@ export default defineConfig({
   // Light mode default with dark toggle (distinct from dark-only docs site)
   appearance: true,
 
-  head: [["link", { rel: "icon", href: "/logo.svg" }]],
+  head: [
+    ["link", { rel: "icon", href: "/logo.svg" }],
+    // Fonts come from @clef-sh/design/fonts-cdn.css (imported from
+    // theme/style.css) — Google Fonts CDN. Preconnects shave first-paint.
+    ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
+    ["link", { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "" }],
+  ],
 
   themeConfig: {
     logo: "/logo.svg",
