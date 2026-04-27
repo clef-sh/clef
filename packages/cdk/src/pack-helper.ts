@@ -35,6 +35,7 @@ import type {
   SubprocessRunner,
 } from "@clef-sh/core";
 import type { KmsProvider } from "@clef-sh/core";
+import { regionFromAwsKmsArn } from "./kms-region";
 
 class ExecFileRunner implements SubprocessRunner {
   async run(
@@ -110,9 +111,12 @@ async function resolveKmsProviderIfNeeded(
   // Dynamic import — @clef-sh/runtime is a dependency, but keeping this lazy
   // lets age-only synth runs skip loading the AWS SDK.
   const runtime = await import("@clef-sh/runtime");
-  return runtime.createKmsProvider(envConfig.kms.provider, {
-    region: envConfig.kms.region,
-  });
+  // Translate manifest semantics into a runtime KMS provider. The manifest
+  // parser guarantees AWS keyIds are full ARNs, so the region is always
+  // recoverable from the ARN; the runtime provider stays a dumb primitive.
+  const region =
+    envConfig.kms.provider === "aws" ? regionFromAwsKmsArn(envConfig.kms.keyId) : undefined;
+  return runtime.createKmsProvider(envConfig.kms.provider, { region });
 }
 
 async function main(): Promise<void> {

@@ -125,8 +125,9 @@ service_identities:
         kms:
           provider: aws
           keyId: arn:aws:kms:us-west-2:333:key/prd-key-id
-          region: us-west-2
 ```
+
+> The region is read from the key ARN — there's no separate `region:` field.
 
 ### Mixed (per-environment)
 

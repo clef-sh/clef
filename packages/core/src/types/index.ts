@@ -522,8 +522,12 @@ export type KmsProviderType = "aws" | "gcp" | "azure";
 
 export interface KmsConfig {
   provider: KmsProviderType;
+  /**
+   * Provider-specific key identifier. For `provider: aws`, this MUST be a full
+   * KMS key/alias ARN — region is derived from the ARN at synth time. The
+   * manifest parser rejects bare key IDs and aliases.
+   */
   keyId: string;
-  region?: string;
 }
 
 // ── Service Identity ─────────────────────────────────────────────────────
