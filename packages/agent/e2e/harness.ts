@@ -61,9 +61,7 @@ export function createArtifact(
 /**
  * Scaffold a complete test fixture: keys, artifact file, temp directory.
  */
-export function scaffoldFixture(
-  secrets: Record<string, Record<string, string>>,
-): TestFixture {
+export function scaffoldFixture(secrets: Record<string, Record<string, string>>): TestFixture {
   const keys = generateAgeKey();
   const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), "clef-agent-e2e-"));
   const artifactPath = path.join(artifactDir, "artifact.json");
