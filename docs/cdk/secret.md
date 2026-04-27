@@ -85,10 +85,10 @@ new ClefSecret(this, "DbUrl", {
 });
 ```
 
-Placeholders use `{{name}}` syntax. Each name is bound via `refs` to a
-`(namespace, key)` pair in the Clef envelope — namespace and key are
-always two distinct fields. The string is interpolated and written to
-`SecretString` verbatim, no JSON wrapping.
+Placeholders use <code v-pre>{{name}}</code> syntax. Each name is bound
+via `refs` to a `(namespace, key)` pair in the Clef envelope — namespace
+and key are always two distinct fields. The string is interpolated and
+written to `SecretString` verbatim, no JSON wrapping.
 
 Use when:
 
@@ -118,11 +118,14 @@ new ClefSecret(this, "ApiSecrets", {
 });
 ```
 
-Each value is a template: literals pass through, `{{name}}` placeholders
-are substituted via the shared `refs` map. Composition in a single field
-(see `connectionString`) lets you build compound values across namespaces.
+Each value is a template: literals pass through, <code v-pre>{{name}}</code>
+placeholders are substituted via the shared `refs` map. Composition in a
+single field (see `connectionString`) lets you build compound values
+across namespaces.
 
-To embed a literal `{{` / `}}` in a shape, escape with `\{\{` / `\}\}`.
+To embed literal double braces in a shape, escape each one — write
+<code v-pre>\{\{</code> / <code v-pre>\}\}</code> for a literal
+<code v-pre>{{</code> / <code v-pre>}}</code>.
 
 Use when:
 
@@ -135,7 +138,7 @@ Use when:
 Shape templates are validated at `cdk synth` against the envelope. Three
 classes of error fail the synth with a precise message:
 
-1. **Placeholder not declared**: a `{{name}}` in the shape isn't in `refs`.
+1. **Placeholder not declared**: a <code v-pre>{{name}}</code> in the shape isn't in `refs`.
 2. **Unknown namespace**: a `refs[name].namespace` isn't present in the
    envelope (e.g. typo, or the identity doesn't span that namespace).
 3. **Unknown key**: a `refs[name].key` isn't a key in that namespace.

@@ -39,7 +39,7 @@ dbUrl.grantRead(apiLambda);
 | ----------------- | ------------------------------------ | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `identity`        | `string`                             | yes                         | Service identity name from `clef.yaml`. Must use KMS-envelope encryption.                                                                          |
 | `environment`     | `string`                             | yes                         | Target environment (e.g. `"production"`).                                                                                                          |
-| `shape`           | `string`                             | yes                         | Template for the single parameter value. `{{name}}` placeholders are bound via `refs`.                                                             |
+| `shape`           | `string`                             | yes                         | Template for the single parameter value. <code v-pre>{{name}}</code> placeholders are bound via `refs`.                                            |
 | `refs`            | `Record<string, { namespace, key }>` | when shape has placeholders | Map of placeholder name → `(namespace, key)` reference into the Clef envelope.                                                                     |
 | `manifest`        | `string`                             | no                          | Absolute or cwd-relative path to `clef.yaml`. Default: walk-up discovery.                                                                          |
 | `parameterName`   | `string`                             | no                          | SSM parameter name. Default: `/clef/<identity>/<environment>/<constructId>`.                                                                       |
@@ -73,9 +73,10 @@ This matches native `ssm.StringParameter.grantRead` behaviour.
 
 Unlike `ClefSecret`, `shape` is **required** and must be a **string**.
 SSM parameters hold one value each, so there's no Record mode or
-passthrough. Placeholders use `{{name}}` syntax; each name is bound via
-`refs` to a `(namespace, key)` pair in the Clef envelope. For composite
-values, interpolate multiple placeholders in one template:
+passthrough. Placeholders use <code v-pre>{{name}}</code> syntax; each
+name is bound via `refs` to a `(namespace, key)` pair in the Clef
+envelope. For composite values, interpolate multiple placeholders in one
+template:
 
 ```ts
 shape: "postgres://{{user}}:{{pass}}@{{host}}:5432/app";
