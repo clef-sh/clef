@@ -26,7 +26,7 @@ export async function initialFetch(
         await poller.fetchAndValidate();
         const artifact = encryptedStore!.get()!;
         const { values } = await poller.getDecryptor().decrypt(artifact);
-        cache.swap(values, Object.keys(values), artifact.revision);
+        cache.swap(values, artifact.revision);
       } else {
         await poller.fetchAndDecrypt();
       }

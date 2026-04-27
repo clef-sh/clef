@@ -36,13 +36,15 @@
           Secrets-as-Code framework for GitOps teams
         </div>
 
-        <!-- Heading: sans-bold intro + serif display accent for emphasis -->
+        <!-- Heading: all-sans, gold gradient on the accent line for a more
+             dev-focused feel. Uses the canonical `--gradient-gold-accent`
+             token via `.clef-text-gradient` (defined in global.css). -->
         <h1
           class="mb-5 max-w-190 text-[clamp(34px,5vw,62px)] font-bold leading-[1.08] tracking-tight text-clef-text"
         >
           Git-native.
           <br />
-          <span class="clef-display italic text-clef-accent" style="font-weight: 400;">Secrets as Code.</span>
+          <span class="clef-text-gradient">Secrets as Code.</span>
         </h1>
 
         <!-- Subtext -->
@@ -121,7 +123,7 @@
           <a
             href="https://cloud.clef.sh"
             class="text-clef-accent underline-offset-2 hover:underline"
-          >Clef App — public beta &rarr;</a>
+          >Clef Cloud — get started &rarr;</a>
         </p>
 
       </div><!-- /.hero-text -->
@@ -414,7 +416,7 @@
     border-bottom: none;
     border-radius: 6px 6px 0 0;
     color: var(--text-secondary, #8888aa);
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
     padding: 5px 14px;
     cursor: pointer;
@@ -442,7 +444,7 @@
     border: 1px solid var(--staff-bright, #2a2a4a);
     border-radius: 0 6px 6px 6px;
     padding: 10px 16px;
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 14px;
   }
 
@@ -459,7 +461,7 @@
     border: 1px solid var(--staff-bright, #2a2a4a);
     border-radius: 4px;
     color: var(--text-secondary, #8888aa);
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
     padding: 3px 10px;
     cursor: pointer;

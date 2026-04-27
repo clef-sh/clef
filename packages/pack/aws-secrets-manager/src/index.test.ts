@@ -192,9 +192,9 @@ describe("AwsSecretsManagerBackend.pack — JSON mode (default)", () => {
     expect(puts[0].args[0].input.SecretId).toBe("myapp/dev");
 
     const parsed = JSON.parse(puts[0].args[0].input.SecretString as string);
-    expect(parsed).toEqual({ API_KEY: "secret", DB_PASSWORD: "p@ss" });
+    expect(parsed).toEqual({ api__API_KEY: "secret", api__DB_PASSWORD: "p@ss" });
     // Sorted-by-key serialization keeps ASM history diffs stable.
-    expect(Object.keys(parsed)).toEqual(["API_KEY", "DB_PASSWORD"]);
+    expect(Object.keys(parsed)).toEqual(["api__API_KEY", "api__DB_PASSWORD"]);
 
     expect(result.backend).toBe("aws-secrets-manager");
     expect(result.details).toMatchObject({ mode: "json", secretCount: 1, prunedCount: 0 });
@@ -286,14 +286,14 @@ describe("AwsSecretsManagerBackend.pack — single mode", () => {
     const puts = asmMock.commandCalls(PutSecretValueCommand);
     expect(puts).toHaveLength(2);
     const names = puts.map((c) => c.args[0].input.SecretId).sort();
-    expect(names).toEqual(["myapp/dev/API_KEY", "myapp/dev/DB_PASSWORD"]);
+    expect(names).toEqual(["myapp/dev/api__API_KEY", "myapp/dev/api__DB_PASSWORD"]);
 
     expect(result.details).toMatchObject({ mode: "single", secretCount: 2 });
   });
 
   it("falls back to CreateSecret per missing key", async () => {
-    asmMock.on(PutSecretValueCommand, { SecretId: "myapp/dev/API_KEY" }).rejects(notFound());
-    asmMock.on(PutSecretValueCommand, { SecretId: "myapp/dev/DB_PASSWORD" }).resolves({});
+    asmMock.on(PutSecretValueCommand, { SecretId: "myapp/dev/api__API_KEY" }).rejects(notFound());
+    asmMock.on(PutSecretValueCommand, { SecretId: "myapp/dev/api__DB_PASSWORD" }).resolves({});
     asmMock.on(CreateSecretCommand).resolves({});
     asmMock.on(TagResourceCommand).resolves({});
 
@@ -301,14 +301,14 @@ describe("AwsSecretsManagerBackend.pack — single mode", () => {
 
     const creates = asmMock.commandCalls(CreateSecretCommand);
     expect(creates).toHaveLength(1);
-    expect(creates[0].args[0].input.Name).toBe("myapp/dev/API_KEY");
+    expect(creates[0].args[0].input.Name).toBe("myapp/dev/api__API_KEY");
 
     // TagResource is only called for the update branch (DB_PASSWORD), not
     // for the freshly created secret which got tags inline.
     const taggedNames = asmMock
       .commandCalls(TagResourceCommand)
       .map((c) => c.args[0].input.SecretId);
-    expect(taggedNames).toEqual(["myapp/dev/DB_PASSWORD"]);
+    expect(taggedNames).toEqual(["myapp/dev/api__DB_PASSWORD"]);
   });
 
   it("rejects oversized values per key", async () => {
@@ -321,7 +321,7 @@ describe("AwsSecretsManagerBackend.pack — single mode", () => {
       backendOptions: { prefix: "myapp/dev", mode: "single" },
     });
 
-    await expect(build().pack(req)).rejects.toThrow(/'BIG' is 65537 bytes/);
+    await expect(build().pack(req)).rejects.toThrow(/'api__BIG' is 65537 bytes/);
     expect(asmMock.commandCalls(PutSecretValueCommand)).toHaveLength(0);
   });
 
@@ -344,7 +344,7 @@ describe("AwsSecretsManagerBackend.pack — single mode", () => {
     asmMock.on(ListSecretsCommand).resolves({
       SecretList: [
         { Name: "myapp/dev/STALE_KEY" },
-        { Name: "myapp/dev/DB_PASSWORD" },
+        { Name: "myapp/dev/api__DB_PASSWORD" },
         { Name: "myapp/dev/ALSO_GONE" },
       ],
     });

@@ -1,10 +1,14 @@
+/* Self-hosted brand fonts + design tokens via @clef-sh/design. VitePress
+   doesn't run Tailwind, so we import the raw `tokens.css` (plain `:root`
+   variables) rather than `theme.css` (which adds a Tailwind v4 `@theme`
+   layer that VitePress would skip). */
+@import "@clef-sh/design/fonts.css";
+@import "@clef-sh/design/tokens.css";
+
 /* ── Clef design tokens ───────────────────────────────────────────────
  * Source of truth: cloud/static/src/style.css. Mirrored here because
  * VitePress doesn't share a stylesheet with the marketing surface.
- * Sync when cloud tokens change.
- *
- * Docs stays all-Inter — no Instrument Serif here. The display serif
- * is reserved for the marketing surface where editorial headlines fit. */
+ * Sync when cloud tokens change. */
 :root {
   /* Surface scale */
   --clef-ink-950: #06070b;
@@ -42,9 +46,13 @@
   --clef-warn-500: #fbbf24;
   --clef-stop-500: #f87171;
 
-  /* Type */
-  --clef-font-sans: "Inter", -apple-system, "Helvetica Neue", Arial, sans-serif;
-  --clef-font-mono: "JetBrains Mono", "Berkeley Mono", ui-monospace, monospace;
+  /* Type — Instrument Sans for body, JetBrains Mono for code. Family names
+     mirror the @theme block in @clef-sh/design/theme.css. */
+  --clef-font-sans:
+    "Instrument Sans Variable", "Instrument Sans", -apple-system, "Helvetica Neue", Arial,
+    sans-serif;
+  --clef-font-mono:
+    "JetBrains Mono Variable", "JetBrains Mono", "Berkeley Mono", ui-monospace, monospace;
 
   /* Light-mode brand (VitePress default appears in light theme too) */
   --vp-c-brand-1: var(--clef-gold-500);
@@ -112,13 +120,21 @@ body {
   -webkit-text-fill-color: transparent;
 }
 
-/* Nav-bar wordmark — mono, matching the Cloud app's .clef-wordmark.
- * VitePress renders the site title as `.VPNavBarTitle .title`; the mono
- * stack keeps the brand coherent across app / docs / marketing. */
-.VPNavBarTitle .title {
-  font-family: var(--clef-font-mono);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+/* Nav-bar wordmark — the default logo image and title text are replaced
+ * by the <clef-wordmark> custom element slotted in via the
+ * `nav-bar-title-before` slot (see theme/index.ts).
+ *
+ * Selector subtlety: VitePress puts class="title" on the `<a>` AND wraps
+ * the title text in a child `<span>`. Don't use `.VPNavBarTitle .title`
+ * — that matches the link itself and hides the wordmark too. Hide the
+ * VPImage and the direct-child span explicitly. */
+.VPNavBarTitle a.title > .VPImage,
+.VPNavBarTitle a.title > span {
+  display: none;
+}
+.VPNavBarTitle a.title {
+  display: inline-flex;
+  align-items: center;
 }
 
 /* Text selection — matches the cloud system */

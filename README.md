@@ -3,10 +3,16 @@
 [![CI](https://github.com/clef-sh/clef/actions/workflows/ci.yml/badge.svg)](https://github.com/clef-sh/clef/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![npm version](https://img.shields.io/npm/v/@clef-sh/cli.svg)](https://www.npmjs.com/package/@clef-sh/cli)
+[![Quick start in 10 min](https://img.shields.io/badge/Quick%20start-10%20min-F0A500)](https://github.com/clef-sh/quick-start)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/qCDPZjsbrW)
 
 **Git-native secrets management built on [Mozilla SOPS](https://github.com/getsops/sops) — structured, validated, and always encrypted in your own repo.**
 
+> **Get started in 10 minutes** — clone [`clef-sh/quick-start`](https://github.com/clef-sh/quick-start), a secrets-as-code tutorial-style starter project that takes you from `clef init` through deploying secrets to AWS Secrets Manager with the CDK, then verifies the round-trip.
+>
 > **Early release** — Clef is under active development. Please [open an issue](https://github.com/clef-sh/clef/issues) if you happen to find one; we will fix it fast.
+>
+> **Join the conversation** on [Discord](https://discord.gg/qCDPZjsbrW) — questions, ideas, and feedback welcome.
 
 ![Image](https://github.com/user-attachments/assets/34e574a5-8fe8-4129-be4d-1cfc4d754513)
 
@@ -70,6 +76,8 @@ Run `clef doctor` after installing to verify your environment. It shows where so
 When using the age backend (the default), `clef init` generates your age key pair automatically — no separate age binary needed.
 
 ## Quick Start
+
+> Prefer a guided walkthrough? Clone [`clef-sh/quick-start`](https://github.com/clef-sh/quick-start). The commands below are the cheat-sheet version.
 
 ```bash
 # Initialise Clef in a git repo
@@ -160,17 +168,6 @@ schemas/
 ```
 
 All encryption and decryption is performed by SOPS via subprocess — Clef never implements any cryptography. Decrypted values exist only in memory and are never written to disk.
-
-## Packages
-
-| Package                                | npm                                                                                                         | Description                                                           |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| [`@clef-sh/cli`](packages/cli)         | [![npm](https://img.shields.io/npm/v/@clef-sh/cli.svg)](https://www.npmjs.com/package/@clef-sh/cli)         | CLI — init, get, set, diff, lint, exec, pack, install, search         |
-| [`@clef-sh/core`](packages/core)       | [![npm](https://img.shields.io/npm/v/@clef-sh/core.svg)](https://www.npmjs.com/package/@clef-sh/core)       | Core library — manifest, matrix, SOPS client, schema, diff, lint      |
-| [`@clef-sh/runtime`](packages/runtime) | [![npm](https://img.shields.io/npm/v/@clef-sh/runtime.svg)](https://www.npmjs.com/package/@clef-sh/runtime) | Lightweight runtime — artifact fetch, age decrypt, KMS, caching       |
-| [`@clef-sh/agent`](packages/agent)     | [![npm](https://img.shields.io/npm/v/@clef-sh/agent.svg)](https://www.npmjs.com/package/@clef-sh/agent)     | Sidecar agent — HTTP API on 127.0.0.1:7779, polling, Lambda extension |
-| [`@clef-sh/broker`](packages/broker)   | [![npm](https://img.shields.io/npm/v/@clef-sh/broker.svg)](https://www.npmjs.com/package/@clef-sh/broker)   | Broker SDK — dynamic credential envelope construction + serving       |
-| [`@clef-sh/ui`](packages/ui)           | [![npm](https://img.shields.io/npm/v/@clef-sh/ui.svg)](https://www.npmjs.com/package/@clef-sh/ui)           | Local web UI — matrix view, editor, diff, lint, scan                  |
 
 ## Security
 

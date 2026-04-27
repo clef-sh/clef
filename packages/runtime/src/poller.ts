@@ -327,11 +327,10 @@ export class ArtifactPoller {
     if (artifact.revision === this.lastRevision) return;
 
     // Delegate decryption to the ArtifactDecryptor
-    const { values } = await this.decryptor.decrypt(artifact);
+    const { values, keys } = await this.decryptor.decrypt(artifact);
 
     // Atomic swap
-    const keys = Object.keys(values);
-    this.options.cache.swap(values, keys, artifact.revision);
+    this.options.cache.swap(values, artifact.revision);
     this.lastRevision = artifact.revision;
     this.lastContentHash = contentHash ?? null;
     this.lastExpiresAt = artifact.expiresAt ?? null;

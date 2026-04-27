@@ -22,7 +22,12 @@ import { ClefParameter } from "@clef-sh/cdk";
 const dbUrl = new ClefParameter(this, "DbUrl", {
   identity: "api-gateway",
   environment: "production",
-  shape: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/app",
+  shape: "postgres://{{user}}:{{pass}}@{{host}}:5432/app",
+  refs: {
+    user: { namespace: "database", key: "DB_USER" },
+    pass: { namespace: "database", key: "DB_PASSWORD" },
+    host: { namespace: "database", key: "DB_HOST" },
+  },
 });
 
 dbUrl.grantRead(apiLambda);
@@ -30,16 +35,17 @@ dbUrl.grantRead(apiLambda);
 
 ## Props
 
-| Prop              | Type                         | Required | Description                                                                                                                                        |
-| ----------------- | ---------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `identity`        | `string`                     | yes      | Service identity name from `clef.yaml`. Must use KMS-envelope encryption.                                                                          |
-| `environment`     | `string`                     | yes      | Target environment (e.g. `"production"`).                                                                                                          |
-| `shape`           | `string`                     | yes      | Template for the single parameter value. `${CLEF_KEY}` references are interpolated at deploy time. Supports composition.                           |
-| `manifest`        | `string`                     | no       | Absolute or cwd-relative path to `clef.yaml`. Default: walk-up discovery.                                                                          |
-| `parameterName`   | `string`                     | no       | SSM parameter name. Default: `/clef/<identity>/<environment>/<constructId>`.                                                                       |
-| `type`            | `"String" \| "SecureString"` | no       | Default `"SecureString"` — encrypts at rest.                                                                                                       |
-| `tier`            | `ClefParameterTier`          | no       | `"Standard"` (default, free, 4 KB) · `"Advanced"` (chargeable, 8 KB + policies) · `"Intelligent-Tiering"`.                                         |
-| `parameterKmsKey` | `IKey`                       | no       | Customer-managed KMS key for at-rest encryption of `SecureString`. Default: `alias/aws/ssm`. Orthogonal to the envelope KMS key from the manifest. |
+| Prop              | Type                                 | Required                    | Description                                                                                                                                        |
+| ----------------- | ------------------------------------ | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `identity`        | `string`                             | yes                         | Service identity name from `clef.yaml`. Must use KMS-envelope encryption.                                                                          |
+| `environment`     | `string`                             | yes                         | Target environment (e.g. `"production"`).                                                                                                          |
+| `shape`           | `string`                             | yes                         | Template for the single parameter value. <code v-pre>{{name}}</code> placeholders are bound via `refs`.                                            |
+| `refs`            | `Record<string, { namespace, key }>` | when shape has placeholders | Map of placeholder name → `(namespace, key)` reference into the Clef envelope.                                                                     |
+| `manifest`        | `string`                             | no                          | Absolute or cwd-relative path to `clef.yaml`. Default: walk-up discovery.                                                                          |
+| `parameterName`   | `string`                             | no                          | SSM parameter name. Default: `/clef/<identity>/<environment>/<constructId>`.                                                                       |
+| `type`            | `"String" \| "SecureString"`         | no                          | Default `"SecureString"` — encrypts at rest.                                                                                                       |
+| `tier`            | `ClefParameterTier`                  | no                          | `"Standard"` (default, free, 4 KB) · `"Advanced"` (chargeable, 8 KB + policies) · `"Intelligent-Tiering"`.                                         |
+| `parameterKmsKey` | `IKey`                               | no                          | Customer-managed KMS key for at-rest encryption of `SecureString`. Default: `alias/aws/ssm`. Orthogonal to the envelope KMS key from the manifest. |
 
 ## Attributes
 
@@ -67,17 +73,21 @@ This matches native `ssm.StringParameter.grantRead` behaviour.
 
 Unlike `ClefSecret`, `shape` is **required** and must be a **string**.
 SSM parameters hold one value each, so there's no Record mode or
-passthrough. For composite values, interpolate multiple Clef keys into
-one template:
+passthrough. Placeholders use <code v-pre>{{name}}</code> syntax; each
+name is bound via `refs` to a `(namespace, key)` pair in the Clef
+envelope. For composite values, interpolate multiple placeholders in one
+template:
 
 ```ts
-shape: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/app";
-shape: "${STRIPE_SECRET_KEY}"; // pure ref
+shape: "postgres://{{user}}:{{pass}}@{{host}}:5432/app";
+shape: "{{token}}"; // single ref
 shape: "us-east-1"; // literal (unusual — plaintext in SSM)
 ```
 
-Validation runs at `cdk synth` against the envelope's key list — typos
-fail with the same did-you-mean message used by `ClefSecret`.
+Validation runs at `cdk synth` against the envelope. Three classes of
+error fail loud: undeclared placeholder, unknown namespace, unknown key.
+See [`ClefSecret`'s synth-time validation](/cdk/secret#synth-time-validation)
+for the full message format.
 
 ## Declaring multiple parameters
 
@@ -85,19 +95,26 @@ fail with the same did-you-mean message used by `ClefSecret`.
 const dbUrl = new ClefParameter(this, "DbUrl", {
   identity: "api-gateway",
   environment: "production",
-  shape: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}",
+  shape: "postgres://{{user}}:{{pass}}@{{host}}",
+  refs: {
+    user: { namespace: "database", key: "DB_USER" },
+    pass: { namespace: "database", key: "DB_PASSWORD" },
+    host: { namespace: "database", key: "DB_HOST" },
+  },
 });
 
 const stripe = new ClefParameter(this, "StripeKey", {
   identity: "api-gateway",
   environment: "production",
-  shape: "${STRIPE_SECRET_KEY}",
+  shape: "{{token}}",
+  refs: { token: { namespace: "payments", key: "STRIPE_SECRET_KEY" } },
 });
 
 const sentry = new ClefParameter(this, "SentryDsn", {
   identity: "api-gateway",
   environment: "production",
-  shape: "${SENTRY_DSN}",
+  shape: "{{dsn}}",
+  refs: { dsn: { namespace: "telemetry", key: "SENTRY_DSN" } },
 });
 
 dbUrl.grantRead(apiLambda);

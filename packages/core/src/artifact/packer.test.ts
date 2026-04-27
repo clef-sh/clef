@@ -437,7 +437,8 @@ describe("ArtifactPacker", () => {
       const plaintext = Buffer.concat([decipher.update(ciphertextBuf), decipher.final()]).toString(
         "utf-8",
       );
-      expect(JSON.parse(plaintext)).toEqual({ SECRET: "round-trip-value" });
+      // Plaintext payload is nested by namespace inside the ciphertext.
+      expect(JSON.parse(plaintext)).toEqual({ api: { SECRET: "round-trip-value" } });
     });
 
     it("should throw when KMS provider is not injected for KMS identity", async () => {

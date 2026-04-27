@@ -18,6 +18,7 @@ function makeMockGit(): jest.Mocked<GitIntegration> {
     isRepo: jest.fn().mockResolvedValue(true),
     isMidOperation: jest.fn().mockResolvedValue({ midOp: false }),
     isDirty: jest.fn().mockResolvedValue(false),
+    getUntrackedAmongPaths: jest.fn().mockResolvedValue([]),
     getHead: jest.fn().mockResolvedValue("0000000000000000000000000000000000000000"),
     getAuthorIdentity: jest.fn().mockResolvedValue({ name: "Test", email: "test@test.com" }),
     stageFiles: jest.fn().mockResolvedValue(undefined),
@@ -167,6 +168,38 @@ describe("TransactionManager", () => {
 
       expect(result.startedDirty).toBe(true);
       expect(mutate).toHaveBeenCalled();
+    });
+
+    it("refuses if any declared path exists but is untracked", async () => {
+      git.getUntrackedAmongPaths.mockResolvedValue(["clef.yaml"]);
+      const mutate = jest.fn();
+
+      await expect(
+        manager.run(repoRoot, {
+          description: "test",
+          paths: ["clef.yaml", "secrets/foo.enc.yaml"],
+          mutate,
+        }),
+      ).rejects.toThrow("untracked and would not survive rollback");
+
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it("refuses untracked-paths even with allowDirty", async () => {
+      git.isDirty.mockResolvedValue(true);
+      git.getUntrackedAmongPaths.mockResolvedValue(["clef.yaml"]);
+      const mutate = jest.fn();
+
+      await expect(
+        manager.run(repoRoot, {
+          description: "test",
+          paths: ["clef.yaml"],
+          mutate,
+          allowDirty: true,
+        }),
+      ).rejects.toThrow("untracked and would not survive rollback");
+
+      expect(mutate).not.toHaveBeenCalled();
     });
 
     it("refuses if mid-merge", async () => {

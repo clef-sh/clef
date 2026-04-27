@@ -34,7 +34,11 @@ jest.mock("./source", () => ({
 
 const mockAgeResolveKey = jest.fn<string, [string | undefined, string | undefined]>();
 const mockArtifactDecrypt = jest.fn<
-  Promise<{ values: Record<string, string>; keys: string[]; revision: string }>,
+  Promise<{
+    values: Record<string, Record<string, string>>;
+    keys: string[];
+    revision: string;
+  }>,
   [unknown]
 >();
 jest.mock("@clef-sh/runtime", () => ({
@@ -67,7 +71,12 @@ function makeArtifact(overrides: Partial<PackedArtifact> = {}): PackedArtifact {
   };
 }
 
-const FAKE_SECRETS = { DB_URL: "postgres://prod", REDIS_URL: "redis://prod", API_KEY: "sk-123" };
+// Decryptor returns nested namespace → key → value (the on-the-wire payload
+// shape). The envelope debugger flattens to `<namespace>__<key>` for display.
+const FAKE_NESTED = {
+  app: { DB_URL: "postgres://prod", REDIS_URL: "redis://prod", API_KEY: "sk-123" },
+};
+const FAKE_FLAT_KEYS = ["app__DB_URL", "app__REDIS_URL", "app__API_KEY"];
 
 function makeProgram(): Command {
   const program = new Command();
@@ -81,8 +90,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   (isJsonMode as jest.Mock).mockReturnValue(false);
   mockArtifactDecrypt.mockResolvedValue({
-    values: FAKE_SECRETS,
-    keys: Object.keys(FAKE_SECRETS),
+    values: FAKE_NESTED,
+    keys: FAKE_FLAT_KEYS,
     revision: "test-revision",
   });
   mockAgeResolveKey.mockImplementation((inline, file) => {
@@ -113,8 +122,8 @@ describe("clef envelope decrypt — default (keys only)", () => {
 
     expect(mockExit).toHaveBeenCalledWith(0);
     const prints = (formatter.print as jest.Mock).mock.calls.map((c) => c[0] as string).join("\n");
-    // Sorted
-    expect(prints).toMatch(/API_KEY[\s\S]*DB_URL[\s\S]*REDIS_URL/);
+    // Sorted, qualified-form keys
+    expect(prints).toMatch(/app__API_KEY[\s\S]*app__DB_URL[\s\S]*app__REDIS_URL/);
     // No values
     expect(prints).not.toContain("postgres://prod");
     expect(prints).not.toContain("sk-123");
@@ -157,7 +166,7 @@ describe("clef envelope decrypt — default (keys only)", () => {
     const payload = (formatter.json as jest.Mock).mock.calls[0][0];
     expect(payload.revealed).toBe(false);
     expect(payload.values).toBeNull();
-    expect(payload.keys).toEqual(["API_KEY", "DB_URL", "REDIS_URL"]);
+    expect(payload.keys).toEqual(["app__API_KEY", "app__DB_URL", "app__REDIS_URL"]);
     expect(payload.status).toBe("ok");
   });
 });
@@ -182,8 +191,8 @@ describe("clef envelope decrypt — --reveal", () => {
 
     expect(mockExit).toHaveBeenCalledWith(0);
     const prints = (formatter.print as jest.Mock).mock.calls.map((c) => c[0] as string).join("\n");
-    expect(prints).toContain("DB_URL=postgres://prod");
-    expect(prints).toContain("API_KEY=sk-123");
+    expect(prints).toContain("app__DB_URL=postgres://prod");
+    expect(prints).toContain("app__API_KEY=sk-123");
   });
 
   it("emits the canonical reveal warning to stderr before stdout", async () => {
@@ -224,7 +233,11 @@ describe("clef envelope decrypt — --reveal", () => {
     expect(mockExit).toHaveBeenCalledWith(0);
     const payload = (formatter.json as jest.Mock).mock.calls[0][0];
     expect(payload.revealed).toBe(true);
-    expect(payload.values).toEqual(FAKE_SECRETS);
+    expect(payload.values).toEqual({
+      app__DB_URL: "postgres://prod",
+      app__REDIS_URL: "redis://prod",
+      app__API_KEY: "sk-123",
+    });
   });
 
   it("quote-escapes values with special characters in KEY=value output", async () => {
@@ -238,8 +251,8 @@ describe("clef envelope decrypt — --reveal", () => {
       WITH_QUOTE_AND_BACKSLASH: 'a"b\\c',
     };
     mockArtifactDecrypt.mockResolvedValue({
-      values: specials,
-      keys: Object.keys(specials),
+      values: { app: specials },
+      keys: Object.keys(specials).map((k) => `app__${k}`),
       revision: "test-revision",
     });
     fakeFetch.mockResolvedValue({ raw: JSON.stringify(makeArtifact()) });
@@ -257,11 +270,11 @@ describe("clef envelope decrypt — --reveal", () => {
     ]);
 
     const prints = (formatter.print as jest.Mock).mock.calls.map((c) => c[0] as string).join("\n");
-    expect(prints).toContain("SIMPLE=abc");
-    expect(prints).toContain('QUOTED="has spaces"');
-    expect(prints).toContain('WITH_EQ="a=b"');
-    expect(prints).toContain('WITH_BACKSLASH="C:\\\\path\\\\to\\\\thing"');
-    expect(prints).toContain('WITH_QUOTE_AND_BACKSLASH="a\\"b\\\\c"');
+    expect(prints).toContain("app__SIMPLE=abc");
+    expect(prints).toContain('app__QUOTED="has spaces"');
+    expect(prints).toContain('app__WITH_EQ="a=b"');
+    expect(prints).toContain('app__WITH_BACKSLASH="C:\\\\path\\\\to\\\\thing"');
+    expect(prints).toContain('app__WITH_QUOTE_AND_BACKSLASH="a\\"b\\\\c"');
   });
 });
 
@@ -281,17 +294,17 @@ describe("clef envelope decrypt — --key <name>", () => {
       "--identity",
       "/fake/key.txt",
       "--key",
-      "DB_URL",
+      "app__DB_URL",
       "envelope.json",
     ]);
 
     expect(mockExit).toHaveBeenCalledWith(0);
     const payload = (formatter.json as jest.Mock).mock.calls[0][0];
     expect(payload.revealed).toBe(true);
-    expect(payload.values).toEqual({ DB_URL: "postgres://prod" });
+    expect(payload.values).toEqual({ app__DB_URL: "postgres://prod" });
     // Other keys are listed but not disclosed
-    expect(payload.keys).toContain("API_KEY");
-    expect(payload.keys).toContain("REDIS_URL");
+    expect(payload.keys).toContain("app__API_KEY");
+    expect(payload.keys).toContain("app__REDIS_URL");
   });
 
   it("emits only the named key's KEY=value in human mode", async () => {
@@ -306,13 +319,13 @@ describe("clef envelope decrypt — --key <name>", () => {
       "--identity",
       "/fake/key.txt",
       "--key",
-      "DB_URL",
+      "app__DB_URL",
       "envelope.json",
     ]);
 
     expect(mockExit).toHaveBeenCalledWith(0);
     const prints = (formatter.print as jest.Mock).mock.calls.map((c) => c[0] as string).join("\n");
-    expect(prints).toContain("DB_URL=postgres://prod");
+    expect(prints).toContain("app__DB_URL=postgres://prod");
     // Other values must NOT leak
     expect(prints).not.toContain("sk-123");
     expect(prints).not.toContain("redis://prod");
@@ -330,12 +343,12 @@ describe("clef envelope decrypt — --key <name>", () => {
       "--identity",
       "/fake/key.txt",
       "--key",
-      "DB_URL",
+      "app__DB_URL",
       "envelope.json",
     ]);
 
     const stderrWrites = mockStderrWrite.mock.calls.map((c) => c[0]?.toString() ?? "").join("");
-    expect(stderrWrites).toContain('value for key "DB_URL" will be printed');
+    expect(stderrWrites).toContain('value for key "app__DB_URL" will be printed');
     // Should NOT use the all-values phrasing
     expect(stderrWrites).not.toContain("plaintext will be printed to stdout");
   });
@@ -375,7 +388,7 @@ describe("clef envelope decrypt — --key <name>", () => {
       "/fake/key.txt",
       "--reveal",
       "--key",
-      "DB_URL",
+      "app__DB_URL",
       "envelope.json",
     ]);
 

@@ -1,0 +1,32 @@
+/**
+ * Self-hosted font loader for the Clef design system.
+ *
+ * Consumers import this once — typically alongside `theme.css` — and the
+ * fonts referenced by `--font-sans` / `--font-mono` / `--font-serif`
+ * (defined in `theme.css`) load with no additional setup.
+ *
+ *   @import "@clef-sh/design/fonts.css";
+ *   @import "@clef-sh/design/theme.css";
+ *
+ * The fonts are bundled by Fontsource (woff2 + @font-face). All
+ * @font-face rules carry `font-display: swap`, so text renders
+ * immediately with the fallback stack while the woff2 streams in.
+ *
+ * Variable fonts are used where available so all weights ship in a
+ * single file: ~50–80 KB across `Instrument Sans Variable` (latin +
+ * latin-ext), `JetBrains Mono Variable` (latin + latin-ext), and
+ * `Instrument Serif` (latin only).
+ *
+ * v0.3 TODO — unicode-range subsetting via pyftsubset to reach parity
+ * with Google Fonts on per-page font weight. The full Fontsource files
+ * are ~50 KB heavier than the per-glyph subset Google would serve.
+ *
+ * For fastest first paint, also add `<link rel="preload" as="font"
+ * type="font/woff2" crossorigin>` hints to your document `<head>` for
+ * the variants you actually render — see www/src/pages/index.astro for
+ * the Astro-side pattern.
+ */
+
+@import "@fontsource-variable/instrument-sans/index.css";
+@import "@fontsource-variable/jetbrains-mono/index.css";
+@import "@fontsource/instrument-serif/index.css";

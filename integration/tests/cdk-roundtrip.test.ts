@@ -179,7 +179,8 @@ describe("ClefSecret — integration with real pack-helper", () => {
           identity: "web-app",
           environment: "dev",
           manifest: path.join(repo.dir, "clef.yaml"),
-          shape: { bogus: "${NOT_A_REAL_KEY}" },
+          shape: { bogus: "{{notReal}}" },
+          refs: { notReal: { namespace: "payments", key: "NOT_A_REAL_KEY" } },
         }),
     ).toThrow(/requires a KMS-envelope service identity/);
   });
@@ -198,7 +199,8 @@ describe("ClefParameter — integration with real pack-helper", () => {
           identity: "web-app",
           environment: "dev",
           manifest: path.join(repo.dir, "clef.yaml"),
-          shape: "${STRIPE_KEY}",
+          shape: "{{stripeKey}}",
+          refs: { stripeKey: { namespace: "payments", key: "STRIPE_KEY" } },
         }),
     ).toThrow(/requires a KMS-envelope service identity/);
   });
@@ -218,7 +220,8 @@ describe("ClefParameter — integration with real pack-helper", () => {
           identity: "web-app",
           environment: "dev",
           manifest: path.join(repo.dir, "clef.yaml"),
-          shape: "${NOT_A_REAL_KEY}",
+          shape: "{{notReal}}",
+          refs: { notReal: { namespace: "payments", key: "NOT_A_REAL_KEY" } },
         }),
     ).toThrow(/requires a KMS-envelope service identity/);
   });

@@ -7,7 +7,9 @@ jest.mock(
   () => ({
     Decrypter: jest.fn().mockImplementation(() => ({
       addIdentity: jest.fn(),
-      decrypt: jest.fn().mockResolvedValue('{"DB_URL":"postgres://...","API_KEY":"secret"}'),
+      decrypt: jest
+        .fn()
+        .mockResolvedValue('{"app":{"DB_URL":"postgres://...","API_KEY":"secret"}}'),
     })),
   }),
   { virtual: true },
@@ -57,11 +59,18 @@ describe("ClefRuntime", () => {
       await runtime.start();
 
       expect(runtime.ready).toBe(true);
-      expect(runtime.get("DB_URL")).toBe("postgres://...");
-      expect(runtime.get("API_KEY")).toBe("secret");
-      expect(runtime.getAll()).toEqual({ DB_URL: "postgres://...", API_KEY: "secret" });
-      expect(runtime.env()).toEqual({ DB_URL: "postgres://...", API_KEY: "secret" });
-      expect(runtime.keys()).toEqual(["DB_URL", "API_KEY"]);
+      expect(runtime.get("DB_URL", "app")).toBe("postgres://...");
+      expect(runtime.get("API_KEY", "app")).toBe("secret");
+      expect(runtime.get("MISSING", "app")).toBeUndefined();
+      expect(runtime.get("DB_URL", "wrong-ns")).toBeUndefined();
+      expect(runtime.getAll()).toEqual({
+        app: { DB_URL: "postgres://...", API_KEY: "secret" },
+      });
+      expect(runtime.env()).toEqual({
+        app__DB_URL: "postgres://...",
+        app__API_KEY: "secret",
+      });
+      expect(runtime.keys().sort()).toEqual(["app__API_KEY", "app__DB_URL"]);
       expect(runtime.revision).toBe("rev1");
     });
   });
@@ -84,7 +93,7 @@ describe("ClefRuntime", () => {
       await runtime.start();
 
       expect(runtime.ready).toBe(true);
-      expect(runtime.get("DB_URL")).toBe("postgres://...");
+      expect(runtime.get("DB_URL", "app")).toBe("postgres://...");
       expect(runtime.revision).toBe("http-rev");
     });
   });
@@ -148,7 +157,7 @@ describe("ClefRuntime", () => {
       });
 
       expect(runtime.ready).toBe(false);
-      expect(runtime.get("DB_URL")).toBeUndefined();
+      expect(runtime.get("DB_URL", "app")).toBeUndefined();
       expect(runtime.getAll()).toEqual({});
       expect(runtime.keys()).toEqual([]);
       expect(runtime.revision).toBe("");

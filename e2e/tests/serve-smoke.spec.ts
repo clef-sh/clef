@@ -47,8 +47,10 @@ test("clef serve returns decrypted secrets via /v1/secrets", async ({ request })
 
   const body = await response.json();
   expect(body).toEqual({
-    STRIPE_KEY: "sk_test_abc123",
-    STRIPE_WEBHOOK_SECRET: "whsec_xyz789",
+    payments: {
+      STRIPE_KEY: "sk_test_abc123",
+      STRIPE_WEBHOOK_SECRET: "whsec_xyz789",
+    },
   });
 });
 
@@ -71,5 +73,5 @@ test("clef serve returns key names via /v1/keys", async ({ request }) => {
   expect(response.status()).toBe(200);
 
   const body = (await response.json()) as string[];
-  expect(body.sort()).toEqual(["STRIPE_KEY", "STRIPE_WEBHOOK_SECRET"]);
+  expect(body.sort()).toEqual(["payments__STRIPE_KEY", "payments__STRIPE_WEBHOOK_SECRET"]);
 });

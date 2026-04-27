@@ -29,24 +29,47 @@ import { DecryptCommand, KMSClient } from "@aws-sdk/client-kms";
 import { PutSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 
 /**
- * ${IDENTIFIER} reference grammar. Duplicated from
- * `packages/cdk/src/shape-template.ts` — the Lambda asset is bundled in
- * isolation so it can't import sibling dist files. The two copies MUST
- * stay in sync; synth-time validation runs against the authoritative
- * copy, this is the runtime application.
+ * `{{name}}` placeholder grammar with `\{\{` / `\}\}` escapes. Duplicated
+ * from `packages/cdk/src/shape-template.ts` — the Lambda asset is bundled in
+ * isolation so it can't import sibling dist files. The two copies MUST stay
+ * in sync; synth-time validation runs against the authoritative copy, this
+ * is the runtime application.
  */
-const REF_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+const PATTERN = /\\\{\\\{|\\\}\\\}|\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}/g;
 
-function applyTemplate(template: string, values: Record<string, string>): string {
-  return template.replace(REF_PATTERN, (_, name: string) => {
-    if (!(name in values)) {
+interface ClefRef {
+  namespace: string;
+  key: string;
+}
+type RefsMap = Record<string, ClefRef>;
+
+function applyTemplate(
+  template: string,
+  refs: RefsMap | undefined,
+  values: Record<string, Record<string, string>>,
+): string {
+  return template.replace(PATTERN, (match, name: string | undefined) => {
+    if (match === "\\{\\{") return "{{";
+    if (match === "\\}\\}") return "}}";
+    if (name === undefined) {
+      throw new Error(`Internal: shape regex matched '${match}' without a name capture.`);
+    }
+    const ref = refs?.[name];
+    if (!ref) {
       throw new Error(
-        `Template reference \${${name}} has no matching value in the envelope. ` +
+        `Template placeholder {{${name}}} has no matching refs entry. ` +
           `Synth-time validation should have caught this — the CDK package versions ` +
           `may be out of sync.`,
       );
     }
-    return values[name];
+    const value = values[ref.namespace]?.[ref.key];
+    if (value === undefined) {
+      throw new Error(
+        `Template placeholder {{${name}}} → ${ref.namespace}/${ref.key} not present in ` +
+          `the decrypted envelope.`,
+      );
+    }
+    return value;
   });
 }
 
@@ -54,14 +77,15 @@ type ShapeTemplate = string | Record<string, string>;
 
 function applyShape(
   shape: ShapeTemplate,
-  values: Record<string, string>,
+  refs: RefsMap | undefined,
+  values: Record<string, Record<string, string>>,
 ): string | Record<string, string> {
   if (typeof shape === "string") {
-    return applyTemplate(shape, values);
+    return applyTemplate(shape, refs, values);
   }
   const out: Record<string, string> = {};
   for (const [field, template] of Object.entries(shape)) {
-    out[field] = applyTemplate(template, values);
+    out[field] = applyTemplate(template, refs, values);
   }
   return out;
 }
@@ -91,6 +115,7 @@ interface SecretResourceProperties {
   Revision: string;
   GrantToken: string;
   Shape?: ShapeTemplate;
+  Refs?: RefsMap;
 }
 
 interface ParameterResourceProperties {
@@ -103,6 +128,7 @@ interface ParameterResourceProperties {
   Revision: string;
   GrantToken: string;
   Shape?: ShapeTemplate;
+  Refs?: RefsMap;
 }
 
 type ResourceProperties = SecretResourceProperties | ParameterResourceProperties;
@@ -140,8 +166,8 @@ async function handleSecret(event: OnEventRequest): Promise<OnEventResponse> {
     return { PhysicalResourceId: event.PhysicalResourceId };
   }
 
-  const { SecretArn, EnvelopeJson, Revision, GrantToken, Shape } = props;
-  const secretString = await decryptAndShape(EnvelopeJson, GrantToken, Shape);
+  const { SecretArn, EnvelopeJson, Revision, GrantToken, Shape, Refs } = props;
+  const secretString = await decryptAndShape(EnvelopeJson, GrantToken, Shape, Refs);
 
   await sm.send(
     new PutSecretValueCommand({
@@ -191,6 +217,7 @@ async function handleParameter(event: OnEventRequest): Promise<OnEventResponse> 
     Revision,
     GrantToken,
     Shape,
+    Refs,
   } = props;
 
   // Shape is required for parameters (SSM holds one value per parameter),
@@ -199,7 +226,7 @@ async function handleParameter(event: OnEventRequest): Promise<OnEventResponse> 
   if (Shape === undefined) {
     throw new Error(
       `ClefParameter requires a 'shape' template — SSM parameters hold a single value. ` +
-        `Add shape: "\${KEY}" (or a composition) to your construct props.`,
+        `Add shape: "{{name}}" (or a composition) to your construct props.`,
     );
   }
   if (typeof Shape !== "string") {
@@ -209,7 +236,7 @@ async function handleParameter(event: OnEventRequest): Promise<OnEventResponse> 
     );
   }
 
-  const parameterValue = await decryptAndShape(EnvelopeJson, GrantToken, Shape);
+  const parameterValue = await decryptAndShape(EnvelopeJson, GrantToken, Shape, Refs);
 
   // If the parameter name changed between Update invocations, CFN sees the
   // PhysicalResourceId change and calls Create on the new one + Delete on
@@ -237,6 +264,7 @@ async function decryptAndShape(
   envelopeJson: string,
   grantToken: string,
   shape: ShapeTemplate | undefined,
+  refs: RefsMap | undefined,
 ): Promise<string> {
   const envelope = JSON.parse(envelopeJson) as PackedArtifact;
   if (!envelope.envelope) {
@@ -269,10 +297,14 @@ async function decryptAndShape(
     const decipher = crypto.createDecipheriv("aes-256-gcm", dek, iv);
     decipher.setAuthTag(authTag);
     const plaintextBuf = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-    const values = JSON.parse(plaintextBuf.toString("utf-8")) as Record<string, string>;
+    // Decrypted payload is nested by namespace: Record<namespace, Record<key, value>>.
+    const values = JSON.parse(plaintextBuf.toString("utf-8")) as Record<
+      string,
+      Record<string, string>
+    >;
 
-    // 3. Apply shape if provided, else passthrough (JSON-stringified values).
-    const final = shape !== undefined ? applyShape(shape, values) : values;
+    // 3. Apply shape if provided, else passthrough (JSON-stringified nested values).
+    const final = shape !== undefined ? applyShape(shape, refs, values) : values;
     return typeof final === "string" ? final : JSON.stringify(final);
   } finally {
     // Best-effort plaintext hygiene. Node can GC earlier copies we don't

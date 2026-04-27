@@ -153,7 +153,7 @@ describe("AwsParameterStoreBackend.pack", () => {
     const puts = ssmMock.commandCalls(PutParameterCommand);
     expect(puts).toHaveLength(2);
     const names = puts.map((c) => c.args[0].input.Name).sort();
-    expect(names).toEqual(["/myapp/dev/API_KEY", "/myapp/dev/DB_PASSWORD"]);
+    expect(names).toEqual(["/myapp/dev/api__API_KEY", "/myapp/dev/api__DB_PASSWORD"]);
     for (const c of puts) {
       expect(c.args[0].input.Type).toBe<ParameterType>("SecureString");
       expect(c.args[0].input.Overwrite).toBe(true);
@@ -163,7 +163,7 @@ describe("AwsParameterStoreBackend.pack", () => {
 
     expect(result.backend).toBe("aws-parameter-store");
     expect(result.keyCount).toBe(2);
-    expect(result.keys.sort()).toEqual(["API_KEY", "DB_PASSWORD"]);
+    expect(result.keys.sort()).toEqual(["api__API_KEY", "api__DB_PASSWORD"]);
     expect(result.namespaceCount).toBe(1);
     expect(result.outputPath).toBe("");
     expect(result.artifactSize).toBe(0);
@@ -258,7 +258,7 @@ describe("AwsParameterStoreBackend.pack", () => {
       },
     });
 
-    await expect(build().pack(req)).rejects.toThrow(/'BIG' is 4097 bytes.*tier=Advanced/s);
+    await expect(build().pack(req)).rejects.toThrow(/'api__BIG' is 4097 bytes.*tier=Advanced/s);
     expect(ssmMock.commandCalls(PutParameterCommand)).toHaveLength(0);
   });
 
@@ -283,7 +283,7 @@ describe("AwsParameterStoreBackend.pack", () => {
     ssmMock.on(PutParameterCommand).resolves({});
     ssmMock.on(AddTagsToResourceCommand).resolves({});
     ssmMock.on(GetParametersByPathCommand).resolves({
-      Parameters: [{ Name: "/myapp/dev/STALE_KEY" }, { Name: "/myapp/dev/DB_PASSWORD" }],
+      Parameters: [{ Name: "/myapp/dev/STALE_KEY" }, { Name: "/myapp/dev/api__DB_PASSWORD" }],
     });
 
     const result = await build().pack(fakeRequest());
@@ -299,7 +299,7 @@ describe("AwsParameterStoreBackend.pack", () => {
     ssmMock.on(GetParametersByPathCommand).resolves({
       Parameters: [
         { Name: "/myapp/dev/STALE_KEY" },
-        { Name: "/myapp/dev/DB_PASSWORD" },
+        { Name: "/myapp/dev/api__DB_PASSWORD" },
         { Name: "/myapp/dev/ALSO_GONE" },
       ],
     });

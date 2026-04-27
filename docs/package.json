@@ -4,10 +4,10 @@
   "type": "module",
   "scripts": {
     "dev": "vitepress dev",
-    "build": "vitepress build",
     "preview": "vitepress preview"
   },
   "devDependencies": {
+    "@clef-sh/design": "*",
     "vitepress": "^1.1.0",
     "vitepress-plugin-mermaid": "^2.0.16",
     "vue": "^3.5.32"
