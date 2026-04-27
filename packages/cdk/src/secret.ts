@@ -1,6 +1,7 @@
 import * as path from "path";
 import { Construct } from "constructs";
 import {
+  Annotations,
   CustomResource,
   Duration,
   aws_iam as iam,
@@ -14,26 +15,25 @@ import type { IKey } from "aws-cdk-lib/aws-kms";
 import type { ISecret } from "aws-cdk-lib/aws-secretsmanager";
 import { resolveManifestPath } from "./manifest-path";
 import { invokePackHelper } from "./pack-invoker";
-import { validateShape } from "./shape-template";
+import { validateShape, type RefsMap } from "./shape-template";
 
 /**
  * Target shape for a {@link ClefSecret}. The value determines what lives in
  * `SecretString`:
  *
  *   - **Undefined** — passthrough. The decrypted envelope JSON is written
- *     to ASM 1:1 with Clef key names. Best for consumers that already
+ *     to ASM 1:1 (nested by namespace). Best for consumers that already
  *     expect the envelope's native shape.
  *
  *   - **`string`** — single-value secret. The string is run through
- *     `${CLEF_KEY}` interpolation and written to `SecretString` verbatim
- *     (no JSON wrapping). Best for consumers that expect a scalar —
- *     connection strings, single API tokens, opaque credentials.
+ *     `{{name}}` interpolation and written to `SecretString` verbatim (no
+ *     JSON wrapping). Best for connection strings, single API tokens,
+ *     opaque credentials.
  *
  *   - **`Record<string, string>`** — JSON secret. Each value is a template
- *     (literal or `${…}`-interpolated); the construct writes a JSON object
- *     with the mapped fields. Best for consumers that expect a specific
- *     JSON shape (ECS `Secret.fromSecretsManager(…, "FIELD")`, Lambda
- *     fetch-and-parse, etc.).
+ *     (literal or `{{name}}`-interpolated); the construct writes a JSON
+ *     object with the mapped fields. Best for ECS
+ *     `Secret.fromSecretsManager(…, "FIELD")`, Lambda fetch-and-parse, etc.
  */
 export type ClefSecretShape = string | Record<string, string>;
 
@@ -52,10 +52,22 @@ export interface ClefSecretProps {
   /**
    * Shape of the ASM secret value. See {@link ClefSecretShape}.
    *
-   * Unknown `${VAR}` references fail loud at synth with a message listing
-   * valid keys and a "did you mean?" suggestion for close matches.
+   * Placeholders use `{{name}}` syntax; each name is resolved via {@link refs}.
+   * Unknown placeholders or unresolvable refs fail loud at synth with a
+   * message listing valid aliases / namespaces / keys and a "did you mean?"
+   * suggestion for close matches.
    */
   readonly shape?: ClefSecretShape;
+  /**
+   * Map of `{{placeholder}}` aliases to `(namespace, key)` references in the
+   * Clef envelope. Required when `shape` contains any placeholders.
+   *
+   *     refs: {
+   *       user: { namespace: 'database', key: 'DB_USER' },
+   *       pass: { namespace: 'database', key: 'DB_PASSWORD' },
+   *     }
+   */
+  readonly refs?: RefsMap;
   /** Explicit secret name. Defaults to `clef/<identity>/<environment>`. */
   readonly secretName?: string;
 }
@@ -117,7 +129,7 @@ export class ClefSecret extends Construct {
 
     this.manifestPath = resolveManifestPath(props.manifest);
 
-    const { envelopeJson, keys } = invokePackHelper({
+    const { envelopeJson, keysByNamespace } = invokePackHelper({
       manifest: this.manifestPath,
       identity: props.identity,
       environment: props.environment,
@@ -157,12 +169,16 @@ export class ClefSecret extends Construct {
     // Validate shape template references BEFORE touching CFN. Typos surface
     // at `cdk synth`, not at deploy, with a message listing valid keys.
     if (props.shape !== undefined) {
-      validateShape({
+      const result = validateShape({
         shape: props.shape,
-        availableKeys: keys,
+        refs: props.refs,
+        availableKeys: keysByNamespace,
         identity: props.identity,
         environment: props.environment,
       });
+      for (const w of result.warnings) {
+        Annotations.of(this).addWarning(w);
+      }
     }
 
     this.envelopeKey = kms.Key.fromKeyArn(this, "EnvelopeKey", envelope.envelope.keyId);
@@ -284,6 +300,7 @@ export class ClefSecret extends Construct {
         Revision: envelope.revision,
         GrantToken: grantCreate.getResponseField("GrantToken"),
         ...(props.shape !== undefined ? { Shape: props.shape } : {}),
+        ...(props.refs !== undefined ? { Refs: props.refs } : {}),
       },
     });
 

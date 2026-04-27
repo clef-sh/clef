@@ -19,11 +19,12 @@ export interface PackHelperResult {
   /** The envelope JSON on stdout — still the canonical PackedArtifact string. */
   envelopeJson: string;
   /**
-   * Plaintext list of key names present in the envelope. Written to a temp
-   * sidecar by the helper and read back here. Names only; values stay
-   * encrypted in the envelope ciphertext.
+   * Plaintext key names present in the envelope, grouped by namespace.
+   * Written to a temp sidecar by the helper and read back here. Names only;
+   * values stay encrypted in the envelope ciphertext. Used by the shape-
+   * template validator to resolve `(namespace, key)` refs at synth.
    */
-  keys: string[];
+  keysByNamespace: Record<string, string[]>;
 }
 
 /**
@@ -96,8 +97,8 @@ function runPackHelper(args: InvokePackHelperArgs): PackHelperResult {
     );
     const envelopeJson = buf.toString("utf-8");
     const rawKeys = fs.readFileSync(keysOut, "utf-8");
-    const keys = JSON.parse(rawKeys) as string[];
-    return { envelopeJson, keys };
+    const keysByNamespace = JSON.parse(rawKeys) as Record<string, string[]>;
+    return { envelopeJson, keysByNamespace };
   } catch (err) {
     const e = err as NodeJS.ErrnoException & { stderr?: Buffer | string };
     const stderr =

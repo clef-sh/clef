@@ -160,11 +160,19 @@ async function main(): Promise<void> {
   }
 
   // Write the plaintext key names sidecar when requested. Names only — values
-  // stay encrypted in the envelope. Consumers (e.g. ClefAwsSecretsManager) use
-  // this to validate shape templates at synth before any deploy happens.
+  // stay encrypted in the envelope. The shape-template validator queries by
+  // (namespace, key), so the sidecar groups names by namespace.
   if (args.keysOut) {
     const fs = await import("fs");
-    fs.writeFileSync(args.keysOut, JSON.stringify(result.keys), "utf-8");
+    const keysByNamespace: Record<string, string[]> = {};
+    for (const flat of result.keys) {
+      const idx = flat.indexOf("__");
+      if (idx === -1) continue; // packer always qualifies; defensive skip
+      const ns = flat.slice(0, idx);
+      const k = flat.slice(idx + 2);
+      (keysByNamespace[ns] ??= []).push(k);
+    }
+    fs.writeFileSync(args.keysOut, JSON.stringify(keysByNamespace), "utf-8");
   }
 
   process.stdout.write(output.json);
