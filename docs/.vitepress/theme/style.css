@@ -122,13 +122,17 @@ body {
 
 /* Nav-bar wordmark — the default logo image and title text are replaced
  * by the <clef-wordmark> custom element slotted in via the
- * `nav-bar-title-before` slot (see theme/index.ts). Hiding both keeps a
- * single brand mark in the nav bar. */
-.VPNavBarTitle .VPImage,
-.VPNavBarTitle .title {
+ * `nav-bar-title-before` slot (see theme/index.ts).
+ *
+ * Selector subtlety: VitePress puts class="title" on the `<a>` AND wraps
+ * the title text in a child `<span>`. Don't use `.VPNavBarTitle .title`
+ * — that matches the link itself and hides the wordmark too. Hide the
+ * VPImage and the direct-child span explicitly. */
+.VPNavBarTitle a.title > .VPImage,
+.VPNavBarTitle a.title > span {
   display: none;
 }
-.VPNavBarTitle a {
+.VPNavBarTitle a.title {
   display: inline-flex;
   align-items: center;
 }
