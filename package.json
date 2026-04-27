@@ -15,7 +15,8 @@
     "packages/agent",
     "packages/cdk",
     "packages/pack/*",
-    "packages/cli"
+    "packages/cli",
+    "www"
   ],
   "scripts": {
     "test": "npm test --workspaces --if-present",

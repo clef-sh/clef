@@ -1,70 +1,19 @@
 @import "tailwindcss";
 
-/* ── Design tokens (Tailwind v4 @theme) ──────────────────────────────────
- * Source of truth: cloud/static/src/style.css. The marketing surface uses
- * the same ink/edge/ash/gold scales so the two share a visual language.
- * Old `--color-clef-*` aliases are preserved for back-compat so existing
- * Astro components don't need to change in the same commit. */
+/* Design tokens are the canonical source of truth — `@clef-sh/design` ships
+ * the @theme block. This is a public marketing surface (always online), so
+ * we load fonts from Google's CDN via `fonts-cdn.css` to take advantage of
+ * the cross-site cache and keep first-paint snappy. The local UI uses the
+ * `fonts.css` sibling for self-hosted woff2 instead.
+ *
+ * Note: `--font-display` is now Instrument Sans (matches body); editorial
+ * display copy on this surface uses `--font-serif` (Instrument Serif) via
+ * the `.clef-display` / `.clef-display-italic` utilities. */
+@import "@clef-sh/design/fonts-cdn.css";
+@import "@clef-sh/design/theme.css";
+
 @theme {
-  /* ── Type ─────────────────────────────────────────────────────────── */
-  --font-sans: "Inter", -apple-system, "Helvetica Neue", Arial, sans-serif;
-  --font-ui: "Inter", -apple-system, "Helvetica Neue", Arial, sans-serif;
-  --font-display: "Instrument Serif", "Inter", Georgia, serif;
-  --font-mono: "JetBrains Mono", "Berkeley Mono", ui-monospace, monospace;
-
-  /* ── Surface scale ────────────────────────────────────────────────── */
-  --color-ink-950: #06070b;
-  --color-ink-900: #0a0c12;
-  --color-ink-850: #0d1018;
-  --color-ink-800: #10131d;
-  --color-ink-750: #151925;
-  --color-ink-700: #1a1f2e;
-  --color-ink-600: #242a3b;
-  --color-ink-500: #2f3649;
-
-  /* ── Borders ──────────────────────────────────────────────────────── */
-  --color-edge: #1c2030;
-  --color-edge-strong: #2a3146;
-
-  /* ── Text ─────────────────────────────────────────────────────────── */
-  --color-ghost: #f4f5f8;
-  --color-bone: #e4e6ed;
-  --color-ash: #9ba3b7;
-  --color-ash-dim: #6b7388;
-  --color-ash-deep: #464d60;
-
-  /* ── Gold accent — real scale ─────────────────────────────────────── */
-  --color-gold-50: #fff8e6;
-  --color-gold-100: #ffe9a8;
-  --color-gold-200: #ffd77a;
-  --color-gold-300: #ffc24a;
-  --color-gold-400: #ffb020;
-  --color-gold-500: #f0a500;
-  --color-gold-600: #c88400;
-  --color-gold-700: #9a6700;
-  --color-gold-800: #6b4800;
-  --color-gold-900: #3d2900;
-
-  /* ── Semantic ─────────────────────────────────────────────────────── */
-  --color-go-500: #34d399;
-  --color-go-700: #065f46;
-  --color-go-900: #022c22;
-  --color-warn-500: #fbbf24;
-  --color-warn-700: #a16207;
-  --color-warn-900: #3b2a05;
-  --color-stop-500: #f87171;
-  --color-stop-700: #991b1b;
-  --color-stop-900: #3f0d0d;
-
-  /* ── Radii / shadows ──────────────────────────────────────────────── */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 10px;
-  --radius-card: 10px;
-  --shadow-plate: 0 1px 0 0 rgb(255 255 255 / 0.03) inset, 0 24px 48px -24px rgb(0 0 0 / 0.6);
-  --shadow-halo: 0 0 0 1px rgb(240 165 0 / 0.25), 0 10px 40px -10px rgb(240 165 0 / 0.35);
-
-  /* ── Back-compat aliases — keep `clef-*` names working ────────────── */
+  /* ── www-only back-compat aliases — keep `clef-*` names working ──── */
   --color-clef-bg: var(--color-ink-950);
   --color-clef-panel: var(--color-ink-900);
   --color-clef-surface: var(--color-ink-850);
@@ -179,14 +128,17 @@
     letter-spacing: -0.02em;
   }
 
-  /* Editorial display face (Instrument Serif) */
+  /* Editorial display face (Instrument Serif). Uses the `--font-serif`
+   * token from @clef-sh/design rather than `--font-display` because the
+   * design package's display font is Instrument Sans (matches body); the
+   * serif slot is reserved specifically for editorial copy on this surface. */
   .clef-display {
-    font-family: var(--font-display);
+    font-family: var(--font-serif);
     font-weight: 400;
     letter-spacing: -0.015em;
   }
   .clef-display-italic {
-    font-family: var(--font-display);
+    font-family: var(--font-serif);
     font-style: italic;
     font-weight: 400;
   }

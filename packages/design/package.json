@@ -16,6 +16,7 @@
     },
     "./theme.css": "./src/theme.css",
     "./fonts.css": "./src/fonts.css",
+    "./fonts-cdn.css": "./src/fonts-cdn.css",
     "./package.json": "./package.json"
   },
   "files": [
