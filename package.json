@@ -17,7 +17,8 @@
     "packages/pack/*",
     "packages/cli",
     "www",
-    "registry"
+    "registry",
+    "docs"
   ],
   "scripts": {
     "test": "npm test --workspaces --if-present",
