@@ -114,13 +114,15 @@ test.describe.serial("clef policy → PolicyView: rotation verdicts", () => {
     await expect(page.getByTestId("all-compliant")).toHaveCount(0);
   });
 
-  test("[errors] policy max_age_days: 0.0001 puts every key in Overdue", async ({ page }) => {
+  test("[errors] policy max_age_days: 0.000001 puts every key in Overdue", async ({ page }) => {
     writePolicyFile(repo.dir, {
       version: 1,
-      // ~8.6s window — wide enough that sub-second timing wobble on CI
-      // doesn't accidentally land a key on the compliant side, but still
-      // narrow enough that any pre-existing scaffold file is overdue.
-      rotation: { max_age_days: 0.0001 },
+      // ~86ms window — anything older is overdue. Don't widen this: the
+      // scaffold's last_rotated_at is set in beforeAll, and on a fast CI
+      // runner this test can fire only a few seconds later. A wider window
+      // (e.g. 0.0001 → 8.6s) lands keys on the compliant side and breaks
+      // the assertion. 86ms is reliably exceeded by any setup delay.
+      rotation: { max_age_days: 0.000001 },
     });
 
     await page.goto(server.url);
@@ -139,7 +141,7 @@ test.describe.serial("clef policy → PolicyView: rotation verdicts", () => {
   test("[errors] overdue count appears as a red badge on the Policy nav item", async ({ page }) => {
     writePolicyFile(repo.dir, {
       version: 1,
-      rotation: { max_age_days: 0.0001 },
+      rotation: { max_age_days: 0.000001 },
     });
 
     // Capture the mount-time /api/policy/check call so a flaky failure prints
