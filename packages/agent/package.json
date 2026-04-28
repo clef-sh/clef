@@ -28,7 +28,7 @@
     "@azure/identity": "^4.0.0",
     "@azure/keyvault-keys": "^4.8.0",
     "@clef-sh/runtime": "0.1.27",
-    "@google-cloud/kms": "^4.0.0",
+    "@google-cloud/kms": "^5.0.0",
     "express": "^5.1.0"
   },
   "devDependencies": {
