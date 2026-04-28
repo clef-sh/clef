@@ -288,10 +288,14 @@ describe("envelope UI server", () => {
 
   // ── /envelope/decrypt ────────────────────────────────────────────────
   describe("POST /api/envelope/decrypt", () => {
+    // The encrypted payload is nested by namespace; the UI server flattens
+    // to env-var-shaped names for display.
     const DECRYPT_PAYLOAD = JSON.stringify({
-      DB_URL: "postgres://prod",
-      REDIS_URL: "redis://prod",
-      API_KEY: "sk-123",
+      app: {
+        DB_URL: "postgres://prod",
+        REDIS_URL: "redis://prod",
+        API_KEY: "sk-123",
+      },
     });
 
     it("returns keys-only (values: null) by default", async () => {
@@ -319,7 +323,7 @@ describe("envelope UI server", () => {
       const app = createApp({ ageKey: "AGE-SECRET-KEY-1TEST" });
       const res = await request(app)
         .post("/api/envelope/decrypt")
-        .send({ raw: JSON.stringify(baseArtifact()), key: "DB_URL" });
+        .send({ raw: JSON.stringify(baseArtifact()), key: "app__DB_URL" });
       expect(res.status).toBe(200);
       expect(res.body).toEqual(asPaste(readFixture("decrypt.single-key.json")));
     });

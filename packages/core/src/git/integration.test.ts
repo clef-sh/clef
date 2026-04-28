@@ -440,6 +440,57 @@ describe("GitIntegration", () => {
     });
   });
 
+  describe("getUntrackedAmongPaths", () => {
+    it("should return paths whose porcelain entry begins with '?'", async () => {
+      const runner = mockRunner(async () => ({
+        stdout: "?? clef.yaml\n M secrets/database/dev.enc.yaml\n",
+        stderr: "",
+        exitCode: 0,
+      }));
+      const git = new GitIntegration(runner);
+
+      const result = await git.getUntrackedAmongPaths("/repo", [
+        "clef.yaml",
+        "secrets/database/dev.enc.yaml",
+      ]);
+
+      expect(result).toEqual(["clef.yaml"]);
+      expect(runner.run).toHaveBeenCalledWith(
+        "git",
+        ["status", "--porcelain", "--", "clef.yaml", "secrets/database/dev.enc.yaml"],
+        { cwd: "/repo" },
+      );
+    });
+
+    it("should return empty when no porcelain output", async () => {
+      const runner = mockRunner(async () => ({ stdout: "", stderr: "", exitCode: 0 }));
+      const git = new GitIntegration(runner);
+
+      expect(await git.getUntrackedAmongPaths("/repo", ["a.yaml"])).toEqual([]);
+    });
+
+    it("should do nothing for empty path list", async () => {
+      const runner = mockRunner();
+      const git = new GitIntegration(runner);
+
+      expect(await git.getUntrackedAmongPaths("/repo", [])).toEqual([]);
+      expect(runner.run).not.toHaveBeenCalled();
+    });
+
+    it("should throw on non-zero exit", async () => {
+      const runner = mockRunner(async () => ({
+        stdout: "",
+        stderr: "fatal: not a repo",
+        exitCode: 128,
+      }));
+      const git = new GitIntegration(runner);
+
+      await expect(git.getUntrackedAmongPaths("/repo", ["a.yaml"])).rejects.toThrow(
+        GitOperationError,
+      );
+    });
+  });
+
   describe("isDirty", () => {
     it("should return false when diff-index exits 0 (clean)", async () => {
       const runner = mockRunner(async () => ({ stdout: "", stderr: "", exitCode: 0 }));

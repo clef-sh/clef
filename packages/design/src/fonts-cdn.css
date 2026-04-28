@@ -1,0 +1,24 @@
+/**
+ * CDN-hosted font loader for the Clef design system.
+ *
+ * Sibling to `fonts.css`. Use this on marketing surfaces (www, cloud
+ * marketing) — anything that's only ever served on the open internet and
+ * benefits from Google Fonts' shared cross-site cache. The local UI and
+ * any offline-capable consumer should import `fonts.css` instead so they
+ * don't acquire a runtime dependency on Google.
+ *
+ *   @import "@clef-sh/design/fonts-cdn.css";
+ *   @import "@clef-sh/design/theme.css";
+ *
+ * The font tokens in `theme.css` list both the Fontsource-Variable family
+ * names (suffix "Variable") and the bare CDN names as fallbacks, so the
+ * same `--font-*` tokens resolve correctly under either loader.
+ *
+ * For fastest first paint on marketing pages, also add to the document
+ * `<head>`:
+ *
+ *   <link rel="preconnect" href="https://fonts.googleapis.com">
+ *   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400..700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400..700&display=swap");

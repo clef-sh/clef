@@ -3,7 +3,7 @@ import { resolveToken, resolveEndpoint } from "./auth";
 import { request } from "./http";
 
 interface CacheEntry {
-  secrets: Record<string, string>;
+  secrets: Record<string, Record<string, string>>;
   fetchedAt: number;
 }
 
@@ -31,28 +31,37 @@ export class ClefClient {
     this.fetchFn = options?.fetch ?? globalThis.fetch;
   }
 
-  /** Get a single secret by key. Falls back to env var if configured. */
-  async get(key: string): Promise<string | undefined> {
+  /**
+   * Get a single secret value, scoped to a namespace.
+   *
+   * Falls back to `process.env['<namespace>__<key>']` (the env-var-shaped
+   * qualified form) when `envFallback` is enabled and the secret isn't found.
+   */
+  async get(key: string, namespace: string): Promise<string | undefined> {
     const all = await this.fetchSecrets();
-    const value = all[key];
+    const value = all[namespace]?.[key];
     if (value !== undefined) return value;
 
     if (this.envFallback && typeof process !== "undefined") {
-      return process.env[key];
+      return process.env[`${namespace}__${key}`];
     }
 
     return undefined;
   }
 
-  /** Get all secrets as a key-value map. */
-  async getAll(): Promise<Record<string, string>> {
+  /** Get all secrets as `namespace → key → value`. */
+  async getAll(): Promise<Record<string, Record<string, string>>> {
     return this.fetchSecrets();
   }
 
-  /** List available key names. */
+  /** List available key names in flat `<namespace>__<key>` form. */
   async keys(): Promise<string[]> {
     const all = await this.fetchSecrets();
-    return Object.keys(all);
+    const out: string[] = [];
+    for (const [ns, bucket] of Object.entries(all)) {
+      for (const k of Object.keys(bucket)) out.push(`${ns}__${k}`);
+    }
+    return out;
   }
 
   /** Check if the serve endpoint is reachable. */
@@ -65,7 +74,7 @@ export class ClefClient {
     }
   }
 
-  private async fetchSecrets(): Promise<Record<string, string>> {
+  private async fetchSecrets(): Promise<Record<string, Record<string, string>>> {
     if (this.cacheTtlMs > 0 && this.cache) {
       const age = Date.now() - this.cache.fetchedAt;
       if (age < this.cacheTtlMs) {
@@ -73,7 +82,7 @@ export class ClefClient {
       }
     }
 
-    const secrets = await request<Record<string, string>>(this.endpoint, {
+    const secrets = await request<Record<string, Record<string, string>>>(this.endpoint, {
       method: "GET",
       path: "/v1/secrets",
       token: this.token,

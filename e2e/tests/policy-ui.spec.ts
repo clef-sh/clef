@@ -117,7 +117,12 @@ test.describe.serial("clef policy → PolicyView: rotation verdicts", () => {
   test("[errors] policy max_age_days: 0.000001 puts every key in Overdue", async ({ page }) => {
     writePolicyFile(repo.dir, {
       version: 1,
-      rotation: { max_age_days: 0.000001 }, // ~86ms window — anything older is overdue
+      // ~86ms window — anything older is overdue. Don't widen this: the
+      // scaffold's last_rotated_at is set in beforeAll, and on a fast CI
+      // runner this test can fire only a few seconds later. A wider window
+      // (e.g. 0.0001 → 8.6s) lands keys on the compliant side and breaks
+      // the assertion. 86ms is reliably exceeded by any setup delay.
+      rotation: { max_age_days: 0.000001 },
     });
 
     await page.goto(server.url);
@@ -139,11 +144,36 @@ test.describe.serial("clef policy → PolicyView: rotation verdicts", () => {
       rotation: { max_age_days: 0.000001 },
     });
 
+    // Capture the mount-time /api/policy/check call so a flaky failure prints
+    // the actual HTTP status + body instead of a 15s mystery timeout. App.tsx
+    // swallows fetch errors silently — without this hook, a 500 or a
+    // misshapen 200 looks identical to a slow render.
+    const checkResponse = page.waitForResponse((r) => r.url().includes("/api/policy/check"), {
+      timeout: 15_000,
+    });
+
     await page.goto(server.url);
+
+    const res = await checkResponse;
+    const body = await res.text().catch(() => "<unreadable>");
+    if (res.status() !== 200) {
+      throw new Error(`/api/policy/check returned ${res.status()}: ${body}`);
+    }
+    let parsed: { summary?: { rotation_overdue?: number } };
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      throw new Error(`/api/policy/check returned non-JSON body: ${body}`);
+    }
+    if (parsed.summary?.rotation_overdue !== 2) {
+      throw new Error(
+        `/api/policy/check expected summary.rotation_overdue=2, got ${parsed.summary?.rotation_overdue}. Body: ${body}`,
+      );
+    }
 
     // The overdue badge is computed by App.tsx's loadPolicyCount on mount.
     // App.tsx's loader reads summary.rotation_overdue (count of non-compliant
-    // CELLS, not keys).  Both cells have all their keys overdue → 2 cells.
+    // CELLS, not keys). Both cells have all their keys overdue → 2 cells.
     const policyNav = page.getByTestId("nav-policy");
     await expect(policyNav).toContainText("2", { timeout: 15_000 });
   });

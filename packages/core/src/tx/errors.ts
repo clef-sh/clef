@@ -23,7 +23,8 @@ export class TransactionPreflightError extends Error {
       | "dirty-tree"
       | "mid-operation"
       | "no-author-identity"
-      | "no-commits",
+      | "no-commits"
+      | "untracked-paths",
     message: string,
     public readonly hint?: string,
   ) {

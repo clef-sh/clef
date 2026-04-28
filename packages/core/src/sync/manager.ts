@@ -41,9 +41,9 @@ export interface SyncResult {
  * are missing. Each new key gets a cryptographically random placeholder
  * and is marked pending so the user knows to replace it before deploying.
  *
- * Detection uses {@link readSopsKeyNames} — plaintext key names from SOPS
- * YAML with no decryption. Mutation decrypts, merges, re-encrypts, and
- * marks pending inside a single {@link TransactionManager} commit.
+ * Detection reads plaintext key names from SOPS YAML — no decryption
+ * needed for the discovery pass. Mutation decrypts, merges, re-encrypts,
+ * and marks pending inside a single {@link TransactionManager} commit.
  */
 export class SyncManager {
   constructor(

@@ -167,6 +167,21 @@ export class TransactionManager {
         );
       }
 
+      // Rollback restores content via `git reset --hard` and removes residue
+      // with `git clean -fd <paths>`. Neither can recover a file that was
+      // never committed: reset has no blob to restore, and clean would
+      // delete it as untracked. If any declared path exists on disk but is
+      // untracked, refuse — otherwise a mid-mutation failure would silently
+      // destroy the user's only copy.
+      const untrackedDeclared = await this.git.getUntrackedAmongPaths(repoRoot, opts.paths);
+      if (untrackedDeclared.length > 0) {
+        throw new TransactionPreflightError(
+          "untracked-paths",
+          `Refusing to mutate: the following declared paths are untracked and would not survive rollback: ${untrackedDeclared.join(", ")}`,
+          "Commit these files first (`git add` + `git commit`), then retry. Rollback can only restore content that exists in a commit.",
+        );
+      }
+
       // ── Phase 3: mutate ────────────────────────────────────────────────
       try {
         await opts.mutate();

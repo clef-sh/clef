@@ -164,22 +164,32 @@ export class ClefRuntime {
     this.poller.stop();
   }
 
-  /** Get a single secret value by key. */
-  get(key: string): string | undefined {
-    return this.cache.get(key);
+  /** Get a single secret value, scoped to a namespace. */
+  get(key: string, namespace: string): string | undefined {
+    return this.cache.get(key, namespace);
   }
 
-  /** Get all secrets as key-value map. */
-  getAll(): Record<string, string> {
+  /** Get all secrets as `namespace → key → value`. */
+  getAll(): Record<string, Record<string, string>> {
     return this.cache.getAll() ?? {};
   }
 
-  /** Alias for getAll() — convenience for env injection. */
+  /**
+   * Flatten secrets into env-var-shaped names: `<namespace>__<key>`. Always
+   * qualifies (single-namespace and multi-namespace identities alike) so the
+   * shape is predictable for `process.env` injection.
+   */
   env(): Record<string, string> {
-    return this.getAll();
+    const out: Record<string, string> = {};
+    for (const [ns, bucket] of Object.entries(this.getAll())) {
+      for (const [k, v] of Object.entries(bucket)) {
+        out[`${ns}__${k}`] = v;
+      }
+    }
+    return out;
   }
 
-  /** List available key names. */
+  /** List available key names in flat `<namespace>__<key>` form. */
   keys(): string[] {
     return this.cache.getKeys();
   }

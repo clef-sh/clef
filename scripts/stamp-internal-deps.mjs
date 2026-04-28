@@ -65,6 +65,7 @@ for (const ws of expandedWorkspaces) {
   if (!fs.existsSync(pkgPath)) continue;
   const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
   if (typeof pkg.name !== "string" || !pkg.name.startsWith("@clef-sh/")) continue;
+  if (pkg.private === true) continue;
   if (typeof pkg.version !== "string" || pkg.version.length === 0) {
     console.error(`::error::${pkg.name} has no version in ${pkgPath}`);
     process.exit(1);
@@ -90,6 +91,7 @@ for (const ws of expandedWorkspaces) {
   const pkgPath = path.join(root, ws, "package.json");
   if (!fs.existsSync(pkgPath)) continue;
   const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+  if (pkg.private === true) continue;
   let changed = false;
 
   for (const field of FIELDS) {

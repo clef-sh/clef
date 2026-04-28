@@ -11,12 +11,16 @@
   },
   "dependencies": {
     "@astrojs/cloudflare": "^13.1.10",
-    "@tailwindcss/vite": "^4.2.4",
+    "@clef-sh/design": "*",
+    "@tailwindcss/vite": "4.1.13",
     "astro": "^6.1.8",
-    "tailwindcss": "^4.2.2",
+    "tailwindcss": "4.1.13",
     "wrangler": "^4.82.2"
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0"
   }
 }

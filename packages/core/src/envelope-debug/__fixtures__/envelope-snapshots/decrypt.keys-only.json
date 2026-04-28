@@ -3,6 +3,6 @@
   "status": "ok",
   "error": null,
   "revealed": false,
-  "keys": ["API_KEY", "DB_URL", "REDIS_URL"],
+  "keys": ["app__API_KEY", "app__DB_URL", "app__REDIS_URL"],
   "values": null
 }

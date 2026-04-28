@@ -85,13 +85,20 @@ export class ApiStack extends Stack {
 
       // Optional — reshape to match whatever JSON your Lambda already
       // expects. Omit and you'll get the decrypted envelope 1:1.
+      // Placeholders use {{name}} syntax; each name is bound via `refs` to
+      // a (namespace, key) pair in the Clef envelope.
       shape: {
-        dbHost: "${DATABASE_HOST}",
-        dbUser: "${DATABASE_USER}",
-        dbPassword: "${DATABASE_PASSWORD}",
-        apiKey: "${API_KEY}",
-        connectionString:
-          "postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@${DATABASE_HOST}:5432/app",
+        dbHost: "{{host}}",
+        dbUser: "{{user}}",
+        dbPassword: "{{pass}}",
+        apiKey: "{{apiKey}}",
+        connectionString: "postgres://{{user}}:{{pass}}@{{host}}:5432/app",
+      },
+      refs: {
+        host: { namespace: "database", key: "DATABASE_HOST" },
+        user: { namespace: "database", key: "DATABASE_USER" },
+        pass: { namespace: "database", key: "DATABASE_PASSWORD" },
+        apiKey: { namespace: "api", key: "API_KEY" },
       },
     });
 

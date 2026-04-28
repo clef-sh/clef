@@ -76,25 +76,9 @@ export function Sidebar({
     // while the logo and footer stay pinned.
     <div className="flex h-screen w-[220px] shrink-0 flex-col border-r border-edge bg-ink-850">
       <div className="flex items-center gap-2.5 border-b border-edge px-5 pt-5 pb-4">
-        <div
-          aria-hidden="true"
-          className="flex h-[30px] w-[30px] items-center justify-center rounded-md border border-gold-500/30 bg-gold-500/[0.08]"
-        >
-          <img
-            src="/clef.svg"
-            alt=""
-            width={12}
-            height={20}
-            className="[filter:drop-shadow(0_0_8px_rgba(240,165,0,0.33))]"
-          />
-        </div>
-        <div>
-          <div className="font-mono text-[18px] font-bold leading-none tracking-[-0.02em] text-bone">
-            Clef
-          </div>
-          <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.12em] text-ash">
-            {manifest?.sops.default_backend ?? "local"} / main
-          </div>
+        <clef-wordmark size={28} />
+        <div className="ml-auto font-mono text-[9px] uppercase tracking-[0.12em] text-ash">
+          {manifest?.sops.default_backend ?? "local"} / main
         </div>
       </div>
 

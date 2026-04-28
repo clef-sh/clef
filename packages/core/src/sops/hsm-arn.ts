@@ -81,8 +81,8 @@ export function syntheticArnToPkcs11Uri(arn: string): string | null {
  * Check whether a string is a Clef HSM synthetic ARN (regardless of
  * whether its payload decodes cleanly).
  *
- * Used by {@link SopsClient.detectBackend} to classify entries in
- * `sops.kms[]` as `hsm` rather than `awskms`.
+ * Used by `SopsClient` (its private backend-detection path) to classify
+ * entries in `sops.kms[]` as `hsm` rather than `awskms`.
  */
 export function isClefHsmArn(arn: string): boolean {
   return CLEF_HSM_ARN_RE.test(arn);

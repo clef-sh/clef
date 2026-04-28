@@ -8,6 +8,7 @@
  * override them — unlayered rules would beat utilities at equal specificity.
  */
 @import "tailwindcss";
+@import "@clef-sh/design/fonts.css";
 @import "@clef-sh/design/theme.css";
 
 @layer base {

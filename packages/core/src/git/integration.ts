@@ -321,6 +321,46 @@ export class GitIntegration {
   }
 
   /**
+   * Of the given paths, return those that exist on disk but are untracked by git.
+   *
+   * Used by {@link TransactionManager} to refuse mutations whose declared paths
+   * include untracked-but-existing files. Rollback uses `git reset --hard` to
+   * restore content, which can only restore files that exist in a commit. An
+   * untracked file in the declared paths would be silently destroyed by the
+   * rollback's `git clean` — so we refuse upfront.
+   *
+   * @param repoRoot - Working directory for the git command.
+   * @param paths - Paths to check (relative to repoRoot).
+   * @returns Subset of `paths` that are untracked. Non-existent paths are
+   *          excluded; tracked paths are excluded; directories are reported by
+   *          their porcelain entry (with trailing slash if untracked-as-dir).
+   * @throws {@link GitOperationError} On failure.
+   */
+  async getUntrackedAmongPaths(repoRoot: string, paths: string[]): Promise<string[]> {
+    if (paths.length === 0) return [];
+
+    const result = await this.runner.run("git", ["status", "--porcelain", "--", ...paths], {
+      cwd: repoRoot,
+    });
+
+    if (result.exitCode !== 0) {
+      throw new GitOperationError(
+        `Failed to check tracked status: ${result.stderr.trim()}`,
+        "Inspect with 'git status' and resolve any repository errors.",
+      );
+    }
+
+    const untracked: string[] = [];
+    for (const line of result.stdout.split("\n")) {
+      if (line === "") continue;
+      if (line[0] === "?") {
+        untracked.push(line.substring(3));
+      }
+    }
+    return untracked;
+  }
+
+  /**
    * Parse `git status --porcelain` into staged, unstaged, and untracked lists.
    *
    * @param repoRoot - Working directory for the git command.

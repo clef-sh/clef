@@ -1171,7 +1171,6 @@ describe("ManifestParser", () => {
                   kms: {
                     provider: "aws",
                     keyId: "arn:aws:kms:us-west-2:333:key/prd",
-                    region: "us-west-2",
                   },
                 },
               },
@@ -1183,9 +1182,98 @@ describe("ManifestParser", () => {
         expect(result.service_identities![0].environments.dev.kms).toEqual({
           provider: "aws",
           keyId: "arn:aws:kms:us-east-1:111:key/dev",
-          region: undefined,
         });
-        expect(result.service_identities![0].environments.production.kms?.region).toBe("us-west-2");
+        expect(result.service_identities![0].environments.production.kms?.keyId).toBe(
+          "arn:aws:kms:us-west-2:333:key/prd",
+        );
+      });
+
+      it("should reject AWS kms.keyId that isn't an ARN", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "kms-svc",
+              namespaces: ["database"],
+              environments: {
+                dev: { kms: { provider: "aws", keyId: "abcd-1234" } },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(/kms\.keyId must be a full AWS KMS ARN/);
+      });
+
+      it("should reject AWS kms.keyId that is a bare alias", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "kms-svc",
+              namespaces: ["database"],
+              environments: {
+                dev: { kms: { provider: "aws", keyId: "alias/my-key" } },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(/kms\.keyId must be a full AWS KMS ARN/);
+      });
+
+      it("should accept AWS GovCloud and China partition ARNs", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "kms-svc",
+              namespaces: ["database"],
+              environments: {
+                dev: {
+                  kms: {
+                    provider: "aws",
+                    keyId: "arn:aws-us-gov:kms:us-gov-west-1:123456789012:key/abcd",
+                  },
+                },
+                staging: {
+                  kms: {
+                    provider: "aws",
+                    keyId: "arn:aws-cn:kms:cn-north-1:123456789012:alias/my-key",
+                  },
+                },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).not.toThrow();
+      });
+
+      it("should reject the legacy kms.region field", () => {
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "kms-svc",
+              namespaces: ["database"],
+              environments: {
+                dev: {
+                  kms: {
+                    provider: "aws",
+                    keyId: "arn:aws:kms:us-east-1:111:key/dev",
+                    region: "us-east-1",
+                  },
+                },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(/kms\.region is no longer accepted/);
       });
 
       it("should reject both recipient and kms (mutual exclusion)", () => {

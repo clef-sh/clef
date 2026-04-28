@@ -102,8 +102,15 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
             const envConfig = si?.environments[environment];
             if (envConfig && isKmsEnvelope(envConfig)) {
               const { createKmsProvider } = await import("@clef-sh/runtime");
+              // Region is derived from the AWS key ARN — `kms.region` was
+              // removed from the manifest schema since the ARN already
+              // carries it. Match the regex the CDK pack-helper uses.
+              const arnMatch =
+                envConfig.kms.provider === "aws"
+                  ? /^arn:aws(?:-[a-z]+)*:kms:([^:]+):/.exec(envConfig.kms.keyId)
+                  : null;
               kmsProvider = await createKmsProvider(envConfig.kms.provider, {
-                region: envConfig.kms.region,
+                region: arnMatch?.[1],
               });
             }
 

@@ -100,11 +100,14 @@ describe("envelope-snapshots (binding CLI ↔ UI parity contract)", () => {
     expect(result).toEqual(readFixture("verify.no-signer-key.json"));
   });
 
-  const DECRYPT_KEYS = ["DB_URL", "REDIS_URL", "API_KEY"];
+  // Keys are presented in flat `<namespace>__<key>` form — this matches the
+  // shape of the encrypted payload (nested by namespace) flattened for env-
+  // var-style display by the CLI/UI envelope debuggers.
+  const DECRYPT_KEYS = ["app__DB_URL", "app__REDIS_URL", "app__API_KEY"];
   const DECRYPT_VALUES = {
-    DB_URL: "postgres://prod",
-    REDIS_URL: "redis://prod",
-    API_KEY: "sk-123",
+    app__DB_URL: "postgres://prod",
+    app__REDIS_URL: "redis://prod",
+    app__API_KEY: "sk-123",
   };
 
   it("decrypt.keys-only.json matches buildDecryptResult for the safe default", () => {
@@ -123,7 +126,7 @@ describe("envelope-snapshots (binding CLI ↔ UI parity contract)", () => {
   it("decrypt.single-key.json matches buildDecryptResult for --key <name>", () => {
     const result = buildDecryptResult("envelope.json", {
       keys: DECRYPT_KEYS,
-      singleKey: { name: "DB_URL", value: "postgres://prod" },
+      singleKey: { name: "app__DB_URL", value: "postgres://prod" },
     });
     expect(result).toEqual(readFixture("decrypt.single-key.json"));
   });

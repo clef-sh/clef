@@ -7,6 +7,15 @@ import HowItWorks from "../components/HowItWorks.astro";
 import Features from "../components/Features.astro";
 import CtaSection from "../components/CtaSection.astro";
 import Footer from "../components/Footer.astro";
+
+// Preload the latin variant of each variable font so the woff2 fetch
+// starts during HTML parse rather than after CSS parse — the bit
+// where self-hosted actually beats CDN. `?url` returns the build-time
+// hashed asset URL. We preload only the `latin` slice (the only one
+// the marketing copy needs); `latin-ext` streams in via @font-face if
+// the user navigates to a page with extended characters.
+import sansLatinUrl from "@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2?url";
+import monoLatinUrl from "@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2?url";
 ---
 
 <!doctype html>
@@ -66,13 +75,17 @@ import Footer from "../components/Footer.astro";
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-title" content="Clef" />
     <link rel="manifest" href="/site.webmanifest" />
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <!-- Fonts: self-hosted via @clef-sh/design/fonts.css (imported from
+         src/styles/global.css). Preloads below start the woff2 fetch
+         during HTML parse so the swap happens earlier; only the `latin`
+         slice is preloaded since that's what the marketing copy uses. -->
+    <link rel="preload" href={sansLatinUrl} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={monoLatinUrl} as="font" type="font/woff2" crossorigin />
+    <script>
+      // Register <clef-wordmark> on the client. Astro bundles this and
+      // hoists it; the side-effect import calls customElements.define.
+      import "@clef-sh/design/wordmark";
+    </script>
   </head>
   <body
     class="min-h-screen bg-clef-bg font-sans text-clef-text antialiased"
@@ -101,9 +114,8 @@ import Footer from "../components/Footer.astro";
       <div
         class="mx-auto flex w-full max-w-300 items-center justify-between px-6"
       >
-        <a href="/" class="flex items-center gap-2 text-clef-text no-underline">
-          <img src="/clef.svg" alt="" class="h-5 w-auto" aria-hidden="true" />
-          <span class="clef-wordmark text-[17px]">Clef</span>
+        <a href="/" class="flex items-center text-clef-text no-underline">
+          <clef-wordmark size="28"></clef-wordmark>
         </a>
         <a
           href="https://docs.clef.sh"

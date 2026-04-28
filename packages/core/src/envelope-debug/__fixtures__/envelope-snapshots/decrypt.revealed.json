@@ -3,10 +3,10 @@
   "status": "ok",
   "error": null,
   "revealed": true,
-  "keys": ["API_KEY", "DB_URL", "REDIS_URL"],
+  "keys": ["app__API_KEY", "app__DB_URL", "app__REDIS_URL"],
   "values": {
-    "DB_URL": "postgres://prod",
-    "REDIS_URL": "redis://prod",
-    "API_KEY": "sk-123"
+    "app__DB_URL": "postgres://prod",
+    "app__REDIS_URL": "redis://prod",
+    "app__API_KEY": "sk-123"
   }
 }

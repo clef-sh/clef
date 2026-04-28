@@ -20,10 +20,7 @@ npm install @clef-sh/cloud
 
 ## Usage
 
-Enable with the `CLEF_CLOUD` environment variable:
-
 ```bash
-export CLEF_CLOUD=1
 clef cloud login
 clef cloud init --env production
 ```

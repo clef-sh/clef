@@ -3,7 +3,7 @@
 Manage Clef Cloud integration. These commands connect your repository to Clef Cloud for managed KMS and bot-powered PR automation.
 
 ::: info Optional package
-`clef cloud` requires `@clef-sh/cloud`. Enable it with the `CLEF_CLOUD=1` environment variable once installed.
+`clef cloud` requires `@clef-sh/cloud`. Install with `npm install -g @clef-sh/cloud` (or add to your project) and the commands become available.
 :::
 
 ## Synopsis

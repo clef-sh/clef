@@ -90,8 +90,12 @@ export class ArtifactPoller {
    */
   async fetchAndDecrypt(): Promise<void> {
     const result = await this.fetchRaw();
-    if (!result) return; // short-circuited (unchanged hash)
-    await this.validateDecryptAndCache(result.artifact, result.contentHash);
+    if (result) {
+      await this.validateDecryptAndCache(result.artifact, result.contentHash);
+    }
+    // Successful refresh — bump freshness even on no-op so TTL tracks
+    // "last successful fetch attempt", not "last value change".
+    this.options.cache.markFresh();
   }
 
   /**
@@ -101,7 +105,10 @@ export class ArtifactPoller {
    */
   async fetchAndValidate(): Promise<void> {
     const result = await this.fetchRaw();
-    if (!result) return; // short-circuited (unchanged hash)
+    if (!result) {
+      this.options.cache.markFresh();
+      return;
+    }
 
     const artifact = this.validateArtifact(result.artifact);
 
@@ -327,11 +334,10 @@ export class ArtifactPoller {
     if (artifact.revision === this.lastRevision) return;
 
     // Delegate decryption to the ArtifactDecryptor
-    const { values } = await this.decryptor.decrypt(artifact);
+    const { values, keys } = await this.decryptor.decrypt(artifact);
 
     // Atomic swap
-    const keys = Object.keys(values);
-    this.options.cache.swap(values, keys, artifact.revision);
+    this.options.cache.swap(values, artifact.revision);
     this.lastRevision = artifact.revision;
     this.lastContentHash = contentHash ?? null;
     this.lastExpiresAt = artifact.expiresAt ?? null;

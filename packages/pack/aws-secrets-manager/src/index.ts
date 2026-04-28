@@ -246,13 +246,24 @@ export class AwsSecretsManagerBackend implements PackBackend {
 
     const revision = Date.now().toString();
     const tags = buildTags(opts.tagPrefix, req.identity, req.environment, revision);
-    const desiredKeys = Object.keys(resolved.values);
+
+    // Flatten nested namespace → key → value into env-var-shaped names.
+    // Both emission modes (json bundle, one secret per key) operate on this
+    // qualified-form view; the namespace structure stays invisible from the
+    // Secrets Manager side.
+    const flatValues: Record<string, string> = {};
+    for (const [ns, bucket] of Object.entries(resolved.values)) {
+      for (const [k, v] of Object.entries(bucket)) {
+        flatValues[`${ns}__${k}`] = v;
+      }
+    }
+    const desiredKeys = Object.keys(flatValues);
 
     let secretCount: number;
     let prunedCount = 0;
 
     if (opts.mode === "json") {
-      const payload = sortedJsonPayload(resolved.values);
+      const payload = sortedJsonPayload(flatValues);
       const byteLength = Buffer.byteLength(payload, "utf8");
       if (byteLength > ASM_VALUE_LIMIT_BYTES) {
         throw new Error(
@@ -270,7 +281,7 @@ export class AwsSecretsManagerBackend implements PackBackend {
       }
       secretCount = 1;
     } else {
-      for (const [key, value] of Object.entries(resolved.values)) {
+      for (const [key, value] of Object.entries(flatValues)) {
         const byteLength = Buffer.byteLength(value, "utf8");
         if (byteLength > ASM_VALUE_LIMIT_BYTES) {
           throw new Error(
@@ -280,7 +291,7 @@ export class AwsSecretsManagerBackend implements PackBackend {
         }
       }
 
-      for (const [key, value] of Object.entries(resolved.values)) {
+      for (const [key, value] of Object.entries(flatValues)) {
         const name = `${opts.prefix}/${key}`;
         const { created } = await upsertSecret(client, name, value, tags, opts.kmsKeyId);
         if (!created) {

@@ -204,14 +204,6 @@ export function registerMigrateBackendCommand(
           for (const warning of result.warnings) {
             formatter.warn(warning);
           }
-
-          if (!opts.dryRun && result.migratedFiles.length > 0) {
-            formatter.hint(
-              'git add clef.yaml secrets/ && git commit -m "chore: migrate backend to ' +
-                target.backend +
-                '"',
-            );
-          }
         } finally {
           await decryptCleanup();
           await encryptCleanup();

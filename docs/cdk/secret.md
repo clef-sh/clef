@@ -76,13 +76,19 @@ The ASM secret stores the decrypted envelope verbatim:
 new ClefSecret(this, "DbUrl", {
   identity: "api-gateway",
   environment: "production",
-  shape: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/app",
+  shape: "postgres://{{user}}:{{pass}}@{{host}}:5432/app",
+  refs: {
+    user: { namespace: "database", key: "DB_USER" },
+    pass: { namespace: "database", key: "DB_PASSWORD" },
+    host: { namespace: "database", key: "DB_HOST" },
+  },
 });
 ```
 
-The string is interpolated and written to `SecretString` verbatim — no
-JSON wrapping. Consumers calling `GetSecretValue` see exactly the
-interpolated string.
+Placeholders use <code v-pre>{{name}}</code> syntax. Each name is bound
+via `refs` to a `(namespace, key)` pair in the Clef envelope — namespace
+and key are always two distinct fields. The string is interpolated and
+written to `SecretString` verbatim, no JSON wrapping.
 
 Use when:
 
@@ -97,19 +103,29 @@ new ClefSecret(this, "ApiSecrets", {
   identity: "api-gateway",
   environment: "production",
   shape: {
-    dbHost: "${DATABASE_HOST}",
-    dbPassword: "${DATABASE_PASSWORD}",
-    apiKey: "${API_KEY}",
-    region: "us-east-1", // literal — no ${...}
-    connectionString: "postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@${DATABASE_HOST}:5432/app",
+    dbHost: "{{host}}",
+    dbPassword: "{{pass}}",
+    apiKey: "{{token}}",
+    region: "us-east-1", // literal — no {{…}}
+    connectionString: "postgres://{{user}}:{{pass}}@{{host}}:5432/app",
+  },
+  refs: {
+    host: { namespace: "database", key: "DATABASE_HOST" },
+    user: { namespace: "database", key: "DATABASE_USER" },
+    pass: { namespace: "database", key: "DATABASE_PASSWORD" },
+    token: { namespace: "api", key: "API_KEY" },
   },
 });
 ```
 
-Each value is a template: literals pass through, `${CLEF_KEY}` references
-are substituted, and composition in a single field (see
-`connectionString`) lets you build compound values from multiple Clef
-keys.
+Each value is a template: literals pass through, <code v-pre>{{name}}</code>
+placeholders are substituted via the shared `refs` map. Composition in a
+single field (see `connectionString`) lets you build compound values
+across namespaces.
+
+To embed literal double braces in a shape, escape each one — write
+<code v-pre>\{\{</code> / <code v-pre>\}\}</code> for a literal
+<code v-pre>{{</code> / <code v-pre>}}</code>.
 
 Use when:
 
@@ -119,29 +135,37 @@ Use when:
 
 ### Synth-time validation
 
-Both string and Record shape templates are validated at `cdk synth`
-against the envelope's key list. Unknown references fail the synth with a
-specific error — the offending field (or `<value>` for string shape), the
-bad reference, a did-you-mean suggestion, and the full list of valid
-keys. Example:
+Shape templates are validated at `cdk synth` against the envelope. Three
+classes of error fail the synth with a precise message:
+
+1. **Placeholder not declared**: a <code v-pre>{{name}}</code> in the shape isn't in `refs`.
+2. **Unknown namespace**: a `refs[name].namespace` isn't present in the
+   envelope (e.g. typo, or the identity doesn't span that namespace).
+3. **Unknown key**: a `refs[name].key` isn't a key in that namespace.
+
+Each error includes the identity / environment, a "did you mean?" hint
+for close matches, and the full list of valid candidates. Example:
 
 ```
-ClefSecret shape error:
+ClefSecret refs error:
 
-  shape['dbHost'] references unknown Clef key: ${DATABSAE_HOST}
+  refs['host'] = database/DATABSAE_HOST not found in the envelope.
   identity:    api-gateway
   environment: production
 
-  Did you mean ${DATABASE_HOST}?
+  Did you mean database/DATABASE_HOST?
 
-  Valid keys (4) for this identity/environment:
-    - API_KEY
+  Keys available in 'database' (3):
     - DATABASE_HOST
     - DATABASE_PASSWORD
     - DATABASE_USER
 ```
 
 No broken deploys — the error surfaces before CloudFormation ever runs.
+
+Unused `refs` entries (declared but not referenced by the shape) surface
+as warnings via CDK Annotations rather than hard errors, so iterative
+refactoring isn't punished.
 
 ## Declaring multiple secrets
 
@@ -153,13 +177,19 @@ instantiate multiple times:
 const dbUrl = new ClefSecret(this, "DbUrl", {
   identity: "api-gateway",
   environment: "production",
-  shape: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/app",
+  shape: "postgres://{{user}}:{{pass}}@{{host}}:5432/app",
+  refs: {
+    user: { namespace: "database", key: "DB_USER" },
+    pass: { namespace: "database", key: "DB_PASSWORD" },
+    host: { namespace: "database", key: "DB_HOST" },
+  },
 });
 
 const apiKey = new ClefSecret(this, "ApiKey", {
   identity: "api-gateway",
   environment: "production",
-  shape: "${STRIPE_SECRET_KEY}",
+  shape: "{{token}}",
+  refs: { token: { namespace: "payments", key: "STRIPE_SECRET_KEY" } },
 });
 
 const config = new ClefSecret(this, "Config", {
@@ -168,8 +198,9 @@ const config = new ClefSecret(this, "Config", {
   shape: {
     region: "us-east-1",
     logLevel: "info",
-    sentryDsn: "${SENTRY_DSN}",
+    sentryDsn: "{{dsn}}",
   },
+  refs: { dsn: { namespace: "telemetry", key: "SENTRY_DSN" } },
 });
 
 dbUrl.grantRead(dbLambda);

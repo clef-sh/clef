@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./styles.css";
+import "@clef-sh/design/wordmark";
 import App from "./App";
 import { initToken } from "./api";
 

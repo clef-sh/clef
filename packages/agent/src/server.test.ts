@@ -47,7 +47,7 @@ describe("Agent HTTP server", () => {
     });
 
     it("GET /v1/health should include revision and lastRefreshAt when cache loaded", async () => {
-      cache.swap({ KEY: "val" }, ["KEY"], "rev42");
+      cache.swap({ ns: { KEY: "val" } }, "rev42");
       const { body } = await getJson("/v1/health");
       expect((body as Record<string, unknown>).status).toBe("ok");
       expect((body as Record<string, unknown>).revision).toBe("rev42");
@@ -62,7 +62,7 @@ describe("Agent HTTP server", () => {
     });
 
     it("GET /v1/ready should return 200 when cache loaded", async () => {
-      cache.swap({ KEY: "val" }, ["KEY"], "rev1");
+      cache.swap({ ns: { KEY: "val" } }, "rev1");
       const { status, body } = await getJson("/v1/ready");
       expect(status).toBe(200);
       expect(body).toEqual({ ready: true });
@@ -71,7 +71,7 @@ describe("Agent HTTP server", () => {
 
   describe("authenticated endpoints", () => {
     beforeEach(() => {
-      cache.swap({ DB_URL: "postgres://...", API_KEY: "secret" }, ["DB_URL", "API_KEY"], "rev1");
+      cache.swap({ app: { DB_URL: "postgres://...", API_KEY: "secret" } }, "rev1");
     });
 
     it("GET /v1/secrets should return 401 without token", async () => {
@@ -87,7 +87,7 @@ describe("Agent HTTP server", () => {
     it("GET /v1/secrets should return all secrets with valid token", async () => {
       const { status, body } = await getJson("/v1/secrets", TOKEN);
       expect(status).toBe(200);
-      expect(body).toEqual({ DB_URL: "postgres://...", API_KEY: "secret" });
+      expect(body).toEqual({ app: { DB_URL: "postgres://...", API_KEY: "secret" } });
     });
 
     it("GET /v1/secrets should include Cache-Control: no-store", async () => {
@@ -95,10 +95,10 @@ describe("Agent HTTP server", () => {
       expect(headers.get("cache-control")).toBe("no-store");
     });
 
-    it("GET /v1/keys should return key names", async () => {
+    it("GET /v1/keys should return key names in flat <namespace>__<key> form", async () => {
       const { status, body } = await getJson("/v1/keys", TOKEN);
       expect(status).toBe(200);
-      expect(body).toEqual(["DB_URL", "API_KEY"]);
+      expect((body as string[]).sort()).toEqual(["app__API_KEY", "app__DB_URL"]);
     });
 
     it("GET /v1/keys should return 401 without token", async () => {
@@ -194,7 +194,7 @@ describe("Agent HTTP server", () => {
       // Swap with a timestamp in the past
       const now = Date.now();
       jest.spyOn(Date, "now").mockReturnValueOnce(now - 20_000);
-      ttlCache.swap({ KEY: "val" }, ["KEY"], "rev1");
+      ttlCache.swap({ ns: { KEY: "val" } }, "rev1");
       jest.spyOn(Date, "now").mockReturnValue(now);
 
       const { status, body } = await getTtlJson("/v1/secrets", TOKEN);
@@ -205,7 +205,7 @@ describe("Agent HTTP server", () => {
     it("should return 503 on /v1/keys when cache is expired", async () => {
       const now = Date.now();
       jest.spyOn(Date, "now").mockReturnValueOnce(now - 20_000);
-      ttlCache.swap({ KEY: "val" }, ["KEY"], "rev1");
+      ttlCache.swap({ ns: { KEY: "val" } }, "rev1");
       jest.spyOn(Date, "now").mockReturnValue(now);
 
       const { status, body } = await getTtlJson("/v1/keys", TOKEN);
@@ -214,17 +214,17 @@ describe("Agent HTTP server", () => {
     });
 
     it("should serve secrets normally when cache is fresh", async () => {
-      ttlCache.swap({ KEY: "val" }, ["KEY"], "rev1");
+      ttlCache.swap({ ns: { KEY: "val" } }, "rev1");
 
       const { status, body } = await getTtlJson("/v1/secrets", TOKEN);
       expect(status).toBe(200);
-      expect(body).toEqual({ KEY: "val" });
+      expect(body).toEqual({ ns: { KEY: "val" } });
     });
 
     it("GET /v1/health should report expired=true when cache is expired", async () => {
       const now = Date.now();
       jest.spyOn(Date, "now").mockReturnValueOnce(now - 20_000);
-      ttlCache.swap({ KEY: "val" }, ["KEY"], "rev1");
+      ttlCache.swap({ ns: { KEY: "val" } }, "rev1");
       jest.spyOn(Date, "now").mockReturnValue(now);
 
       const { body } = await getTtlJson("/v1/health");
@@ -234,7 +234,7 @@ describe("Agent HTTP server", () => {
     it("GET /v1/ready should return 503 with reason cache_expired", async () => {
       const now = Date.now();
       jest.spyOn(Date, "now").mockReturnValueOnce(now - 20_000);
-      ttlCache.swap({ KEY: "val" }, ["KEY"], "rev1");
+      ttlCache.swap({ ns: { KEY: "val" } }, "rev1");
       jest.spyOn(Date, "now").mockReturnValue(now);
 
       const { status, body } = await getTtlJson("/v1/ready");
@@ -264,7 +264,7 @@ describe("Agent HTTP server", () => {
     function seedExpired() {
       const now = Date.now();
       jest.spyOn(Date, "now").mockReturnValueOnce(now - 20_000);
-      refreshCache.swap({ KEY: "stale" }, ["KEY"], "rev-stale");
+      refreshCache.swap({ ns: { KEY: "stale" } }, "rev-stale");
       jest.spyOn(Date, "now").mockReturnValue(now);
     }
 
@@ -275,7 +275,7 @@ describe("Agent HTTP server", () => {
     it("serves fresh data after a successful refresh", async () => {
       refreshCache = new SecretsCache();
       const refresh = jest.fn().mockImplementation(async () => {
-        refreshCache.swap({ KEY: "fresh" }, ["KEY"], "rev-fresh");
+        refreshCache.swap({ ns: { KEY: "fresh" } }, "rev-fresh");
       });
       refreshHandle = await startAgentServer({
         port: REFRESH_PORT,
@@ -288,7 +288,7 @@ describe("Agent HTTP server", () => {
 
       const { status, body } = await getRefreshJson("/v1/secrets", TOKEN);
       expect(status).toBe(200);
-      expect(body).toEqual({ KEY: "fresh" });
+      expect(body).toEqual({ ns: { KEY: "fresh" } });
       expect(refresh).toHaveBeenCalledTimes(1);
     });
 
@@ -316,7 +316,7 @@ describe("Agent HTTP server", () => {
         () =>
           new Promise<void>((resolve) => {
             resolveRefresh = () => {
-              refreshCache.swap({ KEY: "fresh" }, ["KEY"], "rev-fresh");
+              refreshCache.swap({ ns: { KEY: "fresh" } }, "rev-fresh");
               resolve();
             };
           }),

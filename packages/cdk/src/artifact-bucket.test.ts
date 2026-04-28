@@ -27,7 +27,7 @@ function ageOnlyEnvelope(identity: string, environment: string) {
       ciphertextHash: "deadbeef",
       ciphertext: "YWdlCg==",
     }),
-    keys: ["SAMPLE_KEY"],
+    keysByNamespace: { app: ["SAMPLE_KEY"] },
   };
 }
 
@@ -50,7 +50,7 @@ function kmsEnvelope(identity: string, environment: string, keyArn: string) {
         authTag: "dGFnMTIzNDU2Nzg=",
       },
     }),
-    keys: ["SAMPLE_KEY"],
+    keysByNamespace: { app: ["SAMPLE_KEY"] },
   };
 }
 
@@ -272,7 +272,7 @@ describe("ClefArtifactBucket", () => {
   });
 
   it("surfaces a clear error when the pack-helper returns non-JSON", () => {
-    mockInvokePackHelper.mockReturnValue({ envelopeJson: "this is not json", keys: [] });
+    mockInvokePackHelper.mockReturnValue({ envelopeJson: "this is not json", keysByNamespace: {} });
     const app = new App();
     const stack = new Stack(app, "TestStack");
 

@@ -65,7 +65,11 @@ jest.mock("./source", () => ({
 
 const mockAgeResolveKey = jest.fn<string, [string | undefined, string | undefined]>();
 const mockArtifactDecrypt = jest.fn<
-  Promise<{ values: Record<string, string>; keys: string[]; revision: string }>,
+  Promise<{
+    values: Record<string, Record<string, string>>;
+    keys: string[];
+    revision: string;
+  }>,
   [unknown]
 >();
 jest.mock("@clef-sh/runtime", () => ({
@@ -89,8 +93,8 @@ beforeEach(() => {
   writeLog.length = 0;
   mockAgeResolveKey.mockReturnValue("resolved-key");
   mockArtifactDecrypt.mockResolvedValue({
-    values: { DB_URL: "postgres://prod" },
-    keys: ["DB_URL"],
+    values: { app: { DB_URL: "postgres://prod" } },
+    keys: ["app__DB_URL"],
     revision: "test-revision",
   });
 
@@ -247,14 +251,14 @@ describe("reveal-warning ordering invariant", () => {
       "--identity",
       "/fake/key.txt",
       "--key",
-      "DB_URL",
+      "app__DB_URL",
       "envelope.json",
     ]);
 
     expect(mockExit).toHaveBeenCalledWith(0);
 
     const firstWarningIdx = writeLog.findIndex(
-      (w) => w.stream === "stderr" && w.payload.includes('value for key "DB_URL"'),
+      (w) => w.stream === "stderr" && w.payload.includes('value for key "app__DB_URL"'),
     );
     const firstStdoutIdx = writeLog.findIndex((w) => w.stream === "stdout" && w.payload.length > 0);
 

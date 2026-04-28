@@ -293,10 +293,20 @@ export function registerEnvelopeRoutes(router: Router, deps: EnvelopeRouteDeps):
       }
     }
 
+    // The decryptor returns values nested by namespace; the envelope debugger
+    // UI currently presents a flat <namespace>__<key> view, so we flatten here
+    // and let the UI continue to operate on a single map. A future change can
+    // surface the nested shape natively if useful.
     let values: Record<string, string>;
     try {
       const decryptor = new ArtifactDecryptor({ privateKey });
-      ({ values } = await decryptor.decrypt(artifact));
+      const decrypted = await decryptor.decrypt(artifact);
+      values = {};
+      for (const [ns, bucket] of Object.entries(decrypted.values)) {
+        for (const [k, v] of Object.entries(bucket)) {
+          values[`${ns}__${k}`] = v;
+        }
+      }
     } catch (err) {
       res.json(buildDecryptError(UI_SOURCE, "decrypt_failed", (err as Error).message));
       return;
