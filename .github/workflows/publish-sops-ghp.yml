@@ -45,7 +45,7 @@ jobs:
             bin_name: sops
           - platform: win32-x64
             os: windows-latest
-            sops_asset: exe
+            sops_asset: amd64.exe
             bin_name: sops.exe
 
     runs-on: ${{ matrix.os }}

@@ -6,10 +6,14 @@ import {
 } from "../types";
 import { MatrixManager } from "../matrix/manager";
 
-/** Resolved identity secrets: merged key/value map plus metadata. */
+/** Resolved identity secrets: namespace → key → value, plus metadata. */
 export interface ResolvedSecrets {
-  /** Flat key/value map (namespace-prefixed if multi-namespace). */
-  values: Record<string, string>;
+  /**
+   * Nested map keyed by namespace, then by key name. The on-the-wire ciphertext
+   * payload uses this exact shape — namespace structure stays inside the
+   * encrypted blob, never in clear metadata.
+   */
+  values: Record<string, Record<string, string>>;
   /** The matched service identity definition. */
   identity: ServiceIdentityDefinition;
   /** Age public key for the target environment (undefined for KMS identities). */
@@ -44,32 +48,27 @@ export async function resolveIdentitySecrets(
     );
   }
 
-  const allValues: Record<string, string> = {};
+  const allValues: Record<string, Record<string, string>> = {};
   const cells = matrixManager
     .resolveMatrix(manifest, repoRoot)
     .filter(
       (c) => c.exists && identity.namespaces.includes(c.namespace) && c.environment === environment,
     );
 
-  const isMultiNamespace = identity.namespaces.length > 1;
-  const collisions: string[] = [];
-
   for (const cell of cells) {
     const decrypted = await encryption.decrypt(cell.filePath);
+    const bucket = (allValues[cell.namespace] ??= {});
     for (const [key, value] of Object.entries(decrypted.values)) {
-      const qualifiedKey = isMultiNamespace ? `${cell.namespace}__${key}` : key;
-      if (qualifiedKey in allValues && allValues[qualifiedKey] !== value) {
-        collisions.push(qualifiedKey);
+      // Same-namespace key collisions can't happen via the matrix (each cell
+      // is one namespace × one environment file), but a defensive check
+      // catches future code paths that may merge multiple files per cell.
+      if (key in bucket && bucket[key] !== value) {
+        throw new Error(
+          `Key collision in namespace '${cell.namespace}': '${key}' set to different values.`,
+        );
       }
-      allValues[qualifiedKey] = value;
+      bucket[key] = value;
     }
-  }
-
-  if (collisions.length > 0) {
-    throw new Error(
-      `Key collision detected in bundle: ${collisions.join(", ")}. ` +
-        "Keys with the same name but different values exist across namespaces.",
-    );
   }
 
   return {

@@ -18,21 +18,26 @@ const HELPERS_DIR = path.resolve(__dirname, "../e2e/helpers");
 const TEST_PORT = 29779;
 const TOKEN = "e2e-test-token-abcdef1234567890";
 
-const TEST_SECRETS = {
-  DATABASE_URL: "postgres://localhost:5432/mydb",
-  API_KEY: "sk_live_test_12345",
-  WEBHOOK_SECRET: "whsec_e2e_test",
+const TEST_SECRETS: Record<string, Record<string, string>> = {
+  default: {
+    DATABASE_URL: "postgres://localhost:5432/mydb",
+    API_KEY: "sk_live_test_12345",
+    WEBHOOK_SECRET: "whsec_e2e_test",
+  },
 };
 
 /**
  * Decrypt an artifact file using the ESM subprocess helper.
  */
-function decryptArtifact(artifactPath: string, privateKey: string): Record<string, string> {
+function decryptArtifact(
+  artifactPath: string,
+  privateKey: string,
+): Record<string, Record<string, string>> {
   const helperPath = path.join(HELPERS_DIR, "decrypt-artifact.mjs");
   const result = execFileSync(process.execPath, [helperPath, artifactPath, privateKey], {
     encoding: "utf-8",
   });
-  return JSON.parse(result) as Record<string, string>;
+  return JSON.parse(result) as Record<string, Record<string, string>>;
 }
 
 let fixture: TestFixture;
@@ -45,7 +50,7 @@ beforeAll(async () => {
   // Decrypt via subprocess and load into cache
   const secrets = decryptArtifact(fixture.artifactPath, fixture.keys.privateKey);
   cache = new SecretsCache();
-  cache.swap(secrets, Object.keys(secrets), "rev-001");
+  cache.swap(secrets, "rev-001");
 
   handle = await startAgentServer({ port: TEST_PORT, token: TOKEN, cache });
 }, 30_000);
@@ -131,7 +136,13 @@ describe("secrets retrieval", () => {
   it("GET /v1/keys returns key names", async () => {
     const { status, body } = await agentFetch(`http://127.0.0.1:${TEST_PORT}`, "/v1/keys", TOKEN);
     expect(status).toBe(200);
-    expect(new Set(body as string[])).toEqual(new Set(Object.keys(TEST_SECRETS)));
+    expect(new Set(body as string[])).toEqual(
+      new Set(
+        Object.entries(TEST_SECRETS).flatMap(([ns, bucket]) =>
+          Object.keys(bucket).map((k) => `${ns}__${k}`),
+        ),
+      ),
+    );
   });
 });
 
@@ -166,7 +177,10 @@ describe("security headers", () => {
 describe("cache refresh", () => {
   it("serves updated secrets after cache swap", async () => {
     // Create a new artifact with additional secrets
-    const newSecrets = { ...TEST_SECRETS, NEW_KEY: "new_value" };
+    const newSecrets: Record<string, Record<string, string>> = {
+      ...TEST_SECRETS,
+      default: { ...TEST_SECRETS.default, NEW_KEY: "new_value" },
+    };
     const newArtifact = createArtifact(fixture.keys.publicKey, newSecrets, {
       revision: "rev-002",
     });
@@ -174,7 +188,7 @@ describe("cache refresh", () => {
     // Write and decrypt
     fs.writeFileSync(fixture.artifactPath, newArtifact);
     const decrypted = decryptArtifact(fixture.artifactPath, fixture.keys.privateKey);
-    cache.swap(decrypted, Object.keys(decrypted), "rev-002");
+    cache.swap(decrypted, "rev-002");
 
     const { status, body } = await agentFetch(
       `http://127.0.0.1:${TEST_PORT}`,
@@ -194,7 +208,7 @@ describe("cache refresh", () => {
 describe("cache wipe", () => {
   it("returns 503 after cache is wiped", async () => {
     // Restore cache first
-    cache.swap(TEST_SECRETS, Object.keys(TEST_SECRETS), "rev-003");
+    cache.swap(TEST_SECRETS, "rev-003");
 
     // Verify serving
     const { status: before } = await agentFetch(
@@ -220,7 +234,7 @@ describe("cache wipe", () => {
     expect(after).toBe(503);
 
     // Restore for subsequent tests
-    cache.swap(TEST_SECRETS, Object.keys(TEST_SECRETS), "rev-004");
+    cache.swap(TEST_SECRETS, "rev-004");
   });
 });
 
@@ -252,7 +266,7 @@ describe("cache TTL guard", () => {
   });
 
   it("returns 200 when cache is fresh", async () => {
-    ttlCache.swap({ KEY: "val" }, ["KEY"], "rev-ttl");
+    ttlCache.swap({ default: { KEY: "val" } }, "rev-ttl");
     const { status } = await agentFetch(`http://127.0.0.1:${TTL_PORT}`, "/v1/secrets", TOKEN);
     expect(status).toBe(200);
   });

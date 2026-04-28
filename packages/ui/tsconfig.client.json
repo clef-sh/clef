@@ -19,6 +19,7 @@
     "src/client/index.ts",
     "src/client/theme.ts",
     "src/client/api.ts",
+    "src/client/clef-wordmark.d.ts",
     "src/client/components/**/*.ts",
     "src/client/components/**/*.tsx"
   ],

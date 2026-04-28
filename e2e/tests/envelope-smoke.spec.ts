@@ -164,7 +164,7 @@ test("envelope decrypt (SEA): values round-trip with --reveal", () => {
   };
   expect(payload.revealed).toBe(true);
   expect(payload.values).toMatchObject({
-    STRIPE_KEY: "sk_test_abc123",
-    STRIPE_WEBHOOK_SECRET: "whsec_xyz789",
+    payments__STRIPE_KEY: "sk_test_abc123",
+    payments__STRIPE_WEBHOOK_SECRET: "whsec_xyz789",
   });
 });

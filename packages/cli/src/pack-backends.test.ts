@@ -67,9 +67,21 @@ describe("createPackBackendRegistry", () => {
     expect(backend.id).toBe("json-envelope");
   });
 
-  it("does not register any backends beyond json-envelope", () => {
+  it("registers the bundled official AWS pack plugins", async () => {
     const registry = createPackBackendRegistry();
-    expect(registry.list()).toEqual(["json-envelope"]);
+    expect(registry.has("aws-parameter-store")).toBe(true);
+    expect(registry.has("aws-secrets-manager")).toBe(true);
+    const ps = await registry.resolve("aws-parameter-store");
+    expect(ps.id).toBe("aws-parameter-store");
+    const sm = await registry.resolve("aws-secrets-manager");
+    expect(sm.id).toBe("aws-secrets-manager");
+  });
+
+  it("does not register backends beyond the bundled set", () => {
+    const registry = createPackBackendRegistry();
+    expect(registry.list().sort()).toEqual(
+      ["aws-parameter-store", "aws-secrets-manager", "json-envelope"].sort(),
+    );
   });
 
   it("returns a fresh registry per call", () => {

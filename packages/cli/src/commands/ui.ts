@@ -1,3 +1,4 @@
+import { createServer } from "node:net";
 import { Command } from "commander";
 import { SubprocessRunner } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
@@ -12,6 +13,20 @@ interface ServerHandle {
   address: () => { address: string; port: number };
 }
 
+// Probe 127.0.0.1:port before handing off to the UI server. app.listen() inside
+// @clef-sh/ui can fire its 'listening' callback even when the bind silently
+// fails (observed on macOS when another process already holds the port), so
+// startServer resolves, the URL prints, and the process exits cleanly seconds
+// later — no error surfaces. Detecting up front turns that into a clear message.
+async function probePortAvailable(port: number): Promise<NodeJS.ErrnoException | null> {
+  return new Promise((resolve) => {
+    const tester = createServer();
+    tester.once("error", (err) => resolve(err as NodeJS.ErrnoException));
+    tester.once("listening", () => tester.close(() => resolve(null)));
+    tester.listen(port, "127.0.0.1");
+  });
+}
+
 export function registerUiCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
     .command("ui")
@@ -22,6 +37,23 @@ export function registerUiCommand(program: Command, deps: { runner: SubprocessRu
       const port = parseInt(options.port, 10);
       if (isNaN(port) || port < 1 || port > 65535) {
         formatter.error(`Invalid port '${options.port}'. Must be a number between 1 and 65535.`);
+        process.exit(1);
+        return;
+      }
+
+      const probeErr = await probePortAvailable(port);
+      if (probeErr) {
+        if (probeErr.code === "EADDRINUSE") {
+          formatter.error(
+            `Port ${port} is already in use. Another \`clef ui\` (or other process) is bound to 127.0.0.1:${port}.`,
+          );
+          formatter.print("");
+          formatter.print(`  Find it:  lsof -nP -iTCP:${port} -sTCP:LISTEN`);
+          formatter.print(`  Stop it:  kill <PID>`);
+          formatter.print(`  Or run:   clef ui --port <other-port>`);
+        } else {
+          formatter.error(`Cannot bind to 127.0.0.1:${port}: ${probeErr.message}`);
+        }
         process.exit(1);
         return;
       }

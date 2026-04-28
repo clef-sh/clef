@@ -1,32 +1,28 @@
 import { JsonEnvelopeBackend, PackBackendRegistry } from "@clef-sh/core";
 import type { PackBackend } from "@clef-sh/core";
+import { AwsParameterStoreBackend } from "@clef-sh/pack-aws-parameter-store";
+import { AwsSecretsManagerBackend } from "@clef-sh/pack-aws-secrets-manager";
 
 /**
  * Build the default pack backend registry for the CLI. Registers the
- * built-in `json-envelope` backend eagerly.
+ * bundled built-ins:
  *
- * Future backends ship as sibling npm packages under `@clef-sh/pack-<name>`
- * and are discovered here via guarded dynamic imports (see the commented
- * scaffold below). Dynamic discovery is intentionally deferred until the
- * first plugin has a real customer — premature abstraction before then.
+ *   - `json-envelope` — the default, writes the encrypted Clef envelope.
+ *   - `aws-parameter-store` — AWS SSM Parameter Store, bundled.
+ *   - `aws-secrets-manager` — AWS Secrets Manager, bundled.
+ *
+ * Both AWS plugins ship inside the CLI (esbuild aliases their TypeScript
+ * sources at build time), so `--backend aws-parameter-store` /
+ * `--backend aws-secrets-manager` work in the SEA binary without any
+ * additional install. Community plugins under `@clef-sh/pack-<name>` or
+ * `clef-pack-<name>` are still discoverable via dynamic import in
+ * {@link resolveBackend}.
  */
 export function createPackBackendRegistry(): PackBackendRegistry {
   const registry = new PackBackendRegistry();
   registry.register("json-envelope", () => new JsonEnvelopeBackend());
-
-  // Future plugin discovery will look like this (mirroring
-  // packages/cli/src/index.ts:134-158 for @clef-sh/cloud):
-  //
-  //   for (const name of ["aws-secrets-manager", "hashicorp-vault",
-  //                       "gcp-secret-manager", "azure-key-vault", "aws-ssm"]) {
-  //     try {
-  //       const mod = await import(`@clef-sh/pack-${name}`);
-  //       registry.register(name, () => new mod.default());
-  //     } catch {
-  //       // plugin not installed — skip
-  //     }
-  //   }
-
+  registry.register("aws-parameter-store", () => new AwsParameterStoreBackend());
+  registry.register("aws-secrets-manager", () => new AwsSecretsManagerBackend());
   return registry;
 }
 

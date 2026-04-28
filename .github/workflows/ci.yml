@@ -135,8 +135,8 @@ jobs:
           node-version: 24
           cache: npm
       # Install root workspaces so typedoc can read packages/*/src.
+      # docs is a workspace member so @clef-sh/design resolves locally.
       - run: npm ci
-      - run: cd docs && npm ci
       # typedoc resolves cross-package types via each workspace's built
       # dist/*.d.ts, so every workspace must be built first.
       - run: npm run build

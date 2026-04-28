@@ -13,20 +13,31 @@ export default withMermaid({
 
   appearance: "dark",
 
-  head: [
-    ["link", { rel: "icon", href: "/logo.svg" }],
-    // Docs is all-Inter (no Instrument Serif here — that's reserved for
-    // the marketing surface). JetBrains Mono for code blocks + terminal.
-    ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
-    ["link", { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "" }],
-    [
-      "link",
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap",
+  // Two chunks land over Vite's default 500 KB warning threshold:
+  //   - `app.*.js` (~600 KB) — VitePress runtime + theme + minisearch.
+  //   - `@localSearchIndexroot.*.js` (~1.4 MB) — the indexed corpus, shipped
+  //     client-side for local search. Both are loaded once and cached;
+  //     manualChunks splitting wouldn't help since the main app chunk is
+  //     on every page anyway. Bump the limit so the build output stays
+  //     signal, not noise.
+  vite: {
+    build: {
+      chunkSizeWarningLimit: 1500,
+    },
+  },
+
+  // Tell Vue to pass <clef-wordmark> through as a real DOM element instead
+  // of resolving it as a Vue component. The custom element is registered
+  // client-side in theme/index.ts via @clef-sh/design/wordmark.
+  vue: {
+    template: {
+      compilerOptions: {
+        isCustomElement: (tag: string) => tag === "clef-wordmark",
       },
-    ],
-  ],
+    },
+  },
+
+  head: [["link", { rel: "icon", href: "/logo.svg" }]],
 
   themeConfig: {
     logo: "/logo.svg",

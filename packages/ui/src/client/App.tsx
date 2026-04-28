@@ -127,13 +127,9 @@ export default function App() {
     return (
       <div className="flex h-screen items-center justify-center bg-ink-950 font-sans text-ash">
         <div className="text-center">
-          <img
-            src="/clef.svg"
-            alt=""
-            width="20"
-            height="44"
-            className="mx-auto mb-3 [filter:drop-shadow(0_0_10px_rgba(240,165,0,0.35))]"
-          />
+          <div className="mb-3 flex justify-center">
+            <clef-wordmark variant="mark" size={36} />
+          </div>
           <div className="text-[13px]">Loading...</div>
         </div>
       </div>

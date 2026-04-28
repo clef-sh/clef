@@ -6,7 +6,9 @@ import type { PackedArtifact } from "@clef-sh/core";
 
 /** Result of decrypting an artifact envelope. */
 export interface DecryptedArtifact {
-  values: Record<string, string>;
+  /** Decrypted secrets, nested namespace → key → value (matches the on-the-wire payload). */
+  values: Record<string, Record<string, string>>;
+  /** Flat list of qualified `<namespace>__<key>` names for env-var-shaped enumeration. */
   keys: string[];
   revision: string;
 }
@@ -64,7 +66,7 @@ export class ArtifactDecryptor {
       plaintext = await this.decryptAge(artifact);
     }
 
-    let values: Record<string, string>;
+    let values: Record<string, Record<string, string>>;
     try {
       values = JSON.parse(plaintext);
     } catch (err) {
@@ -77,7 +79,13 @@ export class ArtifactDecryptor {
       plaintext = "";
     }
 
-    return { values, keys: Object.keys(values), revision: artifact.revision };
+    const keys: string[] = [];
+    for (const [ns, bucket] of Object.entries(values)) {
+      for (const k of Object.keys(bucket)) {
+        keys.push(`${ns}__${k}`);
+      }
+    }
+    return { values, keys, revision: artifact.revision };
   }
 
   /** KMS envelope: unwrap DEK via KMS, then AES-256-GCM decrypt. */

@@ -30,6 +30,20 @@ const entries = [
   { entry: "src/cli.ts", out: "cli" },
 ];
 
+// Polyfill CJS globals for the ESM output so bundled CJS deps that
+// use require()/__dirname don't crash when this bundle is loaded by a
+// pure-ESM consumer. esbuild's __require shim throws when require is
+// undefined.
+const ESM_BANNER = {
+  js: [
+    `import { createRequire } from "node:module";`,
+    `import { fileURLToPath } from "node:url";`,
+    `const require = createRequire(import.meta.url);`,
+    `const __filename = fileURLToPath(import.meta.url);`,
+    `const __dirname = fileURLToPath(new URL(".", import.meta.url));`,
+  ].join("\n"),
+};
+
 for (const { entry, out } of entries) {
   console.log(`Bundling ${out} (ESM)...`);
   await build({
@@ -37,6 +51,7 @@ for (const { entry, out } of entries) {
     entryPoints: [resolve(packageRoot, entry)],
     format: "esm",
     outfile: resolve(packageRoot, `dist/${out}.mjs`),
+    banner: ESM_BANNER,
   });
 
   console.log(`Bundling ${out} (CJS)...`);

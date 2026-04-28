@@ -18,8 +18,8 @@ interface S3Location {
 /**
  * Returns true if the URL is either the `s3://bucket/key` scheme or a
  * recognized S3 HTTPS URL. Purely structural — does not verify AWS_REGION
- * resolution for `s3://` URLs (that's deferred to {@link parseS3Url} so
- * the caller sees a meaningful error at construction time).
+ * resolution for `s3://` URLs (that check happens later when the source is
+ * constructed, so the caller sees a meaningful error then).
  */
 export function isS3Url(url: string): boolean {
   let u: URL;

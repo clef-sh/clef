@@ -57,7 +57,7 @@ const SHUTDOWN_TIMEOUT_MS = 3000;
  * Spawn a clef-keyservice sidecar and wait for it to report its port.
  *
  * @throws If neither `pin` nor `pinFile` is provided, if startup exceeds
- *   {@link STARTUP_TIMEOUT_MS}, or if the child exits before reporting `PORT=`.
+ *   the 5s startup timeout, or if the child exits before reporting `PORT=`.
  */
 export async function spawnKeyservice(options: SpawnKeyserviceOptions): Promise<KeyserviceHandle> {
   if (!options.pin && !options.pinFile) {

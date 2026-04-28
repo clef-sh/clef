@@ -141,9 +141,11 @@ export function PolicyView({ setView, setNs }: PolicyViewProps) {
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [showYaml, setShowYaml] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadPolicy = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const [checkRes, policyRes] = await Promise.all([
         apiFetch("/api/policy/check"),
@@ -151,13 +153,15 @@ export function PolicyView({ setView, setNs }: PolicyViewProps) {
       ]);
       if (checkRes.ok) {
         setData((await checkRes.json()) as PolicyCheckResponse);
+      } else {
+        setLoadError(`policy check failed: HTTP ${checkRes.status}`);
       }
       if (policyRes.ok) {
         const p = (await policyRes.json()) as { rawYaml: string };
         setRawYaml(p.rawYaml);
       }
-    } catch {
-      // Silently fail — user can retry
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "policy check failed");
     } finally {
       setLoading(false);
     }
@@ -324,7 +328,15 @@ export function PolicyView({ setView, setNs }: PolicyViewProps) {
       <div className="flex-1 overflow-auto p-6">
         {loading && <EmptyState title="Evaluating policy..." />}
 
-        {!loading && noFiles && (
+        {!loading && loadError && (
+          <EmptyState
+            data-testid="policy-load-error"
+            title="Failed to load policy"
+            body={loadError}
+          />
+        )}
+
+        {!loading && !loadError && noFiles && (
           <EmptyState
             data-testid="no-files"
             title="No matrix files to evaluate."

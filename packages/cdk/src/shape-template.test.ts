@@ -5,68 +5,103 @@ describe("extractRefs", () => {
     expect(extractRefs("postgres://localhost:5432/app")).toEqual([]);
   });
 
-  it("extracts a single reference", () => {
-    expect(extractRefs("${DATABASE_URL}")).toEqual(["DATABASE_URL"]);
+  it("extracts a single placeholder", () => {
+    expect(extractRefs("{{databaseUrl}}")).toEqual(["databaseUrl"]);
   });
 
-  it("extracts multiple distinct references", () => {
-    expect(extractRefs("postgres://${USER}:${PASS}@${HOST}:5432/db").sort()).toEqual([
-      "HOST",
-      "PASS",
-      "USER",
+  it("extracts multiple distinct placeholders", () => {
+    expect(extractRefs("postgres://{{user}}:{{pass}}@{{host}}:5432/db").sort()).toEqual([
+      "host",
+      "pass",
+      "user",
     ]);
   });
 
-  it("deduplicates repeated references", () => {
-    expect(extractRefs("${X}-${X}-${X}")).toEqual(["X"]);
+  it("deduplicates repeated placeholders", () => {
+    expect(extractRefs("{{x}}-{{x}}-{{x}}")).toEqual(["x"]);
   });
 
-  it("ignores malformed patterns that don't match the ref grammar", () => {
-    // ${} is empty, ${1_STARTS_DIGIT} fails the identifier rule, ${with-dash} has a dash.
-    expect(extractRefs("${} ${1X} ${a-b} plain")).toEqual([]);
+  it("ignores malformed patterns that don't match the placeholder grammar", () => {
+    // {{}} is empty, {{1X}} fails the identifier rule, {{a-b}} has a dash, {x} is single-brace.
+    expect(extractRefs("{{}} {{1X}} {{a-b}} {x} plain")).toEqual([]);
   });
 
   it("accepts identifiers with underscores and digits after the first char", () => {
-    expect(extractRefs("${DB_HOST_2}").sort()).toEqual(["DB_HOST_2"]);
+    expect(extractRefs("{{db_host_2}}").sort()).toEqual(["db_host_2"]);
+  });
+
+  it("ignores escaped braces", () => {
+    expect(extractRefs("\\{\\{not_a_placeholder\\}\\}")).toEqual([]);
   });
 });
 
 describe("applyTemplate", () => {
+  const refs = {
+    user: { namespace: "database", key: "USER" },
+    pass: { namespace: "database", key: "PASS" },
+    host: { namespace: "database", key: "HOST" },
+  };
+  const values = {
+    database: { USER: "app", PASS: "s3cr3t", HOST: "db.internal" },
+  };
+
   it("passes literals through unchanged", () => {
-    expect(applyTemplate("us-east-1", {})).toBe("us-east-1");
+    expect(applyTemplate("us-east-1", refs, values)).toBe("us-east-1");
   });
 
-  it("substitutes a single reference", () => {
-    expect(applyTemplate("${HOST}", { HOST: "db.internal" })).toBe("db.internal");
+  it("substitutes a single placeholder", () => {
+    expect(applyTemplate("{{host}}", refs, values)).toBe("db.internal");
   });
 
-  it("substitutes references inside a composite template", () => {
-    const out = applyTemplate("postgres://${USER}:${PASS}@${HOST}:5432/db", {
-      USER: "app",
-      PASS: "s3cr3t",
-      HOST: "db.internal",
-    });
+  it("substitutes placeholders inside a composite template", () => {
+    const out = applyTemplate("postgres://{{user}}:{{pass}}@{{host}}:5432/db", refs, values);
     expect(out).toBe("postgres://app:s3cr3t@db.internal:5432/db");
   });
 
-  it("throws on unknown references (defence-in-depth against synth skipping validation)", () => {
-    expect(() => applyTemplate("${MISSING}", {})).toThrow(/\$\{MISSING\}/);
+  it("turns escaped braces into literal {{ and }}", () => {
+    expect(applyTemplate("prefix \\{\\{user\\}\\} suffix", refs, values)).toBe(
+      "prefix {{user}} suffix",
+    );
+  });
+
+  it("mixes escapes and placeholders correctly", () => {
+    expect(applyTemplate("\\{\\{literal\\}\\} but real={{user}}", refs, values)).toBe(
+      "{{literal}} but real=app",
+    );
+  });
+
+  it("throws on unknown placeholders (defence-in-depth)", () => {
+    expect(() => applyTemplate("{{unknown}}", refs, values)).toThrow(
+      /\{\{unknown\}\} has no matching refs entry/,
+    );
+  });
+
+  it("throws when a ref points at a missing namespace at runtime", () => {
+    expect(() => applyTemplate("{{user}}", refs, { otherNs: { USER: "x" } })).toThrow(
+      /database\/USER not present/,
+    );
   });
 });
 
 describe("applyShape", () => {
+  const refs = {
+    host: { namespace: "database", key: "HOST" },
+    user: { namespace: "database", key: "USER" },
+    pass: { namespace: "database", key: "PASS" },
+  };
+  const values = {
+    database: { HOST: "db.internal", USER: "app", PASS: "hunter2" },
+  };
+
   it("produces a mapped object with literals and substitutions (Record shape)", () => {
     const result = applyShape(
       {
         region: "us-east-1",
-        dbHost: "${DATABASE_HOST}",
-        connectionString: "postgres://${USER}:${PASS}@${DATABASE_HOST}:5432/app",
+        dbHost: "{{host}}",
+        connectionString: "postgres://{{user}}:{{pass}}@{{host}}:5432/app",
       },
-      {
-        DATABASE_HOST: "db.internal",
-        USER: "app",
-        PASS: "hunter2",
-      },
+      refs,
+      values,
     );
     expect(result).toEqual({
       region: "us-east-1",
@@ -76,20 +111,16 @@ describe("applyShape", () => {
   });
 
   it("returns an empty object for an empty Record shape", () => {
-    expect(applyShape({}, { X: "y" })).toEqual({});
+    expect(applyShape({}, refs, values)).toEqual({});
   });
 
   it("returns a plain string when shape is a string template", () => {
-    const result = applyShape("postgres://${USER}:${PASS}@${HOST}:5432/app", {
-      USER: "app",
-      PASS: "hunter2",
-      HOST: "db.internal",
-    });
+    const result = applyShape("postgres://{{user}}:{{pass}}@{{host}}:5432/app", refs, values);
     expect(result).toBe("postgres://app:hunter2@db.internal:5432/app");
   });
 
-  it("returns the string literally when shape has no refs", () => {
-    expect(applyShape("static-value", {})).toBe("static-value");
+  it("returns the string literally when shape has no placeholders", () => {
+    expect(applyShape("static-value", refs, values)).toBe("static-value");
   });
 });
 
@@ -97,18 +128,26 @@ describe("validateShape", () => {
   const baseArgs = {
     identity: "api-gateway",
     environment: "production",
-    availableKeys: ["DATABASE_HOST", "DATABASE_USER", "DATABASE_PASSWORD", "API_KEY"],
+    availableKeys: {
+      database: ["DATABASE_HOST", "DATABASE_USER", "DATABASE_PASSWORD"],
+      api: ["API_KEY"],
+    },
   };
 
-  it("passes when every reference resolves", () => {
+  it("passes when every placeholder is bound and refs resolve", () => {
     expect(() =>
       validateShape({
         ...baseArgs,
         shape: {
-          dbHost: "${DATABASE_HOST}",
-          dbUser: "${DATABASE_USER}",
-          connStr: "postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@${DATABASE_HOST}",
+          dbHost: "{{host}}",
+          dbUser: "{{user}}",
+          connStr: "postgres://{{user}}:{{pass}}@{{host}}",
           region: "us-east-1", // pure literal
+        },
+        refs: {
+          host: { namespace: "database", key: "DATABASE_HOST" },
+          user: { namespace: "database", key: "DATABASE_USER" },
+          pass: { namespace: "database", key: "DATABASE_PASSWORD" },
         },
       }),
     ).not.toThrow();
@@ -118,82 +157,113 @@ describe("validateShape", () => {
     expect(() => validateShape({ ...baseArgs, shape: {} })).not.toThrow();
   });
 
-  it("throws a message that names the offending field and the bad reference", () => {
+  it("throws when a placeholder has no matching refs entry", () => {
     expect(() =>
       validateShape({
         ...baseArgs,
-        shape: { dbHost: "${DATABSAE_HOST}" }, // typo
+        shape: { dbHost: "{{host}}" },
+        refs: {},
       }),
-    ).toThrow(/shape\['dbHost'\] references unknown Clef key: \$\{DATABSAE_HOST\}/);
+    ).toThrow(/shape\['dbHost'\] references placeholder \{\{host\}\} which is not declared/);
   });
 
-  it("surfaces a 'Did you mean' suggestion for a likely typo", () => {
+  it("suggests a similar alias when a placeholder is misspelled", () => {
     try {
       validateShape({
         ...baseArgs,
-        shape: { dbHost: "${DATABSAE_HOST}" },
+        shape: { dbHost: "{{hsot}}" }, // typo of `host`
+        refs: {
+          host: { namespace: "database", key: "DATABASE_HOST" },
+        },
       });
       fail("expected throw");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      expect(msg).toMatch(/Did you mean \$\{DATABASE_HOST\}/);
+      expect(msg).toMatch(/Did you mean \{\{host\}\}/);
     }
   });
 
-  it("skips the suggestion when no candidate is close enough", () => {
+  it("throws when a ref's namespace is not in the envelope", () => {
+    expect(() =>
+      validateShape({
+        ...baseArgs,
+        shape: { dbHost: "{{host}}" },
+        refs: { host: { namespace: "missing-ns", key: "DATABASE_HOST" } },
+      }),
+    ).toThrow(/refs\['host'\]\.namespace = 'missing-ns' is not a namespace/);
+  });
+
+  it("suggests a similar namespace when one is misspelled", () => {
     try {
       validateShape({
         ...baseArgs,
-        shape: { weird: "${TOTALLY_UNRELATED_XYZ}" },
+        shape: { dbHost: "{{host}}" },
+        refs: { host: { namespace: "datbase", key: "DATABASE_HOST" } },
       });
       fail("expected throw");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      expect(msg).not.toMatch(/Did you mean/);
+      expect(msg).toMatch(/Did you mean 'database'/);
     }
   });
 
-  it("lists the valid keys in sorted order", () => {
+  it("throws when a ref's key is not in its namespace", () => {
+    expect(() =>
+      validateShape({
+        ...baseArgs,
+        shape: { dbHost: "{{host}}" },
+        refs: { host: { namespace: "database", key: "DATABSAE_HOST" } },
+      }),
+    ).toThrow(/refs\['host'\] = database\/DATABSAE_HOST not found/);
+  });
+
+  it("suggests a similar key when one is misspelled", () => {
     try {
       validateShape({
         ...baseArgs,
-        shape: { x: "${NOPE}" },
+        shape: { dbHost: "{{host}}" },
+        refs: { host: { namespace: "database", key: "DATABSAE_HOST" } },
       });
       fail("expected throw");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Sorted alphabetically.
-      expect(msg).toMatch(
-        /API_KEY[\s\S]*DATABASE_HOST[\s\S]*DATABASE_PASSWORD[\s\S]*DATABASE_USER/,
-      );
+      expect(msg).toMatch(/Did you mean database\/DATABASE_HOST/);
     }
   });
 
-  it("notes the identity and environment in the error", () => {
+  it("warns about declared refs that aren't used by the shape", () => {
+    const result = validateShape({
+      ...baseArgs,
+      shape: { dbHost: "{{host}}" },
+      refs: {
+        host: { namespace: "database", key: "DATABASE_HOST" },
+        unused: { namespace: "database", key: "DATABASE_USER" },
+      },
+    });
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toMatch(/refs\['unused'\] is declared but not used/);
+  });
+
+  it("returns no warnings when everything is used", () => {
+    const result = validateShape({
+      ...baseArgs,
+      shape: { dbHost: "{{host}}" },
+      refs: { host: { namespace: "database", key: "DATABASE_HOST" } },
+    });
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("notes the identity and environment in placeholder errors", () => {
     try {
       validateShape({
         ...baseArgs,
-        shape: { x: "${NOPE}" },
+        shape: { x: "{{nope}}" },
       });
       fail("expected throw");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       expect(msg).toMatch(/identity:\s+api-gateway/);
       expect(msg).toMatch(/environment:\s+production/);
-    }
-  });
-
-  it("throws a helpful message for empty available keys", () => {
-    try {
-      validateShape({
-        ...baseArgs,
-        availableKeys: [],
-        shape: { x: "${MISSING}" },
-      });
-      fail("expected throw");
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      expect(msg).toMatch(/\(none — did you forget to set any values\?\)/);
     }
   });
 
@@ -206,12 +276,36 @@ describe("validateShape", () => {
     ).toThrow(/shape\['port'\] must be a string/);
   });
 
+  it("rejects a shape that is neither string nor object", () => {
+    expect(() =>
+      validateShape({
+        ...baseArgs,
+        shape: 42 as unknown as string,
+      }),
+    ).toThrow(/shape must be a string or an object of strings/);
+  });
+
+  it("rejects malformed ref entries", () => {
+    expect(() =>
+      validateShape({
+        ...baseArgs,
+        shape: { x: "{{host}}" },
+        refs: { host: { namespace: "database" } as unknown as { namespace: string; key: string } },
+      }),
+    ).toThrow(/refs\['host'\]\.key must be a non-empty string/);
+  });
+
   describe("string shape", () => {
-    it("passes when every reference in the string resolves", () => {
+    it("passes when every placeholder in the string is bound", () => {
       expect(() =>
         validateShape({
           ...baseArgs,
-          shape: "postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@${DATABASE_HOST}",
+          shape: "postgres://{{user}}:{{pass}}@{{host}}",
+          refs: {
+            host: { namespace: "database", key: "DATABASE_HOST" },
+            user: { namespace: "database", key: "DATABASE_USER" },
+            pass: { namespace: "database", key: "DATABASE_PASSWORD" },
+          },
         }),
       ).not.toThrow();
     });
@@ -225,27 +319,18 @@ describe("validateShape", () => {
       ).not.toThrow();
     });
 
-    it("throws with a <value> location pointer when an unknown ref appears", () => {
+    it("uses <value> as the location pointer for string shapes", () => {
       try {
         validateShape({
           ...baseArgs,
-          shape: "postgres://${DATABSAE_HOST}",
+          shape: "postgres://{{host}}",
+          refs: {},
         });
         fail("expected throw");
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        expect(msg).toMatch(/<value> references unknown Clef key: \$\{DATABSAE_HOST\}/);
-        expect(msg).toMatch(/Did you mean \$\{DATABASE_HOST\}/);
+        expect(msg).toMatch(/<value> references placeholder \{\{host\}\}/);
       }
     });
-  });
-
-  it("rejects a shape that is neither string nor object", () => {
-    expect(() =>
-      validateShape({
-        ...baseArgs,
-        shape: 42 as unknown as string,
-      }),
-    ).toThrow(/shape must be a string or an object of strings/);
   });
 });

@@ -13,9 +13,11 @@ import { scaffoldFixture, agentFetch, type TestFixture } from "./harness";
 import { startAgent, type AgentProcess } from "./agent-process";
 
 const TEST_SECRETS = {
-  DATABASE_URL: "postgres://localhost:5432/mydb",
-  API_KEY: "sk_live_test_12345",
-  WEBHOOK_SECRET: "whsec_e2e_test",
+  app: {
+    DATABASE_URL: "postgres://localhost:5432/mydb",
+    API_KEY: "sk_live_test_12345",
+    WEBHOOK_SECRET: "whsec_e2e_test",
+  },
 };
 
 let fixture: TestFixture;
@@ -91,11 +93,15 @@ describe("secrets retrieval", () => {
     assert.equal(status, 404);
   });
 
-  it("GET /v1/keys returns key names", async () => {
+  it("GET /v1/keys returns key names in flat <namespace>__<key> form", async () => {
     const { status, body } = await agentFetch(agent.url, "/v1/keys", agent.token);
     assert.equal(status, 200);
     const keys = new Set(body as string[]);
-    const expected = new Set(Object.keys(TEST_SECRETS));
+    const expected = new Set(
+      Object.entries(TEST_SECRETS).flatMap(([ns, bucket]) =>
+        Object.keys(bucket).map((k) => `${ns}__${k}`),
+      ),
+    );
     assert.deepEqual(keys, expected);
   });
 });
@@ -134,7 +140,7 @@ describe("security headers", () => {
 
 describe("artifact update", () => {
   it("serves new secrets after artifact is replaced and agent restarted", async () => {
-    const updatedSecrets = { UPDATED_KEY: "updated_value", ANOTHER: "val2" };
+    const updatedSecrets = { app: { UPDATED_KEY: "updated_value", ANOTHER: "val2" } };
     const fixture2 = scaffoldFixture(updatedSecrets);
     const agent2 = await startAgent(fixture2.artifactPath, fixture2.keys.privateKey);
 

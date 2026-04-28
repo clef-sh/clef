@@ -1,5 +1,9 @@
 ---
 import "../styles/global.css";
+
+// Same self-hosted preload pattern as the index page — see index.astro
+// for the full rationale.
+import sansLatinUrl from "@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2?url";
 ---
 
 <!doctype html>
@@ -9,12 +13,7 @@ import "../styles/global.css";
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>404 — Page not found | Clef</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <link rel="preload" href={sansLatinUrl} as="font" type="font/woff2" crossorigin />
   </head>
   <body
     class="flex min-h-screen flex-col items-center justify-center bg-clef-bg font-sans text-clef-text antialiased"

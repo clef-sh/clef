@@ -29,79 +29,118 @@ const BASE_CONFIG = {
   // Ensure packages hoisted to the workspace root are always found.
   nodePaths: [resolve(repoRoot, "node_modules")],
   // fsevents is an optional native dep of chokidar and cannot be bundled.
+  // All @clef-sh/* workspace packages are externalized for the npm builds so
+  // the published CLI resolves them through node_modules at runtime. This:
+  //   • makes the dependency graph honest (npm ls reflects what actually
+  //     loads — no inlined duplicates),
+  //   • lets users uninstall the optional plugins (cloud, ui, analytics)
+  //     and have the existing try/catch stubs take over,
+  //   • lets patch releases of workspace packages flow without a CLI
+  //     republish.
+  // SEA can't resolve node_modules at runtime, so the SEA-only build
+  // re-aliases every @clef-sh/* entry below (SEA_BUNDLED_ALIAS) and
+  // strips them from external for that one esbuild call.
   external: [
     "fsevents",
     "@aws-sdk/client-kms",
     "@azure/identity",
     "@azure/keyvault-keys",
     "@google-cloud/kms",
+    "@clef-sh/agent",
+    "@clef-sh/analytics",
+    "@clef-sh/cloud",
+    "@clef-sh/cloud/cli",
+    "@clef-sh/core",
+    "@clef-sh/pack-aws-parameter-store",
+    "@clef-sh/pack-aws-secrets-manager",
+    "@clef-sh/runtime",
+    "@clef-sh/ui",
   ],
-  // Alias @clef-sh/core to its TypeScript source files.
-  //
-  // @clef-sh/core's package.json "main" points to dist/index.js (CJS compiled
-  // by tsc).  tsc transforms dynamic import("age-encryption") into:
-  //   Promise.resolve(`${"age-encryption"}`).then(s => require(s))
-  // The template-literal trick hides the string from esbuild's static analyzer,
-  // so esbuild cannot bundle age-encryption inline and leaves a dangling runtime
-  // require() that fails at install time.
-  //
-  // Aliasing to the TypeScript source lets esbuild see the raw
-  // `import("age-encryption")` before tsc obscures it.  The ESM build then
-  // bundles it natively; the CJS build intercepts it with the plugin below.
-  alias: {
-    "@clef-sh/core": resolve(repoRoot, "packages/core/src/index.ts"),
-    "@clef-sh/runtime": resolve(repoRoot, "packages/runtime/src/index.ts"),
-    "@clef-sh/cloud": resolve(repoRoot, "packages/cloud/src/index.ts"),
-    "@clef-sh/cloud/cli": resolve(repoRoot, "packages/cloud/src/cli.ts"),
-    "@clef-sh/ui": resolve(repoRoot, "packages/ui/src/server/index.ts"),
-    "@clef-sh/analytics": resolve(repoRoot, "packages/analytics/src/index.ts"),
-  },
 };
 
-// ── age-encryption CJS pre-bundle (used by the CJS build) ────────────────────
-//
-// Node SEA requires a CommonJS main script, and some consumers still use
-// require().  With @clef-sh/core aliased to TypeScript source, esbuild CAN
-// now see import("age-encryption") statically and calls onResolve — but in CJS
-// output mode dynamic imports are still emitted as runtime require() rather than
-// being inlined.  We pre-bundle age-encryption to CJS and inject it as a virtual
-// module so the runtime require() resolves from the bundle registry.
-
-console.log("Pre-bundling age-encryption (ESM→CJS)...");
-const ageResult = await build({
-  stdin: {
-    contents: 'export * from "age-encryption"',
-    loader: "js",
-    resolveDir: packageRoot,
-  },
-  bundle: true,
-  platform: "node",
-  target: "node18",
-  format: "cjs",
-  write: false,
-  nodePaths: [resolve(repoRoot, "node_modules")],
-});
-
-const ageCjsContent = ageResult.outputFiles[0].text;
-
-/** @type {import('esbuild').Plugin} */
-const ageEncryptionPlugin = {
-  name: "age-encryption-cjs",
-  setup(build) {
-    build.onResolve({ filter: /^age-encryption$/ }, () => ({
-      path: "age-encryption",
-      namespace: "age-encryption-cjs",
-    }));
-    build.onLoad({ filter: /.*/, namespace: "age-encryption-cjs" }, () => ({
-      contents: ageCjsContent,
-      loader: "js",
-    }));
-  },
+/**
+ * Workspace package aliases — applied ONLY to the SEA-input bundle.
+ *
+ * The npm builds leave every @clef-sh/* import as a runtime resolution
+ * (see BASE_CONFIG.external above). For SEA we point each one at its
+ * TypeScript source so esbuild can follow the imports and inline the
+ * code into a single self-contained binary.
+ *
+ * @clef-sh/core is the reason the ageEncryptionPlugin still exists:
+ * core's compiled dist/index.js obfuscates `import("age-encryption")`
+ * via a template-literal to hide it from bundlers. Aliasing core to
+ * source lets esbuild see the raw dynamic import before tsc rewrites
+ * it; the plugin then injects the pre-bundled CJS for the SEA build.
+ */
+const SEA_BUNDLED_ALIAS = {
+  "@clef-sh/agent": resolve(repoRoot, "packages/agent/src/index.ts"),
+  "@clef-sh/analytics": resolve(repoRoot, "packages/analytics/src/index.ts"),
+  "@clef-sh/cloud": resolve(repoRoot, "packages/cloud/src/index.ts"),
+  "@clef-sh/cloud/cli": resolve(repoRoot, "packages/cloud/src/cli.ts"),
+  "@clef-sh/core": resolve(repoRoot, "packages/core/src/index.ts"),
+  "@clef-sh/pack-aws-parameter-store": resolve(
+    repoRoot,
+    "packages/pack/aws-parameter-store/src/index.ts",
+  ),
+  "@clef-sh/pack-aws-secrets-manager": resolve(
+    repoRoot,
+    "packages/pack/aws-secrets-manager/src/index.ts",
+  ),
+  "@clef-sh/runtime": resolve(repoRoot, "packages/runtime/src/index.ts"),
+  "@clef-sh/ui": resolve(repoRoot, "packages/ui/src/server/index.ts"),
 };
 
 // ── Clean dist ────────────────────────────────────────────────────────────────
 
 rmSync(resolve(packageRoot, "dist"), { recursive: true, force: true });
+
+// ── age-encryption CJS pre-bundle (used by the SEA build only) ───────────────
+//
+// Node SEA requires a CommonJS main script. The SEA bundle aliases
+// @clef-sh/core to its TypeScript source so esbuild can follow the
+// imports — including a dynamic `import("age-encryption")` that core's
+// compiled dist would otherwise hide via a template-literal trick. In
+// CJS output mode esbuild still emits dynamic imports as runtime
+// require() rather than inlining them, so we pre-bundle age-encryption
+// to CJS and inject it as a virtual module that the runtime require()
+// resolves from the bundle registry.
+//
+// The npm builds external @clef-sh/core entirely, so this plugin never
+// runs in the npm path — Node resolves age-encryption at runtime
+// against node_modules through core's normal dist/index.js.
+
+/** @type {import('esbuild').Plugin | null} */
+let ageEncryptionPlugin = null;
+if (SEA_BUILD) {
+  console.log("Pre-bundling age-encryption (ESM→CJS) for SEA...");
+  const ageResult = await build({
+    stdin: {
+      contents: 'export * from "age-encryption"',
+      loader: "js",
+      resolveDir: packageRoot,
+    },
+    bundle: true,
+    platform: "node",
+    target: "node18",
+    format: "cjs",
+    write: false,
+    nodePaths: [resolve(repoRoot, "node_modules")],
+  });
+  const ageCjsContent = ageResult.outputFiles[0].text;
+  ageEncryptionPlugin = {
+    name: "age-encryption-cjs",
+    setup(build) {
+      build.onResolve({ filter: /^age-encryption$/ }, () => ({
+        path: "age-encryption",
+        namespace: "age-encryption-cjs",
+      }));
+      build.onLoad({ filter: /.*/, namespace: "age-encryption-cjs" }, () => ({
+        contents: ageCjsContent,
+        loader: "js",
+      }));
+    },
+  };
+}
 
 // ── ESM bundle — dist/index.mjs (primary, shipped to npm) ────────────────────
 
@@ -127,7 +166,7 @@ await build({
   },
 });
 
-// ── CJS bundle — dist/index.cjs (require() compat + SEA input) ───────────────
+// ── CJS bundle — dist/index.cjs (require() compat for npm consumers) ─────────
 
 console.log("Bundling CJS...");
 await build({
@@ -135,15 +174,32 @@ await build({
   format: "cjs",
   outfile: resolve(packageRoot, "dist/index.cjs"),
   sourcemap: true,
-  plugins: [ageEncryptionPlugin],
 });
 
 console.log("Build complete.");
 
 // ── SEA binary ────────────────────────────────────────────────────────────────
-// dist/index.cjs already exists from the main build — no extra CJS step needed.
+// SEA needs its own CJS bundle with every @clef-sh/* workspace package
+// aliased+bundled, because a single-file binary can't resolve node_modules
+// at runtime. The npm-shipped dist/index.cjs leaves them all external so
+// users can uninstall optional plugins; that bundle is unsuitable as SEA
+// input.
 
 if (SEA_BUILD) {
+  console.log("Bundling SEA CJS (all @clef-sh/* inlined)...");
+  const seaBundledNames = new Set(Object.keys(SEA_BUNDLED_ALIAS));
+  await build({
+    ...BASE_CONFIG,
+    // Strip the @clef-sh/* externals so esbuild follows the imports
+    // through to the aliased source instead of leaving them as runtime
+    // requires.
+    external: BASE_CONFIG.external.filter((p) => !seaBundledNames.has(p)),
+    alias: SEA_BUNDLED_ALIAS,
+    format: "cjs",
+    outfile: resolve(packageRoot, "dist/index.sea.cjs"),
+    sourcemap: true,
+    plugins: ageEncryptionPlugin ? [ageEncryptionPlugin] : [],
+  });
   await buildSea();
 }
 
@@ -188,7 +244,7 @@ async function buildSea() {
   }
 
   const seaConfig = {
-    main: "dist/index.cjs",
+    main: "dist/index.sea.cjs",
     output: "dist/sea-prep.blob",
     disableExperimentalSEAWarning: true,
     useCodeCache: false,

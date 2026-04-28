@@ -19,10 +19,22 @@ function writeManifest(dir: string): string {
   return p;
 }
 
+// Keys are passed as a flat list for terseness; the helpers bucket them
+// under namespace `"app"` so test call sites stay readable. Tests that
+// need cross-namespace coverage use `kmsEnvelopeResultNs` below.
 function kmsEnvelopeResult(
   identity: string,
   environment: string,
   keys: string[],
+  keyArn: string = KEY_ARN,
+) {
+  return kmsEnvelopeResultNs(identity, environment, { app: keys }, keyArn);
+}
+
+function kmsEnvelopeResultNs(
+  identity: string,
+  environment: string,
+  keysByNamespace: Record<string, string[]>,
   keyArn: string = KEY_ARN,
 ) {
   return {
@@ -43,7 +55,7 @@ function kmsEnvelopeResult(
         authTag: "dGFnMTIzNDU2Nzg=",
       },
     }),
-    keys,
+    keysByNamespace,
   };
 }
 
@@ -58,8 +70,17 @@ function ageEnvelopeResult(identity: string, environment: string, keys: string[]
       ciphertextHash: "deadbeef",
       ciphertext: "YWdlCg==",
     }),
-    keys,
+    keysByNamespace: { app: keys },
   };
+}
+
+/** Shared `refs` builder so tests don't repeat the namespace boilerplate. */
+function refsFor(keys: Record<string, string>): Record<string, { namespace: string; key: string }> {
+  const out: Record<string, { namespace: string; key: string }> = {};
+  for (const [alias, key] of Object.entries(keys)) {
+    out[alias] = { namespace: "app", key };
+  }
+  return out;
 }
 
 describe("ClefParameter", () => {
@@ -88,12 +109,13 @@ describe("ClefParameter", () => {
             identity: "api",
             environment: "prod",
             manifest: manifestPath,
-            shape: "${DB_URL}",
+            shape: "{{db_url}}",
+            refs: refsFor({ db_url: "DB_URL" }),
           }),
       ).toThrow(/requires a KMS-envelope service identity/);
     });
 
-    it("surfaces shape template typos with valid-keys list", () => {
+    it("surfaces typos that misspell a ref's key", () => {
       mockInvokePackHelper.mockReturnValue(
         kmsEnvelopeResult("api", "prod", ["DB_HOST", "DB_USER", "DB_PASSWORD"]),
       );
@@ -106,9 +128,10 @@ describe("ClefParameter", () => {
             identity: "api",
             environment: "prod",
             manifest: manifestPath,
-            shape: "postgres://${DB_USER}:${DB_PASSWROD}@${DB_HOST}", // typo
+            shape: "postgres://{{user}}:{{pass}}@{{host}}",
+            refs: refsFor({ user: "DB_USER", pass: "DB_PASSWROD", host: "DB_HOST" }), // typo
           }),
-      ).toThrow(/references unknown Clef key: \$\{DB_PASSWROD\}[\s\S]*DB_PASSWORD/);
+      ).toThrow(/refs\['pass'\] = app\/DB_PASSWROD not found[\s\S]*DB_PASSWORD/);
     });
   });
 
@@ -126,7 +149,8 @@ describe("ClefParameter", () => {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
-        shape: "${DB_URL}",
+        shape: "{{db_url}}",
+        refs: refsFor({ db_url: "DB_URL" }),
       });
       template = Template.fromStack(stack);
     });
@@ -148,7 +172,7 @@ describe("ClefParameter", () => {
       expect(props.Target).toBe("parameter");
       expect(props.ParameterName).toBe("/clef/api/prod/DbUrl");
       expect(props.ParameterType).toBe("SecureString");
-      expect(props.Shape).toBe("${DB_URL}");
+      expect(props.Shape).toBe("{{db_url}}");
       // Tier is omitted when not passed — SSM uses Standard by default.
       expect(props.ParameterTier).toBeUndefined();
       // ParameterKmsKeyId is omitted when using aws/ssm default.
@@ -223,7 +247,8 @@ describe("ClefParameter", () => {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
-        shape: "${DB_URL}",
+        shape: "{{db_url}}",
+        refs: refsFor({ db_url: "DB_URL" }),
         parameterName: "/custom/path",
         type: "SecureString",
         tier: "Advanced",
@@ -257,7 +282,8 @@ describe("ClefParameter", () => {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
-        shape: "${DB_URL}",
+        shape: "{{db_url}}",
+        refs: refsFor({ db_url: "DB_URL" }),
         parameterKmsKey: atRestKey,
       });
 
@@ -285,7 +311,8 @@ describe("ClefParameter", () => {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
-        shape: "${DB_URL}",
+        shape: "{{db_url}}",
+        refs: refsFor({ db_url: "DB_URL" }),
       });
 
       const fn = new lambda.Function(stack, "Consumer", {
@@ -326,7 +353,8 @@ describe("ClefParameter", () => {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
-        shape: "${DB_URL}",
+        shape: "{{db_url}}",
+        refs: refsFor({ db_url: "DB_URL" }),
         parameterKmsKey: atRestKey,
       });
 
@@ -371,7 +399,8 @@ describe("ClefParameter", () => {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
-        shape: "${DB_URL}",
+        shape: "{{db_url}}",
+        refs: refsFor({ db_url: "DB_URL" }),
       });
 
       const fn = new lambda.Function(stack, "Consumer", {
@@ -413,7 +442,8 @@ describe("ClefParameter", () => {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
-        shape: "${CONFIG_VALUE}",
+        shape: "{{config_value}}",
+        refs: refsFor({ config_value: "CONFIG_VALUE" }),
         type: "String",
       });
 
@@ -459,13 +489,15 @@ describe("ClefParameter", () => {
         identity: "svc-a",
         environment: "prod",
         manifest: manifestPath,
-        shape: "${DB_URL}",
+        shape: "{{db_url}}",
+        refs: refsFor({ db_url: "DB_URL" }),
       });
       new ClefParameter(stack, "ApiKey", {
         identity: "svc-b",
         environment: "prod",
         manifest: manifestPath,
-        shape: "${API_KEY}",
+        shape: "{{api_key}}",
+        refs: refsFor({ api_key: "API_KEY" }),
       });
 
       const template = Template.fromStack(stack);
@@ -497,7 +529,8 @@ describe("ClefParameter", () => {
         identity: "svc-b",
         environment: "prod",
         manifest: manifestPath,
-        shape: "${DB_URL}",
+        shape: "{{db_url}}",
+        refs: refsFor({ db_url: "DB_URL" }),
       });
 
       const template = Template.fromStack(stack);
@@ -508,6 +541,49 @@ describe("ClefParameter", () => {
       });
       // One shared Lambda across ClefSecret + ClefParameter.
       expect(unwrapFns).toHaveLength(1);
+    });
+
+    it("issues distinct KMS grant Names per construct even when identity/env/revision match", () => {
+      // Regression: KMS treats two grants with identical key + grantee +
+      // operations + name as the same grant and returns one GrantId. Two
+      // ClefParameters sharing identity/env/revision used to collide → second
+      // revoke 404'd on stack delete.
+      mockInvokePackHelper.mockImplementation(({ identity }: { identity: string }) =>
+        kmsEnvelopeResult(identity, "production", ["STRIPE_KEY"]),
+      );
+      const app = new App();
+      const stack = new Stack(app, "TestStack", {
+        env: { account: "111122223333", region: "us-east-1" },
+      });
+
+      new ClefParameter(stack, "StripeKey", {
+        identity: "app",
+        environment: "production",
+        manifest: manifestPath,
+        shape: "{{key}}",
+        refs: refsFor({ key: "STRIPE_KEY" }),
+      });
+      new ClefParameter(stack, "BackupStripeKey", {
+        identity: "app",
+        environment: "production",
+        manifest: manifestPath,
+        shape: "{{key}}",
+        refs: refsFor({ key: "STRIPE_KEY" }),
+      });
+
+      const template = Template.fromStack(stack);
+      const grants = template.findResources("Custom::ClefParameterGrant");
+      // Create is rendered as Fn::Join with a token (the unwrap role ARN)
+      // spliced in. Stringify the whole thing and pull out the literal
+      // Name field — that's all this test cares about.
+      const names = Object.values(grants).map((res) => {
+        const create = (res as { Properties: { Create: unknown } }).Properties.Create;
+        const m = JSON.stringify(create).match(/\\"Name\\":\\"([^"\\]+)\\"/);
+        if (!m) throw new Error("could not extract Name from Create");
+        return m[1];
+      });
+      expect(names).toHaveLength(2);
+      expect(new Set(names).size).toBe(2);
     });
   });
 });

@@ -1,8 +1,10 @@
 import * as path from "path";
 import { Construct } from "constructs";
 import {
+  Annotations,
   CustomResource,
   Duration,
+  Names,
   Stack,
   aws_iam as iam,
   aws_kms as kms,
@@ -15,7 +17,7 @@ import type { IKey } from "aws-cdk-lib/aws-kms";
 import type { IParameter } from "aws-cdk-lib/aws-ssm";
 import { resolveManifestPath } from "./manifest-path";
 import { invokePackHelper } from "./pack-invoker";
-import { validateShape } from "./shape-template";
+import { validateShape, type RefsMap } from "./shape-template";
 
 /**
  * SSM parameter tier. Matches the CloudFormation string values accepted by
@@ -38,15 +40,20 @@ export interface ClefParameterProps {
    */
   readonly manifest?: string;
   /**
-   * Template for the parameter's single value. `${CLEF_KEY}` references are
-   * substituted at deploy time. Supports composition:
+   * Template for the parameter's single value. Placeholders use `{{name}}`
+   * syntax; each name is resolved via {@link refs}.
    *
-   *     shape: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/app"
+   *     shape: "postgres://{{user}}:{{pass}}@{{host}}:5432/app"
    *
-   * Unknown references fail loud at synth with the same error format used
-   * by {@link ClefSecret}.
+   * Unknown placeholders or unresolvable refs fail loud at synth with the
+   * same error format used by {@link ClefSecret}.
    */
   readonly shape: string;
+  /**
+   * Map of `{{placeholder}}` aliases to `(namespace, key)` references in the
+   * Clef envelope. Required when `shape` contains any placeholders.
+   */
+  readonly refs?: RefsMap;
   /**
    * SSM parameter name. Defaults to
    * `/clef/<identity>/<environment>/<constructId>`.
@@ -116,7 +123,7 @@ export class ClefParameter extends Construct {
 
     this.manifestPath = resolveManifestPath(props.manifest);
 
-    const { envelopeJson, keys } = invokePackHelper({
+    const { envelopeJson, keysByNamespace } = invokePackHelper({
       manifest: this.manifestPath,
       identity: props.identity,
       environment: props.environment,
@@ -153,12 +160,16 @@ export class ClefParameter extends Construct {
       );
     }
 
-    validateShape({
+    const result = validateShape({
       shape: props.shape,
-      availableKeys: keys,
+      refs: props.refs,
+      availableKeys: keysByNamespace,
       identity: props.identity,
       environment: props.environment,
     });
+    for (const w of result.warnings) {
+      Annotations.of(this).addWarning(w);
+    }
 
     this.envelopeKey = kms.Key.fromKeyArn(this, "EnvelopeKey", envelope.envelope.keyId);
     this.parameterType = props.type ?? "SecureString";
@@ -222,7 +233,12 @@ export class ClefParameter extends Construct {
 
     // ── Per-deploy KMS grant for envelope Decrypt ────────────────────────
 
-    const grantName = `clef-parameter-${props.identity}-${props.environment}-${envelope.revision}`;
+    // Suffix with a construct-scoped unique token so two ClefParameter
+    // constructs sharing identity/environment/revision (and the singleton
+    // unwrap Lambda role) don't collide on KMS's identical-grant rule —
+    // which would return the same GrantId to both AwsCustomResources and
+    // cause the second revoke to 404 on stack delete/replace.
+    const grantName = `clef-parameter-${props.identity}-${props.environment}-${envelope.revision}-${Names.uniqueResourceName(this, { maxLength: 32 })}`;
 
     const grantCreate = new cr.AwsCustomResource(this, "GrantCreate", {
       resourceType: "Custom::ClefParameterGrant",
@@ -295,6 +311,7 @@ export class ClefParameter extends Construct {
         Revision: envelope.revision,
         GrantToken: grantCreate.getResponseField("GrantToken"),
         Shape: props.shape,
+        ...(props.refs !== undefined ? { Refs: props.refs } : {}),
       },
     });
 

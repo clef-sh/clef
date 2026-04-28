@@ -21,7 +21,7 @@ function writeManifest(dir: string): string {
 function kmsEnvelopeResult(
   identity: string,
   environment: string,
-  keys: string[],
+  keysByNamespace: Record<string, string[]>,
   keyArn: string = KEY_ARN,
 ) {
   return {
@@ -42,11 +42,15 @@ function kmsEnvelopeResult(
         authTag: "dGFnMTIzNDU2Nzg=",
       },
     }),
-    keys,
+    keysByNamespace,
   };
 }
 
-function ageEnvelopeResult(identity: string, environment: string, keys: string[]) {
+function ageEnvelopeResult(
+  identity: string,
+  environment: string,
+  keysByNamespace: Record<string, string[]>,
+) {
   return {
     envelopeJson: JSON.stringify({
       version: 1,
@@ -57,7 +61,7 @@ function ageEnvelopeResult(identity: string, environment: string, keys: string[]
       ciphertextHash: "deadbeef",
       ciphertext: "YWdlCg==",
     }),
-    keys,
+    keysByNamespace,
   };
 }
 
@@ -77,7 +81,9 @@ describe("ClefSecret", () => {
 
   describe("synth-time validation", () => {
     it("rejects age-only identities with a message pointing at clef.yaml", () => {
-      mockInvokePackHelper.mockReturnValue(ageEnvelopeResult("api", "prod", ["DATABASE_URL"]));
+      mockInvokePackHelper.mockReturnValue(
+        ageEnvelopeResult("api", "prod", { app: ["DATABASE_URL"] }),
+      );
 
       const app = new App();
       const stack = new Stack(app, "TestStack");
@@ -92,9 +98,12 @@ describe("ClefSecret", () => {
       ).toThrow(/requires a KMS-envelope service identity/);
     });
 
-    it("surfaces Record-shape typos with the valid-keys list", () => {
+    it("surfaces typos that misspell a ref's key", () => {
       mockInvokePackHelper.mockReturnValue(
-        kmsEnvelopeResult("api", "prod", ["DATABASE_HOST", "DATABASE_USER", "API_KEY"]),
+        kmsEnvelopeResult("api", "prod", {
+          database: ["DATABASE_HOST", "DATABASE_USER"],
+          api: ["API_KEY"],
+        }),
       );
 
       const app = new App();
@@ -106,14 +115,15 @@ describe("ClefSecret", () => {
             identity: "api",
             environment: "prod",
             manifest: manifestPath,
-            shape: { dbHost: "${DATABSAE_HOST}" }, // typo
+            shape: { dbHost: "{{host}}" },
+            refs: { host: { namespace: "database", key: "DATABSAE_HOST" } }, // typo
           }),
-      ).toThrow(/references unknown Clef key: \$\{DATABSAE_HOST\}[\s\S]*DATABASE_HOST/);
+      ).toThrow(/database\/DATABSAE_HOST not found[\s\S]*DATABASE_HOST/);
     });
 
-    it("surfaces string-shape typos with the valid-keys list", () => {
+    it("surfaces typos that misspell a placeholder name", () => {
       mockInvokePackHelper.mockReturnValue(
-        kmsEnvelopeResult("api", "prod", ["DB_HOST", "DB_USER", "DB_PASSWORD"]),
+        kmsEnvelopeResult("api", "prod", { database: ["DB_HOST", "DB_USER", "DB_PASSWORD"] }),
       );
 
       const app = new App();
@@ -125,13 +135,18 @@ describe("ClefSecret", () => {
             identity: "api",
             environment: "prod",
             manifest: manifestPath,
-            shape: "postgres://${DB_USER}:${DB_PASSWROD}@${DB_HOST}", // typo in DB_PASSWORD
+            shape: "postgres://{{user}}:{{passwrd}}@{{host}}", // typo: passwrd
+            refs: {
+              user: { namespace: "database", key: "DB_USER" },
+              pass: { namespace: "database", key: "DB_PASSWORD" },
+              host: { namespace: "database", key: "DB_HOST" },
+            },
           }),
-      ).toThrow(/references unknown Clef key: \$\{DB_PASSWROD\}[\s\S]*DB_PASSWORD/);
+      ).toThrow(/\{\{passwrd\}\} which is not declared/);
     });
 
     it("refuses non-JSON pack-helper output", () => {
-      mockInvokePackHelper.mockReturnValue({ envelopeJson: "not json", keys: [] });
+      mockInvokePackHelper.mockReturnValue({ envelopeJson: "not json", keysByNamespace: {} });
       const app = new App();
       const stack = new Stack(app, "TestStack");
 
@@ -152,7 +167,7 @@ describe("ClefSecret", () => {
 
     beforeEach(() => {
       mockInvokePackHelper.mockReturnValue(
-        kmsEnvelopeResult("api", "prod", ["DATABASE_URL", "API_KEY"]),
+        kmsEnvelopeResult("api", "prod", { app: ["DATABASE_URL", "API_KEY"] }),
       );
       const app = new App();
       stack = new Stack(app, "TestStack");
@@ -259,58 +274,71 @@ describe("ClefSecret", () => {
   });
 
   describe("CFN synthesis — Record shape (JSON secret)", () => {
-    it("passes the record shape through to the Unwrap custom resource", () => {
+    it("passes shape and refs through to the Unwrap custom resource", () => {
       mockInvokePackHelper.mockReturnValue(
-        kmsEnvelopeResult("api", "prod", ["DATABASE_HOST", "API_KEY"]),
+        kmsEnvelopeResult("api", "prod", { database: ["DATABASE_HOST"], api: ["API_KEY"] }),
       );
       const app = new App();
       const stack = new Stack(app, "TestStack");
 
+      const refs = {
+        host: { namespace: "database", key: "DATABASE_HOST" },
+        token: { namespace: "api", key: "API_KEY" },
+      };
       new ClefSecret(stack, "Secrets", {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
         shape: {
-          dbHost: "${DATABASE_HOST}",
-          apiKey: "${API_KEY}",
+          dbHost: "{{host}}",
+          apiKey: "{{token}}",
           region: "us-east-1",
         },
+        refs,
       });
 
       const template = Template.fromStack(stack);
       template.hasResourceProperties("Custom::ClefSecretUnwrap", {
         Shape: {
-          dbHost: "${DATABASE_HOST}",
-          apiKey: "${API_KEY}",
+          dbHost: "{{host}}",
+          apiKey: "{{token}}",
           region: "us-east-1",
         },
+        Refs: refs,
       });
     });
   });
 
   describe("CFN synthesis — string shape (single-value secret)", () => {
-    it("passes the string template through to the Unwrap custom resource", () => {
+    it("passes shape and refs through to the Unwrap custom resource", () => {
       mockInvokePackHelper.mockReturnValue(
-        kmsEnvelopeResult("api", "prod", ["DB_USER", "DB_PASSWORD", "DB_HOST"]),
+        kmsEnvelopeResult("api", "prod", { database: ["DB_USER", "DB_PASSWORD", "DB_HOST"] }),
       );
       const app = new App();
       const stack = new Stack(app, "TestStack");
 
+      const refs = {
+        user: { namespace: "database", key: "DB_USER" },
+        pass: { namespace: "database", key: "DB_PASSWORD" },
+        host: { namespace: "database", key: "DB_HOST" },
+      };
       new ClefSecret(stack, "Secrets", {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
-        shape: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/app",
+        shape: "postgres://{{user}}:{{pass}}@{{host}}:5432/app",
+        refs,
       });
 
       const template = Template.fromStack(stack);
       template.hasResourceProperties("Custom::ClefSecretUnwrap", {
-        Shape: "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/app",
+        Shape: "postgres://{{user}}:{{pass}}@{{host}}:5432/app",
+        Refs: refs,
       });
     });
 
     it("passes a literal string (no refs) through to the Unwrap custom resource", () => {
-      mockInvokePackHelper.mockReturnValue(kmsEnvelopeResult("api", "prod", ["KEY"]));
+      mockInvokePackHelper.mockReturnValue(kmsEnvelopeResult("api", "prod", { app: ["KEY"] }));
       const app = new App();
       const stack = new Stack(app, "TestStack");
 
@@ -318,19 +346,21 @@ describe("ClefSecret", () => {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
-        shape: "${KEY}",
+        shape: "static-no-placeholders",
       });
 
       const template = Template.fromStack(stack);
       template.hasResourceProperties("Custom::ClefSecretUnwrap", {
-        Shape: "${KEY}",
+        Shape: "static-no-placeholders",
       });
     });
   });
 
   describe("grantRead", () => {
     it("issues secretsmanager:GetSecretValue to the consumer only", () => {
-      mockInvokePackHelper.mockReturnValue(kmsEnvelopeResult("api", "prod", ["DATABASE_URL"]));
+      mockInvokePackHelper.mockReturnValue(
+        kmsEnvelopeResult("api", "prod", { app: ["DATABASE_URL"] }),
+      );
       const app = new App();
       const stack = new Stack(app, "TestStack");
 
@@ -365,7 +395,7 @@ describe("ClefSecret", () => {
   describe("multiple ClefSecret instances in one stack", () => {
     it("reuses a single UnwrapFn across instances (stack-level singleton)", () => {
       mockInvokePackHelper.mockImplementation(({ identity }: { identity: string }) =>
-        kmsEnvelopeResult(identity, "prod", ["DATABASE_URL"]),
+        kmsEnvelopeResult(identity, "prod", { app: ["DATABASE_URL"] }),
       );
       const app = new App();
       const stack = new Stack(app, "TestStack");
@@ -398,7 +428,7 @@ describe("ClefSecret", () => {
 
     it("creates one Custom::ClefSecretUnwrap per construct instance", () => {
       mockInvokePackHelper.mockImplementation(({ identity }: { identity: string }) =>
-        kmsEnvelopeResult(identity, "prod", ["DATABASE_URL"]),
+        kmsEnvelopeResult(identity, "prod", { app: ["DATABASE_URL"] }),
       );
       const app = new App();
       const stack = new Stack(app, "TestStack");
@@ -407,19 +437,62 @@ describe("ClefSecret", () => {
         identity: "service-a",
         environment: "prod",
         manifest: manifestPath,
-        shape: "${DATABASE_URL}",
+        shape: "{{url}}",
+        refs: { url: { namespace: "app", key: "DATABASE_URL" } },
       });
       new ClefSecret(stack, "ApiConfig", {
         identity: "service-b",
         environment: "prod",
         manifest: manifestPath,
-        shape: { url: "${DATABASE_URL}" },
+        shape: { url: "{{url}}" },
+        refs: { url: { namespace: "app", key: "DATABASE_URL" } },
       });
 
       const template = Template.fromStack(stack);
       template.resourceCountIs("AWS::SecretsManager::Secret", 2);
       template.resourceCountIs("Custom::ClefSecretUnwrap", 2);
       template.resourceCountIs("Custom::ClefSecretGrant", 2);
+    });
+
+    it("issues distinct KMS grant Names per construct even when identity/env/revision match", () => {
+      // Regression: KMS treats two grants with identical key + grantee +
+      // operations + name as the same grant and returns one GrantId. Two
+      // ClefSecrets sharing identity/env/revision (and the singleton unwrap
+      // Lambda role) used to collide → second revoke 404'd on stack delete.
+      mockInvokePackHelper.mockImplementation(({ identity }: { identity: string }) =>
+        kmsEnvelopeResult(identity, "production", { payments: ["STRIPE_KEY"] }),
+      );
+      const app = new App();
+      const stack = new Stack(app, "TestStack");
+
+      new ClefSecret(stack, "StripeKey", {
+        identity: "app",
+        environment: "production",
+        manifest: manifestPath,
+        shape: "{{key}}",
+        refs: { key: { namespace: "payments", key: "STRIPE_KEY" } },
+      });
+      new ClefSecret(stack, "PaymentsConfig", {
+        identity: "app",
+        environment: "production",
+        manifest: manifestPath,
+        shape: { key: "{{key}}" },
+        refs: { key: { namespace: "payments", key: "STRIPE_KEY" } },
+      });
+
+      const template = Template.fromStack(stack);
+      const grants = template.findResources("Custom::ClefSecretGrant");
+      // Create is rendered as Fn::Join with a token (the unwrap role ARN)
+      // spliced in. Stringify the whole thing and pull out the literal
+      // Name field — that's all this test cares about.
+      const names = Object.values(grants).map((res) => {
+        const create = (res as { Properties: { Create: unknown } }).Properties.Create;
+        const m = JSON.stringify(create).match(/\\"Name\\":\\"([^"\\]+)\\"/);
+        if (!m) throw new Error("could not extract Name from Create");
+        return m[1];
+      });
+      expect(names).toHaveLength(2);
+      expect(new Set(names).size).toBe(2);
     });
   });
 });

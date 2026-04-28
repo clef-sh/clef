@@ -25,6 +25,19 @@ await build({
   ...SHARED,
   format: "esm",
   outfile: resolve(packageRoot, "dist/index.mjs"),
+  // Polyfill CJS globals so bundled CJS deps can use require/__dirname
+  // when this ESM bundle is loaded by a pure-ESM consumer (e.g. another
+  // workspace package's ESM dist). esbuild's __require shim throws
+  // otherwise.
+  banner: {
+    js: [
+      `import { createRequire } from "node:module";`,
+      `import { fileURLToPath } from "node:url";`,
+      `const require = createRequire(import.meta.url);`,
+      `const __filename = fileURLToPath(import.meta.url);`,
+      `const __dirname = fileURLToPath(new URL(".", import.meta.url));`,
+    ].join("\n"),
+  },
 });
 
 console.log("Bundling CJS...");

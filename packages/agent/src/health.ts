@@ -24,7 +24,7 @@ export function healthHandler(
         status: "ok",
         mode: "cached",
         revision: cache.getRevision(),
-        lastRefreshAt: cache.getSwappedAt(),
+        lastRefreshAt: cache.getLastRefreshAt(),
         expired,
       });
     }

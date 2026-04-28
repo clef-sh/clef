@@ -147,10 +147,20 @@ export class AwsParameterStoreBackend implements PackBackend {
       { Key: `${opts.tagPrefix}revision`, Value: revision },
     ];
 
-    const desiredKeys = Object.keys(resolved.values);
+    // Flatten the nested namespace → key → value map into env-var-shaped
+    // `<namespace>__<key>` parameter names. Parameter Store doesn't have a
+    // notion of namespaces beyond path hierarchies, so the qualified form
+    // keeps each key uniquely addressable under the configured prefix.
+    const flatValues: Record<string, string> = {};
+    for (const [ns, bucket] of Object.entries(resolved.values)) {
+      for (const [k, v] of Object.entries(bucket)) {
+        flatValues[`${ns}__${k}`] = v;
+      }
+    }
+    const desiredKeys = Object.keys(flatValues);
 
     if (opts.tier === ParameterTier.STANDARD) {
-      for (const [key, value] of Object.entries(resolved.values)) {
+      for (const [key, value] of Object.entries(flatValues)) {
         const byteLength = Buffer.byteLength(value, "utf8");
         if (byteLength > STANDARD_TIER_VALUE_LIMIT_BYTES) {
           throw new Error(
@@ -162,7 +172,7 @@ export class AwsParameterStoreBackend implements PackBackend {
       }
     }
 
-    for (const [key, value] of Object.entries(resolved.values)) {
+    for (const [key, value] of Object.entries(flatValues)) {
       const Name = paramName(opts.prefix, key);
       await client.send(
         new PutParameterCommand({

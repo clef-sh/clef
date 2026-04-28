@@ -146,7 +146,7 @@ export function startAgentServer(options: AgentServerOptions): Promise<AgentServ
     }
   });
 
-  // GET /v1/keys — list key names
+  // GET /v1/keys — list key names in flat `<namespace>__<key>` form
   app.get("/v1/keys", async (_req: Request, res: Response) => {
     if (jitMode) {
       const artifact = encryptedStore.get();
@@ -155,8 +155,8 @@ export function startAgentServer(options: AgentServerOptions): Promise<AgentServ
         return;
       }
       try {
-        const { values } = await decryptor.decrypt(artifact);
-        res.json(Object.keys(values));
+        const { keys } = await decryptor.decrypt(artifact);
+        res.json(keys);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         res.status(503).json({ error: "Decryption failed", detail: message });

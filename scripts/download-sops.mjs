@@ -24,7 +24,7 @@ const PLATFORM_MAP = {
   "darwin-x64": { ghAsset: "sops-v{version}.darwin.amd64", binName: "sops" },
   "linux-x64": { ghAsset: "sops-v{version}.linux.amd64", binName: "sops" },
   "linux-arm64": { ghAsset: "sops-v{version}.linux.arm64", binName: "sops" },
-  "win32-x64": { ghAsset: "sops-v{version}.exe", binName: "sops.exe" },
+  "win32-x64": { ghAsset: "sops-v{version}.amd64.exe", binName: "sops.exe" },
 };
 
 async function main() {

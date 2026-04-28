@@ -7,10 +7,12 @@ import { CloudKmsProvider } from "../src/cloud-kms-provider";
  * and the Cloud KMS decrypt endpoint.
  */
 function createMockServer() {
-  const secrets: Record<string, string> = {
-    DB_URL: "postgres://localhost:5432/mydb",
-    API_KEY: "sk-test-1234567890",
-    REDIS_URL: "redis://localhost:6379",
+  const secrets: Record<string, Record<string, string>> = {
+    app: {
+      DB_URL: "postgres://localhost:5432/mydb",
+      API_KEY: "sk-test-1234567890",
+      REDIS_URL: "redis://localhost:6379",
+    },
   };
 
   const server = http.createServer((req, res) => {
@@ -100,7 +102,7 @@ describe("ClefClient integration", () => {
 
   it("get() returns a secret from the serve endpoint", async () => {
     const client = new ClefClient({ endpoint, token: "test-service-token" });
-    const value = await client.get("DB_URL");
+    const value = await client.get("DB_URL", "app");
     expect(value).toBe("postgres://localhost:5432/mydb");
   });
 
@@ -108,16 +110,18 @@ describe("ClefClient integration", () => {
     const client = new ClefClient({ endpoint, token: "test-service-token" });
     const all = await client.getAll();
     expect(all).toEqual({
-      DB_URL: "postgres://localhost:5432/mydb",
-      API_KEY: "sk-test-1234567890",
-      REDIS_URL: "redis://localhost:6379",
+      app: {
+        DB_URL: "postgres://localhost:5432/mydb",
+        API_KEY: "sk-test-1234567890",
+        REDIS_URL: "redis://localhost:6379",
+      },
     });
   });
 
-  it("keys() returns key names", async () => {
+  it("keys() returns key names in flat <namespace>__<key> form", async () => {
     const client = new ClefClient({ endpoint, token: "test-service-token" });
     const keyNames = await client.keys();
-    expect(keyNames).toEqual(["DB_URL", "API_KEY", "REDIS_URL"]);
+    expect(keyNames.sort()).toEqual(["app__API_KEY", "app__DB_URL", "app__REDIS_URL"]);
   });
 
   it("health() returns true for reachable endpoint", async () => {
@@ -131,12 +135,12 @@ describe("ClefClient integration", () => {
       token: "test-service-token",
       envFallback: false,
     });
-    expect(await client.get("NONEXISTENT")).toBeUndefined();
+    expect(await client.get("NONEXISTENT", "app")).toBeUndefined();
   });
 
   it("throws on bad token", async () => {
     const client = new ClefClient({ endpoint, token: "wrong-token" });
-    await expect(client.get("DB_URL")).rejects.toThrow("Authentication failed");
+    await expect(client.get("DB_URL", "app")).rejects.toThrow("Authentication failed");
   });
 
   it("caches results within TTL", async () => {

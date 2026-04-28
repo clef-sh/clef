@@ -134,10 +134,7 @@ registerSchemaCommand(program, deps);
 
 // Cloud commands are provided by @clef-sh/cloud (optional package).
 // If not installed, register a stub that tells users how to install it.
-// Set CLEF_CLOUD=1 to enable (not yet generally available).
 async function loadCloudPlugin(): Promise<void> {
-  if (!process.env.CLEF_CLOUD) return;
-
   try {
     const { registerCloudCommands } = await import("@clef-sh/cloud/cli");
     registerCloudCommands(program, {

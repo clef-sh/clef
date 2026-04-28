@@ -103,7 +103,7 @@ describe("clef migrate-backend", () => {
 
     expect(mockFormatter.confirm).toHaveBeenCalled();
     expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Migrated 2"));
-    expect(mockFormatter.hint).toHaveBeenCalled();
+    expect(mockFormatter.hint).not.toHaveBeenCalled();
   });
 
   it("should output JSON with --json flag", async () => {

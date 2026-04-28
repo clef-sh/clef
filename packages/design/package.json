@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/design",
-  "version": "0.1.1-alpha.149",
+  "version": "0.1.4",
   "description": "Internal Clef design tokens (Tailwind v4 @theme + TS mirror). Implementation detail of the @clef-sh/* workspaces — not a public API.",
   "repository": {
     "type": "git",
@@ -15,6 +15,13 @@
       "default": "./src/theme.ts"
     },
     "./theme.css": "./src/theme.css",
+    "./tokens.css": "./src/tokens.css",
+    "./fonts.css": "./src/fonts.css",
+    "./fonts-cdn.css": "./src/fonts-cdn.css",
+    "./wordmark": {
+      "types": "./src/wordmark.ts",
+      "default": "./src/wordmark.ts"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -28,5 +35,13 @@
     "access": "public",
     "provenance": true
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@fontsource-variable/instrument-sans": "^5.2.8",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@fontsource/instrument-serif": "^5.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0"
+  }
 }
