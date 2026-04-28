@@ -152,11 +152,12 @@ jobs:
           curl -fsSL "https://raw.githubusercontent.com/getsops/sops/v${{ inputs.sops_version }}/LICENSE" \
             -o "platforms/sops-${{ matrix.platform }}/LICENSE.sops"
 
-      - name: Patch publishConfig for GitHub Packages
+      - name: Patch version + publishConfig for GitHub Packages
         run: |
           node -e "
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('platforms/sops-${{ matrix.platform }}/package.json', 'utf8'));
+            pkg.version = '${{ inputs.sops_version }}';
             pkg.publishConfig = { registry: 'https://npm.pkg.github.com', access: 'public' };
             fs.writeFileSync('platforms/sops-${{ matrix.platform }}/package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
