@@ -25,6 +25,7 @@ permissions:
 jobs:
   download-and-publish:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - platform: darwin-arm64

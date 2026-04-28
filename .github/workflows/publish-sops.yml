@@ -21,6 +21,7 @@ jobs:
   download-and-publish:
     environment: prod
     strategy:
+      fail-fast: false
       matrix:
         include:
           - platform: darwin-arm64
