@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/agent",
-  "version": "0.1.25-beta.180",
+  "version": "0.1.25-beta.181",
   "description": "Runtime secrets sidecar agent for Clef",
   "repository": {
     "type": "git",
@@ -27,7 +27,7 @@
     "@aws-sdk/client-kms": "^3.500.0",
     "@azure/identity": "^4.0.0",
     "@azure/keyvault-keys": "^4.8.0",
-    "@clef-sh/runtime": "0.1.28-beta.180",
+    "@clef-sh/runtime": "0.1.28-beta.181",
     "@google-cloud/kms": "^5.0.0",
     "express": "^5.1.0"
   },
