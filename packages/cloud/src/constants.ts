@@ -1,8 +1,5 @@
-/** Default Clef Cloud API base URL. */
+/** Default Clef Cloud API base URL. Override with CLEF_CLOUD_ENDPOINT. */
 export const CLOUD_DEFAULT_ENDPOINT = "https://cloud.clef.sh";
-
-/** Dev environment Clef Cloud API base URL. */
-export const CLOUD_DEV_ENDPOINT = "https://dev.cloud.clef.sh";
 
 /** Session JWT lifetime (1 hour) in milliseconds. */
 export const SESSION_TOKEN_LIFETIME_MS = 60 * 60 * 1000;

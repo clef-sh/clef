@@ -11,19 +11,14 @@ import { runDeviceFlow } from "../device-flow";
 /**
  * GitHub App client ID for the Device Flow.
  *
- * Not a secret — appears in OAuth URLs. Hardcoded per environment for v0.1.
- * Override via CLEF_GITHUB_CLIENT_ID env var.
+ * Not a secret — appears in OAuth URLs. Defaults to the production
+ * `clef-cloud` GitHub App. To point at a different App (e.g. `clef-bot-dev`
+ * or your own fork's App for local development), set CLEF_GITHUB_CLIENT_ID.
  */
-const GITHUB_CLIENT_ID_PROD = ""; // TBD — set at prod App creation
-const GITHUB_CLIENT_ID_DEV = "Iv23liZR0h6cykSAXWzC"; // clef-bot-dev GitHub App
+const GITHUB_CLIENT_ID = "Iv23liidcYDzL4QhFK0k"; // clef-cloud GitHub App
 
 function resolveClientId(): string {
-  if (process.env.CLEF_GITHUB_CLIENT_ID) return process.env.CLEF_GITHUB_CLIENT_ID;
-  const id = process.env.CLEF_CLOUD_ENV === "dev" ? GITHUB_CLIENT_ID_DEV : GITHUB_CLIENT_ID_PROD;
-  if (id) return id;
-  throw new Error(
-    "GitHub App client_id is not configured. Set CLEF_GITHUB_CLIENT_ID environment variable.",
-  );
+  return process.env.CLEF_GITHUB_CLIENT_ID || GITHUB_CLIENT_ID;
 }
 
 export const gitHubAuthProvider: AuthProvider = {
