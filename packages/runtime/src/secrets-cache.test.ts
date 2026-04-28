@@ -141,5 +141,59 @@ describe("SecretsCache", () => {
       cache.swap({ ns: { K: "v2" } }, "rev2");
       expect(cache.getSwappedAt()).toBe(now + 5000);
     });
+
+    it("should NOT advance on markFresh (values unchanged)", () => {
+      const now = Date.now();
+      jest.spyOn(Date, "now").mockReturnValueOnce(now);
+      cache.swap({ ns: { K: "v" } }, "rev1");
+      jest.spyOn(Date, "now").mockReturnValue(now + 5000);
+      cache.markFresh();
+      expect(cache.getSwappedAt()).toBe(now);
+    });
+  });
+
+  describe("markFresh + getLastRefreshAt", () => {
+    it("returns null when never refreshed", () => {
+      expect(cache.getLastRefreshAt()).toBeNull();
+    });
+
+    it("swap sets lastRefreshAt to the swap time", () => {
+      const now = Date.now();
+      jest.spyOn(Date, "now").mockReturnValueOnce(now);
+      cache.swap({ ns: { K: "v" } }, "rev1");
+      expect(cache.getLastRefreshAt()).toBe(now);
+    });
+
+    it("markFresh advances lastRefreshAt without touching values", () => {
+      const t0 = Date.now();
+      jest.spyOn(Date, "now").mockReturnValueOnce(t0);
+      cache.swap({ ns: { K: "v" } }, "rev1");
+      jest.spyOn(Date, "now").mockReturnValue(t0 + 60_000);
+      cache.markFresh();
+      expect(cache.getLastRefreshAt()).toBe(t0 + 60_000);
+      expect(cache.get("K", "ns")).toBe("v");
+      expect(cache.getRevision()).toBe("rev1");
+    });
+
+    it("isExpired uses lastRefreshAt, not swappedAt — markFresh keeps cache live", () => {
+      const t0 = Date.now();
+      jest.spyOn(Date, "now").mockReturnValueOnce(t0 - 400_000);
+      cache.swap({ ns: { K: "v" } }, "rev1");
+      jest.spyOn(Date, "now").mockReturnValue(t0);
+      // Without markFresh, swappedAt is 400s old → expired at TTL=300s.
+      expect(cache.isExpired(300)).toBe(true);
+      cache.markFresh();
+      // Now lastRefreshAt is "now" → no longer expired even though
+      // swappedAt is still ancient.
+      expect(cache.isExpired(300)).toBe(false);
+    });
+
+    it("wipe clears lastRefreshAt", () => {
+      cache.swap({ ns: { K: "v" } }, "rev1");
+      cache.markFresh();
+      cache.wipe();
+      expect(cache.getLastRefreshAt()).toBeNull();
+      expect(cache.isExpired(300)).toBe(false);
+    });
   });
 });

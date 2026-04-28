@@ -182,6 +182,40 @@ describe("ArtifactPoller", () => {
       expect(swapSpy).not.toHaveBeenCalled();
     });
 
+    it("bumps cache freshness even when content/revision is unchanged", async () => {
+      // Regression: cached mode used to 503 with "Secrets expired" once
+      // TTL elapsed if the source artifact never changed — short-circuited
+      // refreshes left swappedAt frozen. Fix tracks a separate
+      // lastRefreshAt that the poller bumps on every successful fetch.
+      const source: ArtifactSource = {
+        fetch: jest.fn().mockResolvedValue({ raw: makeArtifact(), contentHash: "hash1" }),
+        describe: () => "mock",
+      };
+      const poller = new ArtifactPoller({
+        source,
+        privateKey: "AGE-SECRET-KEY-1TEST",
+        cache,
+      });
+
+      const t0 = Date.now();
+      jest.spyOn(Date, "now").mockReturnValue(t0);
+      await poller.fetchAndDecrypt();
+      expect(cache.isReady()).toBe(true);
+
+      // 400s pass, well beyond a 300s TTL.
+      jest.spyOn(Date, "now").mockReturnValue(t0 + 400_000);
+      expect(cache.isExpired(300)).toBe(true);
+
+      // Refresh: source returns identical content → short-circuit, no swap.
+      const swapSpy = jest.spyOn(cache, "swap");
+      await poller.fetchAndDecrypt();
+      expect(swapSpy).not.toHaveBeenCalled();
+
+      // Freshness clock should be reset by the no-op refresh.
+      expect(cache.isExpired(300)).toBe(false);
+      expect(cache.getLastRefreshAt()).toBe(t0 + 400_000);
+    });
+
     it("should update cache when revision changes", async () => {
       const source: ArtifactSource = {
         fetch: jest

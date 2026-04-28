@@ -66,3 +66,4 @@ test-results/
 playwright-report/
 docs/plans
 blog
+*.gif

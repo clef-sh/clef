@@ -7,6 +7,11 @@ interface CacheSnapshot {
 /** In-memory secrets cache with single-reference swap. */
 export class SecretsCache {
   private snapshot: CacheSnapshot | null = null;
+  // Tracks the last successful refresh attempt, including no-op refreshes
+  // where the source returned identical content. TTL is measured against
+  // this — not against `swappedAt` — so a stable artifact doesn't cause
+  // the cache to "expire" while polling is healthy.
+  private lastRefreshAt: number | null = null;
 
   /** Replace the cached secrets in a single reference assignment. */
   swap(values: Record<string, Record<string, string>>, revision: string): void {
@@ -21,13 +26,25 @@ export class SecretsCache {
     for (const [ns, bucket] of Object.entries(values)) {
       cloned[ns] = { ...bucket };
     }
-    this.snapshot = { values: cloned, revision, swappedAt: Date.now() };
+    const now = Date.now();
+    this.snapshot = { values: cloned, revision, swappedAt: now };
+    this.lastRefreshAt = now;
   }
 
-  /** Whether the cache has exceeded the given TTL (seconds). */
+  /**
+   * Bump the freshness clock without touching cached values. Called by the
+   * poller when a fetch succeeds but the artifact is unchanged (same content
+   * hash or same revision) — proves the source is still reachable and the
+   * cached secrets are still authoritative.
+   */
+  markFresh(): void {
+    this.lastRefreshAt = Date.now();
+  }
+
+  /** Whether the last successful refresh has exceeded the given TTL (seconds). */
   isExpired(ttlSeconds: number): boolean {
-    if (!this.snapshot) return false;
-    return (Date.now() - this.snapshot.swappedAt) / 1000 > ttlSeconds;
+    if (this.lastRefreshAt === null) return false;
+    return (Date.now() - this.lastRefreshAt) / 1000 > ttlSeconds;
   }
 
   /** Clear the cached snapshot, zeroing values first (best-effort). */
@@ -38,11 +55,17 @@ export class SecretsCache {
       }
     }
     this.snapshot = null;
+    this.lastRefreshAt = null;
   }
 
-  /** Epoch ms when the cache was last swapped, or null if never loaded. */
+  /** Epoch ms when the cache values last *changed*, or null if never loaded. */
   getSwappedAt(): number | null {
     return this.snapshot?.swappedAt ?? null;
+  }
+
+  /** Epoch ms of the last successful refresh attempt (incl. no-op), or null. */
+  getLastRefreshAt(): number | null {
+    return this.lastRefreshAt;
   }
 
   /**
