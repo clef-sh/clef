@@ -19,6 +19,7 @@ permissions:
 
 jobs:
   download-and-publish:
+    environment: prod
     strategy:
       matrix:
         include:
