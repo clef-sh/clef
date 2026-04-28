@@ -4,6 +4,7 @@ import {
   Annotations,
   CustomResource,
   Duration,
+  Names,
   aws_iam as iam,
   aws_kms as kms,
   aws_lambda as lambda,
@@ -218,7 +219,12 @@ export class ClefSecret extends Construct {
 
     // ── GrantCreate + Revoke on replace ──────────────────────────────────
 
-    const grantName = `clef-secret-${props.identity}-${props.environment}-${envelope.revision}`;
+    // Suffix with a construct-scoped unique token so two ClefSecret
+    // constructs sharing identity/environment/revision (and the singleton
+    // unwrap Lambda role) don't collide on KMS's identical-grant rule —
+    // which would return the same GrantId to both AwsCustomResources and
+    // cause the second revoke to 404 on stack delete/replace.
+    const grantName = `clef-secret-${props.identity}-${props.environment}-${envelope.revision}-${Names.uniqueResourceName(this, { maxLength: 32 })}`;
 
     const grantCreate = new cr.AwsCustomResource(this, "GrantCreate", {
       resourceType: "Custom::ClefSecretGrant",

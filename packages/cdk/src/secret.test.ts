@@ -453,5 +453,46 @@ describe("ClefSecret", () => {
       template.resourceCountIs("Custom::ClefSecretUnwrap", 2);
       template.resourceCountIs("Custom::ClefSecretGrant", 2);
     });
+
+    it("issues distinct KMS grant Names per construct even when identity/env/revision match", () => {
+      // Regression: KMS treats two grants with identical key + grantee +
+      // operations + name as the same grant and returns one GrantId. Two
+      // ClefSecrets sharing identity/env/revision (and the singleton unwrap
+      // Lambda role) used to collide → second revoke 404'd on stack delete.
+      mockInvokePackHelper.mockImplementation(({ identity }: { identity: string }) =>
+        kmsEnvelopeResult(identity, "production", { payments: ["STRIPE_KEY"] }),
+      );
+      const app = new App();
+      const stack = new Stack(app, "TestStack");
+
+      new ClefSecret(stack, "StripeKey", {
+        identity: "app",
+        environment: "production",
+        manifest: manifestPath,
+        shape: "{{key}}",
+        refs: { key: { namespace: "payments", key: "STRIPE_KEY" } },
+      });
+      new ClefSecret(stack, "PaymentsConfig", {
+        identity: "app",
+        environment: "production",
+        manifest: manifestPath,
+        shape: { key: "{{key}}" },
+        refs: { key: { namespace: "payments", key: "STRIPE_KEY" } },
+      });
+
+      const template = Template.fromStack(stack);
+      const grants = template.findResources("Custom::ClefSecretGrant");
+      // Create is rendered as Fn::Join with a token (the unwrap role ARN)
+      // spliced in. Stringify the whole thing and pull out the literal
+      // Name field — that's all this test cares about.
+      const names = Object.values(grants).map((res) => {
+        const create = (res as { Properties: { Create: unknown } }).Properties.Create;
+        const m = JSON.stringify(create).match(/\\"Name\\":\\"([^"\\]+)\\"/);
+        if (!m) throw new Error("could not extract Name from Create");
+        return m[1];
+      });
+      expect(names).toHaveLength(2);
+      expect(new Set(names).size).toBe(2);
+    });
   });
 });

@@ -542,5 +542,48 @@ describe("ClefParameter", () => {
       // One shared Lambda across ClefSecret + ClefParameter.
       expect(unwrapFns).toHaveLength(1);
     });
+
+    it("issues distinct KMS grant Names per construct even when identity/env/revision match", () => {
+      // Regression: KMS treats two grants with identical key + grantee +
+      // operations + name as the same grant and returns one GrantId. Two
+      // ClefParameters sharing identity/env/revision used to collide → second
+      // revoke 404'd on stack delete.
+      mockInvokePackHelper.mockImplementation(({ identity }: { identity: string }) =>
+        kmsEnvelopeResult(identity, "production", ["STRIPE_KEY"]),
+      );
+      const app = new App();
+      const stack = new Stack(app, "TestStack", {
+        env: { account: "111122223333", region: "us-east-1" },
+      });
+
+      new ClefParameter(stack, "StripeKey", {
+        identity: "app",
+        environment: "production",
+        manifest: manifestPath,
+        shape: "{{key}}",
+        refs: refsFor({ key: "STRIPE_KEY" }),
+      });
+      new ClefParameter(stack, "BackupStripeKey", {
+        identity: "app",
+        environment: "production",
+        manifest: manifestPath,
+        shape: "{{key}}",
+        refs: refsFor({ key: "STRIPE_KEY" }),
+      });
+
+      const template = Template.fromStack(stack);
+      const grants = template.findResources("Custom::ClefParameterGrant");
+      // Create is rendered as Fn::Join with a token (the unwrap role ARN)
+      // spliced in. Stringify the whole thing and pull out the literal
+      // Name field — that's all this test cares about.
+      const names = Object.values(grants).map((res) => {
+        const create = (res as { Properties: { Create: unknown } }).Properties.Create;
+        const m = JSON.stringify(create).match(/\\"Name\\":\\"([^"\\]+)\\"/);
+        if (!m) throw new Error("could not extract Name from Create");
+        return m[1];
+      });
+      expect(names).toHaveLength(2);
+      expect(new Set(names).size).toBe(2);
+    });
   });
 });
