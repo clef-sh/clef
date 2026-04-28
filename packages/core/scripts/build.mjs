@@ -65,12 +65,27 @@ const SHARED = {
 rmSync(resolve(packageRoot, "dist"), { recursive: true, force: true });
 
 // ── ESM build — dist/index.mjs ─────────────────────────────────────────────
+//
+// Polyfill CJS globals for ESM context. The bundle inlines CJS deps
+// (write-file-atomic, proper-lockfile) that call require()/__dirname
+// internally; without these shims, pure-ESM consumers crash with
+// "Dynamic require of fs is not supported" the moment those code paths
+// load. esbuild's __require shim throws when require is undefined.
 
 console.log("Bundling ESM...");
 await build({
   ...SHARED,
   format: "esm",
   outfile: resolve(packageRoot, "dist/index.mjs"),
+  banner: {
+    js: [
+      `import { createRequire } from "node:module";`,
+      `import { fileURLToPath } from "node:url";`,
+      `const require = createRequire(import.meta.url);`,
+      `const __filename = fileURLToPath(import.meta.url);`,
+      `const __dirname = fileURLToPath(new URL(".", import.meta.url));`,
+    ].join("\n"),
+  },
 });
 
 // ── CJS build — dist/index.js ──────────────────────────────────────────────
