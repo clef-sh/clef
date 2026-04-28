@@ -157,18 +157,6 @@ jobs:
             fs.writeFileSync('platforms/sops-${{ matrix.platform }}/package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
 
-      - name: Inspect OIDC claims (debug — remove after trust verified)
-        if: ${{ !inputs.dry_run }}
-        run: |
-          set +o pipefail
-          TOKEN=$(curl -sLS \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=npm:registry.npmjs.org" \
-            | jq -r .value)
-          echo "$TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null \
-            | jq '{sub, repository, workflow_ref, environment, ref, repository_owner}'
-          exit 0
-
       - name: Publish to npm
         if: ${{ !inputs.dry_run }}
         working-directory: platforms/sops-${{ matrix.platform }}
