@@ -14,7 +14,7 @@
 >
 > **Join the conversation** on [Discord](https://discord.gg/qCDPZjsbrW) — questions, ideas, and feedback welcome.
 
-![Image](https://github.com/user-attachments/assets/34e574a5-8fe8-4129-be4d-1cfc4d754513)
+![Image](https://github.com/user-attachments/assets/5774cdb8-b62b-4e55-9c7e-a6bcdf07739f)
 
 Clef adds a namespace-by-environment matrix, schema validation, drift detection, and a local web UI building on what SOPS has accomplished in the direction of Secrets-as-Code (SaC). Your secrets stay in git, encrypted by your KMS. The access control, audit logs, and short-lived credential access you need for enterprise compliance come from your KMS — not from a new intermediary.
 

@@ -367,7 +367,7 @@ jobs:
             mode: sea
           - label: sea-windows-x64
             runner: windows-latest
-            sops_asset: sops-v${SOPS_VERSION}.exe
+            sops_asset: sops-v${SOPS_VERSION}.amd64.exe
             mode: sea
           # Pure Node.js (no SEA) — verifies the npm-installed path
           - label: node-linux-x64
@@ -376,7 +376,7 @@ jobs:
             mode: node
           - label: node-windows-x64
             runner: windows-latest
-            sops_asset: sops-v${SOPS_VERSION}.exe
+            sops_asset: sops-v${SOPS_VERSION}.amd64.exe
             mode: node
     steps:
       - uses: actions/checkout@v6
