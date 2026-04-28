@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/analytics",
-  "version": "0.1.30",
+  "version": "0.1.31-beta.183",
   "description": "CLI analytics for Clef — powered by PostHog, fully opt-out",
   "repository": {
     "type": "git",
