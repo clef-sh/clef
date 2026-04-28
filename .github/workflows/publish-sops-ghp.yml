@@ -25,6 +25,7 @@ permissions:
 jobs:
   download-and-publish:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - platform: darwin-arm64
@@ -58,7 +59,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           registry-url: "https://npm.pkg.github.com"
           scope: "@clef-sh"
 
