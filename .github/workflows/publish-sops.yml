@@ -147,6 +147,15 @@ jobs:
           curl -fsSL "https://raw.githubusercontent.com/getsops/sops/v${{ inputs.sops_version }}/LICENSE" \
             -o "platforms/sops-${{ matrix.platform }}/LICENSE.sops"
 
+      - name: Patch version from input
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('platforms/sops-${{ matrix.platform }}/package.json', 'utf8'));
+            pkg.version = '${{ inputs.sops_version }}';
+            fs.writeFileSync('platforms/sops-${{ matrix.platform }}/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
       - name: Publish to npm
         if: ${{ !inputs.dry_run }}
         working-directory: platforms/sops-${{ matrix.platform }}
