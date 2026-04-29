@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/pack-aws-parameter-store",
-  "version": "0.1.7-beta.189",
+  "version": "0.1.7",
   "description": "AWS SSM Parameter Store pack backend for Clef",
   "repository": {
     "type": "git",
@@ -21,10 +21,10 @@
     "@aws-sdk/client-ssm": "^3.500.0"
   },
   "peerDependencies": {
-    "@clef-sh/core": "0.1.27-beta.189"
+    "@clef-sh/core": "0.1.27"
   },
   "devDependencies": {
-    "@clef-sh/core": "0.1.27-beta.189",
+    "@clef-sh/core": "0.1.27",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.19.39",
     "aws-sdk-client-mock": "^4.0.0",
