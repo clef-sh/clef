@@ -7,7 +7,7 @@
 # Environment variables:
 #   CLEF_VERSION      — Install a specific version (default: latest)
 #   CLEF_INSTALL_DIR  — Installation directory (default: $HOME\.clef\bin)
-#   SOPS_VERSION      — Override sops version (default: 3.9.4, from sops-version.json)
+#   SOPS_VERSION      — Override sops version (default: 3.12.2, from sops-version.json)
 #   SOPS_SKIP         — Set to 1 to skip sops download
 #
 # The whole script body is wrapped in `& { ... }` so that, when invoked via
@@ -19,7 +19,7 @@
 $ErrorActionPreference = "Stop"
 
 $ClefRepo = "clef-sh/clef"
-$DefaultSopsVersion = "3.9.4"  # keep in sync with sops-version.json
+$DefaultSopsVersion = "3.12.2"  # keep in sync with sops-version.json
 $DefaultInstallDir = Join-Path $HOME ".clef\bin"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
