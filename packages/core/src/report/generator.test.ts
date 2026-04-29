@@ -118,14 +118,14 @@ describe("ReportGenerator", () => {
 
     mockGetPendingKeys.mockResolvedValue([]);
     mockCheckDependency.mockResolvedValue({
-      installed: "3.9.4",
+      installed: "3.12.2",
       required: "3.8.0",
       satisfied: true,
       installHint: "",
     });
     mockFs.existsSync.mockReturnValue(true);
     mockFs.readFileSync.mockReturnValue(
-      "key1: ENC[AES256_GCM]\nkey2: ENC[AES256_GCM]\nsops:\n  version: 3.9.4\n",
+      "key1: ENC[AES256_GCM]\nkey2: ENC[AES256_GCM]\nsops:\n  version: 3.12.2\n",
     );
   });
 
@@ -151,7 +151,7 @@ describe("ReportGenerator", () => {
     expect(report.repoIdentity.commitSha).toBe("abc1234567890abcdef");
     expect(report.repoIdentity.branch).toBe("main");
     expect(report.repoIdentity.clefVersion).toBe("1.2.3");
-    expect(report.repoIdentity.sopsVersion).toBe("3.9.4");
+    expect(report.repoIdentity.sopsVersion).toBe("3.12.2");
     expect(report.manifest.manifestVersion).toBe(1);
     expect(report.manifest.environments).toHaveLength(2);
     expect(report.manifest.namespaces).toHaveLength(2);

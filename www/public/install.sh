@@ -7,13 +7,13 @@
 # Environment variables:
 #   CLEF_VERSION      — Install a specific version (default: latest)
 #   CLEF_INSTALL_DIR  — Installation directory (default: ~/.local/bin)
-#   SOPS_VERSION      — Override sops version (default: 3.9.4, from sops-version.json)
+#   SOPS_VERSION      — Override sops version (default: 3.12.2, from sops-version.json)
 #   SOPS_SKIP         — Set to 1 to skip sops download
 #
 set -eu
 
 CLEF_REPO="clef-sh/clef"
-DEFAULT_SOPS_VERSION="3.9.4"  # keep in sync with sops-version.json
+DEFAULT_SOPS_VERSION="3.12.2"  # keep in sync with sops-version.json
 DEFAULT_INSTALL_DIR="$HOME/.local/bin"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

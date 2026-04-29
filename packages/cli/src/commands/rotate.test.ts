@@ -61,7 +61,7 @@ describe("clef rotate", () => {
           return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "--version") {
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+          return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "rotate") return { stdout: "", stderr: "", exitCode: 0 };
         if (cmd === "sops" && args[0] === "filestatus")
@@ -101,7 +101,7 @@ describe("clef rotate", () => {
           return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "--version") {
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+          return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "rotate") return { stdout: "", stderr: "", exitCode: 0 };
         if (cmd === "sops" && args[0] === "filestatus")
@@ -138,7 +138,7 @@ describe("clef rotate", () => {
           return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "--version") {
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+          return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "rotate") return { stdout: "", stderr: "", exitCode: 0 };
         if (cmd === "sops" && args[0] === "filestatus")
@@ -206,7 +206,7 @@ describe("clef rotate", () => {
           return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "--version") {
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+          return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "rotate") return { stdout: "", stderr: "", exitCode: 0 };
         if (cmd === "sops" && args[0] === "filestatus")
@@ -236,7 +236,7 @@ describe("clef rotate", () => {
           return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "--version") {
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+          return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "rotate")
           return { stdout: "", stderr: "rotation failed", exitCode: 1 };

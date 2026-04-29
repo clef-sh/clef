@@ -336,7 +336,7 @@ export interface SopsMetadata {
    * `parseMetadataFromFile` always populates it.
    */
   lastModifiedPresent?: boolean;
-  /** SOPS format version string from the file's `sops.version` field (e.g. `"3.9.4"`). */
+  /** SOPS format version string from the file's `sops.version` field (e.g. `"3.12.2"`). */
   version?: string;
 }
 

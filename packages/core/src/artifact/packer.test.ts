@@ -461,6 +461,81 @@ describe("ArtifactPacker", () => {
       );
     });
 
+    it("should persist the resolved key ARN in the envelope when manifest used an alias", async () => {
+      // Manifest may carry an alias ARN. KMS Encrypt accepts aliases and
+      // returns the resolved key ARN; the envelope must persist that resolved
+      // ARN, not the alias, because kms:CreateGrant rejects aliases.
+      const aliasArn = "arn:aws:kms:us-east-1:111:alias/clef-quick-start";
+      const resolvedArn = "arn:aws:kms:us-east-1:111:key/abc-123";
+      const kms: jest.Mocked<KmsProvider> = {
+        wrap: jest.fn().mockResolvedValue({
+          wrappedKey: Buffer.from("wrapped"),
+          algorithm: "SYMMETRIC_DEFAULT",
+          resolvedKeyId: resolvedArn,
+        } as KmsWrapResult),
+        unwrap: jest.fn(),
+      };
+      const kmsPacker = new ArtifactPacker(encryption, matrixManager, kms);
+
+      const aliasManifest: ClefManifest = {
+        ...baseManifest(),
+        service_identities: [
+          ...baseManifest().service_identities!,
+          {
+            name: "kms-svc",
+            description: "KMS service",
+            namespaces: ["api"],
+            environments: {
+              dev: { kms: { provider: "aws", keyId: aliasArn } },
+            },
+          },
+        ],
+      };
+
+      encryption.decrypt.mockResolvedValue({
+        values: { SECRET: "val" },
+        metadata: { backend: "age", recipients: [], lastModified: new Date() },
+      });
+
+      await kmsPacker.pack(
+        { identity: "kms-svc", environment: "dev", outputPath: "/output/artifact.json" },
+        aliasManifest,
+        "/repo",
+      );
+
+      const written: PackedArtifact = JSON.parse(String(mockFs.writeFileSync.mock.calls[0][1]));
+      expect(written.envelope!.keyId).toBe(resolvedArn);
+      expect(kms.wrap).toHaveBeenCalledWith(aliasArn, expect.any(Buffer));
+    });
+
+    it("should fall back to manifest keyId when provider returns no resolvedKeyId", async () => {
+      // Defensive: GCP/Azure providers don't yet populate resolvedKeyId, and
+      // older AWS responses may omit KeyId. Either way, the manifest value is
+      // the right fallback.
+      const kms: jest.Mocked<KmsProvider> = {
+        wrap: jest.fn().mockResolvedValue({
+          wrappedKey: Buffer.from("wrapped"),
+          algorithm: "SYMMETRIC_DEFAULT",
+        } as KmsWrapResult),
+        unwrap: jest.fn(),
+      };
+      const kmsPacker = new ArtifactPacker(encryption, matrixManager, kms);
+
+      encryption.decrypt.mockResolvedValue({
+        values: { SECRET: "val" },
+        metadata: { backend: "age", recipients: [], lastModified: new Date() },
+      });
+
+      await kmsPacker.pack(
+        { identity: "kms-svc", environment: "dev", outputPath: "/output/artifact.json" },
+        kmsManifest(),
+        "/repo",
+      );
+
+      const written: PackedArtifact = JSON.parse(String(mockFs.writeFileSync.mock.calls[0][1]));
+      expect(written.envelope!.keyId).toBe("arn:aws:kms:us-east-1:111:key/test-key");
+    });
+
     it("should produce artifact without envelope for age-only identity when KMS provider is injected", async () => {
       const kms = mockKms();
       const kmsPacker = new ArtifactPacker(encryption, matrixManager, kms);
