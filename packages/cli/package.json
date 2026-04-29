@@ -47,7 +47,7 @@
     "@clef-sh/keyservice-linux-x64": "^0.1.9",
     "@clef-sh/keyservice-win32-x64": "^0.1.9",
     "@clef-sh/sops-darwin-arm64": "3.12.2",
-    "@clef-sh/sops-darwin-x64": "3.12.2",
+    "@clef-sh/sops-darwin-x64": "^3.12.2",
     "@clef-sh/sops-linux-arm64": "3.12.2",
     "@clef-sh/sops-linux-x64": "3.12.2",
     "@clef-sh/sops-win32-x64": "3.12.2"
