@@ -22,11 +22,11 @@
     "@clef-sh/runtime": "0.1.30-beta.185"
   },
   "optionalDependencies": {
-    "@clef-sh/sops-darwin-arm64": "3.9.4",
-    "@clef-sh/sops-darwin-x64": "3.9.4",
-    "@clef-sh/sops-linux-arm64": "3.9.4",
-    "@clef-sh/sops-linux-x64": "3.9.4",
-    "@clef-sh/sops-win32-x64": "3.9.4"
+    "@clef-sh/sops-darwin-arm64": "3.12.2",
+    "@clef-sh/sops-darwin-x64": "3.12.2",
+    "@clef-sh/sops-linux-arm64": "3.12.2",
+    "@clef-sh/sops-linux-x64": "3.12.2",
+    "@clef-sh/sops-win32-x64": "3.12.2"
   },
   "peerDependencies": {
     "@aws-sdk/client-kms": "^3.500.0",

@@ -32,7 +32,7 @@ Both installers support the same environment variables:
 | ------------------ | -------------- | ----------------- | -------------------------------- |
 | `CLEF_VERSION`     | latest         | latest            | Install a specific version       |
 | `CLEF_INSTALL_DIR` | `~/.local/bin` | `$HOME\.clef\bin` | Installation directory           |
-| `SOPS_VERSION`     | `3.9.4`        | `3.9.4`           | Override bundled sops version    |
+| `SOPS_VERSION`     | `3.12.2`        | `3.12.2`           | Override bundled sops version    |
 | `SOPS_SKIP`        | `0`            | `0`               | Set to `1` to skip sops download |
 
 ::: code-group
@@ -153,7 +153,7 @@ clef doctor
 Clef environment check
 
 ✓ clef          v0.1.0
-✓ sops          v3.9.4    (required >= 3.8.0)
+✓ sops          v3.12.2    (required >= 3.8.0)
 ✓ git           v2.43.0   (required >= 2.28.0)
 ✓ manifest      clef.yaml found
 ✓ age key       loaded (from OS keychain, label: coral-tiger)

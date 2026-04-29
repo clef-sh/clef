@@ -11,7 +11,7 @@ function makeReport(overrides: Partial<ClefReport> = {}): ClefReport {
       commitTimestamp: "2024-06-15T12:00:00Z",
       reportGeneratedAt: "2024-06-15T12:01:00Z",
       clefVersion: "1.2.0",
-      sopsVersion: "3.9.4",
+      sopsVersion: "3.12.2",
     },
     manifest: {
       manifestVersion: 1,

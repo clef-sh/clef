@@ -45,7 +45,7 @@ Each check prints a status line with a check mark or cross:
 Clef environment check
 
 ✓ clef          v0.1.0
-✓ sops          v3.9.4    (required >= 3.8.0)
+✓ sops          v3.12.2    (required >= 3.8.0)
 ✓ git           v2.43.0   (required >= 2.28.0)
 ✓ manifest      clef.yaml found
 ✓ age key       loaded (from OS keychain, label: coral-tiger)
@@ -82,7 +82,7 @@ Returns a JSON object with all check results:
 ```json
 {
   "clef": { "version": "0.1.0", "ok": true },
-  "sops": { "version": "3.9.4", "required": "3.8.0", "ok": true },
+  "sops": { "version": "3.12.2", "required": "3.8.0", "ok": true },
   "git": { "version": "2.43.0", "required": "2.28.0", "ok": true },
   "manifest": { "found": true, "ok": true },
   "ageKey": { "source": "file", "recipients": 2, "ok": true },

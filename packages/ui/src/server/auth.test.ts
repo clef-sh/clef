@@ -27,7 +27,7 @@ function makeRunner(): SubprocessRunner {
   return {
     run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
       if (cmd === "sops" && args[0] === "--version") {
-        return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+        return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
       }
       if (cmd === "sops" && args[0] === "decrypt") {
         return {

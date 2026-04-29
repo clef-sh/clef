@@ -33,7 +33,7 @@ const mockExit = jest.spyOn(process, "exit").mockImplementation(() => undefined 
 function allGoodRunner(): SubprocessRunner {
   return {
     run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
-      if (cmd === "sops") return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+      if (cmd === "sops") return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
       if (cmd === "git" && args[0] === "config" && args[1] === "--get") {
         return { stdout: "clef merge-driver %O %A %B", stderr: "", exitCode: 0 };
       }
@@ -178,7 +178,7 @@ describe("clef doctor", () => {
 
     expect(parsed.clef.version).toBe("0.1.0");
     expect(parsed.clef.ok).toBe(true);
-    expect(parsed.sops.version).toBe("3.9.4");
+    expect(parsed.sops.version).toBe("3.12.2");
     expect(parsed.sops.ok).toBe(true);
     expect(parsed.git.version).toBe("2.43.0");
     expect(parsed.git.ok).toBe(true);
@@ -191,7 +191,7 @@ describe("clef doctor", () => {
   it("should exit 1 when git is missing", async () => {
     const runner: SubprocessRunner = {
       run: jest.fn().mockImplementation(async (cmd: string) => {
-        if (cmd === "sops") return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+        if (cmd === "sops") return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
         // git not found
         return { stdout: "", stderr: "not found", exitCode: 127 };
       }),
@@ -406,7 +406,7 @@ describe("clef doctor", () => {
       // merge.clef-metadata is not.
       return {
         run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
-          if (cmd === "sops") return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+          if (cmd === "sops") return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
           if (cmd === "git" && args[0] === "config" && args[1] === "--get") {
             const key = args[2];
             if (key === "merge.sops.driver") {

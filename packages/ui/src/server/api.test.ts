@@ -156,7 +156,7 @@ function makeRunner(overrides?: Partial<Record<string, SubprocessResult>>): Subp
       }
 
       if (cmd === "sops" && args.includes("--version")) {
-        return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+        return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
       }
       if (cmd === "sops" && args[0] === "decrypt") {
         return {

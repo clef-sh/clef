@@ -68,7 +68,7 @@ describe("clef get", () => {
           return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "--version") {
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+          return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "decrypt") {
           return { stdout: "DB_URL: postgres://localhost\nDB_POOL: 10\n", stderr: "", exitCode: 0 };
@@ -100,7 +100,7 @@ describe("clef get", () => {
           return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "--version") {
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+          return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "decrypt") {
           return { stdout: "OTHER_KEY: value\n", stderr: "", exitCode: 0 };
@@ -149,7 +149,7 @@ describe("clef get", () => {
           return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "--version") {
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+          return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "decrypt") {
           return { stdout: "DB_URL: postgres://localhost\nDB_POOL: 10\n", stderr: "", exitCode: 0 };
@@ -188,7 +188,7 @@ describe("clef get", () => {
           return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "--version") {
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+          return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
         }
         return { stdout: "", stderr: "decrypt failed", exitCode: 1 };
       }),

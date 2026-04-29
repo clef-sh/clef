@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       sops_version:
-        description: "sops version to package (e.g. 3.9.4)"
+        description: "sops version to package (e.g. 3.12.2)"
         required: true
         type: string
       dry_run:

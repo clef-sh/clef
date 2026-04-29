@@ -144,7 +144,7 @@ function mockRunner(): SubprocessRunner {
   return {
     run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
       if (cmd === "sops" && args[0] === "--version") {
-        return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+        return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
       }
       return { stdout: "", stderr: "", exitCode: 0 };
     }),
@@ -461,7 +461,7 @@ describe("clef init", () => {
     const runner: SubprocessRunner = {
       run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
         if (cmd === "sops" && args[0] === "--version") {
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+          return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
         }
         return { stdout: "encrypted", stderr: "", exitCode: 0 };
       }),
@@ -494,7 +494,7 @@ describe("clef init", () => {
     const runner: SubprocessRunner = {
       run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
         if (cmd === "sops" && args[0] === "--version")
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+          return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
         return { stdout: "encrypted", stderr: "", exitCode: 0 };
       }),
     };

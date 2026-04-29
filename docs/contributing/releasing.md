@@ -150,7 +150,7 @@ All npm publishes use **GitHub Actions OIDC** — no long-lived npm tokens. The 
 
 ## Sops binary packages
 
-The `@clef-sh/sops-{platform}-{arch}` packages are **versioned by sops version** (e.g. `3.9.4`), not by Clef version. Published via the `publish-sops.yml` workflow (manual dispatch), outside the Semantic Release cycle. See [`sops-version.json`](https://github.com/clef-sh/clef/blob/main/sops-version.json) for the pinned sops version and checksums.
+The `@clef-sh/sops-{platform}-{arch}` packages are **versioned by sops version** (e.g. `3.12.2`), not by Clef version. Published via the `publish-sops.yml` workflow (manual dispatch), outside the Semantic Release cycle. See [`sops-version.json`](https://github.com/clef-sh/clef/blob/main/sops-version.json) for the pinned sops version and checksums.
 
 ## Pre-release checklist
 
