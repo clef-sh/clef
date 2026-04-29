@@ -169,8 +169,8 @@ export type {
 } from "./pack/types";
 export { JsonEnvelopeBackend } from "./pack/backends/json-envelope";
 export type { JsonEnvelopeOptions } from "./pack/backends/json-envelope";
-export type { KmsProvider, KmsWrapResult, KmsProviderType } from "./kms";
-export { VALID_KMS_PROVIDERS } from "./kms";
+export type { KmsProvider, KmsWrapResult, KmsProviderType, AwsKmsArnValidation } from "./kms";
+export { VALID_KMS_PROVIDERS, validateAwsKmsArn } from "./kms";
 export { BackendMigrator } from "./migration/backend";
 export type {
   MigrationTarget,

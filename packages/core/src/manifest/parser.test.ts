@@ -1165,12 +1165,16 @@ describe("ManifestParser", () => {
               description: "KMS service",
               namespaces: ["database"],
               environments: {
-                dev: { kms: { provider: "aws", keyId: "arn:aws:kms:us-east-1:111:key/dev" } },
-                staging: { kms: { provider: "aws", keyId: "arn:aws:kms:us-east-1:222:key/stg" } },
+                dev: {
+                  kms: { provider: "aws", keyId: "arn:aws:kms:us-east-1:111111111111:key/dev" },
+                },
+                staging: {
+                  kms: { provider: "aws", keyId: "arn:aws:kms:us-east-1:222222222222:key/stg" },
+                },
                 production: {
                   kms: {
                     provider: "aws",
-                    keyId: "arn:aws:kms:us-west-2:333:key/prd",
+                    keyId: "arn:aws:kms:us-west-2:333333333333:key/prd",
                   },
                 },
               },
@@ -1181,10 +1185,10 @@ describe("ManifestParser", () => {
         expect(result.service_identities).toHaveLength(1);
         expect(result.service_identities![0].environments.dev.kms).toEqual({
           provider: "aws",
-          keyId: "arn:aws:kms:us-east-1:111:key/dev",
+          keyId: "arn:aws:kms:us-east-1:111111111111:key/dev",
         });
         expect(result.service_identities![0].environments.production.kms?.keyId).toBe(
-          "arn:aws:kms:us-west-2:333:key/prd",
+          "arn:aws:kms:us-west-2:333333333333:key/prd",
         );
       });
 
@@ -1203,7 +1207,10 @@ describe("ManifestParser", () => {
             },
           ],
         };
-        expect(() => parser.validate(manifest)).toThrow(/kms\.keyId must be a full AWS KMS ARN/);
+        expect(() => parser.validate(manifest)).toThrow(/kms\.keyId is not a valid AWS KMS ARN/);
+        // The reason now points at the specific failure mode — bare key id —
+        // so users know to wrap it in a full ARN.
+        expect(() => parser.validate(manifest)).toThrow(/starting with 'arn:'/);
       });
 
       it("should reject AWS kms.keyId that is a bare alias", () => {
@@ -1221,7 +1228,36 @@ describe("ManifestParser", () => {
             },
           ],
         };
-        expect(() => parser.validate(manifest)).toThrow(/kms\.keyId must be a full AWS KMS ARN/);
+        expect(() => parser.validate(manifest)).toThrow(/kms\.keyId is not a valid AWS KMS ARN/);
+      });
+
+      it("should reject AWS kms.keyId with an empty region segment", () => {
+        // Real-world bug: $REGION shell var was unset when the ARN was
+        // assembled, leaving `kms::` between the service and account
+        // segments. The previous regex rejected this with a generic
+        // "must be a full AWS KMS ARN" message that didn't point at the
+        // actual fault.
+        const manifest = {
+          ...validManifest(),
+          service_identities: [
+            {
+              name: "kms-svc",
+              namespaces: ["database"],
+              environments: {
+                dev: {
+                  kms: {
+                    provider: "aws",
+                    keyId: "arn:aws:kms::123456789012:alias/clef-quick-start",
+                  },
+                },
+                staging: { recipient: testRecipient },
+                production: { recipient: testRecipient },
+              },
+            },
+          ],
+        };
+        expect(() => parser.validate(manifest)).toThrow(/region segment is empty/);
+        expect(() => parser.validate(manifest)).toThrow(/\$REGION/);
       });
 
       it("should accept AWS GovCloud and China partition ARNs", () => {
@@ -1263,7 +1299,7 @@ describe("ManifestParser", () => {
                 dev: {
                   kms: {
                     provider: "aws",
-                    keyId: "arn:aws:kms:us-east-1:111:key/dev",
+                    keyId: "arn:aws:kms:us-east-1:111111111111:key/dev",
                     region: "us-east-1",
                   },
                 },
@@ -1368,7 +1404,7 @@ describe("ManifestParser", () => {
                 dev: { recipient: testRecipient },
                 staging: { recipient: testRecipient },
                 production: {
-                  kms: { provider: "aws", keyId: "arn:aws:kms:us-west-2:333:key/prd" },
+                  kms: { provider: "aws", keyId: "arn:aws:kms:us-west-2:333333333333:key/prd" },
                 },
               },
             },
