@@ -10,6 +10,11 @@
 #   SOPS_VERSION      — Override sops version (default: 3.9.4, from sops-version.json)
 #   SOPS_SKIP         — Set to 1 to skip sops download
 #
+# The whole script body is wrapped in `& { ... }` so that, when invoked via
+# `irm https://clef.sh/install.ps1 | iex`, our preferences and any `throw`s
+# stay scoped to this block and don't terminate the user's PowerShell host.
+
+& {
 
 $ErrorActionPreference = "Stop"
 
@@ -39,9 +44,9 @@ function Write-Warn {
 
 function Write-Fatal {
   param([string]$Message)
-  Write-Host "  x " -ForegroundColor Red -NoNewline
-  Write-Host $Message
-  exit 1
+  # `throw` (not `exit`) so that under `iex` we don't terminate the host.
+  # The top-level try/catch at the bottom of the script formats and prints.
+  throw $Message
 }
 
 function Get-Download {
@@ -237,22 +242,29 @@ function Install-Clef {
     if ($userPath -split ";" -notcontains $installDir) {
       [System.Environment]::SetEnvironmentVariable("Path", "$installDir;$userPath", "User")
 
-      # Broadcast WM_SETTINGCHANGE so other processes pick up the new PATH
-      if (-not ([System.Management.Automation.PSTypeName]"Win32.NativeMethods").Type) {
-        Add-Type -Namespace Win32 -Name NativeMethods -MemberDefinition @"
+      # Broadcast WM_SETTINGCHANGE so other processes pick up the new PATH.
+      # If Add-Type fails (AV, restricted execution, type already defined with
+      # a different signature in this session), skip the broadcast — the PATH
+      # change is already persisted; the user just has to restart their shell.
+      try {
+        if (-not ([System.Management.Automation.PSTypeName]"Win32.NativeMethods").Type) {
+          Add-Type -Namespace Win32 -Name NativeMethods -MemberDefinition @"
 [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
 public static extern IntPtr SendMessageTimeout(
     IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam,
     uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
 "@
+        }
+        $HWND_BROADCAST = [IntPtr]0xFFFF
+        $WM_SETTINGCHANGE = 0x1A
+        $result = [UIntPtr]::Zero
+        [Win32.NativeMethods]::SendMessageTimeout(
+          $HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero,
+          "Environment", 2, 5000, [ref]$result
+        ) | Out-Null
+      } catch {
+        Write-Warn "Could not broadcast PATH change ($($_.Exception.Message)). Restart your terminal to pick it up."
       }
-      $HWND_BROADCAST = [IntPtr]0xFFFF
-      $WM_SETTINGCHANGE = 0x1A
-      $result = [UIntPtr]::Zero
-      [Win32.NativeMethods]::SendMessageTimeout(
-        $HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero,
-        "Environment", 2, 5000, [ref]$result
-      ) | Out-Null
 
       Write-Success "Added $installDir to your PATH"
 
@@ -280,4 +292,16 @@ public static extern IntPtr SendMessageTimeout(
   }
 }
 
-Install-Clef
+try {
+  Install-Clef
+} catch {
+  Write-Host ""
+  Write-Host "  x " -ForegroundColor Red -NoNewline
+  Write-Host $_.Exception.Message
+  Write-Host ""
+  # Deliberately no `exit` here: under `irm | iex` it would close the user's
+  # PowerShell window. Returning from the script block leaves them in their
+  # shell with a visible error.
+}
+
+} # end & { ... } wrapper
