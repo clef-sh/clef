@@ -43,6 +43,10 @@ export class AwsKmsProvider implements KmsProvider {
     return {
       wrappedKey: Buffer.from(response.CiphertextBlob),
       algorithm: "SYMMETRIC_DEFAULT",
+      // Encrypt's response.KeyId is the resolved key ARN even when the
+      // request used an alias. Surface it so the envelope persists the
+      // canonical ARN, not the alias.
+      resolvedKeyId: typeof response.KeyId === "string" ? response.KeyId : undefined,
     };
   }
 

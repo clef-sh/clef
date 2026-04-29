@@ -82,6 +82,7 @@
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
   --radius-card: var(--radius-card);
+  --radius-pill: var(--radius-pill);
   --shadow-plate: var(--shadow-plate);
   --shadow-halo: var(--shadow-halo);
   --shadow-soft-drop: var(--shadow-soft-drop);
