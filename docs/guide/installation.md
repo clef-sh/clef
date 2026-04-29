@@ -32,7 +32,7 @@ Both installers support the same environment variables:
 | ------------------ | -------------- | ----------------- | -------------------------------- |
 | `CLEF_VERSION`     | latest         | latest            | Install a specific version       |
 | `CLEF_INSTALL_DIR` | `~/.local/bin` | `$HOME\.clef\bin` | Installation directory           |
-| `SOPS_VERSION`     | `3.12.2`        | `3.12.2`           | Override bundled sops version    |
+| `SOPS_VERSION`     | `3.12.2`       | `3.12.2`          | Override bundled sops version    |
 | `SOPS_SKIP`        | `0`            | `0`               | Set to `1` to skip sops download |
 
 ::: code-group
