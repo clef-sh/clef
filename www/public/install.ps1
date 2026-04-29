@@ -111,18 +111,20 @@ function Get-Platform {
 function Get-LatestVersion {
   Write-Info "Detecting latest CLI version..."
 
+  # /releases/latest returns the umbrella stable release (e.g. tag "v0.1.27").
+  # GitHub auto-selects the highest non-prerelease as "latest", so betas tagged
+  # vX.Y.Z-beta.N are excluded automatically.
   try {
-    $releases = Get-DownloadString "https://api.github.com/repos/$ClefRepo/releases"
+    $latest = Get-DownloadString "https://api.github.com/repos/$ClefRepo/releases/latest"
   } catch {
-    Write-Fatal "Failed to query GitHub API. Set `$env:CLEF_VERSION to skip version detection."
+    Write-Fatal "Failed to query GitHub API ($($_.Exception.Message)). Set `$env:CLEF_VERSION=X.Y.Z to skip version detection."
   }
 
-  # Stable releases are tagged @clef-sh/cli@X.Y.Z
-  if ($releases -match '"tag_name":\s*"@clef-sh/cli@([^"]+)"') {
+  if ($latest -match '"tag_name":\s*"v(\d+\.\d+\.\d+)"') {
     return $Matches[1]
   }
 
-  Write-Fatal "Could not detect latest version. Set `$env:CLEF_VERSION to install manually."
+  Write-Fatal "Could not detect latest version from /releases/latest. Set `$env:CLEF_VERSION=X.Y.Z to install manually."
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -147,9 +149,10 @@ function Install-Clef {
   $installDir = if ($env:CLEF_INSTALL_DIR) { $env:CLEF_INSTALL_DIR } else { $DefaultInstallDir }
   $sopsVer = if ($env:SOPS_VERSION) { $env:SOPS_VERSION } else { $DefaultSopsVersion }
 
-  # Stable releases are tagged @clef-sh/cli@X.Y.Z by semantic-release.
-  # Beta/alpha releases are tagged vX.Y.Z-{pre}.N by publish-prerelease.yml.
-  $tag = if ($version -match '-(?:beta|alpha)\.') { "v$version" } else { "@clef-sh/cli@$version" }
+  # Both stable and prerelease releases are tagged v${version} on the umbrella
+  # release (release.yml: `TAG="v${CLI_VER}"`; publish-prerelease.yml uses the
+  # same vX.Y.Z-beta.N shape). The old `@clef-sh/cli@X.Y.Z` scheme is gone.
+  $tag = "v$version"
 
   $baseUrl = "https://github.com/$ClefRepo/releases/download/$tag"
 
