@@ -5,6 +5,15 @@ export const VALID_KMS_PROVIDERS: readonly KmsProviderType[] = ["aws", "gcp", "a
 export interface KmsWrapResult {
   wrappedKey: Buffer;
   algorithm: string;
+  /**
+   * Canonical key ARN as returned by the KMS provider after resolving any
+   * indirection (e.g. AWS aliases). When the input keyId was a key ARN this
+   * equals the input. Persisted into `envelope.keyId` so downstream
+   * consumers (CreateGrant, IAM scoping, audit) always see a real key ARN —
+   * `kms:CreateGrant` rejects alias ARNs, so storing the alias would break
+   * deploy-time grant minting.
+   */
+  resolvedKeyId?: string;
 }
 
 export interface KmsProvider {

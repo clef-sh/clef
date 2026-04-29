@@ -81,7 +81,12 @@ export class ArtifactPacker {
           ciphertext,
           envelope: {
             provider: kmsConfig.provider,
-            keyId: kmsConfig.keyId,
+            // Prefer the provider's resolved key ARN over the manifest input.
+            // The manifest may carry an alias ARN (which `kms:Encrypt` accepts
+            // and silently resolves), but downstream `kms:CreateGrant` calls
+            // reject aliases. Persisting the resolved ARN keeps the envelope
+            // valid for grant minting and stable across alias re-targeting.
+            keyId: wrapped.resolvedKeyId ?? kmsConfig.keyId,
             wrappedKey: wrapped.wrappedKey.toString("base64"),
             algorithm: wrapped.algorithm,
             iv: iv.toString("base64"),
