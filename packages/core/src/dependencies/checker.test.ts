@@ -39,7 +39,7 @@ describe("version string parsers", () => {
   });
 
   it("should parse sops version without suffix", () => {
-    expect(parseSopsVersion("sops 3.9.4")).toBe("3.9.4");
+    expect(parseSopsVersion("sops 3.12.2")).toBe("3.12.2");
   });
 
   it("should parse sops version from multiline output with warnings", () => {
@@ -106,13 +106,13 @@ beforeEach(() => {
 describe("checkDependency", () => {
   it("should return satisfied DependencyVersion when version meets requirement", async () => {
     const runner = makeRunner({
-      sops: { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 },
+      sops: { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 },
     });
 
     const result = await checkDependency("sops", runner);
 
     expect(result).not.toBeNull();
-    expect(result!.installed).toBe("3.9.4");
+    expect(result!.installed).toBe("3.12.2");
     expect(result!.required).toBe(REQUIREMENTS.sops);
     expect(result!.satisfied).toBe(true);
     expect(result!.installHint).toBeTruthy();
@@ -157,7 +157,7 @@ describe("checkDependency", () => {
 
   it("should include source and resolvedPath for sops", async () => {
     const runner = makeRunner({
-      sops: { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 },
+      sops: { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 },
     });
 
     const result = await checkDependency("sops", runner);
@@ -174,7 +174,7 @@ describe("checkDependency", () => {
     const runner: SubprocessRunner = {
       run: jest.fn(async (command: string) => {
         if (command === "/custom/sops") {
-          return { stdout: "sops 3.9.4", stderr: "", exitCode: 0 };
+          return { stdout: "sops 3.12.2", stderr: "", exitCode: 0 };
         }
         return { stdout: "", stderr: "not found", exitCode: 127 };
       }),
@@ -217,7 +217,7 @@ describe("checkAll", () => {
       run: jest.fn().mockImplementation(async (command: string) => {
         switch (command) {
           case "sops":
-            return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+            return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
           case "git":
             return { stdout: "git version 2.43.0", stderr: "", exitCode: 0 };
           default:
@@ -239,7 +239,7 @@ describe("checkAll", () => {
   it("should handle partial failures", async () => {
     const runner: SubprocessRunner = {
       run: jest.fn().mockImplementation(async (command: string) => {
-        if (command === "sops") return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+        if (command === "sops") return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
         return { stdout: "", stderr: "not found", exitCode: 127 };
       }),
     };
@@ -254,7 +254,7 @@ describe("checkAll", () => {
 describe("assertSops", () => {
   it("should resolve when sops is installed and version is satisfied", async () => {
     const runner = makeRunner({
-      sops: { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 },
+      sops: { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 },
     });
 
     await expect(assertSops(runner)).resolves.toBeUndefined();
@@ -289,7 +289,7 @@ describe("getInstallHint (platform branches)", () => {
   it("should return non-brew hints for sops on linux", async () => {
     Object.defineProperty(process, "platform", { value: "linux" });
     const runner = makeRunner({
-      sops: { stdout: "sops 3.9.4", stderr: "", exitCode: 0 },
+      sops: { stdout: "sops 3.12.2", stderr: "", exitCode: 0 },
     });
 
     const result = await checkDependency("sops", runner);

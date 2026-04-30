@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { Command } from "commander";
 import { SubprocessRunner } from "@clef-sh/core";
-import { CLOUD_DEFAULT_ENDPOINT, CLOUD_DEV_ENDPOINT } from "../constants";
+import { CLOUD_DEFAULT_ENDPOINT } from "../constants";
 import {
   readCloudCredentials,
   writeCloudCredentials,
@@ -31,9 +31,7 @@ export interface CloudCliDeps {
 }
 
 function resolveEndpoint(): string {
-  if (process.env.CLEF_CLOUD_ENDPOINT) return process.env.CLEF_CLOUD_ENDPOINT;
-  if (process.env.CLEF_CLOUD_ENV === "dev") return CLOUD_DEV_ENDPOINT;
-  return CLOUD_DEFAULT_ENDPOINT;
+  return process.env.CLEF_CLOUD_ENDPOINT || CLOUD_DEFAULT_ENDPOINT;
 }
 
 /**

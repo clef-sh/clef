@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/sops-darwin-arm64",
-  "version": "3.9.4",
+  "version": "3.12.2",
   "description": "Bundled sops binary for macOS ARM64 (Apple Silicon)",
   "os": [
     "darwin"
@@ -20,7 +20,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/clef-sh/clef"
+    "url": "git+https://github.com/clef-sh/clef.git"
   },
   "license": "MPL-2.0"
 }

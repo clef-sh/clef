@@ -63,7 +63,7 @@ function makeRunner(): SubprocessRunner {
         return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
       }
       if (cmd === "sops" && args[0] === "--version") {
-        return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+        return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
       }
       if (cmd === "sops" && args[0] === "decrypt") {
         // Return different values depending on the file path
@@ -287,7 +287,7 @@ describe("clef exec", () => {
           return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "--version") {
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+          return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
         }
         return { stdout: "", stderr: "decrypt failed", exitCode: 1 };
       }),
@@ -465,7 +465,7 @@ describe("clef exec", () => {
           return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "--version") {
-          return { stdout: "sops 3.9.4 (latest)", stderr: "", exitCode: 0 };
+          return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
         }
         if (cmd === "sops" && args[0] === "decrypt") {
           const filePath = args[args.length - 1];

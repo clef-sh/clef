@@ -45,7 +45,7 @@ function encFile(lastModifiedISO: string): string {
     "        x",
     "        -----END AGE ENCRYPTED FILE-----",
     `  lastmodified: "${lastModifiedISO}"`,
-    "  version: 3.9.4",
+    "  version: 3.12.2",
     "",
   ].join("\n");
 }

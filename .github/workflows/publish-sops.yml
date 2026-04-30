@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       sops_version:
-        description: "sops version to package (e.g. 3.9.4)"
+        description: "sops version to package (e.g. 3.12.2)"
         required: true
         type: string
       dry_run:
@@ -19,7 +19,9 @@ permissions:
 
 jobs:
   download-and-publish:
+    environment: prod
     strategy:
+      fail-fast: false
       matrix:
         include:
           - platform: darwin-arm64
@@ -53,7 +55,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           registry-url: "https://registry.npmjs.org"
 
       - name: Verify sops-version.json matches input
@@ -146,6 +148,15 @@ jobs:
           # Download sops LICENSE from the release
           curl -fsSL "https://raw.githubusercontent.com/getsops/sops/v${{ inputs.sops_version }}/LICENSE" \
             -o "platforms/sops-${{ matrix.platform }}/LICENSE.sops"
+
+      - name: Patch version from input
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('platforms/sops-${{ matrix.platform }}/package.json', 'utf8'));
+            pkg.version = '${{ inputs.sops_version }}';
+            fs.writeFileSync('platforms/sops-${{ matrix.platform }}/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
 
       - name: Publish to npm
         if: ${{ !inputs.dry_run }}

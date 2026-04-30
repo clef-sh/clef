@@ -58,7 +58,7 @@ In CI, `npm ci` installs the bundled sops binary automatically — no extra step
 
 ```bash
 # Example: CI installs sops manually and points Clef at it
-curl -Lo /usr/local/bin/sops https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
+curl -Lo /usr/local/bin/sops https://github.com/getsops/sops/releases/download/v3.12.2/sops-v3.12.2.linux.amd64
 chmod +x /usr/local/bin/sops
 export CLEF_SOPS_PATH=/usr/local/bin/sops
 

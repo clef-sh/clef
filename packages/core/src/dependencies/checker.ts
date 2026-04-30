@@ -38,7 +38,7 @@ function semverSatisfied(installed: string, required: string): boolean {
 
 /**
  * Extract version from sops output.
- * Format: "sops 3.8.1 (latest)" or "sops 3.9.4"
+ * Format: "sops 3.8.1 (latest)" or "sops 3.12.2"
  */
 function parseSopsVersion(stdout: string): string | null {
   const match = stdout.match(/sops\s+(\d+\.\d+\.\d+)/);

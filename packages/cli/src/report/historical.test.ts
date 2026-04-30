@@ -17,7 +17,7 @@ jest.mock("@clef-sh/core", () => {
           commitTimestamp: "2024-01-01T00:00:00Z",
           reportGeneratedAt: "2024-01-01T00:01:00Z",
           clefVersion: "1.0.0",
-          sopsVersion: "3.9.4",
+          sopsVersion: "3.12.2",
         },
         manifest: {
           manifestVersion: 1,

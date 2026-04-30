@@ -15,7 +15,7 @@ npm workspaces with three packages:
 - **`packages/runtime`** — Lightweight runtime secrets engine. VCS providers (GitHub, GitLab, Bitbucket), artifact sources, age decrypt, in-memory cache, disk cache fallback, polling. Production dependency: `age-encryption`. No sops, no git.
 - **`packages/agent`** — Standalone sidecar wrapping runtime. Express HTTP API, daemon lifecycle, Lambda extension. Production dependencies: `@clef-sh/runtime`, `express`.
 - **`packages/ui`** — React + Vite + Express local web UI served at `127.0.0.1:7777`.
-- **`platforms/sops-{platform}-{arch}/`** — Platform-specific npm packages that each contain a single sops binary. Versioned by sops version (e.g. 3.9.4), not Clef version. Published separately via `publish-sops.yml` workflow.
+- **`platforms/sops-{platform}-{arch}/`** — Platform-specific npm packages that each contain a single sops binary. Versioned by sops version (e.g. 3.12.2), not Clef version. Published separately via `publish-sops.yml` workflow.
 
 ## Commands
 

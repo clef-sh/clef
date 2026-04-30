@@ -41,7 +41,6 @@ export type { InstallStartResponse, InstallPollResponse, MeResponse } from "./ty
 // ── Constants ─────────────────────────────────────────────────────────────
 export {
   CLOUD_DEFAULT_ENDPOINT,
-  CLOUD_DEV_ENDPOINT,
   SESSION_TOKEN_LIFETIME_MS,
   GITHUB_DEVICE_FLOW_SCOPES,
   GITHUB_DEVICE_CODE_URL,
