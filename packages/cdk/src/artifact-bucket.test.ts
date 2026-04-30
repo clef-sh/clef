@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { App, Stack, aws_lambda as lambda, aws_s3 as s3 } from "aws-cdk-lib";
+import { App, Stack, aws_kms as kms, aws_lambda as lambda, aws_s3 as s3 } from "aws-cdk-lib";
 import { Template, Match } from "aws-cdk-lib/assertions";
 import { ClefArtifactBucket } from "./artifact-bucket";
 
@@ -284,6 +284,215 @@ describe("ClefArtifactBucket", () => {
           manifest: manifestPath,
         }),
     ).toThrow(/non-JSON output/);
+  });
+
+  describe("signing", () => {
+    const signingKeyArn = "arn:aws:kms:us-east-1:111122223333:key/sign-1234";
+
+    it("forwards signing-key ARN to pack-helper when signingKey is set", () => {
+      mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
+      const app = new App();
+      const stack = new Stack(app, "TestStack");
+      const signingKey = kms.Key.fromKeyArn(stack, "Sign", signingKeyArn);
+
+      new ClefArtifactBucket(stack, "Secrets", {
+        identity: "api",
+        environment: "prod",
+        manifest: manifestPath,
+        signingKey,
+      });
+
+      expect(mockInvokePackHelper).toHaveBeenCalledWith(
+        expect.objectContaining({ signingKmsKeyId: signingKeyArn }),
+      );
+    });
+
+    it("provisions a kms:GetPublicKey custom resource scoped to the signing key", () => {
+      mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
+      const app = new App();
+      const stack = new Stack(app, "TestStack");
+      const signingKey = kms.Key.fromKeyArn(stack, "Sign", signingKeyArn);
+
+      new ClefArtifactBucket(stack, "Secrets", {
+        identity: "api",
+        environment: "prod",
+        manifest: manifestPath,
+        signingKey,
+      });
+
+      const template = Template.fromStack(stack);
+      template.resourceCountIs("Custom::ClefVerifyKeyLookup", 1);
+
+      // The auto-provisioned AwsCustomResource Lambda role must carry a
+      // kms:GetPublicKey statement scoped to the signing key ARN — and
+      // nothing broader.
+      template.hasResourceProperties("AWS::IAM::Policy", {
+        PolicyDocument: {
+          Statement: Match.arrayWith([
+            Match.objectLike({
+              Action: "kms:GetPublicKey",
+              Effect: "Allow",
+              Resource: signingKeyArn,
+            }),
+          ]),
+        },
+      });
+    });
+
+    it("exposes verifyKey as a CFN token when signing is configured", () => {
+      mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
+      const app = new App();
+      const stack = new Stack(app, "TestStack");
+      const signingKey = kms.Key.fromKeyArn(stack, "Sign", signingKeyArn);
+
+      const artifact = new ClefArtifactBucket(stack, "Secrets", {
+        identity: "api",
+        environment: "prod",
+        manifest: manifestPath,
+        signingKey,
+      });
+
+      // The token resolves to a Fn::GetAtt against the lookup resource.
+      // Don't pin the exact shape — just confirm it's a token, not a literal.
+      expect(artifact.verifyKey).toBeDefined();
+      const resolved = stack.resolve(artifact.verifyKey);
+      expect(JSON.stringify(resolved)).toContain("Fn::GetAtt");
+    });
+
+    it("leaves verifyKey undefined when signingKey is not configured", () => {
+      mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
+      const app = new App();
+      const stack = new Stack(app, "TestStack");
+
+      const artifact = new ClefArtifactBucket(stack, "Secrets", {
+        identity: "api",
+        environment: "prod",
+        manifest: manifestPath,
+      });
+
+      expect(artifact.verifyKey).toBeUndefined();
+      Template.fromStack(stack).resourceCountIs("Custom::ClefVerifyKeyLookup", 0);
+    });
+
+    it("dedups the GetPublicKey lookup when two constructs share a signing key", () => {
+      mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
+      const app = new App();
+      const stack = new Stack(app, "TestStack");
+      const signingKey = kms.Key.fromKeyArn(stack, "Sign", signingKeyArn);
+
+      new ClefArtifactBucket(stack, "ApiProd", {
+        identity: "api",
+        environment: "prod",
+        manifest: manifestPath,
+        signingKey,
+      });
+      // Different identity/env, but same signing key — dedup must collapse
+      // to a single AwsCustomResource so deploy-time round-trips don't scale
+      // with construct count.
+      mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("worker", "prod"));
+      new ClefArtifactBucket(stack, "WorkerProd", {
+        identity: "worker",
+        environment: "prod",
+        manifest: manifestPath,
+        signingKey,
+      });
+
+      Template.fromStack(stack).resourceCountIs("Custom::ClefVerifyKeyLookup", 1);
+    });
+
+    it("creates separate lookups when constructs use distinct signing keys", () => {
+      mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
+      const app = new App();
+      const stack = new Stack(app, "TestStack");
+      const keyA = kms.Key.fromKeyArn(stack, "KeyA", signingKeyArn);
+      const keyB = kms.Key.fromKeyArn(
+        stack,
+        "KeyB",
+        "arn:aws:kms:us-east-1:111122223333:key/sign-5678",
+      );
+
+      new ClefArtifactBucket(stack, "ApiProd", {
+        identity: "api",
+        environment: "prod",
+        manifest: manifestPath,
+        signingKey: keyA,
+      });
+      mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("worker", "prod"));
+      new ClefArtifactBucket(stack, "WorkerProd", {
+        identity: "worker",
+        environment: "prod",
+        manifest: manifestPath,
+        signingKey: keyB,
+      });
+
+      Template.fromStack(stack).resourceCountIs("Custom::ClefVerifyKeyLookup", 2);
+    });
+
+    it("bindVerifyKey adds CLEF_VERIFY_KEY to the consumer Lambda", () => {
+      mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
+      const app = new App();
+      const stack = new Stack(app, "TestStack");
+      const signingKey = kms.Key.fromKeyArn(stack, "Sign", signingKeyArn);
+
+      const artifact = new ClefArtifactBucket(stack, "Secrets", {
+        identity: "api",
+        environment: "prod",
+        manifest: manifestPath,
+        signingKey,
+      });
+
+      const fn = new lambda.Function(stack, "Consumer", {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        handler: "index.handler",
+        code: lambda.Code.fromInline("exports.handler = async () => ({});"),
+      });
+
+      artifact.bindVerifyKey(fn);
+
+      Template.fromStack(stack).hasResourceProperties("AWS::Lambda::Function", {
+        Environment: {
+          Variables: Match.objectLike({ CLEF_VERIFY_KEY: Match.anyValue() }),
+        },
+      });
+    });
+
+    it("bindVerifyKey throws when signing was not configured", () => {
+      mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
+      const app = new App();
+      const stack = new Stack(app, "TestStack");
+
+      const artifact = new ClefArtifactBucket(stack, "Secrets", {
+        identity: "api",
+        environment: "prod",
+        manifest: manifestPath,
+      });
+
+      const fn = new lambda.Function(stack, "Consumer", {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        handler: "index.handler",
+        code: lambda.Code.fromInline("exports.handler = async () => ({});"),
+      });
+
+      expect(() => artifact.bindVerifyKey(fn)).toThrow(/no signingKey was configured/);
+    });
+
+    it("rejects an unresolved (in-stack) signing key with a clear error", () => {
+      mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
+      const app = new App();
+      const stack = new Stack(app, "TestStack");
+      // A key created in the same stack — keyArn is a CFN token, not a literal.
+      const inStackKey = new kms.Key(stack, "InStack");
+
+      expect(
+        () =>
+          new ClefArtifactBucket(stack, "Secrets", {
+            identity: "api",
+            environment: "prod",
+            manifest: manifestPath,
+            signingKey: inStackKey,
+          }),
+      ).toThrow(/must reference an existing KMS key/);
+    });
   });
 
   it("records the resolved manifestPath on the construct for debugging", () => {

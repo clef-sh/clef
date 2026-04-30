@@ -13,6 +13,18 @@ export interface InvokePackHelperArgs {
   manifest: string;
   identity: string;
   environment: string;
+  /**
+   * KMS asymmetric signing key ARN. Forwarded to pack-helper as
+   * `--signing-kms-key`. Mutually exclusive with `signingKey`. The construct
+   * is responsible for rejecting unresolved CFN tokens before reaching here.
+   */
+  signingKmsKeyId?: string;
+  /**
+   * Ed25519 base64-DER-PKCS8 private key for synth-time signing. Forwarded
+   * to pack-helper as `--signing-key`. Mutually exclusive with
+   * `signingKmsKeyId`. Currently no construct-level surface — env-var-only.
+   */
+  signingKey?: string;
 }
 
 export interface PackHelperResult {
@@ -61,7 +73,16 @@ export function resetPackHelperCache(): void {
  * field.
  */
 export function invokePackHelper(args: InvokePackHelperArgs): PackHelperResult {
-  const cacheKey = `${args.manifest}|${args.identity}|${args.environment}`;
+  // Signing config affects the envelope's signature bytes, so it must be
+  // part of the cache key. Two constructs that share identity/env but
+  // configure different signing keys must produce distinct envelopes.
+  const cacheKey = [
+    args.manifest,
+    args.identity,
+    args.environment,
+    args.signingKmsKeyId ?? "",
+    args.signingKey ?? "",
+  ].join("|");
   const cached = packCache.get(cacheKey);
   if (cached) return cached;
   const result = runPackHelper(args);
@@ -71,30 +92,29 @@ export function invokePackHelper(args: InvokePackHelperArgs): PackHelperResult {
 
 function runPackHelper(args: InvokePackHelperArgs): PackHelperResult {
   const keysOut = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "clef-cdk-keys-")), "keys.json");
+  const helperArgs = [
+    HELPER_PATH,
+    "--manifest",
+    args.manifest,
+    "--identity",
+    args.identity,
+    "--environment",
+    args.environment,
+    "--keys-out",
+    keysOut,
+  ];
+  if (args.signingKmsKeyId) helperArgs.push("--signing-kms-key", args.signingKmsKeyId);
+  if (args.signingKey) helperArgs.push("--signing-key", args.signingKey);
   try {
-    const buf = execFileSync(
-      process.execPath,
-      [
-        HELPER_PATH,
-        "--manifest",
-        args.manifest,
-        "--identity",
-        args.identity,
-        "--environment",
-        args.environment,
-        "--keys-out",
-        keysOut,
-      ],
-      {
-        maxBuffer: 50 * 1024 * 1024,
-        stdio: ["ignore", "pipe", "pipe"],
-        // Explicitly pass the parent's env so Clef credential vars
-        // (CLEF_AGE_KEY / CLEF_AGE_KEY_FILE) and AWS SDK config reach the
-        // helper. Some test harnesses (notably Jest with ts-jest) wrap the
-        // worker in a way that drops the default inheritance.
-        env: process.env,
-      },
-    );
+    const buf = execFileSync(process.execPath, helperArgs, {
+      maxBuffer: 50 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
+      // Explicitly pass the parent's env so Clef credential vars
+      // (CLEF_AGE_KEY / CLEF_AGE_KEY_FILE) and AWS SDK config reach the
+      // helper. Some test harnesses (notably Jest with ts-jest) wrap the
+      // worker in a way that drops the default inheritance.
+      env: process.env,
+    });
     const envelopeJson = buf.toString("utf-8");
     const rawKeys = fs.readFileSync(keysOut, "utf-8");
     const keysByNamespace = JSON.parse(rawKeys) as Record<string, string[]>;
