@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/cdk",
-  "version": "0.4.5",
+  "version": "0.4.6-alpha.190",
   "description": "AWS CDK L2 constructs for delivering Clef-managed secrets to AWS resources",
   "repository": {
     "type": "git",
@@ -18,8 +18,8 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "@clef-sh/core": "0.1.27",
-    "@clef-sh/runtime": "0.1.30"
+    "@clef-sh/core": "0.1.28-alpha.190",
+    "@clef-sh/runtime": "0.1.31-alpha.190"
   },
   "optionalDependencies": {
     "@clef-sh/sops-darwin-arm64": "3.12.2",
