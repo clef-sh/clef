@@ -173,6 +173,15 @@ export class BackendMigrator {
       };
     }
 
+    // Warnings computed up-front so they survive the rollback return path.
+    // The new manifest validator hard-rejects writes that mix per-env age
+    // recipients with a non-age backend, which means the post-mutate
+    // warning we used to emit could be hidden by an opaque rollback. The
+    // user needs the actionable message ("remove recipients from
+    // clef.yaml") even when the migration fails.
+    const preMigrationWarnings: string[] = [];
+    this.checkAgeRecipientsWarning(manifest, target, environment, preMigrationWarnings);
+
     // ── Phase 1: Dry run ───────────────────────────────────────────────
 
     if (dryRun) {
@@ -191,7 +200,10 @@ export class BackendMigrator {
       } else {
         warnings.push(`Would update global default_backend → ${target.backend}`);
       }
-      this.checkAgeRecipientsWarning(manifest, target, environment, warnings);
+      // Avoid duplicating the pre-migration warnings we already collected
+      // (they were emitted unconditionally above so the rollback path can
+      // include them). For dry-run, the same set is the right answer.
+      warnings.push(...preMigrationWarnings);
       return {
         migratedFiles: [],
         skippedFiles,
@@ -263,7 +275,12 @@ export class BackendMigrator {
         rolledBack: true,
         error: migrationError!.message,
         verifiedFiles: [],
-        warnings: ["All changes have been rolled back."],
+        // Surface pre-migration warnings even on rollback. The new manifest
+        // validator can reject the write (e.g. per-env recipients vs.
+        // non-age backend), and without these warnings the user only sees
+        // an opaque "rolled back" message — not the actionable hint about
+        // what to clean up first.
+        warnings: ["All changes have been rolled back.", ...preMigrationWarnings],
       };
     }
 
@@ -291,7 +308,10 @@ export class BackendMigrator {
       }
     }
 
-    this.checkAgeRecipientsWarning(manifest, target, environment, warnings);
+    // Pre-migration warnings already include the age-recipients hint —
+    // merge them in here so the success path keeps parity with dry-run
+    // and rollback (all three return the same advisory text).
+    warnings.push(...preMigrationWarnings);
 
     return { migratedFiles, skippedFiles, rolledBack: false, verifiedFiles, warnings };
   }
