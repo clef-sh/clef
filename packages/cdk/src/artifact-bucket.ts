@@ -37,7 +37,8 @@ export interface ClefArtifactBucketProps {
    * KMS asymmetric key (ECDSA_SHA_256) used to sign the envelope at
    * `cdk synth` time. When set, the construct also provisions a deploy-time
    * `kms:GetPublicKey` lookup so consumers can wire `CLEF_VERIFY_KEY` via
-   * {@link verifyKey} or {@link bindVerifyKey} without ever holding key
+   * {@link ClefArtifactBucket.verifyKey} or
+   * {@link ClefArtifactBucket.bindVerifyKey} without ever holding key
    * bytes themselves.
    *
    * The key must be a reference to an existing key (`Key.fromKeyArn(...)`),
@@ -89,7 +90,8 @@ export class ClefArtifactBucket extends Construct {
    * runtime. CFN token resolved at deploy time via `kms:GetPublicKey`.
    * Undefined when {@link ClefArtifactBucketProps.signingKey} is not set.
    *
-   * Wire into a consumer Lambda via {@link bindVerifyKey} or directly:
+   * Wire into a consumer Lambda via {@link ClefArtifactBucket.bindVerifyKey}
+   * or directly:
    * `fn.addEnvironment("CLEF_VERIFY_KEY", artifact.verifyKey!)`.
    */
   public readonly verifyKey?: string;

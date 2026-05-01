@@ -8,9 +8,9 @@
  * fix the right segment without trial-and-error.
  *
  * Accepted forms:
- *   - arn:aws:kms:<region>:<account>:key/<key-id>
- *   - arn:aws:kms:<region>:<account>:alias/<name>
- *   - arn:aws-<partition>:kms:... (gov, cn, etc.)
+ *   - `arn:aws:kms:{region}:{account}:key/{key-id}`
+ *   - `arn:aws:kms:{region}:{account}:alias/{name}`
+ *   - `arn:aws-{partition}:kms:...` (gov, cn, etc.)
  *
  * Bare key UUIDs and bare aliases are rejected — region must be derivable
  * from the ARN at synth time.
