@@ -18,6 +18,32 @@ const { generateAgeIdentity } = require("../age/keygen") as {
   generateAgeIdentity: jest.Mock;
 };
 
+/**
+ * Distinct, bech32-valid mock age public keys. The new manifest writer
+ * validates recipients with `validateAgePublicKey`, so test fixtures must
+ * use real bech32 chars (no b/i/o/1 after the `age1` prefix). Length ≥ 10.
+ *
+ * Each generator call (driven by `generateAgeIdentity` below) returns the
+ * next entry, so tests that assert the first generated key get
+ * MOCK_AGE_KEYS[0], etc.
+ */
+const MOCK_AGE_KEYS = [
+  "age1devkeyq",
+  "age1devkeyp",
+  "age1devkeyz",
+  "age1devkeyr",
+  "age1devkeyy",
+  "age1devkeyx",
+  "age1devkey9",
+  "age1devkey8",
+];
+
+/** Bech32-valid stand-ins for placeholder strings used in fixtures. */
+const MOCK_OLD_DEV_KEY = "age1newdevkey";
+const MOCK_OLD_STG_KEY = "age1newstgkey";
+const MOCK_OLD_PRD_KEY = "age1newprdkey";
+const MOCK_PLACEHOLDER_KEY = "age1freshkey7";
+
 function baseManifest(overrides?: Partial<ClefManifest>): ClefManifest {
   return {
     version: 1,
@@ -78,10 +104,10 @@ describe("ServiceIdentityManager", () => {
 
     let callCount = 0;
     generateAgeIdentity.mockImplementation(async () => {
-      callCount++;
+      const idx = callCount++;
       return {
-        privateKey: `AGE-SECRET-KEY-${callCount}`,
-        publicKey: `age1pubkey${callCount}`,
+        privateKey: `AGE-SECRET-KEY-${idx + 1}`,
+        publicKey: MOCK_AGE_KEYS[idx],
       };
     });
   });
@@ -112,7 +138,7 @@ describe("ServiceIdentityManager", () => {
       expect(result.identity.namespaces).toEqual(["api"]);
       expect(Object.keys(result.privateKeys)).toHaveLength(3);
       expect(result.privateKeys.dev).toMatch(/^AGE-SECRET-KEY-/);
-      expect(result.identity.environments.dev.recipient).toMatch(/^age1pubkey/);
+      expect(result.identity.environments.dev.recipient).toMatch(/^age1devkey/);
       // Manifest is written via write-file-atomic
       expect(mockWriteFileAtomicSync).toHaveBeenCalled();
     });
@@ -124,7 +150,7 @@ describe("ServiceIdentityManager", () => {
             name: "existing",
             description: "Existing",
             namespaces: ["api"],
-            environments: { dev: { recipient: "age1test" } },
+            environments: { dev: { recipient: MOCK_PLACEHOLDER_KEY } },
           },
         ],
       });
@@ -164,7 +190,7 @@ describe("ServiceIdentityManager", () => {
       expect(encryption.addRecipient).toHaveBeenCalledTimes(3);
       expect(encryption.addRecipient).toHaveBeenCalledWith(
         expect.stringContaining("api/"),
-        expect.stringMatching(/^age1pubkey/),
+        expect.stringMatching(/^age1devkey/),
       );
     });
 
@@ -182,9 +208,12 @@ describe("ServiceIdentityManager", () => {
       mockFs.existsSync.mockReturnValue(false);
 
       const kmsEnvConfigs = {
-        dev: { provider: "aws" as const, keyId: "arn:aws:kms:us-east-1:111:key/dev" },
-        staging: { provider: "aws" as const, keyId: "arn:aws:kms:us-east-1:222:key/stg" },
-        production: { provider: "aws" as const, keyId: "arn:aws:kms:us-west-2:333:key/prd" },
+        dev: { provider: "aws" as const, keyId: "arn:aws:kms:us-east-1:111111111111:key/dev" },
+        staging: { provider: "aws" as const, keyId: "arn:aws:kms:us-east-1:222222222222:key/stg" },
+        production: {
+          provider: "aws" as const,
+          keyId: "arn:aws:kms:us-west-2:333333333333:key/prd",
+        },
       };
 
       const result = await manager.create("kms-svc", ["api"], "KMS service", manifest, "/repo", {
@@ -218,7 +247,10 @@ describe("ServiceIdentityManager", () => {
       mockFs.existsSync.mockImplementation((p) => String(p).includes("api/"));
 
       const kmsEnvConfigs = {
-        production: { provider: "aws" as const, keyId: "arn:aws:kms:us-west-2:333:key/prd" },
+        production: {
+          provider: "aws" as const,
+          keyId: "arn:aws:kms:us-west-2:333333333333:key/prd",
+        },
       };
 
       const result = await manager.create(
@@ -242,7 +274,7 @@ describe("ServiceIdentityManager", () => {
       // Only age environments should have recipients registered
       expect(encryption.addRecipient).toHaveBeenCalledWith(
         expect.stringContaining("api/"),
-        expect.stringMatching(/^age1pubkey/),
+        expect.stringMatching(/^age1devkey/),
       );
     });
 
@@ -274,7 +306,7 @@ describe("ServiceIdentityManager", () => {
       // All environments should have the same public key as recipient
       const recipients = Object.values(result.identity.environments).map((e) => e.recipient);
       expect(new Set(recipients).size).toBe(1);
-      expect(recipients[0]).toBe("age1pubkey1");
+      expect(recipients[0]).toBe(MOCK_AGE_KEYS[0]);
 
       // All private key entries should be the same value
       const keys = Object.values(result.privateKeys);
@@ -374,7 +406,7 @@ describe("ServiceIdentityManager", () => {
         name: "test",
         description: "Test",
         namespaces: ["api"],
-        environments: { dev: { recipient: "age1abc" } },
+        environments: { dev: { recipient: MOCK_PLACEHOLDER_KEY } },
       };
       const manifest = baseManifest({ service_identities: [si] });
       expect(manager.list(manifest)).toEqual([si]);
@@ -391,7 +423,7 @@ describe("ServiceIdentityManager", () => {
         name: "test",
         description: "Test",
         namespaces: ["api"],
-        environments: { dev: { recipient: "age1abc" } },
+        environments: { dev: { recipient: MOCK_PLACEHOLDER_KEY } },
       };
       const manifest = baseManifest({ service_identities: [si] });
       expect(manager.get(manifest, "test")).toEqual(si);
@@ -405,9 +437,9 @@ describe("ServiceIdentityManager", () => {
         description: "Service",
         namespaces: ["api"],
         environments: {
-          dev: { recipient: "age1olddev" },
-          staging: { recipient: "age1oldstg" },
-          production: { recipient: "age1oldprd" },
+          dev: { recipient: MOCK_OLD_DEV_KEY },
+          staging: { recipient: MOCK_OLD_STG_KEY },
+          production: { recipient: MOCK_OLD_PRD_KEY },
         },
       };
       const manifest = baseManifest({ service_identities: [si] });
@@ -433,11 +465,11 @@ describe("ServiceIdentityManager", () => {
       // Verify old recipients were removed and new ones added
       expect(encryption.removeRecipient).toHaveBeenCalledWith(
         expect.stringContaining("api/"),
-        expect.stringMatching(/^age1old/),
+        expect.stringMatching(/^age1newd/),
       );
       expect(encryption.addRecipient).toHaveBeenCalledWith(
         expect.stringContaining("api/"),
-        expect.stringMatching(/^age1pubkey/),
+        expect.stringMatching(/^age1devkey/),
       );
     });
 
@@ -447,9 +479,9 @@ describe("ServiceIdentityManager", () => {
         description: "Service",
         namespaces: ["api"],
         environments: {
-          dev: { recipient: "age1olddev" },
-          staging: { recipient: "age1oldstg" },
-          production: { recipient: "age1oldprd" },
+          dev: { recipient: MOCK_OLD_DEV_KEY },
+          staging: { recipient: MOCK_OLD_STG_KEY },
+          production: { recipient: MOCK_OLD_PRD_KEY },
         },
       };
       const manifest = baseManifest({ service_identities: [si] });
@@ -481,7 +513,7 @@ describe("ServiceIdentityManager", () => {
         description: "Service",
         namespaces: ["api"],
         environments: {
-          dev: { recipient: "age1olddev" },
+          dev: { recipient: MOCK_OLD_DEV_KEY },
         },
       };
       const manifest = baseManifest({
@@ -517,7 +549,7 @@ describe("ServiceIdentityManager", () => {
         description: "Service",
         namespaces: ["api"],
         environments: {
-          dev: { recipient: "age1dev" },
+          dev: { recipient: "age1devkeyq" },
           // missing staging and production
         },
       };
@@ -543,9 +575,9 @@ describe("ServiceIdentityManager", () => {
         description: "Service",
         namespaces: ["nonexistent"],
         environments: {
-          dev: { recipient: "age1dev" },
-          staging: { recipient: "age1stg" },
-          production: { recipient: "age1prd" },
+          dev: { recipient: "age1devkeyq" },
+          staging: { recipient: "age1stgkeyq" },
+          production: { recipient: "age1prdkeyq" },
         },
       };
       const manifest = baseManifest({ service_identities: [si] });
@@ -573,7 +605,7 @@ describe("ServiceIdentityManager", () => {
 
       const metadata: SopsMetadata = {
         backend: "age",
-        recipients: ["age1other"],
+        recipients: ["age1freshkey7"],
         lastModified: new Date(),
         lastModifiedPresent: true,
       };
@@ -630,7 +662,7 @@ describe("ServiceIdentityManager", () => {
       // Recipient is NOT on the file — but pack-only should not report this
       const metadata: SopsMetadata = {
         backend: "age",
-        recipients: ["age1other"],
+        recipients: ["age1freshkey7"],
         lastModified: new Date(),
         lastModifiedPresent: true,
       };
@@ -650,9 +682,9 @@ describe("ServiceIdentityManager", () => {
         namespaces: ["nonexistent"],
         pack_only: true,
         environments: {
-          dev: { recipient: "age1dev" },
-          staging: { recipient: "age1stg" },
-          production: { recipient: "age1prd" },
+          dev: { recipient: "age1devkeyq" },
+          staging: { recipient: "age1stgkeyq" },
+          production: { recipient: "age1prdkeyq" },
         },
       };
       const manifest = baseManifest({ service_identities: [si] });
@@ -669,9 +701,9 @@ describe("ServiceIdentityManager", () => {
         namespaces: ["api"],
         pack_only: true,
         environments: {
-          dev: { recipient: "age1same" },
-          staging: { recipient: "age1same" },
-          production: { recipient: "age1same" },
+          dev: { recipient: "age1samekeyq" },
+          staging: { recipient: "age1samekeyq" },
+          production: { recipient: "age1samekeyq" },
         },
       };
       const manifest = baseManifest({ service_identities: [si] });
@@ -694,8 +726,10 @@ describe("ServiceIdentityManager", () => {
             namespaces: ["api"],
             environments: {
               dev: { recipient: "age1devkey" },
-              staging: { recipient: "age1stagingkey" },
-              production: { kms: { provider: "aws", keyId: "arn:..." } },
+              staging: { recipient: "age1stagekey" },
+              production: {
+                kms: { provider: "aws", keyId: "arn:aws:kms:us-east-1:123456789012:key/prod" },
+              },
             },
           },
         ],
@@ -724,7 +758,7 @@ describe("ServiceIdentityManager", () => {
       );
       expect(encryption.addRecipient).toHaveBeenCalledWith(
         expect.stringContaining("database/staging"),
-        "age1stagingkey",
+        "age1stagekey",
       );
       // KMS env: no recipient registration
       expect(encryption.addRecipient).not.toHaveBeenCalledWith(
@@ -831,8 +865,10 @@ describe("ServiceIdentityManager", () => {
             namespaces: ["api", "database"],
             environments: {
               dev: { recipient: "age1devkey" },
-              staging: { recipient: "age1stagingkey" },
-              production: { kms: { provider: "aws", keyId: "arn:..." } },
+              staging: { recipient: "age1stagekey" },
+              production: {
+                kms: { provider: "aws", keyId: "arn:aws:kms:us-east-1:123456789012:key/prod" },
+              },
             },
           },
         ],
@@ -865,7 +901,7 @@ describe("ServiceIdentityManager", () => {
       );
       expect(encryption.removeRecipient).toHaveBeenCalledWith(
         expect.stringContaining("database/staging"),
-        "age1stagingkey",
+        "age1stagekey",
       );
       // KMS env: no recipient removal
       expect(encryption.removeRecipient).not.toHaveBeenCalledWith(
@@ -974,8 +1010,8 @@ describe("ServiceIdentityManager", () => {
             // Note: only dev + production. staging is in baseManifest.environments
             // but the SI doesn't have a config for it — that's the gap this method fills.
             environments: {
-              dev: { recipient: "age1existing-dev" },
-              production: { recipient: "age1existing-prod" },
+              dev: { recipient: "age1xstdevkey" },
+              production: { recipient: "age1xstprdkey" },
             },
           },
         ],
@@ -996,7 +1032,7 @@ describe("ServiceIdentityManager", () => {
       expect(encryption.addRecipient).toHaveBeenCalledTimes(1);
       expect(encryption.addRecipient).toHaveBeenCalledWith(
         "/repo/database/staging.enc.yaml",
-        expect.stringMatching(/^age1pubkey/),
+        expect.stringMatching(/^age1devkey/),
       );
 
       // Manifest updated with the new staging entry on the SI
@@ -1006,7 +1042,7 @@ describe("ServiceIdentityManager", () => {
       const written = YAML.parse(writeCall![1] as string) as ClefManifest;
       const si = written.service_identities!.find((s) => s.name === "web-app")!;
       expect(si.environments).toHaveProperty("staging");
-      expect((si.environments.staging as { recipient: string }).recipient).toMatch(/^age1pubkey/);
+      expect((si.environments.staging as { recipient: string }).recipient).toMatch(/^age1devkey/);
     });
 
     it("uses the supplied KMS config when provided and skips age key generation", async () => {
@@ -1015,7 +1051,7 @@ describe("ServiceIdentityManager", () => {
 
       const result = await manager.addEnvironmentToScope("web-app", "staging", manifest, "/repo", {
         provider: "aws",
-        keyId: "arn:aws:kms:us-east-1:123:key/new",
+        keyId: "arn:aws:kms:us-east-1:123456789012:key/new",
       });
 
       // KMS path: no private key returned, no age key generated
@@ -1030,7 +1066,7 @@ describe("ServiceIdentityManager", () => {
       const written = YAML.parse(writeCall![1] as string) as ClefManifest;
       const si = written.service_identities!.find((s) => s.name === "web-app")!;
       expect(si.environments.staging).toEqual({
-        kms: { provider: "aws", keyId: "arn:aws:kms:us-east-1:123:key/new" },
+        kms: { provider: "aws", keyId: "arn:aws:kms:us-east-1:123456789012:key/new" },
       });
     });
 

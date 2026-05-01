@@ -20,6 +20,7 @@ import {
   ServiceIdentityEnvironmentConfig,
 } from "../types";
 import { validateAgePublicKey } from "../recipients/validator";
+import { validateAwsKmsArn } from "../kms/aws-arn";
 
 /**
  * Canonical filename for the Clef manifest.
@@ -36,11 +37,6 @@ const VALID_BACKENDS = ["age", "awskms", "gcpkms", "azurekv", "pgp", "hsm"] as c
  * `clef lint` instead of at first encrypt.
  */
 const PKCS11_URI_PATTERN = /^pkcs11:[a-zA-Z][a-zA-Z0-9_-]*=[^;]+/;
-// Full AWS KMS ARN: standard, GovCloud, and China partitions; key or alias.
-// Shape: `arn:aws[-suffix]?:kms:<region>:<account>:(key|alias)/<id>`. Account
-// digit count isn't constrained — we only need shape validity so the region
-// segment is extractable.
-const AWS_KMS_ARN_PATTERN = /^arn:aws(?:-[a-z]+)*:kms:[a-z0-9-]+:\d+:(key|alias)\/.+$/;
 const VALID_TOP_LEVEL_KEYS = [
   "version",
   "environments",
@@ -667,12 +663,17 @@ export class ManifestParser {
             }
             // For AWS, the keyId must be a full key or alias ARN. We derive
             // the region from the ARN at synth time, so a bare key UUID or
-            // alias would leave us without a region. Fail early and loud.
-            if (kmsObj.provider === "aws" && !AWS_KMS_ARN_PATTERN.test(kmsObj.keyId)) {
-              throw new ManifestValidationError(
-                `Service identity '${siName}' environment '${envName}': kms.keyId must be a full AWS KMS ARN (e.g. arn:aws:kms:us-east-1:123456789012:key/abcd-1234), got '${kmsObj.keyId}'.`,
-                "service_identities",
-              );
+            // alias would leave us without a region. Fail early and loud,
+            // and tell the user *which* segment is wrong.
+            if (kmsObj.provider === "aws") {
+              const arnValidation = validateAwsKmsArn(kmsObj.keyId);
+              if (!arnValidation.ok) {
+                throw new ManifestValidationError(
+                  `Service identity '${siName}' environment '${envName}': kms.keyId is not a valid AWS KMS ARN — ${arnValidation.reason} (got '${kmsObj.keyId}'). ` +
+                    `Expected shape: arn:aws:kms:<region>:<account>:key/<id> or arn:aws:kms:<region>:<account>:alias/<name>.`,
+                  "service_identities",
+                );
+              }
             }
             // The legacy `region:` field has been removed — region is read
             // from the ARN. Reject it explicitly so silent typos don't ship.

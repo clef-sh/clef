@@ -69,8 +69,8 @@ function manifestWithSi(): ClefManifest {
         description: "Web app",
         namespaces: ["payments", "auth"],
         environments: {
-          dev: { recipient: "age1dev..." },
-          production: { recipient: "age1prod..." },
+          dev: { recipient: "age1devkeyq" },
+          production: { recipient: "age1prdkeyq" },
         },
       },
     ],
@@ -389,7 +389,9 @@ describe("StructureManager", () => {
         // Order preserved — 'development' takes the slot 'dev' was in
         expect(Object.keys(si.environments)).toEqual(["development", "production"]);
         // Value preserved
-        expect((si.environments.development as { recipient: string }).recipient).toBe("age1dev...");
+        expect((si.environments.development as { recipient: string }).recipient).toBe(
+          "age1devkeyq",
+        );
       });
 
       it("refuses if the target name already exists", async () => {
@@ -652,8 +654,8 @@ describe("StructureManager", () => {
             description: "Payments service",
             namespaces: ["payments"],
             environments: {
-              dev: { recipient: "age1..." },
-              production: { recipient: "age1..." },
+              dev: { recipient: "age1freshkey7" },
+              production: { recipient: "age1freshkey7" },
             },
           },
         ],
