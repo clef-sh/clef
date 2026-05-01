@@ -419,7 +419,7 @@ describe("clef pack", () => {
           namespaces: ["api"],
           environments: {
             production: {
-              kms: { provider: "aws", keyId: "arn:aws:kms:us-east-1:123:key/abc" },
+              kms: { provider: "aws", keyId: "arn:aws:kms:us-east-1:123456789012:key/abc" },
             },
           },
         },
@@ -462,7 +462,7 @@ describe("clef pack", () => {
     const artifact = JSON.parse(String(writeCall![1]));
     expect(artifact.envelope).toBeDefined();
     expect(artifact.envelope.provider).toBe("aws");
-    expect(artifact.envelope.keyId).toBe("arn:aws:kms:us-east-1:123:key/abc");
+    expect(artifact.envelope.keyId).toBe("arn:aws:kms:us-east-1:123456789012:key/abc");
     expect(artifact.envelope.wrappedKey).toBeTruthy();
     expect(artifact.envelope.iv).toBeTruthy();
     expect(artifact.envelope.authTag).toBeTruthy();

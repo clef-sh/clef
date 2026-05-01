@@ -75,6 +75,10 @@ interface HelperArgs {
   /** Optional path to write the list of key names to. Omitted by callers that
    *  don't need the sidecar (e.g. ClefArtifactBucket). */
   keysOut?: string;
+  /** KMS asymmetric signing key ARN. Mutually exclusive with signingKey. */
+  signingKmsKeyId?: string;
+  /** Ed25519 base64-DER-PKCS8 private key. Mutually exclusive with signingKmsKeyId. */
+  signingKey?: string;
 }
 
 function parseArgs(argv: string[]): HelperArgs {
@@ -90,13 +94,22 @@ function parseArgs(argv: string[]): HelperArgs {
     else if (a === "--identity") out.identity = next();
     else if (a === "--environment") out.environment = next();
     else if (a === "--keys-out") out.keysOut = next();
+    else if (a === "--signing-kms-key") out.signingKmsKeyId = next();
+    else if (a === "--signing-key") out.signingKey = next();
     else throw new Error(`Unknown argument: ${a}`);
   }
   if (!out.manifest || !out.identity || !out.environment) {
     throw new Error(
-      "Usage: clef-cdk-pack-helper --manifest <path> --identity <name> --environment <name> [--keys-out <path>]",
+      "Usage: clef-cdk-pack-helper --manifest <path> --identity <name> --environment <name> [--keys-out <path>] [--signing-kms-key <arn>] [--signing-key <b64>]",
     );
   }
+  // Intentionally no env-var fallback for signing keys. The CLI's `clef
+  // pack` command reads CLEF_SIGNING_KMS_KEY / CLEF_SIGNING_KEY as a
+  // fallback; the CDK pack-helper deliberately does not. In a CDK flow the
+  // construct prop is the declared source of truth — picking up an
+  // ambient env var would silently activate signing the user did not ask
+  // for in their CDK code, or conflict with a construct-prop setting and
+  // produce a confusing "cannot specify both" error from the backend.
   return out as HelperArgs;
 }
 
@@ -104,19 +117,31 @@ async function resolveKmsProviderIfNeeded(
   manifest: ClefManifest,
   identity: string,
   environment: string,
+  signingKmsKeyId?: string,
 ): Promise<KmsProvider | undefined> {
   const si = manifest.service_identities?.find((s) => s.name === identity);
   const envConfig = si?.environments[environment];
-  if (!envConfig || !isKmsEnvelope(envConfig)) return undefined;
+  const envelopeNeedsKms = envConfig && isKmsEnvelope(envConfig);
+  // Either the envelope itself or a configured signing key forces KMS provider
+  // construction. When only signing needs it (age-only envelope + KMS sign),
+  // the region falls back to the signing-key ARN.
+  if (!envelopeNeedsKms && !signingKmsKeyId) return undefined;
   // Dynamic import — @clef-sh/runtime is a dependency, but keeping this lazy
   // lets age-only synth runs skip loading the AWS SDK.
   const runtime = await import("@clef-sh/runtime");
-  // Translate manifest semantics into a runtime KMS provider. The manifest
-  // parser guarantees AWS keyIds are full ARNs, so the region is always
-  // recoverable from the ARN; the runtime provider stays a dumb primitive.
-  const region =
-    envConfig.kms.provider === "aws" ? regionFromAwsKmsArn(envConfig.kms.keyId) : undefined;
-  return runtime.createKmsProvider(envConfig.kms.provider, { region });
+  if (envelopeNeedsKms) {
+    // Translate manifest semantics into a runtime KMS provider. The manifest
+    // parser guarantees AWS keyIds are full ARNs, so the region is always
+    // recoverable from the ARN; the runtime provider stays a dumb primitive.
+    const region =
+      envConfig.kms.provider === "aws" ? regionFromAwsKmsArn(envConfig.kms.keyId) : undefined;
+    return runtime.createKmsProvider(envConfig.kms.provider, { region });
+  }
+  // Age envelope + KMS signing path. AWS-only by construction; the signing
+  // key ARN must be a full ARN (the construct rejects unresolved tokens), so
+  // region is recoverable. Other providers (GCP/Azure) for signing aren't
+  // wired through this helper yet.
+  return runtime.createKmsProvider("aws", { region: regionFromAwsKmsArn(signingKmsKeyId!) });
 }
 
 async function main(): Promise<void> {
@@ -140,17 +165,25 @@ async function main(): Promise<void> {
     process.env.CLEF_AGE_KEY,
   );
 
-  const kms = await resolveKmsProviderIfNeeded(manifest, args.identity, args.environment);
+  const kms = await resolveKmsProviderIfNeeded(
+    manifest,
+    args.identity,
+    args.environment,
+    args.signingKmsKeyId,
+  );
 
   const output = new MemoryPackOutput();
   const backend = new JsonEnvelopeBackend();
+  const backendOptions: Record<string, unknown> = { output };
+  if (args.signingKmsKeyId) backendOptions.signingKmsKeyId = args.signingKmsKeyId;
+  if (args.signingKey) backendOptions.signingKey = args.signingKey;
   const request: PackRequest = {
     identity: args.identity,
     environment: args.environment,
     manifest,
     repoRoot,
     services: { encryption: sopsClient, kms, runner },
-    backendOptions: { output },
+    backendOptions,
   };
   backend.validateOptions?.(request.backendOptions);
   const result = await backend.pack(request);

@@ -2,7 +2,8 @@ import * as fs from "fs";
 import * as path from "path";
 import * as YAML from "yaml";
 import writeFileAtomic from "write-file-atomic";
-import { CLEF_MANIFEST_FILENAME } from "./parser";
+import { CLEF_MANIFEST_FILENAME, ManifestParser } from "./parser";
+import { ManifestValidationError } from "../types";
 
 export function readManifestYaml(repoRoot: string): Record<string, unknown> {
   const raw = fs.readFileSync(path.join(repoRoot, CLEF_MANIFEST_FILENAME), "utf-8");
@@ -18,8 +19,26 @@ export function readManifestYaml(repoRoot: string): Record<string, unknown> {
  * contents — never a half-written file. If the process dies mid-write, the
  * temp file is cleaned up by write-file-atomic's signal-exit handler. Handles
  * Windows EPERM retries internally.
+ *
+ * **Validates before writing.** Any caller producing an invalid manifest
+ * (malformed KMS ARN, bad recipient, missing required field, etc.) gets
+ * rejected here instead of silently persisting corrupt YAML that would later
+ * brick every `clef <command>` invocation. The validation error names the
+ * specific field at fault, so callers can fix the input rather than guessing.
  */
 export function writeManifestYaml(repoRoot: string, doc: Record<string, unknown>): void {
+  const parser = new ManifestParser();
+  try {
+    parser.validate(doc);
+  } catch (err) {
+    if (err instanceof ManifestValidationError) {
+      throw new ManifestValidationError(
+        `Refusing to write invalid manifest: ${err.message}`,
+        err.field,
+      );
+    }
+    throw err;
+  }
   const manifestPath = path.join(repoRoot, CLEF_MANIFEST_FILENAME);
   writeFileAtomic.sync(manifestPath, YAML.stringify(doc));
 }

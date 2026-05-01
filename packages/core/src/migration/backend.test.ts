@@ -53,7 +53,7 @@ function ageMeta(): SopsMetadata {
   };
 }
 
-function kmsMeta(arn = "arn:aws:kms:us-east-1:123:key/old"): SopsMetadata {
+function kmsMeta(arn = "arn:aws:kms:us-east-1:123456789012:key/old"): SopsMetadata {
   return {
     backend: "awskms",
     recipients: [arn],
@@ -114,7 +114,10 @@ function setupFsMocks(manifestYaml?: string): void {
   });
 }
 
-const awsTarget: MigrationTarget = { backend: "awskms", key: "arn:aws:kms:us-east-1:123:key/new" };
+const awsTarget: MigrationTarget = {
+  backend: "awskms",
+  key: "arn:aws:kms:us-east-1:123456789012:key/new",
+};
 
 describe("BackendMigrator", () => {
   beforeEach(() => {
@@ -143,7 +146,7 @@ describe("BackendMigrator", () => {
     expect(manifestWrite).toBeDefined();
     const written = YAML.parse(manifestWrite![1] as string) as ClefManifest;
     expect(written.sops.default_backend).toBe("awskms");
-    expect(written.sops.aws_kms_arn).toBe("arn:aws:kms:us-east-1:123:key/new");
+    expect(written.sops.aws_kms_arn).toBe("arn:aws:kms:us-east-1:123456789012:key/new");
   });
 
   it("should migrate a single environment with per-env override", async () => {
@@ -171,7 +174,7 @@ describe("BackendMigrator", () => {
     const written = YAML.parse(manifestWrite![1] as string);
     const prodEnv = written.environments.find((e: { name: string }) => e.name === "production");
     expect(prodEnv.sops.backend).toBe("awskms");
-    expect(prodEnv.sops.aws_kms_arn).toBe("arn:aws:kms:us-east-1:123:key/new");
+    expect(prodEnv.sops.aws_kms_arn).toBe("arn:aws:kms:us-east-1:123456789012:key/new");
 
     // Staging should be unchanged
     const stagingEnv = written.environments.find((e: { name: string }) => e.name === "staging");
@@ -181,7 +184,10 @@ describe("BackendMigrator", () => {
   it("should handle KMS key rotation (same backend, different key)", async () => {
     const manifest: ClefManifest = {
       ...baseManifest,
-      sops: { default_backend: "awskms", aws_kms_arn: "arn:aws:kms:us-east-1:123:key/old" },
+      sops: {
+        default_backend: "awskms",
+        aws_kms_arn: "arn:aws:kms:us-east-1:123456789012:key/old",
+      },
     };
     const enc = makeEncryption({ getMetadata: jest.fn().mockResolvedValue(kmsMeta()) });
     const mm = makeMatrixManager();
@@ -195,7 +201,7 @@ describe("BackendMigrator", () => {
   });
 
   it("should skip files already on the target backend+key", async () => {
-    const targetMeta = kmsMeta("arn:aws:kms:us-east-1:123:key/new");
+    const targetMeta = kmsMeta("arn:aws:kms:us-east-1:123456789012:key/new");
     const enc = makeEncryption({ getMetadata: jest.fn().mockResolvedValue(targetMeta) });
     const mm = makeMatrixManager();
     setupFsMocks();
@@ -312,7 +318,7 @@ describe("BackendMigrator", () => {
     const manifestWithRecipients: ClefManifest = {
       ...baseManifest,
       environments: [
-        { name: "staging", description: "Staging", recipients: ["age1abc..."] },
+        { name: "staging", description: "Staging", recipients: ["age1freshkey7"] },
         { name: "production", description: "Production", protected: true },
       ],
     };

@@ -519,7 +519,7 @@ describe("clef service", () => {
         "update",
         "existing-svc",
         "--kms-env",
-        "dev=aws:arn:aws:kms:us-east-1:123:key/test",
+        "dev=aws:arn:aws:kms:us-east-1:123456789012:key/test",
       ]);
 
       expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("updated"));
@@ -542,7 +542,7 @@ describe("clef service", () => {
         "update",
         "existing-svc",
         "--kms-env",
-        "dev=aws:arn:aws:kms:us-east-1:123:key/test",
+        "dev=aws:arn:aws:kms:us-east-1:123456789012:key/test",
       ]);
 
       expect(mockFormatter.json).toHaveBeenCalled();
@@ -657,7 +657,7 @@ describe("clef service", () => {
         "existing-svc",
         "staging",
         "--kms",
-        "aws:arn:aws:kms:us-east-1:123:key/abc",
+        "aws:arn:aws:kms:us-east-1:123456789012:key/abc",
       ]);
 
       expect(mockFormatter.success).toHaveBeenCalledWith(

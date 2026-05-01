@@ -128,19 +128,21 @@ resolve_version() {
   fi
 
   info "Detecting latest CLI version..."
-  # Cannot use /latest endpoint — repo has multiple release streams (core, agent, cli).
-  # Query the releases API and grep for the first @clef-sh/cli@ tag.
-  RELEASES=$(download_stdout "https://api.github.com/repos/$CLEF_REPO/releases") || {
+  # /releases/latest returns the umbrella stable release (e.g. tag "v0.1.27").
+  # GitHub auto-selects the highest non-prerelease as "latest", so beta tags
+  # (vX.Y.Z-beta.N) and per-package tags (@clef-sh/ui-vX.Y.Z, etc.) are
+  # excluded automatically.
+  LATEST=$(download_stdout "https://api.github.com/repos/$CLEF_REPO/releases/latest") || {
     fatal "Failed to query GitHub API. Set CLEF_VERSION=X.Y.Z to skip version detection."
   }
 
-  VERSION=$(printf '%s' "$RELEASES" | \
-    grep -o '"tag_name": "@clef-sh/cli@[^"]*"' | \
+  VERSION=$(printf '%s' "$LATEST" | \
+    grep -o '"tag_name": *"v[0-9][^"]*"' | \
     head -1 | \
-    sed 's/.*@clef-sh\/cli@//;s/"//')
+    sed 's/.*"v\([^"]*\)".*/\1/')
 
   if [ -z "$VERSION" ]; then
-    fatal "Could not detect latest version. Set CLEF_VERSION=X.Y.Z to install manually."
+    fatal "Could not detect latest version from /releases/latest. Set CLEF_VERSION=X.Y.Z to install manually."
   fi
 
   info "Latest version: $VERSION"
@@ -159,12 +161,10 @@ main() {
   INSTALL_DIR="${CLEF_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
   SOPS_VER="${SOPS_VERSION:-$DEFAULT_SOPS_VERSION}"
 
-  # Stable releases are tagged @clef-sh/cli@X.Y.Z by semantic-release.
-  # Beta/alpha releases are tagged vX.Y.Z-{pre}.N by publish-prerelease.yml.
-  case "$VERSION" in
-    *-beta.*|*-alpha.*) TAG="v${VERSION}" ;;
-    *)                  TAG="@clef-sh/cli@${VERSION}" ;;
-  esac
+  # Both stable and prerelease releases are tagged v${VERSION} on the umbrella
+  # release (release.yml: `TAG="v${CLI_VER}"`; publish-prerelease.yml uses the
+  # same vX.Y.Z-beta.N shape). The old `@clef-sh/cli@X.Y.Z` scheme is gone.
+  TAG="v${VERSION}"
 
   BASE_URL="https://github.com/$CLEF_REPO/releases/download/$TAG"
 

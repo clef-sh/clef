@@ -7,14 +7,19 @@
 # Environment variables:
 #   CLEF_VERSION      — Install a specific version (default: latest)
 #   CLEF_INSTALL_DIR  — Installation directory (default: $HOME\.clef\bin)
-#   SOPS_VERSION      — Override sops version (default: 3.9.4, from sops-version.json)
+#   SOPS_VERSION      — Override sops version (default: 3.12.2, from sops-version.json)
 #   SOPS_SKIP         — Set to 1 to skip sops download
 #
+# The whole script body is wrapped in `& { ... }` so that, when invoked via
+# `irm https://clef.sh/install.ps1 | iex`, our preferences and any `throw`s
+# stay scoped to this block and don't terminate the user's PowerShell host.
+
+& {
 
 $ErrorActionPreference = "Stop"
 
 $ClefRepo = "clef-sh/clef"
-$DefaultSopsVersion = "3.9.4"  # keep in sync with sops-version.json
+$DefaultSopsVersion = "3.12.2"  # keep in sync with sops-version.json
 $DefaultInstallDir = Join-Path $HOME ".clef\bin"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -39,9 +44,9 @@ function Write-Warn {
 
 function Write-Fatal {
   param([string]$Message)
-  Write-Host "  x " -ForegroundColor Red -NoNewline
-  Write-Host $Message
-  exit 1
+  # `throw` (not `exit`) so that under `iex` we don't terminate the host.
+  # The top-level try/catch at the bottom of the script formats and prints.
+  throw $Message
 }
 
 function Get-Download {
@@ -106,18 +111,20 @@ function Get-Platform {
 function Get-LatestVersion {
   Write-Info "Detecting latest CLI version..."
 
+  # /releases/latest returns the umbrella stable release (e.g. tag "v0.1.27").
+  # GitHub auto-selects the highest non-prerelease as "latest", so betas tagged
+  # vX.Y.Z-beta.N are excluded automatically.
   try {
-    $releases = Get-DownloadString "https://api.github.com/repos/$ClefRepo/releases"
+    $latest = Get-DownloadString "https://api.github.com/repos/$ClefRepo/releases/latest"
   } catch {
-    Write-Fatal "Failed to query GitHub API. Set `$env:CLEF_VERSION to skip version detection."
+    Write-Fatal "Failed to query GitHub API ($($_.Exception.Message)). Set `$env:CLEF_VERSION=X.Y.Z to skip version detection."
   }
 
-  # Stable releases are tagged @clef-sh/cli@X.Y.Z
-  if ($releases -match '"tag_name":\s*"@clef-sh/cli@([^"]+)"') {
+  if ($latest -match '"tag_name":\s*"v(\d+\.\d+\.\d+)"') {
     return $Matches[1]
   }
 
-  Write-Fatal "Could not detect latest version. Set `$env:CLEF_VERSION to install manually."
+  Write-Fatal "Could not detect latest version from /releases/latest. Set `$env:CLEF_VERSION=X.Y.Z to install manually."
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -142,9 +149,10 @@ function Install-Clef {
   $installDir = if ($env:CLEF_INSTALL_DIR) { $env:CLEF_INSTALL_DIR } else { $DefaultInstallDir }
   $sopsVer = if ($env:SOPS_VERSION) { $env:SOPS_VERSION } else { $DefaultSopsVersion }
 
-  # Stable releases are tagged @clef-sh/cli@X.Y.Z by semantic-release.
-  # Beta/alpha releases are tagged vX.Y.Z-{pre}.N by publish-prerelease.yml.
-  $tag = if ($version -match '-(?:beta|alpha)\.') { "v$version" } else { "@clef-sh/cli@$version" }
+  # Both stable and prerelease releases are tagged v${version} on the umbrella
+  # release (release.yml: `TAG="v${CLI_VER}"`; publish-prerelease.yml uses the
+  # same vX.Y.Z-beta.N shape). The old `@clef-sh/cli@X.Y.Z` scheme is gone.
+  $tag = "v$version"
 
   $baseUrl = "https://github.com/$ClefRepo/releases/download/$tag"
 
@@ -237,22 +245,29 @@ function Install-Clef {
     if ($userPath -split ";" -notcontains $installDir) {
       [System.Environment]::SetEnvironmentVariable("Path", "$installDir;$userPath", "User")
 
-      # Broadcast WM_SETTINGCHANGE so other processes pick up the new PATH
-      if (-not ([System.Management.Automation.PSTypeName]"Win32.NativeMethods").Type) {
-        Add-Type -Namespace Win32 -Name NativeMethods -MemberDefinition @"
+      # Broadcast WM_SETTINGCHANGE so other processes pick up the new PATH.
+      # If Add-Type fails (AV, restricted execution, type already defined with
+      # a different signature in this session), skip the broadcast — the PATH
+      # change is already persisted; the user just has to restart their shell.
+      try {
+        if (-not ([System.Management.Automation.PSTypeName]"Win32.NativeMethods").Type) {
+          Add-Type -Namespace Win32 -Name NativeMethods -MemberDefinition @"
 [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
 public static extern IntPtr SendMessageTimeout(
     IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam,
     uint fuFlags, uint uTimeout, out UIntPtr lpdwResult);
 "@
+        }
+        $HWND_BROADCAST = [IntPtr]0xFFFF
+        $WM_SETTINGCHANGE = 0x1A
+        $result = [UIntPtr]::Zero
+        [Win32.NativeMethods]::SendMessageTimeout(
+          $HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero,
+          "Environment", 2, 5000, [ref]$result
+        ) | Out-Null
+      } catch {
+        Write-Warn "Could not broadcast PATH change ($($_.Exception.Message)). Restart your terminal to pick it up."
       }
-      $HWND_BROADCAST = [IntPtr]0xFFFF
-      $WM_SETTINGCHANGE = 0x1A
-      $result = [UIntPtr]::Zero
-      [Win32.NativeMethods]::SendMessageTimeout(
-        $HWND_BROADCAST, $WM_SETTINGCHANGE, [UIntPtr]::Zero,
-        "Environment", 2, 5000, [ref]$result
-      ) | Out-Null
 
       Write-Success "Added $installDir to your PATH"
 
@@ -280,4 +295,16 @@ public static extern IntPtr SendMessageTimeout(
   }
 }
 
-Install-Clef
+try {
+  Install-Clef
+} catch {
+  Write-Host ""
+  Write-Host "  x " -ForegroundColor Red -NoNewline
+  Write-Host $_.Exception.Message
+  Write-Host ""
+  # Deliberately no `exit` here: under `irm | iex` it would close the user's
+  # PowerShell window. Returning from the script block leaves them in their
+  # shell with a visible error.
+}
+
+} # end & { ... } wrapper
