@@ -36,6 +36,48 @@ artifact.grantRead(agentLambda); // s3:GetObject
 artifact.envelopeKey?.grantDecrypt(agentLambda); // kms:Decrypt (KMS identities only)
 ```
 
+#### Artifact signing (KMS asymmetric)
+
+Pass an asymmetric KMS key (`ECDSA_SHA_256`, key spec `ECC_NIST_P256`) as
+`signingKey` to sign the envelope at `cdk synth` time. The construct
+provisions a deploy-time `kms:GetPublicKey` lookup and exposes the public
+key as a CFN token, so consumers can wire `CLEF_VERIFY_KEY` without ever
+holding key bytes themselves.
+
+```ts
+import { aws_kms as kms } from "aws-cdk-lib";
+import { ClefArtifactBucket } from "@clef-sh/cdk";
+
+const signingKey = kms.Key.fromKeyArn(this, "ClefSigningKey", signingKeyArn);
+
+const artifact = new ClefArtifactBucket(this, "ApiSecrets", {
+  identity: "api-gateway",
+  environment: "production",
+  signingKey,
+});
+
+artifact.grantRead(agentLambda);
+artifact.envelopeKey?.grantDecrypt(agentLambda);
+artifact.bindVerifyKey(agentLambda); // adds CLEF_VERIFY_KEY env var
+```
+
+The principal running `cdk synth` (developer or CI role) needs `kms:Sign`
+on the signing key — the construct does not auto-grant. The signing key
+must be a reference to an existing key (`Key.fromKeyArn(...)`); a key
+provisioned in the same stack hasn't been deployed yet at synth time and
+will be rejected with a clear error.
+
+Only KMS asymmetric signing is supported via the CDK constructs. Ed25519
+signing remains available through the CLI (`clef pack --signing-key`)
+but is intentionally not driven by `CLEF_SIGNING_KEY` in CDK synth — the
+construct prop is the only signal that signing is wanted, so a stray env
+var in CI cannot silently activate signing the user did not declare.
+
+Signing applies only to `ClefArtifactBucket`. `ClefSecret` and
+`ClefParameter` unwrap the envelope at deploy time and write plaintext
+into AWS Secrets Manager / SSM, so the signed envelope never crosses a
+runtime trust boundary in those flows.
+
 ### AWS Secrets Manager delivery (KMS-envelope identities)
 
 ```ts

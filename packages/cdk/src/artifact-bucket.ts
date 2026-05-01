@@ -1,10 +1,17 @@
 import { Construct } from "constructs";
-import { aws_kms as kms, aws_s3 as s3, aws_s3_deployment as s3deploy } from "aws-cdk-lib";
+import {
+  Token,
+  aws_kms as kms,
+  aws_lambda as lambda,
+  aws_s3 as s3,
+  aws_s3_deployment as s3deploy,
+} from "aws-cdk-lib";
 import type { IBucket } from "aws-cdk-lib/aws-s3";
 import type { IKey } from "aws-cdk-lib/aws-kms";
 import type { Grant, IGrantable } from "aws-cdk-lib/aws-iam";
 import { resolveManifestPath } from "./manifest-path";
 import { invokePackHelper } from "./pack-invoker";
+import { getOrCreateVerifyKeyResource } from "./verify-key";
 
 /**
  * Props for {@link ClefArtifactBucket}.
@@ -26,6 +33,26 @@ export interface ClefArtifactBucketProps {
    * access, TLS-only).
    */
   readonly bucket?: IBucket;
+  /**
+   * KMS asymmetric key (ECDSA_SHA_256) used to sign the envelope at
+   * `cdk synth` time. When set, the construct also provisions a deploy-time
+   * `kms:GetPublicKey` lookup so consumers can wire `CLEF_VERIFY_KEY` via
+   * {@link ClefArtifactBucket.verifyKey} or
+   * {@link ClefArtifactBucket.bindVerifyKey} without ever holding key
+   * bytes themselves.
+   *
+   * The key must be a reference to an existing key (`Key.fromKeyArn(...)`),
+   * not one provisioned in the same stack — signing happens at synth before
+   * the stack is deployed.
+   *
+   * The principal running `cdk synth` (developer laptop or CI role) needs
+   * `kms:Sign` on this key. The construct does not auto-grant.
+   *
+   * For Ed25519 signing, set `CLEF_SIGNING_KEY` in the synth environment
+   * instead. There is no construct-level surface for the public verify key
+   * in that mode — wire `CLEF_VERIFY_KEY` on the consumer manually.
+   */
+  readonly signingKey?: IKey;
 }
 
 interface EnvelopeShape {
@@ -58,6 +85,16 @@ export class ClefArtifactBucket extends Construct {
    * service-identity config. Undefined for age-only identities.
    */
   public readonly envelopeKey?: IKey;
+  /**
+   * Base64 DER SPKI public key for verifying the envelope's signature at
+   * runtime. CFN token resolved at deploy time via `kms:GetPublicKey`.
+   * Undefined when {@link ClefArtifactBucketProps.signingKey} is not set.
+   *
+   * Wire into a consumer Lambda via {@link ClefArtifactBucket.bindVerifyKey}
+   * or directly:
+   * `fn.addEnvironment("CLEF_VERIFY_KEY", artifact.verifyKey!)`.
+   */
+  public readonly verifyKey?: string;
   /** Absolute path to the resolved `clef.yaml`, for debugging. */
   public readonly manifestPath: string;
 
@@ -66,10 +103,20 @@ export class ClefArtifactBucket extends Construct {
 
     this.manifestPath = resolveManifestPath(props.manifest);
 
+    if (props.signingKey && Token.isUnresolved(props.signingKey.keyArn)) {
+      throw new Error(
+        "ClefArtifactBucket: signingKey must reference an existing KMS key " +
+          "(use `Key.fromKeyArn(...)`). Signing happens at `cdk synth` time, " +
+          "before the stack is deployed, so a key created in the same stack " +
+          "hasn't been provisioned yet.",
+      );
+    }
+
     const { envelopeJson } = invokePackHelper({
       manifest: this.manifestPath,
       identity: props.identity,
       environment: props.environment,
+      signingKmsKeyId: props.signingKey?.keyArn,
     });
 
     // JSON.parse is safe here — the helper produces canonical JSON via
@@ -109,6 +156,11 @@ export class ClefArtifactBucket extends Construct {
     if (parsed.envelope?.keyId) {
       this.envelopeKey = kms.Key.fromKeyArn(this, "EnvelopeKey", parsed.envelope.keyId);
     }
+
+    if (props.signingKey) {
+      const lookup = getOrCreateVerifyKeyResource(this, props.signingKey);
+      this.verifyKey = lookup.getResponseField("PublicKey");
+    }
   }
 
   /**
@@ -131,6 +183,26 @@ export class ClefArtifactBucket extends Construct {
    */
   public get s3AgentSource(): string {
     return `s3://${this.bucket.bucketName}/${this.objectKey}`;
+  }
+
+  /**
+   * Wire the signature verification public key into a consumer Lambda's
+   * environment as `CLEF_VERIFY_KEY`. The runtime hard-rejects unsigned
+   * artifacts when this env var is set, so do not call this for unsigned
+   * artifacts unless you intend to enforce signing.
+   *
+   * Throws if {@link ClefArtifactBucketProps.signingKey} was not configured
+   * — there is no public key to bind.
+   */
+  public bindVerifyKey(fn: lambda.Function): void {
+    if (!this.verifyKey) {
+      throw new Error(
+        "ClefArtifactBucket: bindVerifyKey called but no signingKey was " +
+          "configured. Pass `signingKey` to the construct, or set " +
+          "`CLEF_VERIFY_KEY` on the consumer manually for Ed25519 deployments.",
+      );
+    }
+    fn.addEnvironment("CLEF_VERIFY_KEY", this.verifyKey);
   }
 }
 

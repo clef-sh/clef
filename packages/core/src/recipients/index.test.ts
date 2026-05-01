@@ -358,6 +358,11 @@ describe("RecipientManager", () => {
       mockReadFileSync.mockImplementation(() =>
         YAML.stringify({
           version: 1,
+          environments: [
+            { name: "staging", description: "Staging" },
+            { name: "production", description: "Production" },
+          ],
+          namespaces: [{ name: "database", description: "Database" }],
           sops: { default_backend: "age" },
           file_pattern: "{namespace}/{environment}.enc.yaml",
         }),
