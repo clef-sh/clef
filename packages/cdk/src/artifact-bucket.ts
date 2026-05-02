@@ -220,7 +220,7 @@ export class ClefArtifactBucket extends Construct {
       // exposed on the construct — the caller already has the ARN.
       const signingKey = kms.Key.fromKeyArn(this, "SigningKey", props.signingKeyArn);
       const lookup = getOrCreateVerifyKeyResource(this, signingKey);
-      this.verifyKey = lookup.getResponseField("PublicKey");
+      this.verifyKey = lookup.getAttString("PublicKey");
     }
   }
 

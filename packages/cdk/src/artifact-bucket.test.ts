@@ -337,11 +337,18 @@ describe("ClefArtifactBucket", () => {
       });
     });
 
-    it("accepts an alias ARN as signingKeyArn", () => {
+    it("accepts an alias ARN as signingKeyArn and emits an alias-conditioned IAM grant", () => {
       // Alias ARNs are the recommended pattern — KMS resolves the alias at
       // every Sign / GetPublicKey call so rotating the underlying key needs
-      // no stack changes. The construct should treat alias ARNs identically
-      // to direct key ARNs (they're both literal strings).
+      // no stack changes.
+      //
+      // KMS auth quirk: granting `kms:GetPublicKey on <alias-arn>` does NOT
+      // authorize key operations — AWS evaluates IAM against the resolved
+      // key ARN, not the alias used in the request. So the construct must
+      // grant `Resource: <key-wildcard>` with a `kms:RequestAlias` condition
+      // matching the alias name. Then IAM matches the resolved key, and the
+      // condition narrows the grant to calls that actually went through the
+      // alias.
       mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
       const app = new App();
       const stack = new Stack(app, "TestStack");
@@ -354,16 +361,23 @@ describe("ClefArtifactBucket", () => {
         signingKeyArn: aliasArn,
       });
 
+      // pack-helper still receives the alias ARN — KMS resolves at runtime.
       expect(mockInvokePackHelper).toHaveBeenCalledWith(
         expect.objectContaining({ signingKmsKeyId: aliasArn }),
       );
+      // IAM grant uses the key-wildcard + condition pattern.
       Template.fromStack(stack).hasResourceProperties("AWS::IAM::Policy", {
         PolicyDocument: {
           Statement: Match.arrayWith([
             Match.objectLike({
               Action: "kms:GetPublicKey",
               Effect: "Allow",
-              Resource: aliasArn,
+              Resource: "arn:aws:kms:us-east-1:111122223333:key/*",
+              Condition: {
+                StringEquals: {
+                  "kms:RequestAlias": "alias/clef-signing",
+                },
+              },
             }),
           ]),
         },
