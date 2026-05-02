@@ -26,7 +26,7 @@ import type { IKey } from "aws-cdk-lib/aws-kms";
  * (KeyUsage, KeySpec, etc.) don't leak into the CFN template. The framework
  * base64-encodes binary fields when building the response object, so
  * `getResponseField("PublicKey")` resolves to base64 DER SPKI at deploy time
- * — exactly what `verifySignature` expects in `CLEF_VERIFY_KEY`.
+ * — exactly the format the Clef agent expects in `CLEF_AGENT_VERIFY_KEY`.
  */
 export function getOrCreateVerifyKeyResource(
   scope: Construct,

@@ -36,8 +36,8 @@ export interface ClefArtifactBucketProps {
   /**
    * KMS asymmetric key (ECDSA_SHA_256) used to sign the envelope at
    * `cdk synth` time. When set, the construct also provisions a deploy-time
-   * `kms:GetPublicKey` lookup so consumers can wire `CLEF_VERIFY_KEY` via
-   * {@link ClefArtifactBucket.verifyKey} or
+   * `kms:GetPublicKey` lookup so consumers can wire `CLEF_AGENT_VERIFY_KEY`
+   * via {@link ClefArtifactBucket.verifyKey} or
    * {@link ClefArtifactBucket.bindVerifyKey} without ever holding key
    * bytes themselves.
    *
@@ -50,7 +50,7 @@ export interface ClefArtifactBucketProps {
    *
    * For Ed25519 signing, set `CLEF_SIGNING_KEY` in the synth environment
    * instead. There is no construct-level surface for the public verify key
-   * in that mode — wire `CLEF_VERIFY_KEY` on the consumer manually.
+   * in that mode — wire `CLEF_AGENT_VERIFY_KEY` on the consumer manually.
    */
   readonly signingKey?: IKey;
 }
@@ -92,7 +92,7 @@ export class ClefArtifactBucket extends Construct {
    *
    * Wire into a consumer Lambda via {@link ClefArtifactBucket.bindVerifyKey}
    * or directly:
-   * `fn.addEnvironment("CLEF_VERIFY_KEY", artifact.verifyKey!)`.
+   * `fn.addEnvironment("CLEF_AGENT_VERIFY_KEY", artifact.verifyKey!)`.
    */
   public readonly verifyKey?: string;
   /** Absolute path to the resolved `clef.yaml`, for debugging. */
@@ -187,9 +187,9 @@ export class ClefArtifactBucket extends Construct {
 
   /**
    * Wire the signature verification public key into a consumer Lambda's
-   * environment as `CLEF_VERIFY_KEY`. The runtime hard-rejects unsigned
-   * artifacts when this env var is set, so do not call this for unsigned
-   * artifacts unless you intend to enforce signing.
+   * environment as `CLEF_AGENT_VERIFY_KEY`. The Clef agent hard-rejects
+   * unsigned artifacts when this env var is set, so do not call this for
+   * unsigned artifacts unless you intend to enforce signing.
    *
    * Throws if {@link ClefArtifactBucketProps.signingKey} was not configured
    * — there is no public key to bind.
@@ -199,10 +199,10 @@ export class ClefArtifactBucket extends Construct {
       throw new Error(
         "ClefArtifactBucket: bindVerifyKey called but no signingKey was " +
           "configured. Pass `signingKey` to the construct, or set " +
-          "`CLEF_VERIFY_KEY` on the consumer manually for Ed25519 deployments.",
+          "`CLEF_AGENT_VERIFY_KEY` on the consumer manually for Ed25519 deployments.",
       );
     }
-    fn.addEnvironment("CLEF_VERIFY_KEY", this.verifyKey);
+    fn.addEnvironment("CLEF_AGENT_VERIFY_KEY", this.verifyKey);
   }
 }
 

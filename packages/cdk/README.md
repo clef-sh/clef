@@ -41,8 +41,8 @@ artifact.envelopeKey?.grantDecrypt(agentLambda); // kms:Decrypt (KMS identities 
 Pass an asymmetric KMS key (`ECDSA_SHA_256`, key spec `ECC_NIST_P256`) as
 `signingKey` to sign the envelope at `cdk synth` time. The construct
 provisions a deploy-time `kms:GetPublicKey` lookup and exposes the public
-key as a CFN token, so consumers can wire `CLEF_VERIFY_KEY` without ever
-holding key bytes themselves.
+key as a CFN token, so consumers can wire `CLEF_AGENT_VERIFY_KEY` without
+ever holding key bytes themselves.
 
 ```ts
 import { aws_kms as kms } from "aws-cdk-lib";
@@ -58,7 +58,7 @@ const artifact = new ClefArtifactBucket(this, "ApiSecrets", {
 
 artifact.grantRead(agentLambda);
 artifact.envelopeKey?.grantDecrypt(agentLambda);
-artifact.bindVerifyKey(agentLambda); // adds CLEF_VERIFY_KEY env var
+artifact.bindVerifyKey(agentLambda); // adds CLEF_AGENT_VERIFY_KEY env var
 ```
 
 The principal running `cdk synth` (developer or CI role) needs `kms:Sign`

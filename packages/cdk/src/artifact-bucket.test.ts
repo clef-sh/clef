@@ -428,7 +428,7 @@ describe("ClefArtifactBucket", () => {
       Template.fromStack(stack).resourceCountIs("Custom::ClefVerifyKeyLookup", 2);
     });
 
-    it("bindVerifyKey adds CLEF_VERIFY_KEY to the consumer Lambda", () => {
+    it("bindVerifyKey adds CLEF_AGENT_VERIFY_KEY to the consumer Lambda", () => {
       mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
       const app = new App();
       const stack = new Stack(app, "TestStack");
@@ -451,7 +451,7 @@ describe("ClefArtifactBucket", () => {
 
       Template.fromStack(stack).hasResourceProperties("AWS::Lambda::Function", {
         Environment: {
-          Variables: Match.objectLike({ CLEF_VERIFY_KEY: Match.anyValue() }),
+          Variables: Match.objectLike({ CLEF_AGENT_VERIFY_KEY: Match.anyValue() }),
         },
       });
     });
