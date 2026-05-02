@@ -289,17 +289,16 @@ describe("ClefArtifactBucket", () => {
   describe("signing", () => {
     const signingKeyArn = "arn:aws:kms:us-east-1:111122223333:key/sign-1234";
 
-    it("forwards signing-key ARN to pack-helper when signingKey is set", () => {
+    it("forwards signingKeyArn to pack-helper", () => {
       mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
       const app = new App();
       const stack = new Stack(app, "TestStack");
-      const signingKey = kms.Key.fromKeyArn(stack, "Sign", signingKeyArn);
 
       new ClefArtifactBucket(stack, "Secrets", {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
-        signingKey,
+        signingKeyArn,
       });
 
       expect(mockInvokePackHelper).toHaveBeenCalledWith(
@@ -311,13 +310,12 @@ describe("ClefArtifactBucket", () => {
       mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
       const app = new App();
       const stack = new Stack(app, "TestStack");
-      const signingKey = kms.Key.fromKeyArn(stack, "Sign", signingKeyArn);
 
       new ClefArtifactBucket(stack, "Secrets", {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
-        signingKey,
+        signingKeyArn,
       });
 
       const template = Template.fromStack(stack);
@@ -339,17 +337,49 @@ describe("ClefArtifactBucket", () => {
       });
     });
 
+    it("accepts an alias ARN as signingKeyArn", () => {
+      // Alias ARNs are the recommended pattern — KMS resolves the alias at
+      // every Sign / GetPublicKey call so rotating the underlying key needs
+      // no stack changes. The construct should treat alias ARNs identically
+      // to direct key ARNs (they're both literal strings).
+      mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
+      const app = new App();
+      const stack = new Stack(app, "TestStack");
+      const aliasArn = "arn:aws:kms:us-east-1:111122223333:alias/clef-signing";
+
+      new ClefArtifactBucket(stack, "Secrets", {
+        identity: "api",
+        environment: "prod",
+        manifest: manifestPath,
+        signingKeyArn: aliasArn,
+      });
+
+      expect(mockInvokePackHelper).toHaveBeenCalledWith(
+        expect.objectContaining({ signingKmsKeyId: aliasArn }),
+      );
+      Template.fromStack(stack).hasResourceProperties("AWS::IAM::Policy", {
+        PolicyDocument: {
+          Statement: Match.arrayWith([
+            Match.objectLike({
+              Action: "kms:GetPublicKey",
+              Effect: "Allow",
+              Resource: aliasArn,
+            }),
+          ]),
+        },
+      });
+    });
+
     it("exposes verifyKey as a CFN token when signing is configured", () => {
       mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
       const app = new App();
       const stack = new Stack(app, "TestStack");
-      const signingKey = kms.Key.fromKeyArn(stack, "Sign", signingKeyArn);
 
       const artifact = new ClefArtifactBucket(stack, "Secrets", {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
-        signingKey,
+        signingKeyArn,
       });
 
       // The token resolves to a Fn::GetAtt against the lookup resource.
@@ -359,7 +389,7 @@ describe("ClefArtifactBucket", () => {
       expect(JSON.stringify(resolved)).toContain("Fn::GetAtt");
     });
 
-    it("leaves verifyKey undefined when signingKey is not configured", () => {
+    it("leaves verifyKey undefined when signingKeyArn is not configured", () => {
       mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
       const app = new App();
       const stack = new Stack(app, "TestStack");
@@ -378,13 +408,12 @@ describe("ClefArtifactBucket", () => {
       mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
       const app = new App();
       const stack = new Stack(app, "TestStack");
-      const signingKey = kms.Key.fromKeyArn(stack, "Sign", signingKeyArn);
 
       new ClefArtifactBucket(stack, "ApiProd", {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
-        signingKey,
+        signingKeyArn,
       });
       // Different identity/env, but same signing key — dedup must collapse
       // to a single AwsCustomResource so deploy-time round-trips don't scale
@@ -394,7 +423,7 @@ describe("ClefArtifactBucket", () => {
         identity: "worker",
         environment: "prod",
         manifest: manifestPath,
-        signingKey,
+        signingKeyArn,
       });
 
       Template.fromStack(stack).resourceCountIs("Custom::ClefVerifyKeyLookup", 1);
@@ -404,25 +433,20 @@ describe("ClefArtifactBucket", () => {
       mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
       const app = new App();
       const stack = new Stack(app, "TestStack");
-      const keyA = kms.Key.fromKeyArn(stack, "KeyA", signingKeyArn);
-      const keyB = kms.Key.fromKeyArn(
-        stack,
-        "KeyB",
-        "arn:aws:kms:us-east-1:111122223333:key/sign-5678",
-      );
+      const otherArn = "arn:aws:kms:us-east-1:111122223333:key/sign-5678";
 
       new ClefArtifactBucket(stack, "ApiProd", {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
-        signingKey: keyA,
+        signingKeyArn,
       });
       mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("worker", "prod"));
       new ClefArtifactBucket(stack, "WorkerProd", {
         identity: "worker",
         environment: "prod",
         manifest: manifestPath,
-        signingKey: keyB,
+        signingKeyArn: otherArn,
       });
 
       Template.fromStack(stack).resourceCountIs("Custom::ClefVerifyKeyLookup", 2);
@@ -432,13 +456,12 @@ describe("ClefArtifactBucket", () => {
       mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
       const app = new App();
       const stack = new Stack(app, "TestStack");
-      const signingKey = kms.Key.fromKeyArn(stack, "Sign", signingKeyArn);
 
       const artifact = new ClefArtifactBucket(stack, "Secrets", {
         identity: "api",
         environment: "prod",
         manifest: manifestPath,
-        signingKey,
+        signingKeyArn,
       });
 
       const fn = new lambda.Function(stack, "Consumer", {
@@ -473,14 +496,16 @@ describe("ClefArtifactBucket", () => {
         code: lambda.Code.fromInline("exports.handler = async () => ({});"),
       });
 
-      expect(() => artifact.bindVerifyKey(fn)).toThrow(/no signingKey was configured/);
+      expect(() => artifact.bindVerifyKey(fn)).toThrow(/no signingKeyArn was configured/);
     });
 
-    it("rejects an unresolved (in-stack) signing key with a clear error", () => {
+    it("rejects a CFN token signingKeyArn with a clear error", () => {
       mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
       const app = new App();
       const stack = new Stack(app, "TestStack");
-      // A key created in the same stack — keyArn is a CFN token, not a literal.
+      // A key created in the same stack — its keyArn is a CFN token. Common
+      // mistake users make when reaching for the "natural CDK pattern" that
+      // the construct deliberately rejects.
       const inStackKey = new kms.Key(stack, "InStack");
 
       expect(
@@ -489,9 +514,93 @@ describe("ClefArtifactBucket", () => {
             identity: "api",
             environment: "prod",
             manifest: manifestPath,
-            signingKey: inStackKey,
+            signingKeyArn: inStackKey.keyArn,
           }),
-      ).toThrow(/must reference an existing KMS key/);
+      ).toThrow(/must be a literal string at synth/);
+    });
+
+    describe("signingKeyArnFromAlias", () => {
+      // The static helper does kms.Key.fromLookup internally, which would hit
+      // AWS at synth. We stub fromLookup to return an IKey backed by a known
+      // resolved key ARN, so the test exercises the rewrite logic (key →
+      // alias) without external dependencies.
+      let fromLookupSpy: jest.SpyInstance;
+
+      afterEach(() => {
+        fromLookupSpy?.mockRestore();
+      });
+
+      function stubFromLookup(resolvedKeyArn: string) {
+        fromLookupSpy = jest
+          .spyOn(kms.Key, "fromLookup")
+          .mockImplementation((scope, id) => kms.Key.fromKeyArn(scope, id, resolvedKeyArn));
+      }
+
+      it("rewrites the resolved key ARN into alias-ARN form", () => {
+        stubFromLookup("arn:aws:kms:us-east-1:111122223333:key/abcd-1234");
+        const app = new App();
+        const stack = new Stack(app, "TestStack", {
+          env: { account: "111122223333", region: "us-east-1" },
+        });
+
+        const arn = ClefArtifactBucket.signingKeyArnFromAlias(stack, "alias/clef-signing");
+
+        expect(arn).toBe("arn:aws:kms:us-east-1:111122223333:alias/clef-signing");
+      });
+
+      it("normalizes alias names without the 'alias/' prefix", () => {
+        stubFromLookup("arn:aws:kms:us-east-1:111122223333:key/abcd-1234");
+        const app = new App();
+        const stack = new Stack(app, "TestStack", {
+          env: { account: "111122223333", region: "us-east-1" },
+        });
+
+        const arn = ClefArtifactBucket.signingKeyArnFromAlias(stack, "clef-signing");
+
+        expect(arn).toBe("arn:aws:kms:us-east-1:111122223333:alias/clef-signing");
+        // The underlying fromLookup must always receive the prefixed form,
+        // since that's the canonical KMS alias name.
+        expect(fromLookupSpy).toHaveBeenCalledWith(stack, expect.any(String), {
+          aliasName: "alias/clef-signing",
+        });
+      });
+
+      it("preserves partition for non-standard ARNs (GovCloud, China)", () => {
+        // Sanity check that the rewrite doesn't accidentally hardcode 'aws'.
+        stubFromLookup("arn:aws-us-gov:kms:us-gov-west-1:111122223333:key/abcd");
+        const app = new App();
+        const stack = new Stack(app, "TestStack", {
+          env: { account: "111122223333", region: "us-gov-west-1" },
+        });
+
+        const arn = ClefArtifactBucket.signingKeyArnFromAlias(stack, "alias/clef-signing");
+
+        expect(arn).toBe("arn:aws-us-gov:kms:us-gov-west-1:111122223333:alias/clef-signing");
+      });
+
+      it("feeds correctly into ClefArtifactBucket signingKeyArn", () => {
+        stubFromLookup("arn:aws:kms:us-east-1:111122223333:key/abcd-1234");
+        mockInvokePackHelper.mockReturnValue(ageOnlyEnvelope("api", "prod"));
+        const app = new App();
+        const stack = new Stack(app, "TestStack", {
+          env: { account: "111122223333", region: "us-east-1" },
+        });
+
+        const aliasArn = ClefArtifactBucket.signingKeyArnFromAlias(stack, "alias/clef-signing");
+        new ClefArtifactBucket(stack, "Secrets", {
+          identity: "api",
+          environment: "prod",
+          manifest: manifestPath,
+          signingKeyArn: aliasArn,
+        });
+
+        // pack-helper sees the alias ARN — KMS will resolve at runtime.
+        expect(mockInvokePackHelper).toHaveBeenCalledWith(
+          expect.objectContaining({
+            signingKmsKeyId: "arn:aws:kms:us-east-1:111122223333:alias/clef-signing",
+          }),
+        );
+      });
     });
   });
 

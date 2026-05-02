@@ -1,5 +1,8 @@
 import { Construct } from "constructs";
 import {
+  Arn,
+  ArnFormat,
+  Stack,
   Token,
   aws_kms as kms,
   aws_lambda as lambda,
@@ -34,16 +37,24 @@ export interface ClefArtifactBucketProps {
    */
   readonly bucket?: IBucket;
   /**
-   * KMS asymmetric key (ECDSA_SHA_256) used to sign the envelope at
-   * `cdk synth` time. When set, the construct also provisions a deploy-time
+   * ARN of a KMS asymmetric signing key (key spec `ECC_NIST_P256`,
+   * algorithm `ECDSA_SHA_256`) used to sign the envelope at `cdk synth`
+   * time. When set, the construct also provisions a deploy-time
    * `kms:GetPublicKey` lookup so consumers can wire `CLEF_AGENT_VERIFY_KEY`
    * via {@link ClefArtifactBucket.verifyKey} or
    * {@link ClefArtifactBucket.bindVerifyKey} without ever holding key
    * bytes themselves.
    *
-   * The key must be a reference to an existing key (`Key.fromKeyArn(...)`),
-   * not one provisioned in the same stack — signing happens at synth before
-   * the stack is deployed.
+   * Must be a literal string at synth — CFN tokens are rejected. Signing
+   * happens in a subprocess outside the CFN graph, so the key has to
+   * already exist when synth runs.
+   *
+   * Recommended: pass an alias ARN, e.g.
+   * `"arn:aws:kms:us-east-1:111122223333:alias/clef-signing"`. KMS
+   * resolves the alias at every Sign / GetPublicKey call, so rotating the
+   * underlying key is "re-target the alias" — no stack changes needed.
+   * Direct key ARNs (`...:key/abcd-...`) also work but couple the stack
+   * to a specific key generation.
    *
    * The principal running `cdk synth` (developer laptop or CI role) needs
    * `kms:Sign` on this key. The construct does not auto-grant.
@@ -52,7 +63,7 @@ export interface ClefArtifactBucketProps {
    * instead. There is no construct-level surface for the public verify key
    * in that mode — wire `CLEF_AGENT_VERIFY_KEY` on the consumer manually.
    */
-  readonly signingKey?: IKey;
+  readonly signingKeyArn?: string;
 }
 
 interface EnvelopeShape {
@@ -88,7 +99,7 @@ export class ClefArtifactBucket extends Construct {
   /**
    * Base64 DER SPKI public key for verifying the envelope's signature at
    * runtime. CFN token resolved at deploy time via `kms:GetPublicKey`.
-   * Undefined when {@link ClefArtifactBucketProps.signingKey} is not set.
+   * Undefined when {@link ClefArtifactBucketProps.signingKeyArn} is not set.
    *
    * Wire into a consumer Lambda via {@link ClefArtifactBucket.bindVerifyKey}
    * or directly:
@@ -98,17 +109,64 @@ export class ClefArtifactBucket extends Construct {
   /** Absolute path to the resolved `clef.yaml`, for debugging. */
   public readonly manifestPath: string;
 
+  /**
+   * Resolve a KMS alias to an alias ARN suitable for {@link
+   * ClefArtifactBucketProps.signingKeyArn}.
+   *
+   * Internally calls `kms.Key.fromLookup({ aliasName })` to discover the
+   * alias's partition/region/account at synth, then rewrites the resolved
+   * key ARN into alias-ARN form. Pass the result to `signingKeyArn` and
+   * KMS resolves the alias on every Sign / GetPublicKey call — rotating
+   * the underlying key needs no stack changes.
+   *
+   * ```ts
+   * new ClefArtifactBucket(this, "X", {
+   *   identity: "api-gateway",
+   *   environment: "production",
+   *   signingKeyArn: ClefArtifactBucket.signingKeyArnFromAlias(
+   *     this, "alias/clef-signing",
+   *   ),
+   * });
+   * ```
+   *
+   * Requires AWS credentials with `kms:DescribeKey` at first synth;
+   * subsequent synths read from `cdk.context.json`. Commit
+   * `cdk.context.json` to source so CI synths are deterministic. If the
+   * alias is later re-targeted to a key in a different account or region,
+   * run `cdk context --reset` and re-synth.
+   *
+   * The `aliasName` may be passed with or without the `"alias/"` prefix.
+   */
+  public static signingKeyArnFromAlias(scope: Construct, aliasName: string): string {
+    const normalized = aliasName.startsWith("alias/") ? aliasName : `alias/${aliasName}`;
+    const bare = normalized.slice("alias/".length);
+    // CDK requires a unique construct id per scope; derive one from the
+    // alias so multiple lookups in the same scope don't collide.
+    const lookupId = `ClefSigningKeyLookup-${bare}`;
+    const looked = kms.Key.fromLookup(scope, lookupId, { aliasName: normalized });
+    // Resolved key ARN looks like `arn:<partition>:kms:<region>:<account>:key/<id>`.
+    // Swap the resource portion to alias form, preserving partition/region/account.
+    const components = Arn.split(looked.keyArn, ArnFormat.SLASH_RESOURCE_NAME);
+    return Arn.format({ ...components, resource: "alias", resourceName: bare }, Stack.of(scope));
+  }
+
   constructor(scope: Construct, id: string, props: ClefArtifactBucketProps) {
     super(scope, id);
 
     this.manifestPath = resolveManifestPath(props.manifest);
 
-    if (props.signingKey && Token.isUnresolved(props.signingKey.keyArn)) {
+    if (props.signingKeyArn !== undefined && Token.isUnresolved(props.signingKeyArn)) {
       throw new Error(
-        "ClefArtifactBucket: signingKey must reference an existing KMS key " +
-          "(use `Key.fromKeyArn(...)`). Signing happens at `cdk synth` time, " +
-          "before the stack is deployed, so a key created in the same stack " +
-          "hasn't been provisioned yet.",
+        "ClefArtifactBucket: signingKeyArn must be a literal string at synth, " +
+          "not a CFN token. Signing happens in a subprocess outside the CFN " +
+          "graph, so a token resolved at deploy time is too late.\n\n" +
+          "Recommended: pass an alias ARN, e.g.\n" +
+          '  "arn:aws:kms:<region>:<account>:alias/clef-signing"\n' +
+          "KMS resolves the alias at every Sign / GetPublicKey call, so the " +
+          "underlying key can be rotated without changing this stack.\n\n" +
+          "Same-stack `new kms.Key(...)` and cross-stack token references are " +
+          "rejected by design. Provision the signing key in a long-lived " +
+          "platform stack and reference its ARN here as a literal string.",
       );
     }
 
@@ -116,7 +174,7 @@ export class ClefArtifactBucket extends Construct {
       manifest: this.manifestPath,
       identity: props.identity,
       environment: props.environment,
-      signingKmsKeyId: props.signingKey?.keyArn,
+      signingKmsKeyId: props.signingKeyArn,
     });
 
     // JSON.parse is safe here — the helper produces canonical JSON via
@@ -157,8 +215,11 @@ export class ClefArtifactBucket extends Construct {
       this.envelopeKey = kms.Key.fromKeyArn(this, "EnvelopeKey", parsed.envelope.keyId);
     }
 
-    if (props.signingKey) {
-      const lookup = getOrCreateVerifyKeyResource(this, props.signingKey);
+    if (props.signingKeyArn !== undefined) {
+      // Build an internal IKey reference for the verify-key lookup. Not
+      // exposed on the construct — the caller already has the ARN.
+      const signingKey = kms.Key.fromKeyArn(this, "SigningKey", props.signingKeyArn);
+      const lookup = getOrCreateVerifyKeyResource(this, signingKey);
       this.verifyKey = lookup.getResponseField("PublicKey");
     }
   }
@@ -191,14 +252,14 @@ export class ClefArtifactBucket extends Construct {
    * unsigned artifacts when this env var is set, so do not call this for
    * unsigned artifacts unless you intend to enforce signing.
    *
-   * Throws if {@link ClefArtifactBucketProps.signingKey} was not configured
+   * Throws if {@link ClefArtifactBucketProps.signingKeyArn} was not configured
    * — there is no public key to bind.
    */
   public bindVerifyKey(fn: lambda.Function): void {
     if (!this.verifyKey) {
       throw new Error(
-        "ClefArtifactBucket: bindVerifyKey called but no signingKey was " +
-          "configured. Pass `signingKey` to the construct, or set " +
+        "ClefArtifactBucket: bindVerifyKey called but no signingKeyArn was " +
+          "configured. Pass `signingKeyArn` to the construct, or set " +
           "`CLEF_AGENT_VERIFY_KEY` on the consumer manually for Ed25519 deployments.",
       );
     }
