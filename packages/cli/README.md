@@ -1,6 +1,6 @@
 # @clef-sh/cli
 
-CLI for [Clef](https://clef.sh) — git-native secrets management built on [Mozilla SOPS](https://github.com/getsops/sops). Adds structure, visibility, and guardrails to encrypted secrets without servers, databases, or vendor lock-in.
+CLI for [Clef](https://clef.sh) — git-native secrets management built on [CNCF SOPS](https://github.com/getsops/sops). Adds structure, visibility, and guardrails to encrypted secrets without servers, databases, or vendor lock-in.
 
 ## Install
 

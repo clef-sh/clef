@@ -8,7 +8,7 @@
 
 A secrets server is unnecessary overhead. The secrets already live in git — encrypted, versioned, reviewed — and the compute that needs them already has an identity: an IAM role, a service account, an OIDC token. The missing piece is not a server. It is an architecture that connects those two facts without introducing a third system to trust.
 
-Clef is that architecture. Secrets are SOPS-encrypted files in git. A lightweight agent delivers them to production as packed, signed artifacts. No central server. No vendor custody. In KMS mode, no static credential exists anywhere in the pipeline — authentication is an IAM policy, not a key you can leak.
+Clef is that architecture. Secrets are SOPS-encrypted files in git. Clef's encryption layer is the SOPS project (`getsops/sops`, a CNCF Sandbox project); the rest of this paper describes what Clef builds on top. A lightweight agent delivers them to production as packed, signed artifacts. No central server. No vendor custody. In KMS mode, no static credential exists anywhere in the pipeline — authentication is an IAM policy, not a key you can leak.
 
 The recommended production topology uses up to three separate KMS keys — one for source encryption (SOPS backend), one for artifact wrapping (envelope), and one for artifact signing (provenance) — plus a dedicated secrets repository, eliminating both static credentials and cross-environment blast radius. Everything else in this paper is a stepping stone toward that destination. Section 1.1 provides a quick decision guide for readers who want to know upfront whether Clef fits their situation.
 
@@ -53,7 +53,7 @@ Clef treats secrets as **encrypted files in git**, managed by a CLI that enforce
 
 ### 2.1 The Foundation: SOPS + age Encryption
 
-At its core, Clef is a structured layer on top of [Mozilla SOPS](https://github.com/getsops/sops) and [age encryption](https://age-encryption.org). SOPS encrypts individual values within YAML/JSON files while leaving keys in plaintext, enabling meaningful git diffs, code review of structural changes, and automated drift detection without decryption. Age provides modern, simple public-key encryption with no configuration files or key servers.
+At its core, Clef is a structured layer on top of [SOPS, a CNCF Sandbox project](https://github.com/getsops/sops), and [age encryption](https://age-encryption.org). SOPS encrypts individual values within YAML/JSON files while leaving keys in plaintext, enabling meaningful git diffs, code review of structural changes, and automated drift detection without decryption. Age provides modern, simple public-key encryption with no configuration files or key servers.
 
 **The non-negotiable constraint**: decrypted values exist only in memory. No intermediate file is written. No temporary directory is used. Clef enforces this at the architecture level, not as a policy. During encryption (`clef set`), plaintext is passed via stdin and ciphertext emitted via stdout. During decryption, the reverse applies. In both directions, the SOPS binary operates as a streaming transform with no disk-backed intermediary.
 
@@ -211,7 +211,7 @@ A CI pipeline that runs `clef pack` needs to decrypt SOPS files. Clef supports a
 
 The quick-start tier is the fastest path to working secrets. The KMS hardened tier is the destination. Everything in between is a stepping stone — each layer removes one static credential from the system. The rest of this section describes what it takes to reach each tier.
 
-The **quick-start tier** is the right starting point for most teams. `clef init` generates an age key, encrypts the matrix, and installs git hooks in one command. Teams already using vanilla SOPS with age keys can adopt Clef by adding a `clef.yaml` manifest — existing encrypted files, existing keys, and existing `.sops.yaml` recipients all continue to work without modification. No cloud infrastructure required, no KMS key to provision, no IAM policies to write.
+The **quick-start tier** is the right starting point for most teams. `clef init` generates an age key, encrypts the matrix, and installs git hooks in one command. Teams already using SOPS with age keys can adopt Clef without disruption by adding a `clef.yaml` manifest — existing encrypted files, existing keys, and existing `.sops.yaml` recipients all continue to work without modification. No cloud infrastructure required, no KMS key to provision, no IAM policies to write.
 
 The limitation is specifically at the production service identity boundary: a runtime that needs to decrypt its artifact must hold the age private key somewhere — an env var, a secrets manager entry, a file on disk. That stored key is a static credential, which is the problem the rest of the architecture is designed to eliminate. Age keys for local development, CI decryption with a stored key, and team member access are all reasonable uses of this tier. Age keys as production runtime credentials are where the tradeoff becomes significant.
 

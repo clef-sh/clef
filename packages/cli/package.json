@@ -1,7 +1,7 @@
 {
   "name": "@clef-sh/cli",
   "version": "0.1.28",
-  "description": "CLI for Clef — git-native secrets management",
+  "description": "CLI for Clef — git-native secrets management built on CNCF SOPS",
   "repository": {
     "type": "git",
     "url": "https://github.com/clef-sh/clef",

@@ -6,7 +6,7 @@
 [![Quick start in 10 min](https://img.shields.io/badge/Quick%20start-10%20min-F0A500)](https://github.com/clef-sh/quick-start)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/qCDPZjsbrW)
 
-**Git-native secrets management built on [Mozilla SOPS](https://github.com/getsops/sops) — structured, validated, and always encrypted in your own repo.**
+**Git-native secrets management built on [CNCF SOPS](https://github.com/getsops/sops) — structured, validated, and always encrypted in your own repo.**
 
 > **Get started in 10 minutes** — clone [`clef-sh/quick-start`](https://github.com/clef-sh/quick-start), a secrets-as-code tutorial-style starter project that takes you from `clef init` through deploying secrets to AWS Secrets Manager with the CDK, then verifies the round-trip.
 >
@@ -20,15 +20,15 @@ Clef adds a namespace-by-environment matrix, schema validation, drift detection,
 
 ## Why Clef?
 
-SOPS is a great encryption engine, but at team scale it falls short:
+[SOPS](https://github.com/getsops/sops) is intentionally a primitive — a focused, sharp tool for encrypting and decrypting structured config files. It deliberately doesn't ship the surrounding workflow (project structure, schema validation, UI, team conventions) because that's not its job. Clef builds that workflow layer _on top of_ the primitive:
 
-- No standard way to organise secrets across namespaces and environments
-- No visibility into key drift between environments until something breaks
-- No schema validation for secret values
-- No UI — every operation requires memorising SOPS flags
-- No guardrails against committing plaintext secrets
+- A standard namespace × environment manifest so every team's layout looks the same
+- Drift detection between environments, surfaced before deploy
+- Schema validation for secret keys (types, required fields, patterns)
+- A local web UI for browsing, editing, and diffing
+- A pre-commit hook and scanner that block accidentally-committed plaintext
 
-Clef solves all of these while keeping SOPS as the encryption engine and git as the source of truth.
+Git is the source of truth. SOPS is the encryption engine. Clef is the interface.
 
 ### Bring Your Own KMS — and inherit enterprise-grade security
 
@@ -49,7 +49,7 @@ You are not choosing between developer ergonomics and enterprise compliance. Cle
 - **Pre-commit hook** — blocks accidental plaintext commits automatically
 - **`clef exec`** — inject decrypted secrets as environment variables into any command
 - **`clef doctor`** — diagnose your environment setup in one command
-- **All SOPS backends** — age, AWS KMS, GCP KMS, and PGP
+- **All SOPS encryption backends** — age, AWS KMS, GCP KMS, and PGP
 
 ## Install
 
@@ -222,6 +222,12 @@ Security vulnerabilities should be reported to **security@clef.sh** — please d
 
 - [Website](https://clef.sh)
 - [Documentation](https://docs.clef.sh)
+
+## Acknowledgments
+
+Clef is built on [SOPS](https://github.com/getsops/sops), a CNCF Sandbox project hosted at `getsops/sops`. Every encrypted file Clef manages is a SOPS file. Every encryption and decryption operation is performed by the SOPS binary. We're grateful to the SOPS maintainers and contributors for the foundation Clef rests on.
+
+age public-key encryption is by [Filippo Valsorda](https://age-encryption.org). The bundled SOPS binaries are distributed unmodified under the Mozilla Public License 2.0 — see the [`platforms/`](./platforms) directory for redistribution details.
 
 ## License
 
