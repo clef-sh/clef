@@ -6,6 +6,7 @@
   },
   "dependencies": {
     "@clef-sh/cdk": "file:../packages/cdk",
+    "@clef-sh/runtime": "file:../packages/runtime",
     "age-encryption": "^0.3.0"
   },
   "devDependencies": {

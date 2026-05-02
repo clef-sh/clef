@@ -51,7 +51,7 @@ If a cell is missing entirely (the encrypted file does not exist), it appears wi
 
 ## What the matrix reveals
 
-The matrix makes two problems visible that are otherwise invisible with raw SOPS:
+The matrix makes two project-level problems visible that aren't visible from any single encrypted file:
 
 1. **Missing cells** — a namespace/environment combination that has no file on disk. This usually means the matrix is incomplete after adding a new namespace or environment.
 

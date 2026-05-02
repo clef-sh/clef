@@ -47,10 +47,12 @@ your-repo/
         └── production.enc.yaml
 ```
 
-The two-axis model makes two problems visible that are otherwise invisible with raw SOPS:
+The two-axis model makes two project-level problems visible that aren't visible from any single encrypted file:
 
 1. **Missing cells** — a namespace/environment combination that should exist but does not. This means someone added a new environment but forgot to create files for it.
 2. **Key drift** — a key that exists in some environments but not others within the same namespace. For example, a key was added to `dev` but never promoted to `staging` or `production`. Clef compares the full set of keys across all environments in a namespace, not just the count.
+
+These are organizational concerns above the encryption layer — the matrix is where Clef adds them.
 
 Both problems are caught by `clef lint` and visualised in the UI matrix view.
 
@@ -140,7 +142,7 @@ The UI shows a persistent red warning banner on the production tab.
 
 ## The SOPS layer
 
-Clef never implements cryptography. All encryption and decryption is delegated to the `sops` binary via stdin/stdout pipes. Decrypted values exist only in memory — never written to temporary files or logged. Clef inherits all SOPS backend support (age, AWS KMS, GCP KMS, PGP) without implementing any of it.
+Clef never implements cryptography. All encryption and decryption is delegated to the `sops` binary via stdin/stdout pipes. Decrypted values exist only in memory — never written to temporary files or logged. Clef supports all SOPS backends (age, AWS KMS, GCP KMS, PGP) directly through the SOPS binary.
 
 ## Design decision: all namespaces are encrypted
 

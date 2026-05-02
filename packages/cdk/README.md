@@ -38,34 +38,61 @@ artifact.envelopeKey?.grantDecrypt(agentLambda); // kms:Decrypt (KMS identities 
 
 #### Artifact signing (KMS asymmetric)
 
-Pass an asymmetric KMS key (`ECDSA_SHA_256`, key spec `ECC_NIST_P256`) as
-`signingKey` to sign the envelope at `cdk synth` time. The construct
-provisions a deploy-time `kms:GetPublicKey` lookup and exposes the public
-key as a CFN token, so consumers can wire `CLEF_VERIFY_KEY` without ever
-holding key bytes themselves.
+Pass the ARN of an asymmetric KMS key (key spec `ECC_NIST_P256`,
+algorithm `ECDSA_SHA_256`) as `signingKeyArn` to sign the envelope at
+`cdk synth` time. The construct provisions a deploy-time
+`kms:GetPublicKey` lookup and exposes the public key as a CFN token, so
+consumers can wire `CLEF_AGENT_VERIFY_KEY` without ever holding key
+bytes themselves.
+
+The recommended pattern uses the static helper
+`ClefArtifactBucket.signingKeyArnFromAlias`, which resolves the alias's
+region/account at synth via `kms.Key.fromLookup` and rewrites the result
+back into alias-ARN form. KMS resolves the alias on every Sign /
+GetPublicKey call, so rotating the underlying key needs no stack changes.
 
 ```ts
-import { aws_kms as kms } from "aws-cdk-lib";
 import { ClefArtifactBucket } from "@clef-sh/cdk";
-
-const signingKey = kms.Key.fromKeyArn(this, "ClefSigningKey", signingKeyArn);
 
 const artifact = new ClefArtifactBucket(this, "ApiSecrets", {
   identity: "api-gateway",
   environment: "production",
-  signingKey,
+  signingKeyArn: ClefArtifactBucket.signingKeyArnFromAlias(this, "alias/clef-signing"),
 });
 
 artifact.grantRead(agentLambda);
 artifact.envelopeKey?.grantDecrypt(agentLambda);
-artifact.bindVerifyKey(agentLambda); // adds CLEF_VERIFY_KEY env var
+artifact.bindVerifyKey(agentLambda); // adds CLEF_AGENT_VERIFY_KEY env var
 ```
 
-The principal running `cdk synth` (developer or CI role) needs `kms:Sign`
-on the signing key — the construct does not auto-grant. The signing key
-must be a reference to an existing key (`Key.fromKeyArn(...)`); a key
-provisioned in the same stack hasn't been deployed yet at synth time and
-will be rejected with a clear error.
+The helper requires AWS credentials with `kms:DescribeKey` at first
+synth; subsequent synths read from `cdk.context.json`. **Commit
+`cdk.context.json`** so CI synths are deterministic and don't need AWS
+credentials at synth time. If the alias is later re-targeted to a key
+in a different account or region, run `cdk context --reset` and
+re-synth. (Re-targeting within the same account/region is transparent
+to the cache — KMS resolves the alias at runtime.)
+
+If you already have an ARN string in hand (from a platform-stack
+output, an SSM parameter you read in a config file, etc.), pass it
+directly:
+
+```ts
+signingKeyArn: "arn:aws:kms:us-east-1:111122223333:alias/clef-signing",
+```
+
+`signingKeyArn` must be a literal string at synth — CFN tokens are
+rejected. Signing happens in a subprocess outside the CFN graph, so a
+token resolved at deploy time is too late. Same-stack `new kms.Key(...)`
+and cross-stack token references will throw with a clear error.
+
+Provision the signing key in a long-lived platform stack. The principal
+running `cdk synth` (developer laptop or CI role) needs `kms:Sign` on
+the key — the construct does not auto-grant.
+
+Direct key ARNs (`...:key/abcd-...`) work too but couple the stack to
+a specific key generation; the alias form is preferred unless you have
+a reason to pin.
 
 Only KMS asymmetric signing is supported via the CDK constructs. Ed25519
 signing remains available through the CLI (`clef pack --signing-key`)

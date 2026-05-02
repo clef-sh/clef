@@ -1,7 +1,7 @@
 # Clef — Master Project Brief
 
 > **clef.sh** | CLI command: `clef` | GitHub: github.com/clef-sh/clef
-> Git-native config and secrets management built on Mozilla SOPS
+> Git-native config and secrets management built on CNCF SOPS
 
 > **Status:** Beta (`0.1.x`). All original MVP items are shipped. Scope has
 > expanded well beyond the initial brief: runtime/agent packages for consuming
@@ -34,18 +34,19 @@
 
 ## 1. Product Vision
 
-A local-first, open source tool that brings a structured UI and workflow layer on top of Mozilla SOPS — making encrypted, git-tracked secrets and config management ergonomic for teams without requiring any server infrastructure.
+A local-first, open source tool that brings a structured UI and workflow layer on top of [CNCF SOPS](https://github.com/getsops/sops) — making encrypted, git-tracked secrets and config management ergonomic for teams without requiring any server infrastructure.
 
 **Design philosophy:** Git is the source of truth. SOPS is the encryption engine. The tool is the interface.
 
 ### Competitive Position
+
+_SOPS is not in this comparison because Clef is built on top of it, not as an alternative to it. Every encrypted file Clef manages is a SOPS file; every encryption and decryption call goes through the SOPS binary. The tools below are full-stack secrets managers that Clef would replace; SOPS is the engine inside Clef._
 
 | Tool                | Approach                        | Gap Clef fills                       |
 | ------------------- | ------------------------------- | ------------------------------------ |
 | HashiCorp Vault     | Centralized server, complex ops | Heavy; needs infra; not git-native   |
 | Doppler / Infisical | SaaS-first                      | Vendor lock-in, not truly serverless |
 | AWS Secrets Manager | Cloud-native                    | Tied to AWS                          |
-| SOPS (raw)          | CLI only                        | No UI, no workflow, no schema        |
 | git-crypt           | File-level encryption           | Less granular than SOPS              |
 
 Clef's defensible position is **"truly git-native, no server required"**. Infisical is the closest competitor — Clef's differentiation is that it requires no backend database whatsoever.
@@ -590,7 +591,7 @@ The home screen. Answers _"is my repo healthy?"_ in one glance.
 
 **The matrix table** is a grid — namespaces as rows, environments as columns. Each cell shows a status dot with glow, key count, last-modified timestamp, and an inline problem badge where relevant (`-1 missing`, `1 warn`). The entire row is clickable and navigates to the namespace editor.
 
-The matrix makes two problems visible that are otherwise invisible with raw SOPS: missing cells (a namespace/environment that should exist but doesn't) and key drift (a cell with fewer keys than its siblings, meaning something was added to dev but never promoted).
+The matrix makes two project-level problems visible that aren't visible from any single encrypted file: missing cells (a namespace/environment that should exist but doesn't) and key drift (a cell with fewer keys than its siblings, meaning something was added to dev but never promoted). These are organizational concerns above the encryption layer — the matrix is where Clef adds them.
 
 ---
 
