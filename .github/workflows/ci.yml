@@ -176,7 +176,7 @@ jobs:
       - run: |
           rm -rf registry/node_modules/vue
           ln -sfn ../../node_modules/vue registry/node_modules/vue
-      - run: cd registry && npm run build
+      - run: cd registry && npm run build:site
 
   install-script-lint:
     name: Install Script Lint
