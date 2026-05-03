@@ -169,11 +169,15 @@ export function mermaidSvgPlugin(md: MarkdownItLike): void {
     const darkUri = svgFileToDataUri(svgPathFor(hash, "dark"));
     const lightUri = svgFileToDataUri(svgPathFor(hash, "light"));
 
+    // Use <span> (not <picture>): a <picture> with multiple <img> children
+    // only renders the first <img> per HTML spec — the second is treated as
+    // a fallback and never shown. With CSS theme-swapping we need both
+    // <img>s to be present in the layout so we can flip their `display`.
     return (
-      `<picture class="mermaid-diagram">` +
+      `<span class="mermaid-diagram">` +
       `<img class="mermaid-diagram-light" src="${lightUri}" alt="diagram" loading="lazy">` +
       `<img class="mermaid-diagram-dark" src="${darkUri}" alt="diagram" loading="lazy">` +
-      `</picture>`
+      `</span>`
     );
   };
 
