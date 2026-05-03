@@ -29,12 +29,10 @@
     "format": "prettier --write . && npm run format --workspaces --if-present",
     "format:check": "prettier --check .",
     "lint": "eslint .",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present && npm run docs:api && cd docs && npx vitepress build",
     "docs:api": "typedoc",
-    "docs:build": "npm run build && npm run docs:api && vitepress build docs",
-    "docs:dev": "npm run docs:api && vitepress dev docs",
+    "docs:dev": "npm run docs:api && cd docs && npx vitepress dev",
     "registry:dev": "cd registry && npm run dev",
-    "registry:build": "cd registry && npm run build",
     "prepublishOnly": "npm run build",
     "publish": "npm publish --workspaces --if-present"
   },
@@ -58,10 +56,7 @@
     "typedoc": "^0.28.19",
     "typedoc-plugin-markdown": "^4.10.0",
     "typescript": "^5.9.3",
-    "vitepress": "^1.6.4"
-  },
-  "dependencies": {
-    "vitepress-plugin-mermaid": "^2.0.17"
+    "vitepress": "^2.0.0-alpha.17"
   },
   "overrides": {
     "axios": "^1.15.0"

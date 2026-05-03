@@ -68,7 +68,7 @@ export {
   getRotations,
   generateRandomValue,
 } from "./pending/metadata";
-export type { PendingKey, RotationRecord, CellMetadata, PendingMetadata } from "./pending/metadata";
+export type { PendingKey, RotationRecord, CellMetadata } from "./pending/metadata";
 export { ImportRunner } from "./import";
 export type { ImportFormat, ImportOptions, ImportResult, ParsedImport } from "./import";
 export { parse, parseDotenv, parseJson, parseYaml, detectFormat } from "./import/parsers";

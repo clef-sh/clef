@@ -17,14 +17,11 @@ Every secret in a Clef-managed repository lives at the intersection of two axes:
 
 This produces a matrix. Each cell in the matrix is a single encrypted YAML file containing the key-value pairs for that namespace in that environment.
 
-```mermaid
-block-beta
-  columns 4
-  space dev["DEV"] stg["STAGING"] prod["PRODUCTION"]
-  db["database"] dbd["5 keys"] dbs["5 keys"] dbp["5 keys"]
-  pay["payments"] payd["3 keys"] pays["3 keys"] payp["4 keys"]
-  auth["auth"] authd["7 keys"] auths["7 keys"] authp["7 keys"]
-```
+| Namespace    | DEV    | STAGING | PRODUCTION |
+| ------------ | ------ | ------- | ---------- |
+| **database** | 5 keys | 5 keys  | 5 keys     |
+| **payments** | 3 keys | 3 keys  | 4 keys     |
+| **auth**     | 7 keys | 7 keys  | 7 keys     |
 
 On disk, the matrix maps to a directory structure inside a `secrets/` directory:
 
