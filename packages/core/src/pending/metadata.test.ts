@@ -64,7 +64,7 @@ describe("metadataPath", () => {
 });
 
 describe("loadMetadata", () => {
-  it("should return correct PendingMetadata from existing file", async () => {
+  it("should return correct CellMetadata from existing file", async () => {
     mockedFs.existsSync.mockReturnValue(true);
     mockedFs.readFileSync.mockReturnValue(SAMPLE_PENDING_YAML);
 
