@@ -166,7 +166,12 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: cd registry && npm ci
+      # Install from the workspace root so vitepress 2 alpha and its
+      # peer-mismatched plugins (vitepress-plugin-mermaid still pins vp1)
+      # resolve through the root lockfile. Standalone `cd registry &&
+      # npm ci` produced an inconsistent vue layout that broke
+      # vue/server-renderer ESM resolution at build time.
+      - run: npm ci
       - run: cd registry && npm run build
 
   install-script-lint:
