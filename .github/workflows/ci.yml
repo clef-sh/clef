@@ -167,15 +167,6 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      # vp2 alpha's SSR phase imports `vue/server-renderer` from a temp file
-      # under registry/. On Linux CI, npm sometimes materialises vue inside
-      # registry/node_modules instead of relying on the root-hoisted copy,
-      # and node's ESM resolver then fails on the directory import. Replace
-      # whatever npm put there with a symlink to the canonical root install,
-      # which has the proper exports map. No-op when npm already hoisted.
-      - run: |
-          rm -rf registry/node_modules/vue
-          ln -sfn ../../node_modules/vue registry/node_modules/vue
       - run: cd registry && npm run build:site
 
   install-script-lint:
