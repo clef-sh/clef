@@ -172,6 +172,16 @@ jobs:
       # npm ci` produced an inconsistent vue layout that broke
       # vue/server-renderer ESM resolution at build time.
       - run: npm ci
+      - name: Diagnose vue + vitepress install layout
+        run: |
+          echo "npm version: $(npm --version)"
+          echo "node version: $(node --version)"
+          echo "--- vue install paths ---"
+          find . -maxdepth 5 -name "vue" -type d -path "*node_modules*" 2>/dev/null
+          echo "--- vitepress install paths ---"
+          find . -maxdepth 5 -name "vitepress" -type d -path "*node_modules*" 2>/dev/null
+          echo "--- registry/node_modules/vue/package.json (if present) ---"
+          test -f registry/node_modules/vue/package.json && head -1 registry/node_modules/vue/package.json && node -e "console.log(JSON.stringify(require(require('path').resolve('registry/node_modules/vue/package.json')).exports['./server-renderer'], null, 2))" || echo "(not present)"
       - run: cd registry && npm run build
 
   install-script-lint:
