@@ -167,7 +167,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: cd registry && npm run build:site
+      - run: cd registry && npm run build
 
   install-script-lint:
     name: Install Script Lint
