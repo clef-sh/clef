@@ -38,19 +38,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type MarkdownIt from "markdown-it";
-import type { Renderer } from "markdown-it";
 
 // vitepress passes a MarkdownItAsync, but we only touch renderer.rules.fence
 // which is shared with the sync MarkdownIt type — accept either by widening
 // to the renderer-only surface we need.
-type MarkdownItLike = Pick<MarkdownIt, "renderer"> & {
-  renderer: { rules: Renderer["rules"] };
-};
+type MarkdownItLike = Pick<MarkdownIt, "renderer">;
+type FenceRule = NonNullable<MarkdownItLike["renderer"]["rules"]["fence"]>;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DOCS_ROOT = path.resolve(__dirname, "..", "..");
 const DIAGRAMS_DIR = path.join(DOCS_ROOT, "public", "diagrams");
-const PUBLIC_PREFIX = "/diagrams";
 
 // Resolve mmdc from whichever node_modules npm hoisted it into. Walks up
 // from docs/ so it picks up either docs/node_modules/.bin/mmdc (per-workspace)
@@ -149,7 +146,7 @@ export function mermaidSvgPlugin(md: MarkdownItLike): void {
     throw new Error("markdown-it: no default fence renderer to wrap");
   }
 
-  md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+  const wrapped: FenceRule = (tokens, idx, options, env, self) => {
     const token = tokens[idx];
     if (token.info.trim() !== "mermaid") {
       return fence(tokens, idx, options, env, self);
@@ -169,4 +166,6 @@ export function mermaidSvgPlugin(md: MarkdownItLike): void {
       `</div>`
     );
   };
+
+  md.renderer.rules.fence = wrapped;
 }
