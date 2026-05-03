@@ -8,19 +8,31 @@
 //
 // What this does:
 //   - Hooks markdown-it's fence handler for ```mermaid blocks
-//   - Computes a SHA-256 of the block content (theme included for cache split)
-//   - Renders <hash>.dark.svg + <hash>.light.svg via mmdc the first time
-//   - Subsequent builds with unchanged content reuse the cached SVGs
-//   - Emits paired <img> tags; CSS in theme/style.css hides the wrong one
-//     based on vitepress's `html.dark` class
+//   - Computes a SHA-256 of the block content; cache key splits dark/light
+//   - Renders <hash>.dark.svg + <hash>.light.svg via mmdc on first miss
+//   - Inlines both SVGs into the rendered HTML inside paired wrappers; CSS in
+//     theme/style.css hides the wrong one based on vitepress's `html.dark`
+//     class
 //
-// SVGs land in docs/public/diagrams/, which is .gitignored — CI regenerates
-// fresh on every build, locals regenerate on first build after a diagram
-// change.
+// Why inline (not <img src=>): Vue's template compiler auto-rewrites <img src>
+// into vite asset imports (?import suffix). Files in docs/public/ are not in
+// vite's module graph, so those imports fall through to the SPA-shell HTML
+// and the browser shows broken images. Inlining the SVG sidesteps the
+// rewrite entirely — no URL roundtrip, no compile-time transform to dodge.
+//
+// SVGs land in docs/public/diagrams/, gitignored — CI regenerates fresh,
+// locals regenerate on first build after a diagram change.
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -144,14 +156,17 @@ export function mermaidSvgPlugin(md: MarkdownItLike): void {
     }
 
     const { hash } = renderBoth(token.content);
-    const darkSrc = `${PUBLIC_PREFIX}/${hash}.dark.svg`;
-    const lightSrc = `${PUBLIC_PREFIX}/${hash}.light.svg`;
+    const darkSvg = readFileSync(svgPathFor(hash, "dark"), "utf8");
+    const lightSvg = readFileSync(svgPathFor(hash, "light"), "utf8");
 
+    // Wrap each SVG in a div with the theme class so style.css can hide the
+    // wrong one. Keep the SVG markup intact (mmdc emits a self-contained
+    // `<svg>` element with embedded styles).
     return (
-      `<picture class="mermaid-diagram">` +
-      `<img class="mermaid-diagram-light" src="${lightSrc}" alt="diagram" loading="lazy">` +
-      `<img class="mermaid-diagram-dark" src="${darkSrc}" alt="diagram" loading="lazy">` +
-      `</picture>`
+      `<div class="mermaid-diagram">` +
+      `<div class="mermaid-diagram-light">${lightSvg}</div>` +
+      `<div class="mermaid-diagram-dark">${darkSvg}</div>` +
+      `</div>`
     );
   };
 }
