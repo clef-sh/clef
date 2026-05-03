@@ -8,9 +8,8 @@
   },
   "devDependencies": {
     "@clef-sh/design": "*",
-    "mermaid": "^11.14.0",
+    "@mermaid-js/mermaid-cli": "^11.4.0",
     "vitepress": "^2.0.0-alpha.17",
-    "vitepress-plugin-mermaid": "^2.0.17",
     "vue": "^3.5.32"
   }
 }

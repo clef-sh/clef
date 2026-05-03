@@ -166,20 +166,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      # Install from the workspace root so vitepress 2 alpha and its
-      # peer-mismatched plugins (vitepress-plugin-mermaid still pins vp1)
-      # resolve through the root lockfile. Standalone `cd registry &&
-      # npm ci` produced an inconsistent vue layout that broke
-      # vue/server-renderer ESM resolution at build time.
       - run: npm ci
-      # vp2 alpha needs vue resolvable from registry/node_modules during
-      # SSR — locally vite creates a transient symlink to the hoisted
-      # root copy, but on Linux CI that mechanism produces a broken
-      # path and the build trips ERR_UNSUPPORTED_DIR_IMPORT on
-      # vue/server-renderer. Pre-create the symlink so the SSR import
-      # resolves through the root vue install (which has the correct
-      # exports map).
-      - run: ln -sfn ../../node_modules/vue registry/node_modules/vue
       - run: cd registry && npm run build
 
   install-script-lint:

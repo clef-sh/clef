@@ -159,3 +159,21 @@ body {
 *::-webkit-scrollbar-thumb:hover {
   background: var(--clef-ash-deep);
 }
+
+/* Mermaid SVG diagrams (build-time rendered via .vitepress/plugins/mermaid-svg.ts).
+   Render two SVG variants per diagram and show the one matching the current
+   appearance. vitepress toggles `html.dark` for dark mode. */
+.mermaid-diagram {
+  display: inline-block;
+  max-width: 100%;
+}
+.mermaid-diagram img {
+  max-width: 100%;
+  height: auto;
+}
+html:not(.dark) .mermaid-diagram-dark {
+  display: none;
+}
+html.dark .mermaid-diagram-light {
+  display: none;
+}
