@@ -1,0 +1,47 @@
+name: Setup Node + cached install
+description: |
+  Set up Node 24, restore the workspace's node_modules cache (root + every
+  workspace member), and run `npm ci` only on cache miss. The npm cache from
+  setup-node only stores tarballs (`~/.npm`), so without this composite each
+  job pays a full ~30-60s `npm ci` to materialise node_modules from scratch.
+
+inputs:
+  ignore-scripts:
+    description: Pass --ignore-scripts to npm ci on cache miss (lint/format jobs)
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6
+      with:
+        node-version: 24
+        cache: npm
+
+    # Cache key includes the lockfile hash, runner OS, and ignore-scripts mode.
+    # Mode is in the key because --ignore-scripts skips postinstall steps that
+    # produce platform binaries (e.g. puppeteer chromium); a full install can't
+    # reuse a --ignore-scripts cache.
+    - name: Restore node_modules
+      id: nm-cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          node_modules
+          docs/node_modules
+          registry/node_modules
+          www/node_modules
+          packages/*/node_modules
+          packages/pack/*/node_modules
+        key: nm-${{ runner.os }}-node24-scripts${{ inputs.ignore-scripts }}-${{ hashFiles('package-lock.json') }}
+
+    - name: npm ci (cache miss)
+      if: steps.nm-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        if [[ "${{ inputs.ignore-scripts }}" == "true" ]]; then
+          npm ci --ignore-scripts --prefer-offline
+        else
+          npm ci --prefer-offline
+        fi

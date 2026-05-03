@@ -1,10 +1,31 @@
 name: CI
 
+# Skip CI when only doc markdown / READMEs / changelogs change. Plugin code
+# and .vitepress config under docs/ are NOT covered by the ignore — those
+# are real code that affects the docs build, so they still trigger CI.
 on:
   push:
     branches: [main, staging, dev]
+    paths-ignore:
+      - "docs/**/*.md"
+      - "docs/api/**"
+      - "**/README.md"
+      - "CHANGELOG.md"
+      - "CONTRIBUTING.md"
+      - "CLAUDE.md"
+      - "REVIEW.md"
+      - "*.md"
   pull_request:
     branches: [main, staging, dev]
+    paths-ignore:
+      - "docs/**/*.md"
+      - "docs/api/**"
+      - "**/README.md"
+      - "CHANGELOG.md"
+      - "CONTRIBUTING.md"
+      - "CLAUDE.md"
+      - "REVIEW.md"
+      - "*.md"
 
 permissions:
   contents: read
@@ -15,11 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/setup-node
       # Root build walks workspaces in the order they appear in
       # package.json's `workspaces` array. That array is hand-sorted in
       # topological dependency order: leaves (core, analytics, client) →
@@ -56,16 +73,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
       # --ignore-scripts: defense against malicious postinstall in a freshly-
       # published transitive dep. Lint/format/commitlint don't need any
       # platform binaries that download via lifecycle scripts. Test/build
       # jobs intentionally retain script execution because they exercise
       # the actual install path users see.
-      - run: npm ci --ignore-scripts
+      - uses: ./.github/actions/setup-node
+        with:
+          ignore-scripts: "true"
       - run: npm run format:check
 
   lint:
@@ -73,11 +88,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: ./.github/actions/setup-node
         with:
-          node-version: 24
-          cache: npm
-      - run: npm ci --ignore-scripts
+          ignore-scripts: "true"
       - run: npm run lint
 
   commitlint:
@@ -88,11 +101,9 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v6
+      - uses: ./.github/actions/setup-node
         with:
-          node-version: 24
-          cache: npm
-      - run: npm ci --ignore-scripts
+          ignore-scripts: "true"
       - run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }}
 
   # Verify every package in the lockfile has a valid sigstore/provenance
@@ -106,24 +117,10 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: ./.github/actions/setup-node
         with:
-          node-version: 24
-          cache: npm
-      - run: npm ci --ignore-scripts
+          ignore-scripts: "true"
       - run: npm audit signatures
-
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run build
 
   install-script-lint:
     name: Install Script Lint
@@ -170,10 +167,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
       # Pin versions above REQUIREMENTS in packages/core/src/dependencies/checker.ts
       - name: Install SOPS
         run: |
@@ -186,7 +179,7 @@ jobs:
       # optionalDependency of @clef-sh/cli (platform: linux-x64).
       - name: Install SoftHSM2 + OpenSC
         run: sudo apt-get update && sudo apt-get install -y softhsm2 opensc
-      - run: npm ci
+      - uses: ./.github/actions/setup-node
       - run: npm run build
       - run: npm run test:integration
       - name: Agent integration tests
@@ -204,11 +197,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/setup-node
       - name: Build packages
         run: |
           npm run build -w packages/core
@@ -227,17 +216,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
+      - uses: ./.github/actions/setup-node
       - name: Install SOPS
         run: |
           SOPS_VERSION=$(node -p "require('./sops-version.json').version")
           curl -Lo /usr/local/bin/sops "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
           chmod +x /usr/local/bin/sops
           sops --version
-      - run: npm ci
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v7
         if: failure()
@@ -277,11 +262,7 @@ jobs:
             mode: node
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/setup-node
       - name: Build packages
         shell: bash
         run: |
@@ -336,10 +317,7 @@ jobs:
             mode: node
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
+      - uses: ./.github/actions/setup-node
 
       - name: Install SOPS
         shell: bash
@@ -357,8 +335,6 @@ jobs:
             chmod +x /usr/local/bin/sops
             sops --version
           fi
-
-      - run: npm ci
 
       - name: Build packages
         shell: bash
