@@ -112,6 +112,7 @@ function renderOne(source: string, hash: string, theme: Theme): void {
   const tmp = mkdtempSync(path.join(tmpdir(), "mermaid-svg-"));
   const inputPath = path.join(tmp, "input.mmd");
   const configPath = path.join(tmp, "config.json");
+  const puppeteerConfigPath = path.join(tmp, "puppeteer.json");
 
   try {
     writeFileSync(inputPath, source, "utf8");
@@ -124,10 +125,32 @@ function renderOne(source: string, hash: string, theme: Theme): void {
       }),
       "utf8",
     );
+    // GitHub Actions' Ubuntu runners (and any modern Linux with AppArmor user
+    // namespace restrictions) refuse to launch chromium with the default
+    // sandbox: "No usable sandbox!". The chromium running here is mmdc's own
+    // build-time helper rendering trusted SVGs we authored — there's no
+    // untrusted content, so disabling the sandbox is safe.
+    writeFileSync(
+      puppeteerConfigPath,
+      JSON.stringify({ args: ["--no-sandbox", "--disable-setuid-sandbox"] }),
+      "utf8",
+    );
 
     execFileSync(
       mmdcBin(),
-      ["-i", inputPath, "-o", outPath, "-b", cfg.backgroundColor, "-c", configPath, "--quiet"],
+      [
+        "-i",
+        inputPath,
+        "-o",
+        outPath,
+        "-b",
+        cfg.backgroundColor,
+        "-c",
+        configPath,
+        "-p",
+        puppeteerConfigPath,
+        "--quiet",
+      ],
       { stdio: ["ignore", "ignore", "inherit"] },
     );
   } finally {
