@@ -23,6 +23,12 @@ runs:
     # Mode is in the key because --ignore-scripts skips postinstall steps that
     # produce platform binaries (e.g. puppeteer chromium); a full install can't
     # reuse a --ignore-scripts cache.
+    # `~/.cache/puppeteer` is included alongside node_modules because mmdc
+    # (used by docs build) launches chromium from there, not from a local
+    # node_modules entry. Without it, a cache hit skips `npm ci`, which
+    # skips puppeteer's postinstall, which leaves Chrome missing and the
+    # docs build fails with "Could not find Chrome". Same key as
+    # node_modules: lockfile hash already captures the puppeteer version.
     - name: Restore node_modules
       id: nm-cache
       uses: actions/cache@v5
@@ -34,6 +40,7 @@ runs:
           www/node_modules
           packages/*/node_modules
           packages/pack/*/node_modules
+          ~/.cache/puppeteer
         key: nm-${{ runner.os }}-node24-scripts${{ inputs.ignore-scripts }}-${{ hashFiles('package-lock.json') }}
 
     - name: npm ci (cache miss)
@@ -44,4 +51,16 @@ runs:
           npm ci --ignore-scripts --prefer-offline
         else
           npm ci --prefer-offline
+        fi
+
+    # Belt-and-suspenders for caches built before ~/.cache/puppeteer was in
+    # the path: if Chrome is still missing on a cache hit, install it now.
+    # No-op once the cache has been repopulated by a miss. Skipped under
+    # --ignore-scripts (lint/format jobs don't run docs build).
+    - name: Ensure puppeteer chromium (cache hit)
+      if: steps.nm-cache.outputs.cache-hit == 'true' && inputs.ignore-scripts != 'true'
+      shell: bash
+      run: |
+        if [ ! -d "$HOME/.cache/puppeteer" ] || [ -z "$(ls -A "$HOME/.cache/puppeteer" 2>/dev/null)" ]; then
+          npx puppeteer browsers install chrome
         fi
