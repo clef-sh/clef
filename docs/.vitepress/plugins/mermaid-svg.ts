@@ -73,7 +73,6 @@ function mmdcBin(): string {
   return mmdcBinCache;
 }
 
-
 // Diagram font — Arial. Pinned because:
 //   1. It's bundled with puppeteer's chromium so mmdc can measure glyph widths
 //      directly (no @font-face dance required).
@@ -128,17 +127,7 @@ function renderOne(source: string, hash: string, theme: Theme): void {
 
     execFileSync(
       mmdcBin(),
-      [
-        "-i",
-        inputPath,
-        "-o",
-        outPath,
-        "-b",
-        cfg.backgroundColor,
-        "-c",
-        configPath,
-        "--quiet",
-      ],
+      ["-i", inputPath, "-o", outPath, "-b", cfg.backgroundColor, "-c", configPath, "--quiet"],
       { stdio: ["ignore", "ignore", "inherit"] },
     );
   } finally {
