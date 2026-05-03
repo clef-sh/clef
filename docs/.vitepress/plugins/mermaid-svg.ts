@@ -33,14 +33,7 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -80,6 +73,19 @@ function mmdcBin(): string {
   return mmdcBinCache;
 }
 
+
+// Diagram font — Arial. Pinned because:
+//   1. It's bundled with puppeteer's chromium so mmdc can measure glyph widths
+//      directly (no @font-face dance required).
+//   2. It's available on every browser on every platform, so the live page
+//      renders the diagram in the same font mmdc measured against. Identical
+//      metrics on both ends → no text clipping.
+// We previously tried Instrument Sans (the body font) so diagrams would
+// blend; mermaid's text measurement didn't honor the @font-face data-URI
+// reliably and boxes ended up sized for the chromium fallback (Verdana-ish),
+// then the live page rendered Instrument Sans (wider) and labels overflowed.
+const DIAGRAM_FONT = "Arial, sans-serif";
+
 type Theme = "dark" | "light";
 
 const THEME_CONFIG: Record<Theme, { theme: string; backgroundColor: string }> = {
@@ -114,7 +120,8 @@ function renderOne(source: string, hash: string, theme: Theme): void {
       configPath,
       JSON.stringify({
         theme: cfg.theme,
-        themeVariables: { fontFamily: "inherit" },
+        themeVariables: { fontFamily: DIAGRAM_FONT },
+        flowchart: { padding: 12 },
       }),
       "utf8",
     );
@@ -148,9 +155,16 @@ function renderBoth(source: string): { hash: string } {
   return { hash };
 }
 
-function svgFileToDataUri(filePath: string): string {
-  const svg = readFileSync(filePath);
-  return `data:image/svg+xml;base64,${svg.toString("base64")}`;
+function loadSvg(filePath: string): string {
+  return readFileSync(filePath, "utf8");
+}
+
+function htmlAttrEscape(s: string): string {
+  // Used inside a double-quoted HTML attribute value; escape the chars that
+  // would prematurely close the attribute or break the parser. The string is
+  // already JSON-escaped (so `\` and `"` are doubled there), but we still
+  // need to flip raw `"` from JSON's outer quotes, `&`, and `<` for HTML.
+  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
 
 export function mermaidSvgPlugin(md: MarkdownItLike): void {
@@ -166,18 +180,27 @@ export function mermaidSvgPlugin(md: MarkdownItLike): void {
     }
 
     const { hash } = renderBoth(token.content);
-    const darkUri = svgFileToDataUri(svgPathFor(hash, "dark"));
-    const lightUri = svgFileToDataUri(svgPathFor(hash, "light"));
+    const darkSvg = loadSvg(svgPathFor(hash, "dark"));
+    const lightSvg = loadSvg(svgPathFor(hash, "light"));
 
-    // Use <span> (not <picture>): a <picture> with multiple <img> children
-    // only renders the first <img> per HTML spec — the second is treated as
-    // a fallback and never shown. With CSS theme-swapping we need both
-    // <img>s to be present in the layout so we can flip their `display`.
+    // Inline via v-html so the SVG ends up in the page DOM (and inherits the
+    // page font from its `font-family: inherit` <style>) WITHOUT going through
+    // Vue's template compiler. Vue rejects bare <style> tags inside templates
+    // ("Tags with side effect ... are ignored"), but v-html is evaluated at
+    // runtime and sets innerHTML directly — the browser parses the SVG as a
+    // DOM tree, no template compile involved.
+    //
+    // The expression value must be a valid JS string literal; JSON.stringify
+    // escapes quotes, backslashes and newlines safely. We then HTML-escape
+    // the result so it survives as the value of an HTML attribute.
+    const darkExpr = htmlAttrEscape(JSON.stringify(darkSvg));
+    const lightExpr = htmlAttrEscape(JSON.stringify(lightSvg));
+
     return (
-      `<span class="mermaid-diagram">` +
-      `<img class="mermaid-diagram-light" src="${lightUri}" alt="diagram" loading="lazy">` +
-      `<img class="mermaid-diagram-dark" src="${darkUri}" alt="diagram" loading="lazy">` +
-      `</span>`
+      `<div class="mermaid-diagram">` +
+      `<div class="mermaid-diagram-light" v-html="${lightExpr}"></div>` +
+      `<div class="mermaid-diagram-dark" v-html="${darkExpr}"></div>` +
+      `</div>`
     );
   };
 
