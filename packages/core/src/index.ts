@@ -24,7 +24,6 @@ export {
 } from "./schema/writer";
 export type { SerializeSchemaOptions } from "./schema/writer";
 export { DiffEngine } from "./diff/engine";
-export { BulkOps } from "./bulk/ops";
 export { GitIntegration } from "./git/integration";
 export {
   TransactionManager,
