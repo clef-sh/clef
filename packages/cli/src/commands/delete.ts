@@ -4,14 +4,12 @@ import {
   GitIntegration,
   ManifestParser,
   MatrixManager,
-  markResolved,
-  removeRotation,
   SubprocessRunner,
   TransactionManager,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
-import { createSopsClient } from "../age-credential";
+import { createSecretSource } from "../source-factory";
 import { parseTarget } from "../parse-target";
 
 export function registerDeleteCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -34,11 +32,7 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const { client: sopsClient, cleanup } = await createSopsClient(
-          repoRoot,
-          deps.runner,
-          manifest,
-        );
+        const { source, cleanup } = await createSecretSource(repoRoot, deps.runner, manifest);
         try {
           const matrixManager = new MatrixManager();
 
@@ -66,11 +60,7 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
               const relPath = manifest.file_pattern
                 .replace("{namespace}", namespace)
                 .replace("{environment}", env.name);
-              return {
-                env: env.name,
-                filePath: path.join(repoRoot, relPath),
-                relPath,
-              };
+              return { env: env.name, relPath };
             });
 
             const tx = new TransactionManager(new GitIntegration(deps.runner));
@@ -81,22 +71,18 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
                 t.relPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml"),
               ]),
               mutate: async () => {
-                for (const target of targets) {
-                  const decrypted = await sopsClient.decrypt(target.filePath);
+                for (const t of targets) {
+                  const cell = { namespace, environment: t.env };
+                  const decrypted = await source.readCell(cell);
                   if (key in decrypted.values) {
                     delete decrypted.values[key];
-                    await sopsClient.encrypt(
-                      target.filePath,
-                      decrypted.values,
-                      manifest,
-                      target.env,
-                    );
+                    await source.writeCell(cell, decrypted.values);
                   }
                   // Strip both pending and rotation records — the key no
                   // longer exists, so stale metadata would mislead policy.
                   try {
-                    await markResolved(target.filePath, [key]);
-                    await removeRotation(target.filePath, [key]);
+                    await source.markResolved(cell, [key]);
+                    await source.removeRotation(cell, [key]);
                   } catch {
                     // Non-fatal — file may not have had any metadata
                   }
@@ -138,11 +124,11 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
             const relCellPath = manifest.file_pattern
               .replace("{namespace}", namespace)
               .replace("{environment}", environment);
-            const filePath = path.join(repoRoot, relCellPath);
+            const cell = { namespace, environment };
 
             // Preflight the key existence check OUTSIDE the transaction so
             // we don't open a tx + lock just to error out.
-            const existing = await sopsClient.decrypt(filePath);
+            const existing = await source.readCell(cell);
             if (!(key in existing.values)) {
               formatter.error(`Key '${key}' not found in ${namespace}/${environment}.`);
               process.exit(1);
@@ -154,14 +140,14 @@ export function registerDeleteCommand(program: Command, deps: { runner: Subproce
               description: `clef delete ${namespace}/${environment} ${key}`,
               paths: [relCellPath, relCellPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
               mutate: async () => {
-                const decrypted = await sopsClient.decrypt(filePath);
+                const decrypted = await source.readCell(cell);
                 delete decrypted.values[key];
-                await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
+                await source.writeCell(cell, decrypted.values);
                 // Strip both pending and rotation records — the key no
                 // longer exists, so stale metadata would mislead policy.
                 try {
-                  await markResolved(filePath, [key]);
-                  await removeRotation(filePath, [key]);
+                  await source.markResolved(cell, [key]);
+                  await source.removeRotation(cell, [key]);
                 } catch {
                   // Non-fatal — file may not have had any metadata
                 }

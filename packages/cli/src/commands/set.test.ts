@@ -2,12 +2,8 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import { Command } from "commander";
 import { registerSetCommand } from "./set";
-import {
-  SubprocessRunner,
-  markPendingWithRetry,
-  recordRotation,
-  generateRandomValue,
-} from "@clef-sh/core";
+import { SubprocessRunner, generateRandomValue } from "@clef-sh/core";
+import type { CellMetadata } from "@clef-sh/core";
 import { formatter } from "../output/formatter";
 
 jest.mock("fs");
@@ -15,9 +11,6 @@ jest.mock("@clef-sh/core", () => {
   const actual = jest.requireActual("@clef-sh/core");
   return {
     ...actual,
-    markPendingWithRetry: jest.fn().mockResolvedValue(undefined),
-    markResolved: jest.fn().mockResolvedValue(undefined),
-    recordRotation: jest.fn().mockResolvedValue(undefined),
     generateRandomValue: jest.fn().mockReturnValue("a".repeat(64)),
     GitIntegration: jest.fn().mockImplementation(() => ({
       getAuthorIdentity: jest
@@ -36,6 +29,55 @@ jest.mock("@clef-sh/core", () => {
     })),
   };
 });
+
+/**
+ * After the SecretSource flip, pending and rotation metadata writes go
+ * through `FilesystemStorageBackend.writePendingMetadata` which calls
+ * `saveMetadata` from `@clef-sh/core/src/pending/metadata`. That call
+ * site is internal to core (not routed through the package boundary)
+ * so the `jest.mock("@clef-sh/core", ...)` above does NOT intercept it.
+ *
+ * Instead, we assert on the leaf: `fs.writeFileSync` invocations
+ * targeting `.clef-meta.yaml` sidecars. The mock parses the written
+ * YAML and returns the parsed CellMetadata so tests can introspect
+ * pending / rotation state.
+ */
+function findMetadataWrite(
+  predicate: (meta: CellMetadata) => boolean,
+): { metaPath: string; meta: CellMetadata } | null {
+  const calls = (fs.writeFileSync as jest.Mock).mock.calls as Array<
+    [string, string, string | undefined]
+  >;
+  for (const call of calls) {
+    const [metaPath, content] = call;
+    if (typeof metaPath !== "string" || !metaPath.endsWith(".clef-meta.yaml")) continue;
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      parsed = YAML.parse(content) as Record<string, unknown> | null;
+    } catch {
+      continue;
+    }
+    if (!parsed || typeof parsed !== "object") continue;
+    const pendingRaw = (parsed.pending as Array<Record<string, unknown>> | undefined) ?? [];
+    const rotationsRaw = (parsed.rotations as Array<Record<string, unknown>> | undefined) ?? [];
+    const meta: CellMetadata = {
+      version: 1,
+      pending: pendingRaw.map((p) => ({
+        key: String(p.key),
+        since: new Date(String(p.since)),
+        setBy: String(p.setBy),
+      })),
+      rotations: rotationsRaw.map((r) => ({
+        key: String(r.key),
+        lastRotatedAt: new Date(String(r.last_rotated_at)),
+        rotatedBy: String(r.rotated_by),
+        rotationCount: Number(r.rotation_count ?? 1),
+      })),
+    };
+    if (predicate(meta)) return { metaPath, meta };
+  }
+  return null;
+}
 jest.mock("../output/formatter", () => ({
   formatter: {
     json: jest.fn(),
@@ -111,6 +153,11 @@ function makeProgram(runner: SubprocessRunner): Command {
 describe("clef set", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // jest.clearAllMocks() resets call history but NOT implementations,
+    // so any `mockImplementation(...)` set in a previous test bleeds.
+    // Reset writeFileSync explicitly — it's the one that gets a custom
+    // throwing impl in the disk-full propagation test below.
+    (mockFs.writeFileSync as jest.Mock).mockReset();
     mockFs.readFileSync.mockReturnValue(validManifestYaml);
   });
 
@@ -222,11 +269,11 @@ describe("clef set", () => {
     await program.parseAsync(["node", "clef", "set", "payments/dev", "API_KEY", "--random"]);
 
     expect(generateRandomValue).toHaveBeenCalled();
-    expect(markPendingWithRetry).toHaveBeenCalledWith(
-      expect.stringContaining("payments/dev.enc.yaml"),
-      ["API_KEY"],
-      "clef set --random",
-    );
+    const written = findMetadataWrite((m) => m.pending.length > 0);
+    expect(written).toBeTruthy();
+    expect(written!.metaPath).toContain("payments/dev.clef-meta.yaml");
+    expect(written!.meta.pending.map((p) => p.key)).toEqual(["API_KEY"]);
+    expect(written!.meta.pending[0].setBy).toBe("clef set --random");
     expect(mockFormatter.success).toHaveBeenCalledWith(
       expect.stringContaining("API_KEY set in payments/dev"),
     );
@@ -242,11 +289,11 @@ describe("clef set", () => {
 
     // Normal set is a rotation: we record it and the author identity
     // flows from git config through to the stored `rotated_by`.
-    expect(recordRotation).toHaveBeenCalledWith(
-      expect.stringContaining("payments/dev.enc.yaml"),
-      ["STRIPE_KEY"],
-      "Test User <test@example.com>",
-    );
+    const written = findMetadataWrite((m) => m.rotations.length > 0);
+    expect(written).toBeTruthy();
+    expect(written!.metaPath).toContain("payments/dev.clef-meta.yaml");
+    expect(written!.meta.rotations.map((r) => r.key)).toEqual(["STRIPE_KEY"]);
+    expect(written!.meta.rotations[0].rotatedBy).toBe("Test User <test@example.com>");
   });
 
   it("should reject --random with an explicit value", async () => {
@@ -269,9 +316,14 @@ describe("clef set", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
-  it("propagates markPendingWithRetry failure so the transaction can roll back", async () => {
-    const mockMarkPendingWithRetry = markPendingWithRetry as jest.Mock;
-    mockMarkPendingWithRetry.mockRejectedValueOnce(new Error("disk full"));
+  it("propagates pending-metadata write failure so the transaction can roll back", async () => {
+    // The pending-metadata write goes through fs.writeFileSync to a
+    // .clef-meta.yaml sidecar. Make that throw to simulate disk full.
+    (fs.writeFileSync as jest.Mock).mockImplementation(((target: string): void => {
+      if (typeof target === "string" && target.endsWith(".clef-meta.yaml")) {
+        throw new Error("disk full");
+      }
+    }) as never);
 
     const runner = sopsRunner();
     const program = makeProgram(runner);
@@ -319,7 +371,10 @@ describe("clef set", () => {
     await program.parseAsync(["node", "clef", "set", "payments/dev", "KEY", "--random"]);
 
     expect(mockExit).toHaveBeenCalledWith(1);
-    expect(markPendingWithRetry).not.toHaveBeenCalled();
+    // When encrypt fails, the transaction's mutate callback aborts
+    // before the pending-metadata write — no .clef-meta.yaml gets a
+    // pending entry written.
+    expect(findMetadataWrite((m) => m.pending.length > 0)).toBeNull();
   });
 
   it("should exit 1 on encryption error", async () => {
