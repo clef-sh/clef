@@ -9,16 +9,14 @@ import {
 } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { SchemaValidator } from "../schema/validator";
-import { FileEncryptionBackend } from "../types";
-import { getPendingKeys, loadMetadata } from "../pending/metadata";
-import { readSopsKeyNames } from "../sops/keys";
+import type { CellRef, Lintable, SecretSource } from "../source/types";
 
 /**
  * Runs matrix completeness, schema validation, SOPS integrity, and key-drift checks.
  *
  * @example
  * ```ts
- * const runner = new LintRunner(matrixManager, schemaValidator, sopsClient);
+ * const runner = new LintRunner(matrixManager, schemaValidator, source);
  * const result = await runner.run(manifest, repoRoot);
  * ```
  */
@@ -26,7 +24,7 @@ export class LintRunner {
   constructor(
     private readonly matrixManager: MatrixManager,
     private readonly schemaValidator: SchemaValidator,
-    private readonly sopsClient: FileEncryptionBackend,
+    private readonly source: SecretSource & Lintable,
   ) {}
 
   /**
@@ -61,9 +59,11 @@ export class LintRunner {
     const namespaceKeys: Record<string, Record<string, Set<string>>> = {};
 
     for (const cell of existingCells) {
+      const ref: CellRef = { namespace: cell.namespace, environment: cell.environment };
+
       // Category 3: SOPS integrity
       try {
-        const isValid = await this.sopsClient.validateEncryption(cell.filePath);
+        const isValid = await this.source.validateEncryption(ref);
         if (!isValid) {
           issues.push({
             severity: "error",
@@ -86,7 +86,7 @@ export class LintRunner {
 
       // Decrypt for schema and key-drift checks
       try {
-        const decrypted = await this.sopsClient.decrypt(cell.filePath);
+        const decrypted = await this.source.readCell(ref);
         const keys = Object.keys(decrypted.values);
 
         // Track keys per namespace/environment
@@ -187,7 +187,8 @@ export class LintRunner {
 
         // Check for pending keys
         try {
-          const pendingKeys = await getPendingKeys(cell.filePath);
+          const meta = await this.source.getPendingMetadata(ref);
+          const pendingKeys = meta.pending.map((p) => p.key);
           pendingCount += pendingKeys.length;
           for (const pendingKey of pendingKeys) {
             issues.push({
@@ -195,7 +196,7 @@ export class LintRunner {
               category: "schema",
               file: cell.filePath,
               key: pendingKey,
-              message: `Value is a random placeholder \u2014 replace with the real secret.`,
+              message: `Value is a random placeholder — replace with the real secret.`,
               fixCommand: `clef set ${cell.namespace}/${cell.environment} ${pendingKey}`,
             });
           }
@@ -248,7 +249,6 @@ export class LintRunner {
       const siIssues = await this.lintServiceIdentities(
         manifest.service_identities,
         manifest,
-        repoRoot,
         existingCells,
       );
       issues.push(...siIssues);
@@ -264,10 +264,10 @@ export class LintRunner {
   }
 
   /**
-   * Cross-reference `.clef-meta.yaml` against the cipher's plaintext key
+   * Cross-reference cell metadata against the cipher's plaintext key
    * names for each existing cell.  Reports orphan rotation records and
-   * dual-state (pending + rotation) inconsistencies.  Uses
-   * {@link readSopsKeyNames} (plaintext YAML parse) — no decryption.
+   * dual-state (pending + rotation) inconsistencies.  Uses the source's
+   * `listKeys` (no decryption).
    */
   private async lintMetadataConsistency(
     cells: { namespace: string; environment: string; filePath: string }[],
@@ -275,10 +275,20 @@ export class LintRunner {
     const issues: LintIssue[] = [];
 
     for (const cell of cells) {
-      const keysInCipher = readSopsKeyNames(cell.filePath);
-      if (keysInCipher === null) continue; // malformed file — sops lint category already flagged it
-      const cipherKeys = new Set(keysInCipher);
-      const metadata = await loadMetadata(cell.filePath);
+      const ref: CellRef = { namespace: cell.namespace, environment: cell.environment };
+      let cipherKeys: Set<string>;
+      try {
+        cipherKeys = new Set(await this.source.listKeys(ref));
+      } catch {
+        // Could not enumerate keys — sops lint category already flagged it.
+        continue;
+      }
+      let metadata: import("../source/types").CellPendingMetadata;
+      try {
+        metadata = await this.source.getPendingMetadata(ref);
+      } catch {
+        continue;
+      }
 
       // 1. Orphan rotation records — record for a key not in the cipher.
       // Happens when a key was deleted manually (outside `clef delete`) or
@@ -323,7 +333,6 @@ export class LintRunner {
   private async lintServiceIdentities(
     identities: ServiceIdentityDefinition[],
     manifest: ClefManifest,
-    repoRoot: string,
     existingCells: { namespace: string; environment: string; filePath: string }[],
   ): Promise<LintIssue[]> {
     const issues: LintIssue[] = [];
@@ -383,9 +392,10 @@ export class LintRunner {
         if (!envConfig) continue;
         if (!envConfig.recipient) continue;
 
+        const ref: CellRef = { namespace: cell.namespace, environment: cell.environment };
         if (si.namespaces.includes(cell.namespace)) {
           try {
-            const metadata = await this.sopsClient.getMetadata(cell.filePath);
+            const metadata = await this.source.getCellMetadata(ref);
             if (!metadata.recipients.includes(envConfig.recipient)) {
               issues.push({
                 severity: "warning",
@@ -400,7 +410,7 @@ export class LintRunner {
           }
         } else {
           try {
-            const metadata = await this.sopsClient.getMetadata(cell.filePath);
+            const metadata = await this.source.getCellMetadata(ref);
             if (metadata.recipients.includes(envConfig.recipient)) {
               issues.push({
                 severity: "warning",
@@ -431,7 +441,10 @@ export class LintRunner {
     const missingCells = this.matrixManager.detectMissingCells(manifest, repoRoot);
 
     for (const cell of missingCells) {
-      await this.matrixManager.scaffoldCell(cell, this.sopsClient, manifest);
+      await this.source.scaffoldCell(
+        { namespace: cell.namespace, environment: cell.environment },
+        manifest,
+      );
     }
 
     // Re-run lint after fixes

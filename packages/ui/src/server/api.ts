@@ -137,7 +137,6 @@ export function createApiRouter(deps: ApiDeps): Router {
   const sops = new SopsClient(sopsRunner, deps.ageKeyFile, deps.ageKey, deps.sopsPath);
   const diffEngine = new DiffEngine();
   const schemaValidator = new SchemaValidator();
-  const lintRunner = new LintRunner(matrix, schemaValidator, sops);
   const git = new GitIntegration(deps.runner);
   const tx = new TransactionManager(git);
   const scanRunner = new ScanRunner(deps.runner);
@@ -743,6 +742,12 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
+      const lintSource = composeSecretSource(
+        new FilesystemStorageBackend(manifest, deps.repoRoot),
+        createSopsEncryptionBackend(sops),
+        manifest,
+      );
+      const lintRunner = new LintRunner(matrix, schemaValidator, lintSource);
       const result = await lintRunner.run(manifest, deps.repoRoot);
       const filtered = result.issues.filter((issue) => {
         const issueNs = issue.file.split("/")[0];
@@ -885,6 +890,12 @@ export function createApiRouter(deps: ApiDeps): Router {
   router.get("/lint", async (_req: Request, res: Response) => {
     try {
       const manifest = loadManifest();
+      const lintSource = composeSecretSource(
+        new FilesystemStorageBackend(manifest, deps.repoRoot),
+        createSopsEncryptionBackend(sops),
+        manifest,
+      );
+      const lintRunner = new LintRunner(matrix, schemaValidator, lintSource);
       const result = await lintRunner.run(manifest, deps.repoRoot);
       res.json(result);
     } catch (err) {
@@ -897,6 +908,12 @@ export function createApiRouter(deps: ApiDeps): Router {
   router.post("/lint/fix", async (_req: Request, res: Response) => {
     try {
       const manifest = loadManifest();
+      const lintSource = composeSecretSource(
+        new FilesystemStorageBackend(manifest, deps.repoRoot),
+        createSopsEncryptionBackend(sops),
+        manifest,
+      );
+      const lintRunner = new LintRunner(matrix, schemaValidator, lintSource);
       const result = await lintRunner.fix(manifest, deps.repoRoot);
       res.json(result);
     } catch (err) {

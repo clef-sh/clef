@@ -3,7 +3,6 @@ import {
   ClefManifest,
   ClefReport,
   CLEF_REPORT_SCHEMA_VERSION,
-  FileEncryptionBackend,
   MatrixCell,
   ReportCellMetadata,
   ReportManifestStructure,
@@ -17,10 +16,10 @@ import { ManifestParser } from "../manifest/parser";
 import { MatrixManager } from "../matrix/manager";
 import { SchemaValidator } from "../schema/validator";
 import { LintRunner } from "../lint/runner";
-import { getPendingKeys } from "../pending/metadata";
 import { checkDependency } from "../dependencies/checker";
 import { ReportSanitizer } from "./sanitizer";
 import { readSopsKeyNames } from "../sops/keys";
+import type { CellRef, Lintable, SecretSource } from "../source/types";
 
 /**
  * Orchestrates all data-gathering for a `clef report` invocation.
@@ -30,7 +29,7 @@ import { readSopsKeyNames } from "../sops/keys";
 export class ReportGenerator {
   constructor(
     private readonly runner: SubprocessRunner,
-    private readonly sopsClient: FileEncryptionBackend,
+    private readonly source: SecretSource & Lintable,
     private readonly matrixManager: MatrixManager,
     private readonly schemaValidator: SchemaValidator,
   ) {}
@@ -205,19 +204,20 @@ export class ReportGenerator {
       };
     }
 
+    const ref: CellRef = { namespace: cell.namespace, environment: cell.environment };
     const keyCount = this.readKeyCount(cell.filePath);
 
     let pendingCount = 0;
     try {
-      const pending = await getPendingKeys(cell.filePath);
-      pendingCount = pending.length;
+      const meta = await this.source.getPendingMetadata(ref);
+      pendingCount = meta.pending.length;
     } catch {
       /* ignore */
     }
 
     let metadata: ReportCellMetadata | null = null;
     try {
-      const sopsMetadata = await this.sopsClient.getMetadata(cell.filePath);
+      const sopsMetadata = await this.source.getCellMetadata(ref);
       metadata = {
         backend: sopsMetadata.backend,
         recipients: sopsMetadata.recipients,
@@ -244,7 +244,7 @@ export class ReportGenerator {
 
   private async buildPolicy(manifest: ClefManifest, repoRoot: string): Promise<ReportPolicy> {
     try {
-      const lintRunner = new LintRunner(this.matrixManager, this.schemaValidator, this.sopsClient);
+      const lintRunner = new LintRunner(this.matrixManager, this.schemaValidator, this.source);
       const lintResult = await lintRunner.run(manifest, repoRoot);
       return new ReportSanitizer().sanitize(lintResult.issues);
     } catch {
