@@ -1,7 +1,12 @@
 import * as fs from "fs";
 import { JsonEnvelopeBackend } from "./json-envelope";
 import { MemoryPackOutput } from "../../artifact/output";
-import type { ClefManifest, DecryptedFile, EncryptionBackend, SubprocessRunner } from "../../types";
+import type {
+  ClefManifest,
+  DecryptedFile,
+  FileEncryptionBackend,
+  SubprocessRunner,
+} from "../../types";
 import type { PackRequest } from "../types";
 
 jest.mock("fs");
@@ -43,7 +48,7 @@ function baseManifest(): ClefManifest {
   };
 }
 
-function mockEncryption(): jest.Mocked<EncryptionBackend> {
+function mockEncryption(): jest.Mocked<FileEncryptionBackend> {
   return {
     decrypt: jest.fn(),
     encrypt: jest.fn(),
@@ -60,7 +65,7 @@ function mockRunner(): jest.Mocked<SubprocessRunner> {
 }
 
 function makeRequest(
-  encryption: EncryptionBackend,
+  encryption: FileEncryptionBackend,
   backendOptions: Record<string, unknown>,
 ): PackRequest {
   return {

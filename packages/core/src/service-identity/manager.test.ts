@@ -2,7 +2,12 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import writeFileAtomic from "write-file-atomic";
 import { ServiceIdentityManager } from "./manager";
-import { ClefManifest, EncryptionBackend, ServiceIdentityDefinition, SopsMetadata } from "../types";
+import {
+  ClefManifest,
+  FileEncryptionBackend,
+  ServiceIdentityDefinition,
+  SopsMetadata,
+} from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { TransactionManager } from "../tx";
 
@@ -62,7 +67,7 @@ function baseManifest(overrides?: Partial<ClefManifest>): ClefManifest {
   };
 }
 
-function mockEncryption(): jest.Mocked<EncryptionBackend> {
+function mockEncryption(): jest.Mocked<FileEncryptionBackend> {
   return {
     decrypt: jest.fn(),
     encrypt: jest.fn(),
@@ -92,7 +97,7 @@ function makeStubTx(): TransactionManager {
 }
 
 describe("ServiceIdentityManager", () => {
-  let encryption: jest.Mocked<EncryptionBackend>;
+  let encryption: jest.Mocked<FileEncryptionBackend>;
   let matrixManager: MatrixManager;
   let manager: ServiceIdentityManager;
 

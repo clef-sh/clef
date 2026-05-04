@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import writeFileAtomic from "write-file-atomic";
 import { ResetManager, describeScope, ResetScope } from "./manager";
-import { ClefManifest, EncryptionBackend, MatrixCell } from "../types";
+import { ClefManifest, FileEncryptionBackend, MatrixCell } from "../types";
 import { TransactionManager } from "../tx";
 
 jest.mock("fs");
@@ -80,7 +80,7 @@ function makeMatrixManager(cells: MatrixCell[] = makeCells()) {
   };
 }
 
-function makeEncryption(overrides?: Partial<EncryptionBackend>): EncryptionBackend {
+function makeEncryption(overrides?: Partial<FileEncryptionBackend>): FileEncryptionBackend {
   return {
     decrypt: jest.fn(),
     encrypt: jest.fn().mockResolvedValue(undefined),

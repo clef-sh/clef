@@ -1,4 +1,4 @@
-import { EncryptionBackend } from "../types";
+import { FileEncryptionBackend } from "../types";
 
 /** Status of a single key in a three-way merge. */
 export type MergeKeyStatus = "unchanged" | "ours" | "theirs" | "both_added" | "conflict";
@@ -46,7 +46,7 @@ export interface MergeResult {
  * ```
  */
 export class SopsMergeDriver {
-  constructor(private readonly sopsClient: EncryptionBackend) {}
+  constructor(private readonly sopsClient: FileEncryptionBackend) {}
 
   /**
    * Perform a three-way merge on three in-memory key/value maps.

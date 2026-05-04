@@ -3,7 +3,7 @@ import {
   ClefManifest,
   ClefReport,
   CLEF_REPORT_SCHEMA_VERSION,
-  EncryptionBackend,
+  FileEncryptionBackend,
   MatrixCell,
   ReportCellMetadata,
   ReportManifestStructure,
@@ -30,7 +30,7 @@ import { readSopsKeyNames } from "../sops/keys";
 export class ReportGenerator {
   constructor(
     private readonly runner: SubprocessRunner,
-    private readonly sopsClient: EncryptionBackend,
+    private readonly sopsClient: FileEncryptionBackend,
     private readonly matrixManager: MatrixManager,
     private readonly schemaValidator: SchemaValidator,
   ) {}

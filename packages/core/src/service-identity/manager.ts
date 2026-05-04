@@ -1,7 +1,7 @@
 import * as path from "path";
 import {
   ClefManifest,
-  EncryptionBackend,
+  FileEncryptionBackend,
   KmsConfig,
   MatrixCell,
   ServiceIdentityDefinition,
@@ -42,7 +42,7 @@ export interface CreateServiceIdentityOptions {
  */
 export class ServiceIdentityManager {
   constructor(
-    private readonly encryption: EncryptionBackend,
+    private readonly encryption: FileEncryptionBackend,
     private readonly matrixManager: MatrixManager,
     private readonly tx: TransactionManager,
   ) {}

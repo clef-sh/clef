@@ -347,7 +347,7 @@ export interface SopsMetadata {
  * interface rather than the concrete class so the encryption backend can be
  * replaced without touching call sites.
  */
-export interface EncryptionBackend {
+export interface FileEncryptionBackend {
   /** Decrypt a file and return its values and metadata. */
   decrypt(filePath: string): Promise<DecryptedFile>;
   /** Encrypt a key/value map and write it to a file. */

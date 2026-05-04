@@ -19,7 +19,7 @@ import {
   BackendType,
   ClefManifest,
   DecryptedFile,
-  EncryptionBackend,
+  FileEncryptionBackend,
   SopsDecryptionError,
   SopsEncryptionError,
   SopsKeyNotFoundError,
@@ -107,7 +107,7 @@ function openWindowsInputPipe(content: string): Promise<{ inputArg: string; clea
  * const decrypted = await client.decrypt("secrets/production.enc.yaml");
  * ```
  */
-export class SopsClient implements EncryptionBackend {
+export class SopsClient implements FileEncryptionBackend {
   private readonly sopsCommand: string;
   private readonly keyserviceArgs: readonly string[];
 

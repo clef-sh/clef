@@ -209,10 +209,11 @@ export {
   defaultBulk,
   SourceCapabilityUnsupportedError,
   MockSecretSource,
-  FilesystemBlobStore,
+  FilesystemStorageBackend,
+  createSopsEncryptionBackend,
   composeSecretSource,
 } from "./source";
-export type { BlobStore } from "./source";
+export type { StorageBackend, EncryptionBackend, EncryptionContext, RotateOptions } from "./source";
 export type {
   AddRecipientRequest,
   Bulk,

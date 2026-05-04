@@ -30,6 +30,10 @@ export {
 export { defaultBulk } from "./default-bulk";
 export { SourceCapabilityUnsupportedError } from "./errors";
 export { MockSecretSource } from "./mock-source";
-export type { BlobStore } from "./blob-store";
-export { FilesystemBlobStore } from "./filesystem-blob-store";
+
+// Two orthogonal abstractions composed by `composeSecretSource`.
+export type { StorageBackend } from "./storage-backend";
+export { FilesystemStorageBackend } from "./filesystem-storage-backend";
+export type { EncryptionBackend, EncryptionContext, RotateOptions } from "./encryption-backend";
+export { createSopsEncryptionBackend } from "./sops-encryption-backend";
 export { composeSecretSource } from "./compose";

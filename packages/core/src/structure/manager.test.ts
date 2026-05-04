@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import writeFileAtomic from "write-file-atomic";
 import { StructureManager } from "./manager";
-import { ClefManifest, EncryptionBackend } from "../types";
+import { ClefManifest, FileEncryptionBackend } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { TransactionManager } from "../tx";
 
@@ -16,7 +16,7 @@ const mockMkdirSync = fs.mkdirSync as jest.MockedFunction<typeof fs.mkdirSync>;
 const mockUnlinkSync = fs.unlinkSync as jest.MockedFunction<typeof fs.unlinkSync>;
 const mockWriteFileAtomicSync = writeFileAtomic.sync as jest.Mock;
 
-function makeMockEncryption(): jest.Mocked<EncryptionBackend> {
+function makeMockEncryption(): jest.Mocked<FileEncryptionBackend> {
   return {
     encrypt: jest.fn().mockResolvedValue(undefined),
     decrypt: jest.fn(),
@@ -93,7 +93,7 @@ function setupFs(manifest: ClefManifest, existingCells: string[] = []): void {
 
 describe("StructureManager", () => {
   let matrixManager: MatrixManager;
-  let encryption: jest.Mocked<EncryptionBackend>;
+  let encryption: jest.Mocked<FileEncryptionBackend>;
   let manager: StructureManager;
 
   beforeEach(() => {

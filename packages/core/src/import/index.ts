@@ -1,6 +1,6 @@
 import * as path from "path";
 import { ClefManifest } from "../types";
-import { EncryptionBackend } from "../types";
+import { FileEncryptionBackend } from "../types";
 import { parse, ImportFormat } from "./parsers";
 import { TransactionManager } from "../tx";
 import { recordRotation } from "../pending/metadata";
@@ -48,7 +48,7 @@ export interface ImportResult {
  */
 export class ImportRunner {
   constructor(
-    private readonly sopsClient: EncryptionBackend,
+    private readonly sopsClient: FileEncryptionBackend,
     private readonly tx: TransactionManager,
   ) {}
 

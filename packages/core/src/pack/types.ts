@@ -1,4 +1,4 @@
-import type { ClefManifest, EncryptionBackend, SubprocessRunner } from "../types";
+import type { ClefManifest, FileEncryptionBackend, SubprocessRunner } from "../types";
 import type { KmsProvider } from "../kms";
 import type { PackResult } from "../artifact/types";
 
@@ -8,7 +8,7 @@ import type { PackResult } from "../artifact/types";
  */
 export interface PackServices {
   /** Decryption/encryption of SOPS source files in the matrix. */
-  encryption: EncryptionBackend;
+  encryption: FileEncryptionBackend;
   /** KMS provider, already constructed. Undefined when the manifest does not require one. */
   kms?: KmsProvider;
   /** For subprocess access (git, external CLIs). Prefer this over child_process. */

@@ -1,7 +1,7 @@
 import * as path from "path";
 import { Command } from "commander";
 import {
-  EncryptionBackend,
+  FileEncryptionBackend,
   GitIntegration,
   ManifestParser,
   SubprocessRunner,
@@ -21,7 +21,7 @@ import { copyToClipboard, maskedPlaceholder } from "../clipboard";
 
 /** Build a ServiceIdentityManager with a TransactionManager wired up. */
 function makeServiceIdManager(
-  sopsClient: EncryptionBackend,
+  sopsClient: FileEncryptionBackend,
   matrixManager: MatrixManager,
   runner: SubprocessRunner,
 ): ServiceIdentityManager {

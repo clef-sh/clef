@@ -9,7 +9,7 @@ import {
 } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { SchemaValidator } from "../schema/validator";
-import { EncryptionBackend } from "../types";
+import { FileEncryptionBackend } from "../types";
 import { getPendingKeys, loadMetadata } from "../pending/metadata";
 import { readSopsKeyNames } from "../sops/keys";
 
@@ -26,7 +26,7 @@ export class LintRunner {
   constructor(
     private readonly matrixManager: MatrixManager,
     private readonly schemaValidator: SchemaValidator,
-    private readonly sopsClient: EncryptionBackend,
+    private readonly sopsClient: FileEncryptionBackend,
   ) {}
 
   /**

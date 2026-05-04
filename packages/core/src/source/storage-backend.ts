@@ -1,27 +1,34 @@
 /**
- * `BlobStore` is the substrate-level plugin-author surface. Implementations
- * read and write opaque ciphertext bytes (already-SOPS-encrypted) keyed by
- * `CellRef`, plus the per-cell pending/rotation metadata sidecar.
+ * `StorageBackend` is the substrate-level plugin-author surface for *where*
+ * ciphertext bytes live. It is one of two orthogonal abstractions composed
+ * into a `SecretSource`:
+ *
+ *   - `StorageBackend`    — substrate (filesystem, postgres, S3, ...)
+ *   - `EncryptionBackend` — encryption (SOPS, age-direct, custom, ...)
+ *
+ * Both vary independently. Any combination — `(filesystem, sops)`,
+ * `(postgres, sops)`, `(filesystem, custom)`, `(postgres, custom)` —
+ * produces a working `SecretSource` via `composeSecretSource(storage,
+ * encryption, manifest)`.
  *
  * Implementations have **zero** knowledge of encryption, recipients, KMS,
- * or age. SOPS lives one layer up in `SopsClient`; the `composeSecretSource`
- * factory wraps a `BlobStore + SopsClient + manifest` into a full
- * `SecretSource`. This split is intentional — plugin authors do not
- * re-implement encryption primitives.
+ * or age. They store and retrieve opaque bytes by `CellRef` and a small
+ * metadata sidecar; plugin authors never re-implement encryption.
  *
  * Format of the bytes:
- *   - YAML or JSON SOPS file content (per the manifest's `file_pattern`).
- *   - The `BlobStore` does not parse the bytes; it stores and retrieves
- *     them verbatim.
+ *   - Whatever the paired `EncryptionBackend` produces and consumes
+ *     (SOPS YAML/JSON for `sops`; could be anything for a custom backend).
+ *   - The `StorageBackend` does not parse the bytes; it stores and
+ *     retrieves them verbatim.
  *
  * Atomicity:
  *   - `writeBlob` MUST be atomic from the caller's perspective. A torn
  *     write would leave the cell in an undecryptable state. Filesystem
- *     impls use `writeFileAtomic`; database impls use a transaction.
+ *     impls use temp-file + rename; database impls use a transaction.
  */
 import type { CellRef, CellPendingMetadata } from "./types";
 
-export interface BlobStore {
+export interface StorageBackend {
   /** Stable identifier for diagnostic output (e.g. `"filesystem"`, `"postgres"`). */
   readonly id: string;
   /** Short human-readable description, used in `clef doctor`. */
@@ -43,9 +50,10 @@ export interface BlobStore {
   blobExists(cell: CellRef): Promise<boolean>;
 
   /**
-   * The cell's content format hint, used to set `--input-type` /
-   * `--output-type` on SOPS calls. Filesystem derives this from the file
-   * extension; other substrates pick a fixed format.
+   * Format hint for the cell's bytes. Forwarded to the paired
+   * `EncryptionBackend` so it can pick the right input/output type. The
+   * filesystem substrate derives this from the file extension; other
+   * substrates pick a fixed format.
    */
   blobFormat(cell: CellRef): "yaml" | "json";
 

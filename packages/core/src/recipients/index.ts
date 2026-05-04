@@ -1,5 +1,5 @@
 import * as path from "path";
-import { ClefManifest, EncryptionBackend } from "../types";
+import { ClefManifest, FileEncryptionBackend } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { validateAgePublicKey, keyPreview } from "./validator";
 import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
@@ -120,7 +120,7 @@ function ensureEnvironmentRecipientsArray(
  */
 export class RecipientManager {
   constructor(
-    private readonly encryption: EncryptionBackend,
+    private readonly encryption: FileEncryptionBackend,
     private readonly matrixManager: MatrixManager,
     private readonly tx: TransactionManager,
   ) {}

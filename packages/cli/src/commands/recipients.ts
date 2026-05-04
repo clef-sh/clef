@@ -2,7 +2,7 @@ import * as path from "path";
 import * as readline from "readline";
 import { Command } from "commander";
 import {
-  EncryptionBackend,
+  FileEncryptionBackend,
   GitIntegration,
   ManifestParser,
   MatrixManager,
@@ -26,7 +26,7 @@ import { createSopsClient, resolveAgePrivateKey } from "../age-credential";
 
 /** Build a RecipientManager with a TransactionManager wired up. */
 function makeRecipientManager(
-  sopsClient: EncryptionBackend,
+  sopsClient: FileEncryptionBackend,
   matrixManager: MatrixManager,
   runner: SubprocessRunner,
 ): RecipientManager {

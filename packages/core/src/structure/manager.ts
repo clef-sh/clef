@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { ClefManifest, EncryptionBackend, MatrixCell } from "../types";
+import { ClefManifest, FileEncryptionBackend, MatrixCell } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
 import { readManifestYaml, writeManifestYaml } from "../manifest/io";
@@ -59,7 +59,7 @@ export interface AddEnvironmentOptions {
 export class StructureManager {
   constructor(
     private readonly matrixManager: MatrixManager,
-    private readonly encryption: EncryptionBackend,
+    private readonly encryption: FileEncryptionBackend,
     private readonly tx: TransactionManager,
   ) {}
 

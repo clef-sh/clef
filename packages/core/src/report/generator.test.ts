@@ -3,7 +3,7 @@ import {
   ClefManifest,
   ClefReport,
   CLEF_REPORT_SCHEMA_VERSION,
-  EncryptionBackend,
+  FileEncryptionBackend,
   MatrixCell,
   SubprocessRunner,
 } from "../types";
@@ -52,7 +52,7 @@ function makeRunner(overrides?: Record<string, string>): jest.Mocked<SubprocessR
   };
 }
 
-function makeSopsClient(): jest.Mocked<EncryptionBackend> {
+function makeSopsClient(): jest.Mocked<FileEncryptionBackend> {
   return {
     decrypt: jest.fn(),
     encrypt: jest.fn(),

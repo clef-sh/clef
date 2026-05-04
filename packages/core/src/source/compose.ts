@@ -1,12 +1,18 @@
 /**
- * Composition factory: wraps a `BlobStore + SopsClient + manifest` into a
- * `SecretSource` that consumers can use.
+ * Composition factory: takes the two orthogonal abstractions
+ * (`StorageBackend` for *where* bytes live, `EncryptionBackend` for
+ * *how* they're encrypted) and the manifest, and produces a full
+ * `SecretSource` that consumers use.
  *
- * Phase 2 implements the core `SecretSource` interface plus the three
- * cheap traits whose implementation is uniform across substrates:
+ * Any combination of (storage, encryption) yields a working source —
+ * `(filesystem, sops)`, `(postgres, sops)`, `(filesystem, custom)`,
+ * `(postgres, custom)`. Plugin authors implementing either side don't
+ * touch the other.
+ *
+ * Phase 2 surface: core `SecretSource` plus the three uniform traits:
  *
  *   - `Lintable` — validate-encryption + recipient-drift checks
- *   - `Rotatable` — single-cell DEK rotation via `SopsClient.rotateBlob`
+ *   - `Rotatable` — single-cell DEK rotation via `EncryptionBackend.rotate`
  *   - `Bulk`     — looped fallback via the `defaultBulk` helper
  *
  * The remaining traits (`RecipientManaged`, `MergeAware`, `Migratable`,
@@ -30,20 +36,20 @@ import type {
   Rotatable,
   SecretSource,
 } from "./types";
-import type { BlobStore } from "./blob-store";
+import type { StorageBackend } from "./storage-backend";
+import type { EncryptionBackend, EncryptionContext } from "./encryption-backend";
 import { defaultBulk } from "./default-bulk";
-import { SopsClient } from "../sops/client";
 
 /**
- * Build a `SecretSource & Lintable & Rotatable & Bulk` from a substrate
- * (`BlobStore`), the encryption layer (`SopsClient`), and the manifest.
+ * Build a `SecretSource & Lintable & Rotatable & Bulk` from the two
+ * orthogonal backends and the manifest.
  */
 export function composeSecretSource(
-  blobStore: BlobStore,
-  sopsClient: SopsClient,
+  storage: StorageBackend,
+  encryption: EncryptionBackend,
   manifest: ClefManifest,
 ): SecretSource & Lintable & Rotatable & Bulk {
-  return new ComposedSecretSource(blobStore, sopsClient, manifest);
+  return new ComposedSecretSource(storage, encryption, manifest);
 }
 
 class ComposedSecretSource implements SecretSource, Lintable, Rotatable, Bulk {
@@ -51,86 +57,104 @@ class ComposedSecretSource implements SecretSource, Lintable, Rotatable, Bulk {
   readonly description: string;
 
   constructor(
-    private readonly blobStore: BlobStore,
-    private readonly sops: SopsClient,
+    private readonly storage: StorageBackend,
+    private readonly encryption: EncryptionBackend,
     private readonly manifest: ClefManifest,
   ) {
-    this.id = blobStore.id;
-    this.description = blobStore.description;
+    this.id = `${storage.id}+${encryption.id}`;
+    this.description = `${storage.description} / ${encryption.description}`;
+  }
+
+  private context(cell: CellRef): EncryptionContext {
+    return {
+      manifest: this.manifest,
+      environment: cell.environment,
+      format: this.storage.blobFormat(cell),
+    };
   }
 
   // ── Core SecretSource ──────────────────────────────────────────────────
 
   async readCell(cell: CellRef): Promise<CellData> {
-    const blob = await this.blobStore.readBlob(cell);
-    const fmt = this.blobStore.blobFormat(cell);
-    return this.sops.decryptBlob(blob, fmt);
+    const blob = await this.storage.readBlob(cell);
+    return this.encryption.decrypt(blob, this.context(cell));
   }
 
   async writeCell(cell: CellRef, values: Record<string, string>): Promise<void> {
-    const fmt = this.blobStore.blobFormat(cell);
-    const blob = await this.sops.encryptBlob(values, this.manifest, cell.environment, fmt);
-    await this.blobStore.writeBlob(cell, blob);
+    const blob = await this.encryption.encrypt(values, this.context(cell));
+    await this.storage.writeBlob(cell, blob);
   }
 
   async deleteCell(cell: CellRef): Promise<void> {
-    await this.blobStore.deleteBlob(cell);
+    await this.storage.deleteBlob(cell);
   }
 
   async cellExists(cell: CellRef): Promise<boolean> {
-    return this.blobStore.blobExists(cell);
+    return this.storage.blobExists(cell);
   }
 
   /**
    * List cell keys WITHOUT decrypting. SOPS files store key names in
    * plaintext at the top level of the YAML/JSON document — we read the
    * blob and return everything except the `sops:` metadata block.
+   *
+   * NOTE: this is currently SOPS-shaped. A future non-SOPS
+   * `EncryptionBackend` whose ciphertext doesn't expose key names in
+   * the clear would need its own listing strategy — likely a
+   * `listKeys(blob)` method on `EncryptionBackend`. Deferred until a
+   * second backend exists.
    */
   async listKeys(cell: CellRef): Promise<string[]> {
-    if (!(await this.blobStore.blobExists(cell))) return [];
-    const blob = await this.blobStore.readBlob(cell);
+    if (!(await this.storage.blobExists(cell))) return [];
+    const blob = await this.storage.readBlob(cell);
     const parsed = YAML.parse(blob) as Record<string, unknown> | null;
     if (!parsed || typeof parsed !== "object") return [];
     return Object.keys(parsed).filter((k) => k !== "sops");
   }
 
   async getCellMetadata(cell: CellRef): Promise<SopsMetadata> {
-    const blob = await this.blobStore.readBlob(cell);
-    return this.sops.getMetadataFromBlob(blob);
+    const blob = await this.storage.readBlob(cell);
+    return this.encryption.getMetadata(blob);
   }
 
   async scaffoldCell(cell: CellRef, manifest: ClefManifest): Promise<void> {
-    if (await this.blobStore.blobExists(cell)) return;
-    const fmt = this.blobStore.blobFormat(cell);
-    const blob = await this.sops.encryptBlob({}, manifest, cell.environment, fmt);
-    await this.blobStore.writeBlob(cell, blob);
+    if (await this.storage.blobExists(cell)) return;
+    const blob = await this.encryption.encrypt(
+      {},
+      {
+        manifest,
+        environment: cell.environment,
+        format: this.storage.blobFormat(cell),
+      },
+    );
+    await this.storage.writeBlob(cell, blob);
   }
 
   // ── Pending / rotation metadata ────────────────────────────────────────
 
   async getPendingMetadata(cell: CellRef): Promise<CellPendingMetadata> {
-    return this.blobStore.readPendingMetadata(cell);
+    return this.storage.readPendingMetadata(cell);
   }
 
   async markPending(cell: CellRef, keys: string[], setBy: string): Promise<void> {
-    const meta = await this.blobStore.readPendingMetadata(cell);
+    const meta = await this.storage.readPendingMetadata(cell);
     const now = new Date();
     for (const key of keys) {
       if (!meta.pending.find((p) => p.key === key)) {
         meta.pending.push({ key, since: now, setBy });
       }
     }
-    await this.blobStore.writePendingMetadata(cell, meta);
+    await this.storage.writePendingMetadata(cell, meta);
   }
 
   async markResolved(cell: CellRef, keys: string[]): Promise<void> {
-    const meta = await this.blobStore.readPendingMetadata(cell);
+    const meta = await this.storage.readPendingMetadata(cell);
     meta.pending = meta.pending.filter((p) => !keys.includes(p.key));
-    await this.blobStore.writePendingMetadata(cell, meta);
+    await this.storage.writePendingMetadata(cell, meta);
   }
 
   async recordRotation(cell: CellRef, keys: string[], rotatedBy: string): Promise<void> {
-    const meta = await this.blobStore.readPendingMetadata(cell);
+    const meta = await this.storage.readPendingMetadata(cell);
     const now = new Date();
     for (const key of keys) {
       const existing = meta.rotations.find((r) => r.key === key);
@@ -142,26 +166,26 @@ class ComposedSecretSource implements SecretSource, Lintable, Rotatable, Bulk {
         meta.rotations.push({ key, lastRotatedAt: now, rotatedBy, rotationCount: 1 });
       }
     }
-    await this.blobStore.writePendingMetadata(cell, meta);
+    await this.storage.writePendingMetadata(cell, meta);
   }
 
   async removeRotation(cell: CellRef, keys: string[]): Promise<void> {
-    const meta = await this.blobStore.readPendingMetadata(cell);
+    const meta = await this.storage.readPendingMetadata(cell);
     meta.rotations = meta.rotations.filter((r) => !keys.includes(r.key));
-    await this.blobStore.writePendingMetadata(cell, meta);
+    await this.storage.writePendingMetadata(cell, meta);
   }
 
   // ── Lintable ───────────────────────────────────────────────────────────
 
   async validateEncryption(cell: CellRef): Promise<boolean> {
-    if (!(await this.blobStore.blobExists(cell))) return false;
-    const blob = await this.blobStore.readBlob(cell);
-    return this.sops.validateEncryptionBlob(blob);
+    if (!(await this.storage.blobExists(cell))) return false;
+    const blob = await this.storage.readBlob(cell);
+    return this.encryption.validateEncryption(blob);
   }
 
   async checkRecipientDrift(cell: CellRef, expected: string[]): Promise<RecipientDriftResult> {
-    const blob = await this.blobStore.readBlob(cell);
-    const meta = this.sops.getMetadataFromBlob(blob);
+    const blob = await this.storage.readBlob(cell);
+    const meta = this.encryption.getMetadata(blob);
     const actual = new Set(meta.recipients);
     const expectedSet = new Set(expected);
     return {
@@ -173,18 +197,21 @@ class ComposedSecretSource implements SecretSource, Lintable, Rotatable, Bulk {
   // ── Rotatable ──────────────────────────────────────────────────────────
 
   async rotate(cell: CellRef, newRecipient: string): Promise<void> {
-    const fmt = this.blobStore.blobFormat(cell);
-    const blob = await this.blobStore.readBlob(cell);
-    const rotated = await this.sops.rotateBlob(blob, { addAge: newRecipient }, fmt);
-    await this.blobStore.writeBlob(cell, rotated);
+    const blob = await this.storage.readBlob(cell);
+    const rotated = await this.encryption.rotate(
+      blob,
+      { addAge: newRecipient },
+      this.context(cell),
+    );
+    await this.storage.writeBlob(cell, rotated);
   }
 
   // ── Bulk ───────────────────────────────────────────────────────────────
   //
-  // Default looped implementation. A future substrate that supports batch
-  // operations (e.g. PostgresBlobStore with row-level UPDATE batching)
-  // can override these by wrapping `composeSecretSource`'s output and
-  // replacing just the bulk methods.
+  // Default looped implementation. A future StorageBackend that supports
+  // batch operations (e.g. PostgresStorageBackend with row-level UPDATE
+  // batching) can override these by wrapping `composeSecretSource`'s
+  // output and replacing just the bulk methods.
 
   bulkSet = (
     namespace: string,

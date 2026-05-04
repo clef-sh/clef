@@ -1,6 +1,6 @@
 import {
   ClefManifest,
-  EncryptionBackend,
+  FileEncryptionBackend,
   ServiceIdentityDefinition,
   ServiceIdentityEnvironmentConfig,
 } from "../types";
@@ -33,7 +33,7 @@ export async function resolveIdentitySecrets(
   environment: string,
   manifest: ClefManifest,
   repoRoot: string,
-  encryption: EncryptionBackend,
+  encryption: FileEncryptionBackend,
   matrixManager: MatrixManager,
 ): Promise<ResolvedSecrets> {
   const identity = manifest.service_identities?.find((si) => si.name === identityName);

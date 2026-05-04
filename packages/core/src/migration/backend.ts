@@ -3,7 +3,7 @@ import * as YAML from "yaml";
 import {
   BackendType,
   ClefManifest,
-  EncryptionBackend,
+  FileEncryptionBackend,
   EnvironmentSopsOverride,
   MatrixCell,
   SopsMetadata,
@@ -92,8 +92,8 @@ function metadataMatchesTarget(meta: SopsMetadata, target: MigrationTarget): boo
 // ── BackendMigrator ─────────────────────────────────────────────────────────
 
 export class BackendMigrator {
-  private readonly decryptBackend: EncryptionBackend;
-  private readonly encryptBackend: EncryptionBackend;
+  private readonly decryptBackend: FileEncryptionBackend;
+  private readonly encryptBackend: FileEncryptionBackend;
 
   /**
    * @param encryption - Backend used for both decrypt and encrypt (standard case).
@@ -104,10 +104,10 @@ export class BackendMigrator {
    *   from cloud (decrypt via keyservice) to another backend (encrypt via local credentials).
    */
   constructor(
-    encryption: EncryptionBackend,
+    encryption: FileEncryptionBackend,
     private readonly matrixManager: MatrixManager,
     private readonly tx: TransactionManager,
-    targetEncryption?: EncryptionBackend,
+    targetEncryption?: FileEncryptionBackend,
   ) {
     this.decryptBackend = encryption;
     this.encryptBackend = targetEncryption ?? encryption;

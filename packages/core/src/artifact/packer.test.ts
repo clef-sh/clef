@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import { ArtifactPacker } from "./packer";
-import { ClefManifest, EncryptionBackend, DecryptedFile } from "../types";
+import { ClefManifest, FileEncryptionBackend, DecryptedFile } from "../types";
 import { KmsProvider, KmsWrapResult } from "../kms";
 import { MatrixManager } from "../matrix/manager";
 import { PackConfig, PackedArtifact } from "./types";
@@ -61,7 +61,7 @@ function baseManifest(): ClefManifest {
   };
 }
 
-function mockEncryption(): jest.Mocked<EncryptionBackend> {
+function mockEncryption(): jest.Mocked<FileEncryptionBackend> {
   return {
     decrypt: jest.fn(),
     encrypt: jest.fn(),
@@ -74,7 +74,7 @@ function mockEncryption(): jest.Mocked<EncryptionBackend> {
 }
 
 describe("ArtifactPacker", () => {
-  let encryption: jest.Mocked<EncryptionBackend>;
+  let encryption: jest.Mocked<FileEncryptionBackend>;
   let matrixManager: MatrixManager;
   let packer: ArtifactPacker;
 

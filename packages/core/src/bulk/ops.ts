@@ -1,6 +1,6 @@
 import * as path from "path";
 import { ClefManifest, MatrixCell } from "../types";
-import { EncryptionBackend } from "../types";
+import { FileEncryptionBackend } from "../types";
 import { TransactionManager } from "../tx";
 
 /**
@@ -37,7 +37,7 @@ export class BulkOps {
     key: string,
     values: Record<string, string>,
     manifest: ClefManifest,
-    sopsClient: EncryptionBackend,
+    sopsClient: FileEncryptionBackend,
     repoRoot: string,
   ): Promise<void> {
     const targets = manifest.environments
@@ -80,7 +80,7 @@ export class BulkOps {
     namespace: string,
     key: string,
     manifest: ClefManifest,
-    sopsClient: EncryptionBackend,
+    sopsClient: FileEncryptionBackend,
     repoRoot: string,
   ): Promise<void> {
     const targets = manifest.environments.map((env) => ({
@@ -121,7 +121,7 @@ export class BulkOps {
     key: string,
     fromCell: MatrixCell,
     toCell: MatrixCell,
-    sopsClient: EncryptionBackend,
+    sopsClient: FileEncryptionBackend,
     manifest: ClefManifest,
     repoRoot: string,
   ): Promise<void> {

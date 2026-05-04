@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import writeFileAtomic from "write-file-atomic";
 import { RecipientManager } from "./index";
-import { ClefManifest, EncryptionBackend } from "../types";
+import { ClefManifest, FileEncryptionBackend } from "../types";
 import { TransactionManager } from "../tx";
 
 jest.mock("fs");
@@ -60,7 +60,7 @@ function makeManifestYaml(recipients: unknown[] = []): string {
   });
 }
 
-function makeEncryption(overrides?: Partial<EncryptionBackend>): EncryptionBackend {
+function makeEncryption(overrides?: Partial<FileEncryptionBackend>): FileEncryptionBackend {
   return {
     decrypt: jest.fn(),
     encrypt: jest.fn(),

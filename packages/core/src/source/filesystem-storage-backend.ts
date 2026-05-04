@@ -1,30 +1,31 @@
 /**
- * Filesystem-backed `BlobStore`. Cells are stored as SOPS files at paths
- * derived from the manifest's `file_pattern` (e.g.
+ * Filesystem-backed `StorageBackend`. Cells are stored at paths derived
+ * from the manifest's `file_pattern` (e.g.
  * `{namespace}/{environment}.enc.yaml`). Pending/rotation metadata
  * lives in a co-located `.clef-meta.yaml` sidecar (mirroring the
  * existing on-disk format).
  *
- * Atomicity: `writeBlob` uses `writeFileAtomic` so a crash mid-write
- * cannot leave a torn ciphertext file. `writePendingMetadata` likewise
- * uses the existing `pending/metadata.ts` helpers, which are atomic.
+ * Atomicity: `writeBlob` writes to a sibling temp path, fsyncs, and
+ * renames over the target (POSIX rename is atomic on the same
+ * filesystem; Windows rename is atomic since NT 5.1). A torn file
+ * from Ctrl+C / OOM mid-write cannot occur.
  *
- * Path operations (cell→file, namespace→directory) are exposed publicly
- * so the substrate-specific traits (`MergeAware`, `Structural`) wired
- * up by `composeSecretSource` can do filesystem-shaped work like
+ * Path operations (cell → file, repo root) are exposed publicly so the
+ * substrate-specific traits (`MergeAware`, `Structural`) wired up by
+ * `composeSecretSource` can do filesystem-shaped work like
  * `fs.renameSync` cascades.
  */
 import * as fs from "fs";
 import * as path from "path";
 import { randomBytes } from "crypto";
 import type { ClefManifest } from "../types";
-import type { BlobStore } from "./blob-store";
+import type { StorageBackend } from "./storage-backend";
 import type { CellRef, CellPendingMetadata } from "./types";
 import { loadMetadata, saveMetadata } from "../pending/metadata";
 
-export class FilesystemBlobStore implements BlobStore {
+export class FilesystemStorageBackend implements StorageBackend {
   readonly id = "filesystem";
-  readonly description = "Filesystem-backed SOPS files (default substrate)";
+  readonly description = "Filesystem-backed cell storage (default substrate)";
 
   constructor(
     private readonly manifest: ClefManifest,

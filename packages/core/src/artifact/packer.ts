@@ -1,5 +1,5 @@
 import * as crypto from "crypto";
-import { ClefManifest, EncryptionBackend, isKmsEnvelope } from "../types";
+import { ClefManifest, FileEncryptionBackend, isKmsEnvelope } from "../types";
 import { KmsProvider } from "../kms";
 import { MatrixManager } from "../matrix/manager";
 import { PackConfig, PackResult, PackedArtifact } from "./types";
@@ -17,7 +17,7 @@ import { computeCiphertextHash } from "./hash";
  */
 export class ArtifactPacker {
   constructor(
-    private readonly encryption: EncryptionBackend,
+    private readonly encryption: FileEncryptionBackend,
     private readonly matrixManager: MatrixManager,
     private readonly kms?: KmsProvider,
   ) {}

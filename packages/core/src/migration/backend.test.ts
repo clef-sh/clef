@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import writeFileAtomic from "write-file-atomic";
 import { BackendMigrator, MigrationTarget } from "./backend";
-import { ClefManifest, EncryptionBackend, SopsMetadata } from "../types";
+import { ClefManifest, FileEncryptionBackend, SopsMetadata } from "../types";
 import { TransactionManager } from "../tx";
 
 jest.mock("fs");
@@ -62,7 +62,7 @@ function kmsMeta(arn = "arn:aws:kms:us-east-1:123456789012:key/old"): SopsMetada
   };
 }
 
-function makeEncryption(overrides?: Partial<EncryptionBackend>): EncryptionBackend {
+function makeEncryption(overrides?: Partial<FileEncryptionBackend>): FileEncryptionBackend {
   return {
     decrypt: jest
       .fn()

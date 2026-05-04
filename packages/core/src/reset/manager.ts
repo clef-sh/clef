@@ -1,5 +1,5 @@
 import * as path from "path";
-import { BackendType, ClefManifest, EncryptionBackend, MatrixCell } from "../types";
+import { BackendType, ClefManifest, FileEncryptionBackend, MatrixCell } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { SchemaValidator } from "../schema/validator";
 import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
@@ -71,7 +71,7 @@ export interface ResetResult {
 export class ResetManager {
   constructor(
     private readonly matrixManager: MatrixManager,
-    private readonly encryption: EncryptionBackend,
+    private readonly encryption: FileEncryptionBackend,
     private readonly schemaValidator: SchemaValidator,
     private readonly tx: TransactionManager,
   ) {}

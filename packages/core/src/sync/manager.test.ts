@@ -1,5 +1,5 @@
 import { SyncManager } from "./manager";
-import { ClefManifest, EncryptionBackend, MatrixCell } from "../types";
+import { ClefManifest, FileEncryptionBackend, MatrixCell } from "../types";
 import { TransactionManager } from "../tx";
 import { readSopsKeyNames } from "../sops/keys";
 import { markPendingWithRetry } from "../pending/metadata";
@@ -88,11 +88,11 @@ function makeMatrixManager(cells: MatrixCell[] = makeCells()) {
   };
 }
 
-function makeEncryption(): jest.Mocked<EncryptionBackend> {
+function makeEncryption(): jest.Mocked<FileEncryptionBackend> {
   return {
     decrypt: jest.fn().mockResolvedValue({ values: {}, metadata: {} }),
     encrypt: jest.fn().mockResolvedValue(undefined),
-  } as unknown as jest.Mocked<EncryptionBackend>;
+  } as unknown as jest.Mocked<FileEncryptionBackend>;
 }
 
 describe("SyncManager", () => {

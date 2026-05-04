@@ -1,5 +1,5 @@
 import * as path from "path";
-import { ClefManifest, EncryptionBackend } from "../types";
+import { ClefManifest, FileEncryptionBackend } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { TransactionManager } from "../tx";
 import { readSopsKeyNames } from "../sops/keys";
@@ -48,7 +48,7 @@ export interface SyncResult {
 export class SyncManager {
   constructor(
     private readonly matrixManager: MatrixManager,
-    private readonly encryption: EncryptionBackend,
+    private readonly encryption: FileEncryptionBackend,
     private readonly tx: TransactionManager,
   ) {}
 
