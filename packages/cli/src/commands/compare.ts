@@ -4,7 +4,7 @@ import { ManifestParser, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createSopsClient } from "../age-credential";
+import { createSecretSource } from "../source-factory";
 import { parseTarget } from "../parse-target";
 import * as crypto from "crypto";
 
@@ -29,13 +29,6 @@ export function registerCompareCommand(program: Command, deps: { runner: Subproc
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const filePath = path.join(
-          repoRoot,
-          manifest.file_pattern
-            .replace("{namespace}", namespace)
-            .replace("{environment}", environment),
-        );
-
         if (value !== undefined) {
           formatter.warn(
             "Value passed as a command-line argument is visible in shell history.\n" +
@@ -50,13 +43,9 @@ export function registerCompareCommand(program: Command, deps: { runner: Subproc
           compareValue = value;
         }
 
-        const { client: sopsClient, cleanup } = await createSopsClient(
-          repoRoot,
-          deps.runner,
-          manifest,
-        );
+        const { source, cleanup } = await createSecretSource(repoRoot, deps.runner, manifest);
         try {
-          const decrypted = await sopsClient.decrypt(filePath);
+          const decrypted = await source.readCell({ namespace, environment });
 
           if (!(key in decrypted.values)) {
             formatter.error(
