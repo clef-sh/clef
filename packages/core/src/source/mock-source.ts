@@ -24,6 +24,7 @@ import type {
   RecipientManaged,
   RemoveRecipientRequest,
   Rotatable,
+  RotateOptions,
   SecretSource,
   Structural,
 } from "./types";
@@ -242,7 +243,7 @@ export class MockSecretSource implements SecretSource {
 
   // ── Rotatable ──────────────────────────────────────────────────────────
 
-  async rotate(_cell: CellRef, _newRecipient: string): Promise<void> {
+  async rotate(_cell: CellRef, _opts: RotateOptions): Promise<void> {
     /* in-memory: no-op */
   }
 

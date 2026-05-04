@@ -37,6 +37,9 @@ import type { MigrationOptions, MigrationResult, MigrationTarget } from "../migr
 import type { MergeResult } from "../merge/driver";
 import type { CellMetadata as PendingCellMetadata } from "../pending/metadata";
 import type { AddNamespaceOptions, AddEnvironmentOptions } from "../structure/manager";
+import type { RotateOptions } from "./encryption-backend";
+
+export type { RotateOptions };
 
 /** Identifies a cell in the namespace × environment matrix. */
 export interface CellRef {
@@ -151,9 +154,16 @@ export interface RecipientDriftResult {
   unexpected: string[];
 }
 
-/** Re-encrypt the cell so a new recipient can decrypt it. */
+/**
+ * Re-key a cell: rotate the data encryption key and/or update the
+ * recipient set without exposing plaintext to the calling process. The
+ * `RotateOptions` shape mirrors the substrate-level `EncryptionBackend`
+ * — at the SOPS layer that means add/remove for any of age, AWS KMS,
+ * GCP KMS, Azure KV, PGP. Backends interpret only the keys they
+ * understand.
+ */
 export interface Rotatable {
-  rotate(cell: CellRef, newRecipient: string): Promise<void>;
+  rotate(cell: CellRef, opts: RotateOptions): Promise<void>;
 }
 
 /**

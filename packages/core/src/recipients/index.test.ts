@@ -2,8 +2,9 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import writeFileAtomic from "write-file-atomic";
 import { RecipientManager } from "./index";
-import { ClefManifest, FileEncryptionBackend } from "../types";
+import { ClefManifest } from "../types";
 import { TransactionManager } from "../tx";
+import type { Rotatable, SecretSource } from "../source/types";
 
 jest.mock("fs");
 // write-file-atomic is auto-mocked via core's jest.config moduleNameMapper.
@@ -60,17 +61,30 @@ function makeManifestYaml(recipients: unknown[] = []): string {
   });
 }
 
-function makeEncryption(overrides?: Partial<FileEncryptionBackend>): FileEncryptionBackend {
+interface SourceMock extends SecretSource, Rotatable {
+  rotate: jest.Mock;
+}
+
+function makeEncryption(overrides?: Partial<SourceMock>): SourceMock {
+  const stub = jest.fn();
   return {
-    decrypt: jest.fn(),
-    encrypt: jest.fn(),
-    reEncrypt: jest.fn(),
-    addRecipient: jest.fn().mockResolvedValue(undefined),
-    removeRecipient: jest.fn().mockResolvedValue(undefined),
-    validateEncryption: jest.fn(),
-    getMetadata: jest.fn(),
+    id: "mock",
+    description: "mock",
+    readCell: stub,
+    writeCell: stub,
+    deleteCell: stub,
+    cellExists: stub,
+    listKeys: stub,
+    scaffoldCell: stub,
+    getCellMetadata: stub,
+    getPendingMetadata: stub,
+    markPending: stub,
+    markResolved: stub,
+    recordRotation: stub,
+    removeRotation: stub,
+    rotate: jest.fn().mockResolvedValue(undefined),
     ...overrides,
-  };
+  } as unknown as SourceMock;
 }
 
 function makeMatrixManager(existingFiles: string[] = []) {
@@ -250,15 +264,15 @@ describe("RecipientManager", () => {
       expect(result.failedFiles).toHaveLength(0);
       expect(result.warnings).toHaveLength(0);
 
-      // Check that addRecipient was called for each file
-      expect(encryption.addRecipient).toHaveBeenCalledTimes(2);
-      expect(encryption.addRecipient).toHaveBeenCalledWith(
-        "/repo/database/staging.enc.yaml",
-        validKey1,
+      // Check that source.rotate was called for each cell with addAge
+      expect(encryption.rotate).toHaveBeenCalledTimes(2);
+      expect(encryption.rotate).toHaveBeenCalledWith(
+        { namespace: "database", environment: "staging" },
+        { addAge: validKey1 },
       );
-      expect(encryption.addRecipient).toHaveBeenCalledWith(
-        "/repo/database/production.enc.yaml",
-        validKey1,
+      expect(encryption.rotate).toHaveBeenCalledWith(
+        { namespace: "database", environment: "production" },
+        { addAge: validKey1 },
       );
 
       // Check that manifest was written (via write-file-atomic)
@@ -314,7 +328,7 @@ describe("RecipientManager", () => {
 
       let addCallCount = 0;
       const encryption = makeEncryption({
-        addRecipient: jest.fn().mockImplementation(async () => {
+        rotate: jest.fn().mockImplementation(async () => {
           addCallCount++;
           if (addCallCount === 2) {
             throw new Error("re-encryption failed");
@@ -427,14 +441,14 @@ describe("RecipientManager", () => {
         "Re-encryption removes future access, not past access. Rotate secret values to complete revocation.",
       );
 
-      // Check that removeRecipient was called for each file
-      expect(encryption.removeRecipient).toHaveBeenCalledWith(
-        "/repo/database/staging.enc.yaml",
-        validKey1,
+      // Check that source.rotate was called for each cell with rmAge
+      expect(encryption.rotate).toHaveBeenCalledWith(
+        { namespace: "database", environment: "staging" },
+        { rmAge: validKey1 },
       );
-      expect(encryption.removeRecipient).toHaveBeenCalledWith(
-        "/repo/database/production.enc.yaml",
-        validKey1,
+      expect(encryption.rotate).toHaveBeenCalledWith(
+        { namespace: "database", environment: "production" },
+        { rmAge: validKey1 },
       );
     });
 
@@ -446,7 +460,7 @@ describe("RecipientManager", () => {
 
       let removeCallCount = 0;
       const encryption = makeEncryption({
-        removeRecipient: jest.fn().mockImplementation(async () => {
+        rotate: jest.fn().mockImplementation(async () => {
           removeCallCount++;
           if (removeCallCount === 2) {
             throw new Error("re-encryption failed");
@@ -528,7 +542,7 @@ describe("RecipientManager", () => {
 
       const result = await manager.remove(validKey1, manifest, repoRoot);
 
-      expect(encryption.removeRecipient).not.toHaveBeenCalled();
+      expect(encryption.rotate).not.toHaveBeenCalled();
       expect(result.reEncryptedFiles).toHaveLength(0);
     });
   });
@@ -634,7 +648,7 @@ describe("RecipientManager", () => {
         // Only production file should be re-encrypted
         expect(result.reEncryptedFiles).toHaveLength(1);
         expect(result.reEncryptedFiles[0]).toContain("production");
-        expect(encryption.addRecipient).toHaveBeenCalledTimes(1);
+        expect(encryption.rotate).toHaveBeenCalledTimes(1);
       });
 
       it("only re-encrypts files for the target environment", async () => {
@@ -739,7 +753,7 @@ describe("RecipientManager", () => {
 
         const result = await manager.remove(validKey1, manifest, repoRoot, "production");
 
-        expect(encryption.removeRecipient).toHaveBeenCalledTimes(1);
+        expect(encryption.rotate).toHaveBeenCalledTimes(1);
         expect(result.reEncryptedFiles).toHaveLength(1);
         expect(result.reEncryptedFiles[0]).toContain("production");
       });

@@ -1,5 +1,6 @@
 import * as path from "path";
-import { ClefManifest, FileEncryptionBackend } from "../types";
+import { ClefManifest } from "../types";
+import type { CellRef, Rotatable, SecretSource } from "../source/types";
 import { MatrixManager } from "../matrix/manager";
 import { validateAgePublicKey, keyPreview } from "./validator";
 import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
@@ -120,7 +121,7 @@ function ensureEnvironmentRecipientsArray(
  */
 export class RecipientManager {
   constructor(
-    private readonly encryption: FileEncryptionBackend,
+    private readonly source: SecretSource & Rotatable,
     private readonly matrixManager: MatrixManager,
     private readonly tx: TransactionManager,
   ) {}
@@ -213,7 +214,8 @@ export class RecipientManager {
         writeManifestYaml(repoRoot, doc);
 
         for (const cell of cells) {
-          await this.encryption.addRecipient(cell.filePath, normalizedKey);
+          const ref: CellRef = { namespace: cell.namespace, environment: cell.environment };
+          await this.source.rotate(ref, { addAge: normalizedKey });
           reEncryptedFiles.push(cell.filePath);
         }
       },
@@ -296,7 +298,8 @@ export class RecipientManager {
         writeManifestYaml(repoRoot, doc);
 
         for (const cell of cells) {
-          await this.encryption.removeRecipient(cell.filePath, trimmedKey);
+          const ref: CellRef = { namespace: cell.namespace, environment: cell.environment };
+          await this.source.rotate(ref, { rmAge: trimmedKey });
           reEncryptedFiles.push(cell.filePath);
         }
       },

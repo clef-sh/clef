@@ -140,7 +140,6 @@ export function createApiRouter(deps: ApiDeps): Router {
   const git = new GitIntegration(deps.runner);
   const tx = new TransactionManager(git);
   const scanRunner = new ScanRunner(deps.runner);
-  const recipientManager = new RecipientManager(sops, matrix, tx);
   const serviceIdManager = new ServiceIdentityManager(sops, matrix, tx);
   const backendMigrator = new BackendMigrator(sops, matrix, tx);
   const structureManager = new StructureManager(matrix, sops, tx);
@@ -1263,6 +1262,7 @@ export function createApiRouter(deps: ApiDeps): Router {
   router.get("/recipients", async (_req: Request, res: Response) => {
     try {
       const manifest = loadManifest();
+      const recipientManager = new RecipientManager(buildSourceFor(manifest), matrix, tx);
       const recipients = await recipientManager.list(manifest, deps.repoRoot);
       const cells = matrix.resolveMatrix(manifest, deps.repoRoot);
       const totalFiles = cells.filter((c) => c.exists).length;
@@ -1289,6 +1289,7 @@ export function createApiRouter(deps: ApiDeps): Router {
     try {
       const manifest = loadManifest();
       const { key, label } = req.body as { key: string; label?: string };
+      const recipientManager = new RecipientManager(buildSourceFor(manifest), matrix, tx);
       const result = await recipientManager.add(key, label, manifest, deps.repoRoot);
       res.json(result);
     } catch (err) {
@@ -1302,6 +1303,7 @@ export function createApiRouter(deps: ApiDeps): Router {
     try {
       const manifest = loadManifest();
       const { key } = req.body as { key: string };
+      const recipientManager = new RecipientManager(buildSourceFor(manifest), matrix, tx);
       const result = await recipientManager.remove(key, manifest, deps.repoRoot);
       const cells = matrix.resolveMatrix(manifest, deps.repoRoot);
       const targets = cells.filter((c) => c.exists).map((c) => `${c.namespace}/${c.environment}`);

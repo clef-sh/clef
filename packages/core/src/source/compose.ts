@@ -34,6 +34,7 @@ import type {
   Lintable,
   RecipientDriftResult,
   Rotatable,
+  RotateOptions,
   SecretSource,
 } from "./types";
 import type { StorageBackend } from "./storage-backend";
@@ -196,13 +197,9 @@ class ComposedSecretSource implements SecretSource, Lintable, Rotatable, Bulk {
 
   // ── Rotatable ──────────────────────────────────────────────────────────
 
-  async rotate(cell: CellRef, newRecipient: string): Promise<void> {
+  async rotate(cell: CellRef, opts: RotateOptions): Promise<void> {
     const blob = await this.storage.readBlob(cell);
-    const rotated = await this.encryption.rotate(
-      blob,
-      { addAge: newRecipient },
-      this.context(cell),
-    );
+    const rotated = await this.encryption.rotate(blob, opts, this.context(cell));
     await this.storage.writeBlob(cell, rotated);
   }
 

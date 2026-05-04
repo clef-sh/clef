@@ -296,7 +296,7 @@ describe("composeSecretSource — Rotatable trait", () => {
     const enc = makeEncryption();
     const source = composeSecretSource(store, enc, manifest);
 
-    await source.rotate({ namespace: "api", environment: "dev" }, "age1new");
+    await source.rotate({ namespace: "api", environment: "dev" }, { addAge: "age1new" });
 
     expect(enc.rotate).toHaveBeenCalledWith(
       "ciphertext",
