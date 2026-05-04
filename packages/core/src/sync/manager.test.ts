@@ -1,17 +1,11 @@
 import { SyncManager } from "./manager";
-import { ClefManifest, FileEncryptionBackend, MatrixCell } from "../types";
+import { ClefManifest, MatrixCell } from "../types";
 import { TransactionManager } from "../tx";
-import { readSopsKeyNames } from "../sops/keys";
-import { markPendingWithRetry } from "../pending/metadata";
+import type { CellPendingMetadata, SecretSource } from "../source/types";
 
-jest.mock("../sops/keys");
 jest.mock("../pending/metadata", () => ({
-  markPendingWithRetry: jest.fn().mockResolvedValue(undefined),
   generateRandomValue: jest.fn().mockReturnValue("r".repeat(64)),
 }));
-
-const mockReadSopsKeyNames = readSopsKeyNames as jest.MockedFunction<typeof readSopsKeyNames>;
-const mockMarkPending = markPendingWithRetry as jest.Mock;
 
 const repoRoot = "/repo";
 
@@ -88,11 +82,33 @@ function makeMatrixManager(cells: MatrixCell[] = makeCells()) {
   };
 }
 
-function makeEncryption(): jest.Mocked<FileEncryptionBackend> {
+interface SourceMock extends SecretSource {
+  listKeys: jest.Mock<Promise<string[]>, [{ namespace: string; environment: string }]>;
+  readCell: jest.Mock;
+  writeCell: jest.Mock;
+  markPending: jest.Mock;
+}
+
+function makeSource(): SourceMock {
+  const stub = jest.fn();
   return {
-    decrypt: jest.fn().mockResolvedValue({ values: {}, metadata: {} }),
-    encrypt: jest.fn().mockResolvedValue(undefined),
-  } as unknown as jest.Mocked<FileEncryptionBackend>;
+    id: "mock",
+    description: "mock",
+    readCell: jest.fn().mockResolvedValue({ values: {}, metadata: {} as never }),
+    writeCell: jest.fn().mockResolvedValue(undefined),
+    deleteCell: stub,
+    cellExists: stub,
+    listKeys: jest.fn().mockResolvedValue([]),
+    scaffoldCell: stub,
+    getCellMetadata: stub,
+    getPendingMetadata: jest
+      .fn()
+      .mockResolvedValue({ version: 1, pending: [], rotations: [] } as CellPendingMetadata),
+    markPending: jest.fn().mockResolvedValue(undefined),
+    markResolved: stub,
+    recordRotation: stub,
+    removeRotation: stub,
+  } as unknown as SourceMock;
 }
 
 describe("SyncManager", () => {
@@ -103,14 +119,14 @@ describe("SyncManager", () => {
   describe("plan()", () => {
     it("computes union and identifies missing keys", async () => {
       const mm = makeMatrixManager();
-      const enc = makeEncryption();
+      const source = makeSource();
       const tx = makeStubTx();
-      const sync = new SyncManager(mm as never, enc, tx);
+      const sync = new SyncManager(mm as never, source, tx);
 
-      mockReadSopsKeyNames.mockImplementation((fp: string) => {
-        if (fp.includes("dev")) return ["DB_URL", "API_KEY", "WEBHOOK_SECRET"];
-        if (fp.includes("staging")) return ["DB_URL", "API_KEY"];
-        if (fp.includes("production")) return ["DB_URL"];
+      source.listKeys.mockImplementation(async (ref) => {
+        if (ref.environment === "dev") return ["DB_URL", "API_KEY", "WEBHOOK_SECRET"];
+        if (ref.environment === "staging") return ["DB_URL", "API_KEY"];
+        if (ref.environment === "production") return ["DB_URL"];
         return [];
       });
 
@@ -128,11 +144,11 @@ describe("SyncManager", () => {
 
     it("returns empty when all environments have the same keys", async () => {
       const mm = makeMatrixManager();
-      const enc = makeEncryption();
+      const source = makeSource();
       const tx = makeStubTx();
-      const sync = new SyncManager(mm as never, enc, tx);
+      const sync = new SyncManager(mm as never, source, tx);
 
-      mockReadSopsKeyNames.mockReturnValue(["DB_URL", "API_KEY"]);
+      source.listKeys.mockResolvedValue(["DB_URL", "API_KEY"]);
 
       const plan = await sync.plan(baseManifest, repoRoot, { namespace: "payments" });
       expect(plan.totalKeys).toBe(0);
@@ -141,15 +157,14 @@ describe("SyncManager", () => {
 
     it("filters to a single namespace", async () => {
       const mm = makeMatrixManager();
-      const enc = makeEncryption();
+      const source = makeSource();
       const tx = makeStubTx();
-      const sync = new SyncManager(mm as never, enc, tx);
+      const sync = new SyncManager(mm as never, source, tx);
 
-      // payments: dev has extra key, auth: dev has extra key
-      mockReadSopsKeyNames.mockImplementation((fp: string) => {
-        if (fp.includes("payments/dev")) return ["DB_URL", "EXTRA"];
-        if (fp.includes("auth/dev")) return ["TOKEN", "SECRET"];
-        return ["DB_URL"]; // all other cells
+      source.listKeys.mockImplementation(async (ref) => {
+        if (ref.namespace === "payments" && ref.environment === "dev") return ["DB_URL", "EXTRA"];
+        if (ref.namespace === "auth" && ref.environment === "dev") return ["TOKEN", "SECRET"];
+        return ["DB_URL"];
       });
 
       const plan = await sync.plan(baseManifest, repoRoot, { namespace: "payments" });
@@ -162,12 +177,12 @@ describe("SyncManager", () => {
 
     it("flags protected environments", async () => {
       const mm = makeMatrixManager();
-      const enc = makeEncryption();
+      const source = makeSource();
       const tx = makeStubTx();
-      const sync = new SyncManager(mm as never, enc, tx);
+      const sync = new SyncManager(mm as never, source, tx);
 
-      mockReadSopsKeyNames.mockImplementation((fp: string) => {
-        if (fp.includes("dev")) return ["DB_URL", "SECRET"];
+      source.listKeys.mockImplementation(async (ref) => {
+        if (ref.environment === "dev") return ["DB_URL", "SECRET"];
         return ["DB_URL"];
       });
 
@@ -187,12 +202,12 @@ describe("SyncManager", () => {
       cells.find((c) => c.namespace === "payments" && c.environment === "production")!.exists =
         false;
       const mm = makeMatrixManager(cells);
-      const enc = makeEncryption();
+      const source = makeSource();
       const tx = makeStubTx();
-      const sync = new SyncManager(mm as never, enc, tx);
+      const sync = new SyncManager(mm as never, source, tx);
 
-      mockReadSopsKeyNames.mockImplementation((fp: string) => {
-        if (fp.includes("dev")) return ["DB_URL", "SECRET"];
+      source.listKeys.mockImplementation(async (ref) => {
+        if (ref.environment === "dev") return ["DB_URL", "SECRET"];
         return ["DB_URL"];
       });
 
@@ -205,9 +220,9 @@ describe("SyncManager", () => {
 
     it("throws for unknown namespace", async () => {
       const mm = makeMatrixManager();
-      const enc = makeEncryption();
+      const source = makeSource();
       const tx = makeStubTx();
-      const sync = new SyncManager(mm as never, enc, tx);
+      const sync = new SyncManager(mm as never, source, tx);
 
       await expect(sync.plan(baseManifest, repoRoot, { namespace: "nope" })).rejects.toThrow(
         "Namespace 'nope' not found in manifest.",
@@ -216,12 +231,12 @@ describe("SyncManager", () => {
 
     it("plans all namespaces when namespace is omitted", async () => {
       const mm = makeMatrixManager();
-      const enc = makeEncryption();
+      const source = makeSource();
       const tx = makeStubTx();
-      const sync = new SyncManager(mm as never, enc, tx);
+      const sync = new SyncManager(mm as never, source, tx);
 
-      mockReadSopsKeyNames.mockImplementation((fp: string) => {
-        if (fp.includes("dev")) return ["KEY_A", "KEY_B"];
+      source.listKeys.mockImplementation(async (ref) => {
+        if (ref.environment === "dev") return ["KEY_A", "KEY_B"];
         return ["KEY_A"];
       });
 
@@ -236,12 +251,12 @@ describe("SyncManager", () => {
   describe("sync()", () => {
     it("returns no-op when dryRun is set", async () => {
       const mm = makeMatrixManager();
-      const enc = makeEncryption();
+      const source = makeSource();
       const tx = makeStubTx();
-      const sync = new SyncManager(mm as never, enc, tx);
+      const sync = new SyncManager(mm as never, source, tx);
 
-      mockReadSopsKeyNames.mockImplementation((fp: string) => {
-        if (fp.includes("dev")) return ["DB_URL", "SECRET"];
+      source.listKeys.mockImplementation(async (ref) => {
+        if (ref.environment === "dev") return ["DB_URL", "SECRET"];
         return ["DB_URL"];
       });
 
@@ -257,11 +272,11 @@ describe("SyncManager", () => {
 
     it("returns no-op when plan has 0 keys", async () => {
       const mm = makeMatrixManager();
-      const enc = makeEncryption();
+      const source = makeSource();
       const tx = makeStubTx();
-      const sync = new SyncManager(mm as never, enc, tx);
+      const sync = new SyncManager(mm as never, source, tx);
 
-      mockReadSopsKeyNames.mockReturnValue(["DB_URL"]);
+      source.listKeys.mockResolvedValue(["DB_URL"]);
 
       const result = await sync.sync(baseManifest, repoRoot, { namespace: "payments" });
 
@@ -269,39 +284,39 @@ describe("SyncManager", () => {
       expect(tx.run as jest.Mock).not.toHaveBeenCalled();
     });
 
-    it("decrypts, merges random values, encrypts, and marks pending for each gap cell", async () => {
+    it("reads, merges random values, writes, and marks pending for each gap cell", async () => {
       const mm = makeMatrixManager();
-      const enc = makeEncryption();
+      const source = makeSource();
       const tx = makeStubTx();
-      const sync = new SyncManager(mm as never, enc, tx);
+      const sync = new SyncManager(mm as never, source, tx);
 
-      mockReadSopsKeyNames.mockImplementation((fp: string) => {
-        if (fp.includes("dev")) return ["DB_URL", "SECRET"];
-        if (fp.includes("staging")) return ["DB_URL"];
-        if (fp.includes("production")) return ["DB_URL"];
+      source.listKeys.mockImplementation(async (ref) => {
+        if (ref.environment === "dev") return ["DB_URL", "SECRET"];
+        if (ref.environment === "staging") return ["DB_URL"];
+        if (ref.environment === "production") return ["DB_URL"];
         return [];
       });
 
-      enc.decrypt.mockResolvedValue({ values: { DB_URL: "existing" }, metadata: {} as never });
+      source.readCell.mockResolvedValue({ values: { DB_URL: "existing" }, metadata: {} as never });
 
       const result = await sync.sync(baseManifest, repoRoot, { namespace: "payments" });
 
       expect(result.totalKeysScaffolded).toBe(2); // staging + production each missing SECRET
       expect(result.modifiedCells).toEqual(["payments/staging", "payments/production"]);
 
-      // decrypt called for staging and production
-      expect(enc.decrypt).toHaveBeenCalledTimes(2);
+      // readCell called for staging and production
+      expect(source.readCell).toHaveBeenCalledTimes(2);
 
-      // encrypt called with merged values (existing + random)
-      expect(enc.encrypt).toHaveBeenCalledTimes(2);
-      const encryptCall = enc.encrypt.mock.calls[0];
-      expect(encryptCall[1]).toHaveProperty("DB_URL", "existing");
-      expect(encryptCall[1]).toHaveProperty("SECRET", "r".repeat(64));
+      // writeCell called with merged values (existing + random)
+      expect(source.writeCell).toHaveBeenCalledTimes(2);
+      const writeCall = source.writeCell.mock.calls[0];
+      expect(writeCall[1]).toHaveProperty("DB_URL", "existing");
+      expect(writeCall[1]).toHaveProperty("SECRET", "r".repeat(64));
 
-      // markPendingWithRetry called for each cell
-      expect(mockMarkPending).toHaveBeenCalledTimes(2);
-      expect(mockMarkPending).toHaveBeenCalledWith(
-        expect.stringContaining("staging.enc.yaml"),
+      // markPending called for each cell
+      expect(source.markPending).toHaveBeenCalledTimes(2);
+      expect(source.markPending).toHaveBeenCalledWith(
+        { namespace: "payments", environment: "staging" },
         ["SECRET"],
         "clef sync",
       );
@@ -309,38 +324,37 @@ describe("SyncManager", () => {
 
     it("does not overwrite existing keys", async () => {
       const mm = makeMatrixManager();
-      const enc = makeEncryption();
+      const source = makeSource();
       const tx = makeStubTx();
-      const sync = new SyncManager(mm as never, enc, tx);
+      const sync = new SyncManager(mm as never, source, tx);
 
-      mockReadSopsKeyNames.mockImplementation((fp: string) => {
-        if (fp.includes("dev")) return ["A", "B"];
-        if (fp.includes("staging")) return ["A"];
+      source.listKeys.mockImplementation(async (ref) => {
+        if (ref.environment === "dev") return ["A", "B"];
+        if (ref.environment === "staging") return ["A"];
         return ["A"];
       });
 
-      enc.decrypt.mockResolvedValue({ values: { A: "real-value" }, metadata: {} as never });
+      source.readCell.mockResolvedValue({ values: { A: "real-value" }, metadata: {} as never });
 
       await sync.sync(baseManifest, repoRoot, { namespace: "payments" });
 
-      // The existing key A should not be overwritten
-      const encryptCall = enc.encrypt.mock.calls[0];
-      expect(encryptCall[1].A).toBe("real-value");
-      expect(encryptCall[1].B).toBe("r".repeat(64));
+      const writeCall = source.writeCell.mock.calls[0];
+      expect(writeCall[1].A).toBe("real-value");
+      expect(writeCall[1].B).toBe("r".repeat(64));
     });
 
     it("creates a single transaction with enc + meta paths", async () => {
       const mm = makeMatrixManager();
-      const enc = makeEncryption();
+      const source = makeSource();
       const tx = makeStubTx();
-      const sync = new SyncManager(mm as never, enc, tx);
+      const sync = new SyncManager(mm as never, source, tx);
 
-      mockReadSopsKeyNames.mockImplementation((fp: string) => {
-        if (fp.includes("dev")) return ["DB_URL", "SECRET"];
+      source.listKeys.mockImplementation(async (ref) => {
+        if (ref.environment === "dev") return ["DB_URL", "SECRET"];
         return ["DB_URL"];
       });
 
-      enc.decrypt.mockResolvedValue({ values: { DB_URL: "x" }, metadata: {} as never });
+      source.readCell.mockResolvedValue({ values: { DB_URL: "x" }, metadata: {} as never });
 
       await sync.sync(baseManifest, repoRoot, { namespace: "payments" });
 

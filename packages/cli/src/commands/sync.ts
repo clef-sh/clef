@@ -12,7 +12,7 @@ import type { SyncCellPlan } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createSopsClient } from "../age-credential";
+import { createSecretSource } from "../source-factory";
 
 export function registerSyncCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -50,15 +50,11 @@ export function registerSyncCommand(program: Command, deps: { runner: Subprocess
         const repoRoot = (program.opts().dir as string) || process.cwd();
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
-        const { client: sopsClient, cleanup } = await createSopsClient(
-          repoRoot,
-          deps.runner,
-          manifest,
-        );
+        const { source, cleanup } = await createSecretSource(repoRoot, deps.runner, manifest);
         try {
           const tx = new TransactionManager(new GitIntegration(deps.runner));
           const matrixManager = new MatrixManager();
-          const syncManager = new SyncManager(matrixManager, sopsClient, tx);
+          const syncManager = new SyncManager(matrixManager, source, tx);
 
           const plan = await syncManager.plan(manifest, repoRoot, { namespace });
 

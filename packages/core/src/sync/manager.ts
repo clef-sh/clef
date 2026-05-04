@@ -1,9 +1,9 @@
 import * as path from "path";
-import { ClefManifest, FileEncryptionBackend } from "../types";
+import { ClefManifest } from "../types";
+import type { CellRef, SecretSource } from "../source/types";
 import { MatrixManager } from "../matrix/manager";
 import { TransactionManager } from "../tx";
-import { readSopsKeyNames } from "../sops/keys";
-import { markPendingWithRetry, generateRandomValue } from "../pending/metadata";
+import { generateRandomValue } from "../pending/metadata";
 
 export interface SyncOptions {
   /** Target namespace, or undefined to sync all namespaces. */
@@ -41,14 +41,14 @@ export interface SyncResult {
  * are missing. Each new key gets a cryptographically random placeholder
  * and is marked pending so the user knows to replace it before deploying.
  *
- * Detection reads plaintext key names from SOPS YAML — no decryption
- * needed for the discovery pass. Mutation decrypts, merges, re-encrypts,
- * and marks pending inside a single {@link TransactionManager} commit.
+ * Detection reads plaintext key names via the source — no decryption
+ * needed for the discovery pass. Mutation reads, merges, writes, and
+ * marks pending inside a single {@link TransactionManager} commit.
  */
 export class SyncManager {
   constructor(
     private readonly matrixManager: MatrixManager,
-    private readonly encryption: FileEncryptionBackend,
+    private readonly source: SecretSource,
     private readonly tx: TransactionManager,
   ) {}
 
@@ -74,8 +74,13 @@ export class SyncManager {
     // Group keys by namespace
     const keysByNsEnv: Record<string, Record<string, Set<string>>> = {};
     for (const cell of targetCells) {
-      const keys = readSopsKeyNames(cell.filePath);
-      if (!keys) continue;
+      const ref: CellRef = { namespace: cell.namespace, environment: cell.environment };
+      let keys: string[];
+      try {
+        keys = await this.source.listKeys(ref);
+      } catch {
+        continue;
+      }
       if (!keysByNsEnv[cell.namespace]) keysByNsEnv[cell.namespace] = {};
       keysByNsEnv[cell.namespace][cell.environment] = new Set(keys);
     }
@@ -152,17 +157,13 @@ export class SyncManager {
       paths: txPaths,
       mutate: async () => {
         for (const cell of syncPlan.cells) {
-          const decrypted = await this.encryption.decrypt(cell.filePath);
+          const ref: CellRef = { namespace: cell.namespace, environment: cell.environment };
+          const decrypted = await this.source.readCell(ref);
           for (const key of cell.missingKeys) {
             decrypted.values[key] = generateRandomValue();
           }
-          await this.encryption.encrypt(
-            cell.filePath,
-            decrypted.values,
-            manifest,
-            cell.environment,
-          );
-          await markPendingWithRetry(cell.filePath, cell.missingKeys, "clef sync");
+          await this.source.writeCell(ref, decrypted.values);
+          await this.source.markPending(ref, cell.missingKeys, "clef sync");
 
           const cellLabel = `${cell.namespace}/${cell.environment}`;
           modifiedCells.push(cellLabel);

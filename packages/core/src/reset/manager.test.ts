@@ -2,8 +2,9 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import writeFileAtomic from "write-file-atomic";
 import { ResetManager, describeScope, ResetScope } from "./manager";
-import { ClefManifest, FileEncryptionBackend, MatrixCell } from "../types";
+import { ClefManifest, MatrixCell } from "../types";
 import { TransactionManager } from "../tx";
+import type { CellPendingMetadata, SecretSource } from "../source/types";
 
 jest.mock("fs");
 // write-file-atomic is auto-mocked via core's jest.config moduleNameMapper.
@@ -80,17 +81,47 @@ function makeMatrixManager(cells: MatrixCell[] = makeCells()) {
   };
 }
 
-function makeEncryption(overrides?: Partial<FileEncryptionBackend>): FileEncryptionBackend {
+interface SourceMock extends SecretSource {
+  writeCell: jest.Mock;
+  markPending: jest.Mock;
+}
+
+function makeSource(): SourceMock {
+  const stub = jest.fn();
   return {
-    decrypt: jest.fn(),
-    encrypt: jest.fn().mockResolvedValue(undefined),
-    reEncrypt: jest.fn(),
-    addRecipient: jest.fn(),
-    removeRecipient: jest.fn(),
-    validateEncryption: jest.fn(),
-    getMetadata: jest.fn(),
-    ...overrides,
-  };
+    id: "mock",
+    description: "mock",
+    readCell: stub,
+    writeCell: jest.fn().mockResolvedValue(undefined),
+    deleteCell: stub,
+    cellExists: stub,
+    listKeys: stub,
+    scaffoldCell: stub,
+    getCellMetadata: stub,
+    getPendingMetadata: jest
+      .fn()
+      .mockResolvedValue({ version: 1, pending: [], rotations: [] } as CellPendingMetadata),
+    markPending: jest.fn().mockResolvedValue(undefined),
+    markResolved: stub,
+    recordRotation: stub,
+    removeRotation: stub,
+  } as unknown as SourceMock;
+}
+
+interface SourceFactoryHarness {
+  source: SourceMock;
+  buildSource: jest.Mock<SourceMock, [ClefManifest]>;
+  receivedManifests: ClefManifest[];
+}
+
+function makeSourceFactory(): SourceFactoryHarness {
+  const source = makeSource();
+  const receivedManifests: ClefManifest[] = [];
+  const buildSource = jest.fn((manifest: ClefManifest) => {
+    receivedManifests.push(manifest);
+    return source;
+  });
+  return { source, buildSource, receivedManifests };
 }
 
 function makeSchemaValidator(loadImpl?: jest.Mock): { loadSchema: jest.Mock; validate: jest.Mock } {
@@ -119,12 +150,12 @@ describe("ResetManager", () => {
 
   describe("scope resolution", () => {
     it("scopes to a single environment across all namespaces", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       const result = await manager.reset(
         { scope: { kind: "env", name: "staging" } },
         baseManifest,
@@ -136,17 +167,17 @@ describe("ResetManager", () => {
       expect(result.scaffoldedCells).toEqual(
         expect.arrayContaining(["/repo/database/staging.enc.yaml", "/repo/api/staging.enc.yaml"]),
       );
-      expect(enc.encrypt).toHaveBeenCalledTimes(2);
-      expect(enc.decrypt).not.toHaveBeenCalled();
+      expect(harness.source.writeCell).toHaveBeenCalledTimes(2);
+      expect(harness.source.readCell).not.toHaveBeenCalled();
     });
 
     it("scopes to a single namespace across all environments", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       const result = await manager.reset(
         { scope: { kind: "namespace", name: "database" } },
         baseManifest,
@@ -164,12 +195,12 @@ describe("ResetManager", () => {
     });
 
     it("scopes to a single cell", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       const result = await manager.reset(
         { scope: { kind: "cell", namespace: "database", environment: "staging" } },
         baseManifest,
@@ -178,40 +209,40 @@ describe("ResetManager", () => {
 
       expect(result.affectedEnvironments).toEqual(["staging"]);
       expect(result.scaffoldedCells).toEqual(["/repo/database/staging.enc.yaml"]);
-      expect(enc.encrypt).toHaveBeenCalledTimes(1);
+      expect(harness.source.writeCell).toHaveBeenCalledTimes(1);
     });
 
     it("throws when scope matches zero cells", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager([]);
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       await expect(
         manager.reset({ scope: { kind: "env", name: "staging" } }, baseManifest, repoRoot),
       ).rejects.toThrow("matches zero cells");
     });
 
     it("throws on unknown environment scope", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       await expect(
         manager.reset({ scope: { kind: "env", name: "nonexistent" } }, baseManifest, repoRoot),
       ).rejects.toThrow("Environment 'nonexistent' not found");
     });
 
     it("throws on unknown namespace scope", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       await expect(
         manager.reset(
           { scope: { kind: "namespace", name: "nonexistent" } },
@@ -222,12 +253,12 @@ describe("ResetManager", () => {
     });
 
     it("throws on cell scope with unknown namespace", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       await expect(
         manager.reset(
           { scope: { kind: "cell", namespace: "nope", environment: "staging" } },
@@ -238,12 +269,12 @@ describe("ResetManager", () => {
     });
 
     it("throws on cell scope with unknown environment", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       await expect(
         manager.reset(
           { scope: { kind: "cell", namespace: "database", environment: "nope" } },
@@ -256,12 +287,12 @@ describe("ResetManager", () => {
 
   describe("backend override", () => {
     it("writes per-env backend override when --backend is provided", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       const result = await manager.reset(
         {
           scope: { kind: "env", name: "staging" },
@@ -287,13 +318,13 @@ describe("ResetManager", () => {
       expect(production?.sops).toBeUndefined();
     });
 
-    it("scaffold encrypt sees the new backend via updated manifest view", async () => {
-      const enc = makeEncryption();
+    it("scaffold sees the new backend via the recomposed source", async () => {
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       await manager.reset(
         {
           scope: { kind: "env", name: "staging" },
@@ -304,23 +335,21 @@ describe("ResetManager", () => {
         repoRoot,
       );
 
-      // Every encrypt call should receive a manifest whose staging env has the override
-      const calls = (enc.encrypt as jest.Mock).mock.calls;
-      expect(calls.length).toBeGreaterThan(0);
-      for (const call of calls) {
-        const manifestArg = call[2] as ClefManifest;
-        const staging = manifestArg.environments.find((e) => e.name === "staging");
-        expect(staging?.sops?.backend).toBe("awskms");
-      }
+      // Source factory is called once after the manifest swap with the
+      // updated manifest — staging carries the new override.
+      expect(harness.receivedManifests.length).toBe(1);
+      const seen = harness.receivedManifests[0];
+      const staging = seen.environments.find((e) => e.name === "staging");
+      expect(staging?.sops?.backend).toBe("awskms");
     });
 
     it("leaves manifest untouched when no --backend provided", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       const result = await manager.reset(
         { scope: { kind: "env", name: "staging" } },
         baseManifest,
@@ -335,12 +364,12 @@ describe("ResetManager", () => {
     });
 
     it("rejects --backend awskms without --key", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       await expect(
         manager.reset(
           { scope: { kind: "env", name: "staging" }, backend: "awskms" },
@@ -351,12 +380,12 @@ describe("ResetManager", () => {
     });
 
     it("rejects --key for --backend age", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       await expect(
         manager.reset(
           { scope: { kind: "env", name: "staging" }, backend: "age", key: "ignored" },
@@ -367,12 +396,12 @@ describe("ResetManager", () => {
     });
 
     it("allows --backend age without --key", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       const result = await manager.reset(
         { scope: { kind: "env", name: "staging" }, backend: "age" },
         baseManifest,
@@ -385,34 +414,32 @@ describe("ResetManager", () => {
 
   describe("placeholder generation", () => {
     it("scaffolds empty cell when namespace has no schema and no explicit keys", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       const result = await manager.reset(
         { scope: { kind: "cell", namespace: "database", environment: "staging" } },
         baseManifest,
         repoRoot,
       );
 
-      expect(enc.encrypt).toHaveBeenCalledWith(
-        "/repo/database/staging.enc.yaml",
+      expect(harness.source.writeCell).toHaveBeenCalledWith(
+        { namespace: "database", environment: "staging" },
         {},
-        expect.any(Object),
-        "staging",
       );
       expect(result.pendingKeysByCell).toEqual({});
     });
 
     it("scaffolds explicit keys as pending placeholders", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       const result = await manager.reset(
         {
           scope: { kind: "cell", namespace: "database", environment: "staging" },
@@ -422,8 +449,8 @@ describe("ResetManager", () => {
         repoRoot,
       );
 
-      const encryptCall = (enc.encrypt as jest.Mock).mock.calls[0];
-      const placeholders = encryptCall[1] as Record<string, string>;
+      const writeCall = harness.source.writeCell.mock.calls[0];
+      const placeholders = writeCall[1] as Record<string, string>;
       expect(Object.keys(placeholders).sort()).toEqual(["DB_PASSWORD", "DB_URL"]);
       expect(placeholders.DB_URL).toMatch(/^[a-f0-9]{64}$/);
       expect(placeholders.DB_PASSWORD).toMatch(/^[a-f0-9]{64}$/);
@@ -435,7 +462,7 @@ describe("ResetManager", () => {
     });
 
     it("scaffolds schema-derived keys when namespace has a schema", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const schemaManifest: ClefManifest = {
         ...baseManifest,
         namespaces: [
@@ -455,22 +482,22 @@ describe("ResetManager", () => {
       );
       setupFsMocks(YAML.stringify(schemaManifest));
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       const result = await manager.reset(
         { scope: { kind: "cell", namespace: "database", environment: "staging" } },
         schemaManifest,
         repoRoot,
       );
 
-      const encryptCall = (enc.encrypt as jest.Mock).mock.calls[0];
-      const placeholders = encryptCall[1] as Record<string, string>;
+      const writeCall = harness.source.writeCell.mock.calls[0];
+      const placeholders = writeCall[1] as Record<string, string>;
       expect(Object.keys(placeholders).sort()).toEqual(["DB_PORT", "DB_URL", "DB_USER"]);
       expect(sv.loadSchema).toHaveBeenCalledWith("/repo/schemas/database.yaml");
       expect(result.pendingKeysByCell["/repo/database/staging.enc.yaml"]).toHaveLength(3);
     });
 
     it("schema takes precedence over explicit keys when both provided", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const schemaManifest: ClefManifest = {
         ...baseManifest,
         namespaces: [
@@ -486,7 +513,7 @@ describe("ResetManager", () => {
       );
       setupFsMocks(YAML.stringify(schemaManifest));
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       await manager.reset(
         {
           scope: { kind: "cell", namespace: "database", environment: "staging" },
@@ -496,13 +523,13 @@ describe("ResetManager", () => {
         repoRoot,
       );
 
-      const encryptCall = (enc.encrypt as jest.Mock).mock.calls[0];
-      const placeholders = encryptCall[1] as Record<string, string>;
+      const writeCall = harness.source.writeCell.mock.calls[0];
+      const placeholders = writeCall[1] as Record<string, string>;
       expect(Object.keys(placeholders)).toEqual(["SCHEMA_KEY"]);
     });
 
     it("propagates schema load errors instead of falling back silently", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const schemaManifest: ClefManifest = {
         ...baseManifest,
         namespaces: [
@@ -518,7 +545,7 @@ describe("ResetManager", () => {
       );
       setupFsMocks(YAML.stringify(schemaManifest));
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       await expect(
         manager.reset(
           {
@@ -532,11 +559,11 @@ describe("ResetManager", () => {
 
       // Schema errors must surface BEFORE the transaction opens — nothing
       // should have been written.
-      expect(enc.encrypt).not.toHaveBeenCalled();
+      expect(harness.source.writeCell).not.toHaveBeenCalled();
     });
 
     it("loads schema once per namespace, not once per cell", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const schemaManifest: ClefManifest = {
         ...baseManifest,
         namespaces: [
@@ -551,7 +578,7 @@ describe("ResetManager", () => {
       const sv = makeSchemaValidator(loadSchema);
       setupFsMocks(YAML.stringify(schemaManifest));
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       await manager.reset(
         { scope: { kind: "namespace", name: "database" } },
         schemaManifest,
@@ -561,7 +588,7 @@ describe("ResetManager", () => {
       // Two cells in the "database" namespace (staging + production) but
       // the schema should only be loaded once.
       expect(loadSchema).toHaveBeenCalledTimes(1);
-      expect(enc.encrypt).toHaveBeenCalledTimes(2);
+      expect(harness.source.writeCell).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -572,13 +599,13 @@ describe("ResetManager", () => {
     // caught it the first time.
 
     it("does not include the .clef-meta.yaml sibling when the cell has no pending keys", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       const tx = makeStubTx();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, tx);
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, tx);
       await manager.reset(
         { scope: { kind: "cell", namespace: "database", environment: "staging" } },
         baseManifest,
@@ -591,13 +618,13 @@ describe("ResetManager", () => {
     });
 
     it("does not include the manifest path when no backend switch is requested", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       const tx = makeStubTx();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, tx);
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, tx);
       await manager.reset({ scope: { kind: "env", name: "staging" } }, baseManifest, repoRoot);
 
       const txPaths = (tx.run as jest.Mock).mock.calls[0][1].paths as string[];
@@ -605,13 +632,13 @@ describe("ResetManager", () => {
     });
 
     it("includes the manifest path when a backend switch is requested", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       const tx = makeStubTx();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, tx);
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, tx);
       await manager.reset(
         {
           scope: { kind: "env", name: "staging" },
@@ -627,13 +654,13 @@ describe("ResetManager", () => {
     });
 
     it("includes the .clef-meta.yaml sibling when explicit keys are provided", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       const tx = makeStubTx();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, tx);
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, tx);
       await manager.reset(
         {
           scope: { kind: "cell", namespace: "database", environment: "staging" },
@@ -649,7 +676,7 @@ describe("ResetManager", () => {
     });
 
     it("includes the .clef-meta.yaml sibling when the namespace has a schema", async () => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const schemaManifest: ClefManifest = {
         ...baseManifest,
         namespaces: [
@@ -664,7 +691,7 @@ describe("ResetManager", () => {
       const tx = makeStubTx();
       setupFsMocks(YAML.stringify(schemaManifest));
 
-      const manager = new ResetManager(mm as never, enc, sv as never, tx);
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, tx);
       await manager.reset(
         { scope: { kind: "cell", namespace: "database", environment: "staging" } },
         schemaManifest,
@@ -677,13 +704,13 @@ describe("ResetManager", () => {
   });
 
   describe("non-decryption property", () => {
-    it("never calls decrypt on any cell", async () => {
-      const enc = makeEncryption();
+    it("never reads cell contents", async () => {
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       await manager.reset(
         {
           scope: { kind: "env", name: "staging" },
@@ -695,8 +722,8 @@ describe("ResetManager", () => {
         repoRoot,
       );
 
-      expect(enc.decrypt).not.toHaveBeenCalled();
-      expect(enc.getMetadata).not.toHaveBeenCalled();
+      expect(harness.source.readCell).not.toHaveBeenCalled();
+      expect(harness.source.getCellMetadata).not.toHaveBeenCalled();
     });
   });
 
@@ -722,12 +749,12 @@ describe("ResetManager", () => {
       ["azurekv", "azure_kv_url", "https://vault.vault.azure.net/keys/k/v"],
       ["pgp", "pgp_fingerprint", "ABCD1234"],
     ] as const)("maps %s to the correct key field", async (backend, field, keyValue) => {
-      const enc = makeEncryption();
+      const harness = makeSourceFactory();
       const mm = makeMatrixManager();
       const sv = makeSchemaValidator();
       setupFsMocks();
 
-      const manager = new ResetManager(mm as never, enc, sv as never, makeStubTx());
+      const manager = new ResetManager(mm as never, harness.buildSource, sv as never, makeStubTx());
       await manager.reset(
         { scope: { kind: "env", name: "staging" }, backend, key: keyValue },
         baseManifest,

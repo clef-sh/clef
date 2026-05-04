@@ -143,9 +143,17 @@ export function createApiRouter(deps: ApiDeps): Router {
   const recipientManager = new RecipientManager(sops, matrix, tx);
   const serviceIdManager = new ServiceIdentityManager(sops, matrix, tx);
   const backendMigrator = new BackendMigrator(sops, matrix, tx);
-  const resetManager = new ResetManager(matrix, sops, schemaValidator, tx);
-  const syncManager = new SyncManager(matrix, sops, tx);
   const structureManager = new StructureManager(matrix, sops, tx);
+
+  // Manifest-bound managers are constructed per-request so the manifest
+  // edits the user makes through other UI flows are picked up without
+  // restarting the server.
+  const buildSourceFor = (manifest: ClefManifest) =>
+    composeSecretSource(
+      new FilesystemStorageBackend(manifest, deps.repoRoot),
+      createSopsEncryptionBackend(sops),
+      manifest,
+    );
 
   // In-session scan cache
   let lastScanResult: ScanResult | null = null;
@@ -1806,6 +1814,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
+      const resetManager = new ResetManager(matrix, buildSourceFor, schemaValidator, tx);
       const result = await resetManager.reset(
         { scope, backend, key, keys },
         manifest,
@@ -1844,6 +1853,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         }
       }
 
+      const syncManager = new SyncManager(matrix, buildSourceFor(manifest), tx);
       const plan = await syncManager.plan(manifest, deps.repoRoot, { namespace });
       res.json(plan);
     } catch (err) {
@@ -1869,6 +1879,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         }
       }
 
+      const syncManager = new SyncManager(matrix, buildSourceFor(manifest), tx);
       const result = await syncManager.sync(manifest, deps.repoRoot, { namespace });
       res.json({ success: true, result });
     } catch (err) {
