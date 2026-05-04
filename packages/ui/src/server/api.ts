@@ -115,7 +115,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         .run(cmd, patchedArgs, {
           ...restOpts,
           cwd: restOpts?.cwd ?? deps.repoRoot,
-          env: { SOPS_CONFIG: path.join(deps.repoRoot, ".sops.yaml"), ...restOpts?.env },
+          ...(restOpts?.env ? { env: restOpts.env } : {}),
         })
         .finally(() => {
           try {

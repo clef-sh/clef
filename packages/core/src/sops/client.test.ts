@@ -252,6 +252,21 @@ sops:
       expect(result.metadata.backend).toBe("age");
     });
 
+    it("should classify file-path decrypt as 'other' when age key derivation fails", async () => {
+      // Targets classifyDecryptError's catch in the file-path code path.
+      // Mirrors the blob-shaped test below; both branches must be exercised.
+      mockDeriveAgePublicKey.mockRejectedValue(new Error("invalid key bytes"));
+      const runner = mockRunner({
+        "sops decrypt": {
+          stdout: "",
+          stderr: "auth failed",
+          exitCode: 1,
+        },
+      });
+      const client = new SopsClient(runner, undefined, "AGE-SECRET-KEY-1abc");
+      await expect(client.decrypt("database/dev.enc.yaml")).rejects.toThrow(SopsDecryptionError);
+    });
+
     it("should throw SopsDecryptionError on invalid YAML output", async () => {
       const runner = mockRunner({
         "sops decrypt": {
@@ -1733,5 +1748,644 @@ describe("Error classes", () => {
   it("SchemaLoadError without filePath", () => {
     const err = new SchemaLoadError("fail");
     expect(err.fix).toBe("Check your schema file syntax");
+  });
+});
+
+// ── Blob-shaped methods ───────────────────────────────────────────────────
+//
+// These mirror the existing file-path tests but exercise the substrate-
+// agnostic stdin/stdout primitives used by the BlobStore + SopsClient
+// composition (Phase 2). The Windows pipe parity tests are critical —
+// the named-pipe pitfall (libuv's uv_shutdown is a no-op for pipes)
+// caused encrypt to hang on Windows in production. Each new stdin-shaped
+// method must repeat the three-test pattern: uses pipe / cleanup on
+// success / cleanup on failure.
+
+describe("SopsClient — blob-shaped methods", () => {
+  beforeEach(() => {
+    mockReadFileSync.mockReturnValue(sopsMetadataYaml);
+    jest.clearAllMocks();
+  });
+
+  describe("decryptBlob", () => {
+    it("decrypts a ciphertext blob and returns values + metadata", async () => {
+      const runner = mockRunner({
+        "sops decrypt": { stdout: decryptedYaml, stderr: "", exitCode: 0 },
+      });
+      const client = new SopsClient(runner);
+      const result = await client.decryptBlob(sopsMetadataYaml, "yaml");
+      expect(result.values).toEqual({
+        DATABASE_URL: "postgres://localhost/mydb",
+        DATABASE_POOL_SIZE: "10",
+        DATABASE_SSL: "true",
+      });
+      expect(result.metadata.backend).toBe("age");
+      expect(result.metadata.recipients).toContain("age1test123");
+    });
+
+    it("uses /dev/stdin as the input arg on Unix", async () => {
+      const runFn = jest.fn(async () => ({
+        stdout: decryptedYaml,
+        stderr: "",
+        exitCode: 0,
+      }));
+      const client = new SopsClient({ run: runFn });
+      await client.decryptBlob(sopsMetadataYaml, "yaml");
+      const args = (runFn.mock.calls[0] as unknown[])[1] as string[];
+      expect(args[args.length - 1]).toBe("/dev/stdin");
+      const opts = (runFn.mock.calls[0] as unknown[])[2] as { stdin?: string };
+      expect(opts.stdin).toBe(sopsMetadataYaml);
+    });
+
+    it("throws SopsKeyNotFoundError when no key matches the recipients", async () => {
+      mockDeriveAgePublicKey.mockResolvedValue("age1other");
+      const runner = mockRunner({
+        "sops decrypt": { stdout: "", stderr: "no key", exitCode: 1 },
+      });
+      const client = new SopsClient(runner, undefined, "AGE-SECRET-KEY-1abc");
+      await expect(client.decryptBlob(sopsMetadataYaml, "yaml")).rejects.toThrow(
+        SopsKeyNotFoundError,
+      );
+    });
+
+    it("throws SopsDecryptionError on other decrypt failures", async () => {
+      mockDeriveAgePublicKey.mockResolvedValue("age1test123");
+      const runner = mockRunner({
+        "sops decrypt": { stdout: "", stderr: "MAC mismatch", exitCode: 1 },
+      });
+      const client = new SopsClient(runner, undefined, "AGE-SECRET-KEY-1abc");
+      await expect(client.decryptBlob(sopsMetadataYaml, "yaml")).rejects.toThrow(
+        SopsDecryptionError,
+      );
+    });
+
+    it("throws SopsDecryptionError when stdout is not valid YAML", async () => {
+      const runner = mockRunner({
+        "sops decrypt": { stdout: "not: valid: yaml: at all", stderr: "", exitCode: 0 },
+      });
+      const client = new SopsClient(runner);
+      await expect(client.decryptBlob(sopsMetadataYaml, "yaml")).rejects.toThrow(
+        SopsDecryptionError,
+      );
+    });
+
+    it("classifies as 'key-not-found' when neither ageKey nor ageKeyFile is configured", async () => {
+      // Targets `if (!this.ageKey && !this.ageKeyFile) return "key-not-found"`
+      // — branch only hit when the SopsClient was constructed with neither.
+      const runner = mockRunner({
+        "sops decrypt": { stdout: "", stderr: "no key", exitCode: 1 },
+      });
+      const client = new SopsClient(runner); // no ageKey, no ageKeyFile
+      await expect(client.decryptBlob(sopsMetadataYaml, "yaml")).rejects.toThrow(
+        SopsKeyNotFoundError,
+      );
+    });
+
+    it("classifies a decrypt failure on a non-parseable blob as 'other' (SopsDecryptionError)", async () => {
+      // classifyDecryptErrorFromContent's first try: parseMetadataFromContent throws.
+      const runner = mockRunner({
+        "sops decrypt": { stdout: "", stderr: "boom", exitCode: 1 },
+      });
+      const client = new SopsClient(runner);
+      await expect(client.decryptBlob("not yaml: at: all: : :", "yaml")).rejects.toThrow(
+        SopsDecryptionError,
+      );
+    });
+
+    it("classifies a decrypt failure on a non-age backend as 'other' (SopsDecryptionError)", async () => {
+      const kmsBlob = `FOO: ENC[AES256_GCM,data:bar]
+sops:
+  kms:
+    - arn: "arn:aws:kms:us-east-1:111122223333:key/abcd"
+      created_at: "2024-01-15T10:30:00Z"
+  lastmodified: "2024-01-15T10:30:00Z"
+  version: 3.8.1`;
+      const runner = mockRunner({
+        "sops decrypt": { stdout: "", stderr: "kms denied", exitCode: 1 },
+      });
+      const client = new SopsClient(runner);
+      await expect(client.decryptBlob(kmsBlob, "yaml")).rejects.toThrow(SopsDecryptionError);
+    });
+
+    it("classifies as 'key-not-found' when the configured ageKeyFile cannot be read", async () => {
+      const runner = mockRunner({
+        "sops decrypt": { stdout: "", stderr: "no key", exitCode: 1 },
+      });
+      mockReadFileSync.mockImplementationOnce(() => {
+        throw new Error("ENOENT: missing key file");
+      });
+      const client = new SopsClient(runner, "/nonexistent/key.txt");
+      await expect(client.decryptBlob(sopsMetadataYaml, "yaml")).rejects.toThrow(
+        SopsKeyNotFoundError,
+      );
+    });
+
+    it("classifies as 'key-not-found' when the key file has no AGE-SECRET-KEY lines", async () => {
+      mockReadFileSync.mockReturnValue("# just a comment, no key");
+      const runner = mockRunner({
+        "sops decrypt": { stdout: "", stderr: "no key", exitCode: 1 },
+      });
+      const client = new SopsClient(runner, "/some/key.txt");
+      await expect(client.decryptBlob(sopsMetadataYaml, "yaml")).rejects.toThrow(
+        SopsKeyNotFoundError,
+      );
+    });
+
+    it("classifies as 'other' when age key derivation fails (SopsDecryptionError)", async () => {
+      mockDeriveAgePublicKey.mockRejectedValue(new Error("invalid key bytes"));
+      const runner = mockRunner({
+        "sops decrypt": { stdout: "", stderr: "auth failed", exitCode: 1 },
+      });
+      const client = new SopsClient(runner, undefined, "AGE-SECRET-KEY-1abc");
+      await expect(client.decryptBlob(sopsMetadataYaml, "yaml")).rejects.toThrow(
+        SopsDecryptionError,
+      );
+    });
+
+    it("uses a named pipe as the input file on Windows", async () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+
+      const mockClose = jest.fn();
+      const mockSocket = {
+        write: jest.fn((_data: string, cb: () => void) => cb()),
+        destroy: jest.fn(),
+      } as unknown as net.Socket;
+      let connectionHandler: ((socket: net.Socket) => void) | undefined;
+      let listenCallback: (() => void) | undefined;
+      const mockServer = {
+        on: jest.fn(),
+        listen: jest.fn((_path: string, cb: () => void) => {
+          listenCallback = cb;
+          return mockServer;
+        }),
+        close: mockClose,
+      } as unknown as net.Server;
+      (net.createServer as jest.Mock).mockImplementation(
+        (handler: (socket: net.Socket) => void) => {
+          connectionHandler = handler;
+          return mockServer;
+        },
+      );
+
+      const runFn = jest.fn(async () => ({
+        stdout: decryptedYaml,
+        stderr: "",
+        exitCode: 0,
+      }));
+      const client = new SopsClient({ run: runFn });
+      const promise = client.decryptBlob(sopsMetadataYaml, "yaml");
+      await Promise.resolve();
+      listenCallback!();
+      connectionHandler!(mockSocket);
+      await promise;
+
+      Object.defineProperty(process, "platform", {
+        value: originalPlatform,
+        configurable: true,
+      });
+
+      const args = (runFn.mock.calls[0] as unknown[])[1] as string[];
+      expect(args[args.length - 1]).toMatch(/^\\\\\.\\pipe\\clef-sops-[0-9a-f]{16}$/);
+    });
+
+    it("cleans up the named pipe after decryption on Windows", async () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+
+      const mockClose = jest.fn();
+      const mockSocket = {
+        write: jest.fn((_data: string, cb: () => void) => cb()),
+        destroy: jest.fn(),
+      } as unknown as net.Socket;
+      let connectionHandler: ((socket: net.Socket) => void) | undefined;
+      let listenCallback: (() => void) | undefined;
+      const mockServer = {
+        on: jest.fn(),
+        listen: jest.fn((_path: string, cb: () => void) => {
+          listenCallback = cb;
+          return mockServer;
+        }),
+        close: mockClose,
+      } as unknown as net.Server;
+      (net.createServer as jest.Mock).mockImplementation(
+        (handler: (socket: net.Socket) => void) => {
+          connectionHandler = handler;
+          return mockServer;
+        },
+      );
+
+      const client = new SopsClient({
+        run: jest.fn(async () => ({ stdout: decryptedYaml, stderr: "", exitCode: 0 })),
+      });
+      const promise = client.decryptBlob(sopsMetadataYaml, "yaml");
+      await Promise.resolve();
+      listenCallback!();
+      connectionHandler!(mockSocket);
+      await promise;
+
+      Object.defineProperty(process, "platform", {
+        value: originalPlatform,
+        configurable: true,
+      });
+
+      expect(mockClose).toHaveBeenCalled();
+    });
+
+    it("cleans up the named pipe even when sops fails on Windows", async () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+      mockDeriveAgePublicKey.mockResolvedValue("age1test123");
+
+      const mockClose = jest.fn();
+      const mockSocket = {
+        write: jest.fn((_data: string, cb: () => void) => cb()),
+        destroy: jest.fn(),
+      } as unknown as net.Socket;
+      let connectionHandler: ((socket: net.Socket) => void) | undefined;
+      let listenCallback: (() => void) | undefined;
+      const mockServer = {
+        on: jest.fn(),
+        listen: jest.fn((_path: string, cb: () => void) => {
+          listenCallback = cb;
+          return mockServer;
+        }),
+        close: mockClose,
+      } as unknown as net.Server;
+      (net.createServer as jest.Mock).mockImplementation(
+        (handler: (socket: net.Socket) => void) => {
+          connectionHandler = handler;
+          return mockServer;
+        },
+      );
+
+      const client = new SopsClient(
+        { run: jest.fn(async () => ({ stdout: "", stderr: "fail", exitCode: 1 })) },
+        undefined,
+        "AGE-SECRET-KEY-1abc",
+      );
+      const promise = client.decryptBlob(sopsMetadataYaml, "yaml");
+      await Promise.resolve();
+      listenCallback!();
+      connectionHandler!(mockSocket);
+      await expect(promise).rejects.toThrow(SopsDecryptionError);
+
+      Object.defineProperty(process, "platform", {
+        value: originalPlatform,
+        configurable: true,
+      });
+
+      expect(mockClose).toHaveBeenCalled();
+    });
+  });
+
+  describe("encryptBlob", () => {
+    it("encrypts values and returns the ciphertext bytes", async () => {
+      const runner = mockRunner({
+        "sops --config": { stdout: sopsMetadataYaml, stderr: "", exitCode: 0 },
+      });
+      const client = new SopsClient(runner);
+      const out = await client.encryptBlob({ K: "v" }, testManifest(), "dev", "yaml");
+      expect(out).toBe(sopsMetadataYaml);
+    });
+
+    it("does NOT call writeFileAtomic — output is returned to caller", async () => {
+      const runner = mockRunner({
+        "sops --config": { stdout: sopsMetadataYaml, stderr: "", exitCode: 0 },
+      });
+      const client = new SopsClient(runner);
+      await client.encryptBlob({ K: "v" }, testManifest(), "dev", "yaml");
+      expect(mockWriteFileAtomic).not.toHaveBeenCalled();
+    });
+
+    it("throws SopsEncryptionError when sops exits non-zero", async () => {
+      const runner = mockRunner({
+        "sops --config": { stdout: "", stderr: "boom", exitCode: 1 },
+      });
+      const client = new SopsClient(runner);
+      await expect(client.encryptBlob({ K: "v" }, testManifest(), "dev", "yaml")).rejects.toThrow(
+        SopsEncryptionError,
+      );
+    });
+
+    it("uses --age recipients from the manifest", async () => {
+      const runFn = jest.fn(async () => ({
+        stdout: sopsMetadataYaml,
+        stderr: "",
+        exitCode: 0,
+      }));
+      const client = new SopsClient({ run: runFn });
+      const manifest: ClefManifest = {
+        ...testManifest(),
+        sops: { default_backend: "age", age: { recipients: ["age1abc", "age1xyz"] } },
+      };
+      await client.encryptBlob({ K: "v" }, manifest, "dev", "yaml");
+      const args = (runFn.mock.calls[0] as unknown[])[1] as string[];
+      const ageIdx = args.indexOf("--age");
+      expect(args[ageIdx + 1]).toBe("age1abc,age1xyz");
+    });
+
+    it("uses a named pipe as the input file on Windows", async () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+
+      const mockClose = jest.fn();
+      const mockSocket = {
+        write: jest.fn((_data: string, cb: () => void) => cb()),
+        destroy: jest.fn(),
+      } as unknown as net.Socket;
+      let connectionHandler: ((socket: net.Socket) => void) | undefined;
+      let listenCallback: (() => void) | undefined;
+      const mockServer = {
+        on: jest.fn(),
+        listen: jest.fn((_path: string, cb: () => void) => {
+          listenCallback = cb;
+          return mockServer;
+        }),
+        close: mockClose,
+      } as unknown as net.Server;
+      (net.createServer as jest.Mock).mockImplementation(
+        (handler: (socket: net.Socket) => void) => {
+          connectionHandler = handler;
+          return mockServer;
+        },
+      );
+
+      const runFn = jest.fn(async () => ({
+        stdout: sopsMetadataYaml,
+        stderr: "",
+        exitCode: 0,
+      }));
+      const client = new SopsClient({ run: runFn });
+      const promise = client.encryptBlob({ K: "v" }, testManifest(), "dev", "yaml");
+      await Promise.resolve();
+      listenCallback!();
+      connectionHandler!(mockSocket);
+      await promise;
+
+      Object.defineProperty(process, "platform", {
+        value: originalPlatform,
+        configurable: true,
+      });
+
+      const args = (runFn.mock.calls[0] as unknown[])[1] as string[];
+      expect(args[args.length - 1]).toMatch(/^\\\\\.\\pipe\\clef-sops-[0-9a-f]{16}$/);
+    });
+
+    it("cleans up the named pipe on success and on failure on Windows", async () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+
+      const setupMockServer = (): { server: net.Server; close: jest.Mock } => {
+        const close = jest.fn();
+        const server = {
+          on: jest.fn(),
+          listen: jest.fn((_path: string, cb: () => void) => {
+            cb();
+            return server;
+          }),
+          close,
+        } as unknown as net.Server;
+        (net.createServer as jest.Mock).mockImplementationOnce(
+          (handler: (socket: net.Socket) => void) => {
+            handler({
+              write: jest.fn((_d: string, cb: () => void) => cb()),
+              destroy: jest.fn(),
+            } as unknown as net.Socket);
+            return server;
+          },
+        );
+        return { server, close };
+      };
+
+      // success
+      const success = setupMockServer();
+      const okClient = new SopsClient({
+        run: jest.fn(async () => ({ stdout: sopsMetadataYaml, stderr: "", exitCode: 0 })),
+      });
+      await okClient.encryptBlob({ K: "v" }, testManifest(), "dev", "yaml");
+      expect(success.close).toHaveBeenCalled();
+
+      // failure
+      const fail = setupMockServer();
+      const failClient = new SopsClient({
+        run: jest.fn(async () => ({ stdout: "", stderr: "boom", exitCode: 1 })),
+      });
+      await expect(
+        failClient.encryptBlob({ K: "v" }, testManifest(), "dev", "yaml"),
+      ).rejects.toThrow(SopsEncryptionError);
+      expect(fail.close).toHaveBeenCalled();
+
+      Object.defineProperty(process, "platform", {
+        value: originalPlatform,
+        configurable: true,
+      });
+    });
+  });
+
+  describe("rotateBlob", () => {
+    it("returns the rotated ciphertext from stdout (no -i flag, no file IO)", async () => {
+      const runner = mockRunner({
+        "sops --config": { stdout: "rotated-content", stderr: "", exitCode: 0 },
+      });
+      const client = new SopsClient(runner);
+      const out = await client.rotateBlob(sopsMetadataYaml, { addAge: "age1new" }, "yaml");
+      expect(out).toBe("rotated-content");
+      expect(mockWriteFileAtomic).not.toHaveBeenCalled();
+    });
+
+    it("passes --add-age and --rm-age in the same invocation when both are provided", async () => {
+      const runFn = jest.fn(async () => ({
+        stdout: "rotated",
+        stderr: "",
+        exitCode: 0,
+      }));
+      const client = new SopsClient({ run: runFn });
+      await client.rotateBlob(sopsMetadataYaml, { addAge: "age1new", rmAge: "age1old" }, "yaml");
+      const args = (runFn.mock.calls[0] as unknown[])[1] as string[];
+      expect(args).toContain("--add-age");
+      expect(args[args.indexOf("--add-age") + 1]).toBe("age1new");
+      expect(args).toContain("--rm-age");
+      expect(args[args.indexOf("--rm-age") + 1]).toBe("age1old");
+    });
+
+    it("emits the right CLI flag for every recipient backend (addKms/rmKms/gcp/azure/pgp)", async () => {
+      const runFn = jest.fn(async () => ({ stdout: "rotated", stderr: "", exitCode: 0 }));
+      const client = new SopsClient({ run: runFn });
+      await client.rotateBlob(
+        sopsMetadataYaml,
+        {
+          addKms: "arn:aws:kms:us-east-1:1:key/a",
+          rmKms: "arn:aws:kms:us-east-1:1:key/b",
+          addGcpKms: "projects/p/locations/l/keyRings/k/cryptoKeys/c",
+          rmGcpKms: "projects/p/locations/l/keyRings/k/cryptoKeys/old",
+          addAzureKv: "https://kv.vault.azure.net/keys/k1/v1",
+          rmAzureKv: "https://kv.vault.azure.net/keys/k0/v0",
+          addPgp: "AABBCCDD",
+          rmPgp: "00112233",
+        },
+        "yaml",
+      );
+      const args = (runFn.mock.calls[0] as unknown[])[1] as string[];
+      expect(args).toContain("--add-kms");
+      expect(args).toContain("--rm-kms");
+      expect(args).toContain("--add-gcp-kms");
+      expect(args).toContain("--rm-gcp-kms");
+      expect(args).toContain("--add-azure-kv");
+      expect(args).toContain("--rm-azure-kv");
+      expect(args).toContain("--add-pgp");
+      expect(args).toContain("--rm-pgp");
+    });
+
+    it("does NOT include -i (in-place) — the stdin/stdout pattern requires stdout output", async () => {
+      const runFn = jest.fn(async () => ({
+        stdout: "rotated",
+        stderr: "",
+        exitCode: 0,
+      }));
+      const client = new SopsClient({ run: runFn });
+      await client.rotateBlob(sopsMetadataYaml, { addAge: "age1new" }, "yaml");
+      const args = (runFn.mock.calls[0] as unknown[])[1] as string[];
+      expect(args).not.toContain("-i");
+    });
+
+    it("throws SopsEncryptionError when sops rotate fails", async () => {
+      const runner = mockRunner({
+        "sops --config": { stdout: "", stderr: "key not authorized", exitCode: 1 },
+      });
+      const client = new SopsClient(runner);
+      await expect(
+        client.rotateBlob(sopsMetadataYaml, { addAge: "age1new" }, "yaml"),
+      ).rejects.toThrow(SopsEncryptionError);
+    });
+
+    it("uses a named pipe as the input file on Windows", async () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+
+      const mockClose = jest.fn();
+      const mockSocket = {
+        write: jest.fn((_data: string, cb: () => void) => cb()),
+        destroy: jest.fn(),
+      } as unknown as net.Socket;
+      let connectionHandler: ((socket: net.Socket) => void) | undefined;
+      let listenCallback: (() => void) | undefined;
+      const mockServer = {
+        on: jest.fn(),
+        listen: jest.fn((_path: string, cb: () => void) => {
+          listenCallback = cb;
+          return mockServer;
+        }),
+        close: mockClose,
+      } as unknown as net.Server;
+      (net.createServer as jest.Mock).mockImplementation(
+        (handler: (socket: net.Socket) => void) => {
+          connectionHandler = handler;
+          return mockServer;
+        },
+      );
+
+      const runFn = jest.fn(async () => ({ stdout: "rotated", stderr: "", exitCode: 0 }));
+      const client = new SopsClient({ run: runFn });
+      const promise = client.rotateBlob(sopsMetadataYaml, { addAge: "age1new" }, "yaml");
+      await Promise.resolve();
+      listenCallback!();
+      connectionHandler!(mockSocket);
+      await promise;
+
+      Object.defineProperty(process, "platform", {
+        value: originalPlatform,
+        configurable: true,
+      });
+
+      const args = (runFn.mock.calls[0] as unknown[])[1] as string[];
+      expect(args[args.length - 1]).toMatch(/^\\\\\.\\pipe\\clef-sops-[0-9a-f]{16}$/);
+    });
+
+    it("cleans up the named pipe on success and on failure on Windows", async () => {
+      const originalPlatform = process.platform;
+      Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+
+      const setup = (): jest.Mock => {
+        const close = jest.fn();
+        const server = {
+          on: jest.fn(),
+          listen: jest.fn((_path: string, cb: () => void) => {
+            cb();
+            return server;
+          }),
+          close,
+        } as unknown as net.Server;
+        (net.createServer as jest.Mock).mockImplementationOnce(
+          (handler: (socket: net.Socket) => void) => {
+            handler({
+              write: jest.fn((_d: string, cb: () => void) => cb()),
+              destroy: jest.fn(),
+            } as unknown as net.Socket);
+            return server;
+          },
+        );
+        return close;
+      };
+
+      const okClose = setup();
+      const okClient = new SopsClient({
+        run: jest.fn(async () => ({ stdout: "rotated", stderr: "", exitCode: 0 })),
+      });
+      await okClient.rotateBlob(sopsMetadataYaml, { addAge: "age1new" }, "yaml");
+      expect(okClose).toHaveBeenCalled();
+
+      const failClose = setup();
+      const failClient = new SopsClient({
+        run: jest.fn(async () => ({ stdout: "", stderr: "boom", exitCode: 1 })),
+      });
+      await expect(
+        failClient.rotateBlob(sopsMetadataYaml, { addAge: "age1new" }, "yaml"),
+      ).rejects.toThrow(SopsEncryptionError);
+      expect(failClose).toHaveBeenCalled();
+
+      Object.defineProperty(process, "platform", {
+        value: originalPlatform,
+        configurable: true,
+      });
+    });
+  });
+
+  describe("getMetadataFromBlob / validateEncryptionBlob", () => {
+    it("getMetadataFromBlob extracts backend, recipients, version from a blob", () => {
+      const client = new SopsClient(mockRunner({}));
+      const meta = client.getMetadataFromBlob(sopsMetadataYaml);
+      expect(meta.backend).toBe("age");
+      expect(meta.recipients).toEqual(["age1test123"]);
+      expect(meta.version).toBe("3.8.1");
+      expect(meta.lastModifiedPresent).toBe(true);
+    });
+
+    it("getMetadataFromBlob throws on a blob without sops metadata", () => {
+      const client = new SopsClient(mockRunner({}));
+      expect(() => client.getMetadataFromBlob("FOO: bar")).toThrow(SopsDecryptionError);
+    });
+
+    it("getMetadataFromBlob throws on invalid YAML", () => {
+      const client = new SopsClient(mockRunner({}));
+      expect(() => client.getMetadataFromBlob("not: valid: yaml: at all")).toThrow(
+        SopsDecryptionError,
+      );
+    });
+
+    it("validateEncryptionBlob returns true for a valid SOPS blob", () => {
+      const client = new SopsClient(mockRunner({}));
+      expect(client.validateEncryptionBlob(sopsMetadataYaml)).toBe(true);
+    });
+
+    it("validateEncryptionBlob returns false for a blob without metadata", () => {
+      const client = new SopsClient(mockRunner({}));
+      expect(client.validateEncryptionBlob("FOO: bar")).toBe(false);
+    });
+
+    it("validateEncryptionBlob returns false on invalid YAML (never throws)", () => {
+      const client = new SopsClient(mockRunner({}));
+      expect(client.validateEncryptionBlob("not: valid: yaml: at all")).toBe(false);
+    });
   });
 });

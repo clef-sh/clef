@@ -34,6 +34,7 @@ export {
 } from "./tx";
 export type { TransactionOptions, TransactionResult } from "./tx";
 export { SopsClient } from "./sops/client";
+export type { RotateBlobOptions } from "./sops/client";
 export { isClefHsmArn, pkcs11UriToSyntheticArn, syntheticArnToPkcs11Uri } from "./sops/hsm-arn";
 export { resolveSopsPath, resetSopsResolution } from "./sops/resolver";
 export type { SopsResolution, SopsSource } from "./sops/resolver";
@@ -196,3 +197,36 @@ export { ComplianceGenerator } from "./compliance/generator";
 export type { ComplianceDocument, ComplianceSummary, GenerateOptions } from "./compliance/types";
 export { runCompliance } from "./compliance/run";
 export type { RunComplianceOptions, RunComplianceResult } from "./compliance/run";
+export {
+  describeCapabilities,
+  isBulk,
+  isLintable,
+  isMergeAware,
+  isMigratable,
+  isRecipientManaged,
+  isRotatable,
+  isStructural,
+  defaultBulk,
+  SourceCapabilityUnsupportedError,
+  MockSecretSource,
+  FilesystemBlobStore,
+  composeSecretSource,
+} from "./source";
+export type { BlobStore } from "./source";
+export type {
+  AddRecipientRequest,
+  Bulk,
+  CellData,
+  CellPendingMetadata,
+  CellRef,
+  Lintable,
+  MergeAware,
+  Migratable,
+  RecipientDriftResult,
+  RecipientManaged,
+  RemoveRecipientRequest,
+  Rotatable,
+  SecretSource,
+  SourceCapabilities,
+  Structural,
+} from "./source";
