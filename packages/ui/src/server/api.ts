@@ -141,7 +141,6 @@ export function createApiRouter(deps: ApiDeps): Router {
   const tx = new TransactionManager(git);
   const scanRunner = new ScanRunner(deps.runner);
   const serviceIdManager = new ServiceIdentityManager(sops, matrix, tx);
-  const structureManager = new StructureManager(matrix, sops, tx);
 
   // Manifest-bound managers are constructed per-request so the manifest
   // edits the user makes through other UI flows are picked up without
@@ -152,6 +151,7 @@ export function createApiRouter(deps: ApiDeps): Router {
       createSopsEncryptionBackend(sops),
       manifest,
     );
+  const structureManager = new StructureManager(matrix, buildSourceFor, tx);
 
   // In-session scan cache
   let lastScanResult: ScanResult | null = null;

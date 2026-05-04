@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
-import { ClefManifest, FileEncryptionBackend, MatrixCell } from "../types";
+import { ClefManifest, MatrixCell } from "../types";
+import type { CellRef, SecretSource } from "../source/types";
 import { MatrixManager } from "../matrix/manager";
 import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
 import { readManifestYaml, writeManifestYaml } from "../manifest/io";
@@ -59,7 +60,13 @@ export interface AddEnvironmentOptions {
 export class StructureManager {
   constructor(
     private readonly matrixManager: MatrixManager,
-    private readonly encryption: FileEncryptionBackend,
+    /**
+     * Factory rather than a single source instance because adding a
+     * namespace or environment can extend the manifest, and the scaffold
+     * pass needs to write cells under the post-mutation manifest. Same
+     * pattern as ResetManager and BackendMigrator.
+     */
+    private readonly buildSource: (manifest: ClefManifest) => SecretSource,
     private readonly tx: TransactionManager,
   ) {}
 
@@ -126,17 +133,10 @@ export class StructureManager {
         CLEF_MANIFEST_FILENAME,
       ],
       mutate: async () => {
+        const source = this.buildSource(updatedManifest);
         for (const cell of newCellPaths) {
-          await this.matrixManager.scaffoldCell(
-            {
-              namespace: name,
-              environment: cell.environment,
-              filePath: cell.filePath,
-              exists: false,
-            },
-            this.encryption,
-            updatedManifest,
-          );
+          const ref: CellRef = { namespace: name, environment: cell.environment };
+          await source.scaffoldCell(ref, updatedManifest);
         }
 
         const doc = readManifestYaml(repoRoot);
@@ -211,17 +211,10 @@ export class StructureManager {
         CLEF_MANIFEST_FILENAME,
       ],
       mutate: async () => {
+        const source = this.buildSource(updatedManifest);
         for (const cell of newCellPaths) {
-          await this.matrixManager.scaffoldCell(
-            {
-              namespace: cell.namespace,
-              environment: name,
-              filePath: cell.filePath,
-              exists: false,
-            },
-            this.encryption,
-            updatedManifest,
-          );
+          const ref: CellRef = { namespace: cell.namespace, environment: name };
+          await source.scaffoldCell(ref, updatedManifest);
         }
 
         const doc = readManifestYaml(repoRoot);

@@ -2,9 +2,10 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import writeFileAtomic from "write-file-atomic";
 import { StructureManager } from "./manager";
-import { ClefManifest, FileEncryptionBackend } from "../types";
+import { ClefManifest } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { TransactionManager } from "../tx";
+import type { CellRef, SecretSource } from "../source/types";
 
 jest.mock("fs");
 // write-file-atomic is auto-mocked via core's jest.config moduleNameMapper.
@@ -16,16 +17,37 @@ const mockMkdirSync = fs.mkdirSync as jest.MockedFunction<typeof fs.mkdirSync>;
 const mockUnlinkSync = fs.unlinkSync as jest.MockedFunction<typeof fs.unlinkSync>;
 const mockWriteFileAtomicSync = writeFileAtomic.sync as jest.Mock;
 
-function makeMockEncryption(): jest.Mocked<FileEncryptionBackend> {
+interface SourceMock extends SecretSource {
+  scaffoldCell: jest.Mock<Promise<void>, [CellRef, ClefManifest]>;
+  /**
+   * Convenience alias: `encrypt` mirrors `scaffoldCell` so existing
+   * `encryption.encrypt` assertions still target the same mock. Args are
+   * (cellRef, manifest); the legacy 4-arg shape (filePath, values,
+   * manifest, env) is no longer reachable.
+   */
+  encrypt: jest.Mock;
+}
+
+function makeMockEncryption(): SourceMock {
+  const scaffoldCell = jest.fn().mockResolvedValue(undefined);
+  const stub = jest.fn();
   return {
-    encrypt: jest.fn().mockResolvedValue(undefined),
-    decrypt: jest.fn(),
-    reEncrypt: jest.fn(),
-    addRecipient: jest.fn(),
-    removeRecipient: jest.fn(),
-    validateEncryption: jest.fn(),
-    getMetadata: jest.fn(),
-  };
+    id: "mock",
+    description: "mock",
+    readCell: stub,
+    writeCell: stub,
+    deleteCell: stub,
+    cellExists: stub,
+    listKeys: stub,
+    scaffoldCell,
+    getCellMetadata: stub,
+    getPendingMetadata: stub,
+    markPending: stub,
+    markResolved: stub,
+    recordRotation: stub,
+    removeRotation: stub,
+    encrypt: scaffoldCell,
+  } as unknown as SourceMock;
 }
 
 /** Stub TransactionManager that just runs the mutate callback inline. */
@@ -93,14 +115,14 @@ function setupFs(manifest: ClefManifest, existingCells: string[] = []): void {
 
 describe("StructureManager", () => {
   let matrixManager: MatrixManager;
-  let encryption: jest.Mocked<FileEncryptionBackend>;
+  let encryption: SourceMock;
   let manager: StructureManager;
 
   beforeEach(() => {
     jest.clearAllMocks();
     matrixManager = new MatrixManager();
     encryption = makeMockEncryption();
-    manager = new StructureManager(matrixManager, encryption, makeStubTx());
+    manager = new StructureManager(matrixManager, () => encryption, makeStubTx());
   });
 
   describe("editNamespace", () => {
@@ -433,16 +455,12 @@ describe("StructureManager", () => {
       // One scaffolded cell per existing env
       expect(encryption.encrypt).toHaveBeenCalledTimes(2);
       expect(encryption.encrypt).toHaveBeenCalledWith(
-        "/repo/billing/dev.enc.yaml",
-        {},
+        { namespace: "billing", environment: "dev" },
         expect.any(Object),
-        "dev",
       );
       expect(encryption.encrypt).toHaveBeenCalledWith(
-        "/repo/billing/production.enc.yaml",
-        {},
+        { namespace: "billing", environment: "production" },
         expect.any(Object),
-        "production",
       );
 
       const writeCall = mockWriteFileAtomicSync.mock.calls.find((c) =>
@@ -512,16 +530,12 @@ describe("StructureManager", () => {
       // One scaffolded cell per existing namespace
       expect(encryption.encrypt).toHaveBeenCalledTimes(2);
       expect(encryption.encrypt).toHaveBeenCalledWith(
-        "/repo/payments/staging.enc.yaml",
-        {},
+        { namespace: "payments", environment: "staging" },
         expect.any(Object),
-        "staging",
       );
       expect(encryption.encrypt).toHaveBeenCalledWith(
-        "/repo/auth/staging.enc.yaml",
-        {},
+        { namespace: "auth", environment: "staging" },
         expect.any(Object),
-        "staging",
       );
 
       const writeCall = mockWriteFileAtomicSync.mock.calls.find((c) =>

@@ -8,6 +8,9 @@ import {
   StructureManager,
   SubprocessRunner,
   TransactionManager,
+  composeSecretSource,
+  createSopsEncryptionBackend,
+  FilesystemStorageBackend,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
@@ -22,7 +25,10 @@ async function makeStructureManager(
   const { client: sopsClient, cleanup } = await createSopsClient(repoRoot, runner, manifest);
   const matrixManager = new MatrixManager();
   const tx = new TransactionManager(new GitIntegration(runner));
-  return { structure: new StructureManager(matrixManager, sopsClient, tx), cleanup };
+  const encryption = createSopsEncryptionBackend(sopsClient);
+  const buildSource = (m: ClefManifest) =>
+    composeSecretSource(new FilesystemStorageBackend(m, repoRoot), encryption, m);
+  return { structure: new StructureManager(matrixManager, buildSource, tx), cleanup };
 }
 
 export function registerEnvCommand(program: Command, deps: { runner: SubprocessRunner }): void {
