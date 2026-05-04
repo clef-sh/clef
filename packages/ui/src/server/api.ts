@@ -140,8 +140,6 @@ export function createApiRouter(deps: ApiDeps): Router {
   const git = new GitIntegration(deps.runner);
   const tx = new TransactionManager(git);
   const scanRunner = new ScanRunner(deps.runner);
-  const serviceIdManager = new ServiceIdentityManager(sops, matrix, tx);
-
   // Manifest-bound managers are constructed per-request so the manifest
   // edits the user makes through other UI flows are picked up without
   // restarting the server.
@@ -1401,6 +1399,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         }
       }
 
+      const serviceIdManager = new ServiceIdentityManager(buildSourceFor(manifest), matrix, tx);
       const result = await serviceIdManager.create(
         name,
         namespaces,
@@ -1439,6 +1438,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         res.status(404).json({ error: `Service identity '${name}' not found.`, code: "NOT_FOUND" });
         return;
       }
+      const serviceIdManager = new ServiceIdentityManager(buildSourceFor(manifest), matrix, tx);
       await serviceIdManager.delete(name, manifest, deps.repoRoot);
       res.json({ ok: true });
     } catch (err) {
@@ -1472,6 +1472,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         }
         typedKmsConfigs[envName] = { provider: cfg.provider, keyId: cfg.keyId };
       }
+      const serviceIdManager = new ServiceIdentityManager(buildSourceFor(manifest), matrix, tx);
       await serviceIdManager.updateEnvironments(name, typedKmsConfigs, manifest, deps.repoRoot);
       res.json({ ok: true });
     } catch (err) {
@@ -1486,6 +1487,7 @@ export function createApiRouter(deps: ApiDeps): Router {
       const name = req.params.name as string;
       const { environment } = req.body as { environment?: string };
       const manifest = loadManifest();
+      const serviceIdManager = new ServiceIdentityManager(buildSourceFor(manifest), matrix, tx);
       const privateKeys = await serviceIdManager.rotateKey(
         name,
         manifest,

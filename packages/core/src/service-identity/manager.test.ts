@@ -2,14 +2,11 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import writeFileAtomic from "write-file-atomic";
 import { ServiceIdentityManager } from "./manager";
-import {
-  ClefManifest,
-  FileEncryptionBackend,
-  ServiceIdentityDefinition,
-  SopsMetadata,
-} from "../types";
+import { ClefManifest, ServiceIdentityDefinition, SopsMetadata } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { TransactionManager } from "../tx";
+import type { CellRef, Rotatable, SecretSource } from "../source/types";
+import type { RotateOptions } from "../source/encryption-backend";
 
 jest.mock("fs");
 jest.mock("../age/keygen");
@@ -67,16 +64,55 @@ function baseManifest(overrides?: Partial<ClefManifest>): ClefManifest {
   };
 }
 
-function mockEncryption(): jest.Mocked<FileEncryptionBackend> {
-  return {
-    decrypt: jest.fn(),
-    encrypt: jest.fn(),
-    reEncrypt: jest.fn(),
-    addRecipient: jest.fn().mockResolvedValue(undefined),
-    removeRecipient: jest.fn().mockResolvedValue(undefined),
-    validateEncryption: jest.fn(),
-    getMetadata: jest.fn(),
-  };
+/**
+ * Test fixture that exposes both the new `SecretSource & Rotatable` shape
+ * the production code uses AND the legacy `addRecipient` / `removeRecipient`
+ * / `getMetadata` jest mocks the assertions reference. The shimmed `rotate`
+ * and `getCellMetadata` methods translate cell refs back to file paths so
+ * the existing `(filePath, key)` assertions continue to pass — keeping the
+ * 5i diff focused on the constructor seam rather than rewriting 29
+ * assertion sites.
+ */
+interface SourceMock extends SecretSource, Rotatable {
+  addRecipient: jest.Mock;
+  removeRecipient: jest.Mock;
+  getMetadata: jest.Mock;
+}
+
+function cellPath(cell: CellRef): string {
+  return `/repo/${cell.namespace}/${cell.environment}.enc.yaml`;
+}
+
+function mockEncryption(): SourceMock {
+  const addRecipient = jest.fn().mockResolvedValue(undefined);
+  const removeRecipient = jest.fn().mockResolvedValue(undefined);
+  const getMetadata = jest.fn();
+  const stub = jest.fn();
+  const source: SourceMock = {
+    id: "mock",
+    description: "mock",
+    readCell: stub,
+    writeCell: stub,
+    deleteCell: stub,
+    cellExists: stub,
+    listKeys: stub,
+    scaffoldCell: stub,
+    getCellMetadata: jest.fn((cell: CellRef) => getMetadata(cellPath(cell))),
+    getPendingMetadata: stub,
+    markPending: stub,
+    markResolved: stub,
+    recordRotation: stub,
+    removeRotation: stub,
+    rotate: jest.fn(async (cell: CellRef, opts: RotateOptions) => {
+      const filePath = cellPath(cell);
+      if (opts.addAge) await addRecipient(filePath, opts.addAge);
+      if (opts.rmAge) await removeRecipient(filePath, opts.rmAge);
+    }),
+    addRecipient,
+    removeRecipient,
+    getMetadata,
+  } as unknown as SourceMock;
+  return source;
 }
 
 /**
@@ -97,7 +133,7 @@ function makeStubTx(): TransactionManager {
 }
 
 describe("ServiceIdentityManager", () => {
-  let encryption: jest.Mocked<FileEncryptionBackend>;
+  let encryption: SourceMock;
   let matrixManager: MatrixManager;
   let manager: ServiceIdentityManager;
 
