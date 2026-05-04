@@ -5,7 +5,7 @@ import type { KmsProvider, PackRequest } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createSopsClient } from "../age-credential";
+import { createSecretSource } from "../source-factory";
 import { createPackBackendRegistry, parseBackendOptions, resolveBackend } from "../pack-backends";
 
 export function registerPackCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -90,7 +90,7 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
           if (signingKmsKeyId !== undefined) backendOptions.signingKmsKeyId = signingKmsKeyId;
           backend.validateOptions?.(backendOptions);
 
-          const { client: sopsClient, cleanup } = await createSopsClient(
+          const { source: secretSource, cleanup } = await createSecretSource(
             repoRoot,
             deps.runner,
             manifest,
@@ -124,7 +124,7 @@ export function registerPackCommand(program: Command, deps: { runner: Subprocess
               manifest,
               repoRoot,
               services: {
-                encryption: sopsClient,
+                source: secretSource,
                 kms: kmsProvider,
                 runner: deps.runner,
               },

@@ -1,7 +1,8 @@
 import * as fs from "fs";
 import { resolveIdentitySecrets } from "./resolve";
-import { ClefManifest, FileEncryptionBackend, DecryptedFile } from "../types";
+import { ClefManifest, DecryptedFile } from "../types";
 import { MatrixManager } from "../matrix/manager";
+import type { SecretSource } from "../source/types";
 
 jest.mock("fs");
 
@@ -43,20 +44,41 @@ function baseManifest(): ClefManifest {
   };
 }
 
-function mockEncryption(): jest.Mocked<FileEncryptionBackend> {
+/**
+ * Source mock with `decrypt` aliased onto `readCell` so the existing
+ * `encryption.decrypt.mockResolvedValue(...)` call sites stay valid even
+ * though production code now calls `source.readCell(cellRef)`. The
+ * production-side path translation is independent of the mock.
+ */
+interface SourceMock extends SecretSource {
+  decrypt: jest.Mock;
+  readCell: jest.Mock;
+}
+
+function mockEncryption(): SourceMock {
+  const stub = jest.fn();
+  const readCell = jest.fn();
   return {
-    decrypt: jest.fn(),
-    encrypt: jest.fn(),
-    reEncrypt: jest.fn(),
-    addRecipient: jest.fn(),
-    removeRecipient: jest.fn(),
-    validateEncryption: jest.fn(),
-    getMetadata: jest.fn(),
-  };
+    id: "mock",
+    description: "mock",
+    readCell,
+    writeCell: stub,
+    deleteCell: stub,
+    cellExists: stub,
+    listKeys: stub,
+    scaffoldCell: stub,
+    getCellMetadata: stub,
+    getPendingMetadata: stub,
+    markPending: stub,
+    markResolved: stub,
+    recordRotation: stub,
+    removeRotation: stub,
+    decrypt: readCell,
+  } as unknown as SourceMock;
 }
 
 describe("resolveIdentitySecrets", () => {
-  let encryption: jest.Mocked<FileEncryptionBackend>;
+  let encryption: SourceMock;
   let matrixManager: MatrixManager;
 
   beforeEach(() => {

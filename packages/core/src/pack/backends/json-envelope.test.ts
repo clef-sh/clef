@@ -1,13 +1,9 @@
 import * as fs from "fs";
 import { JsonEnvelopeBackend } from "./json-envelope";
 import { MemoryPackOutput } from "../../artifact/output";
-import type {
-  ClefManifest,
-  DecryptedFile,
-  FileEncryptionBackend,
-  SubprocessRunner,
-} from "../../types";
+import type { ClefManifest, DecryptedFile, SubprocessRunner } from "../../types";
 import type { PackRequest } from "../types";
+import type { SecretSource } from "../../source/types";
 
 jest.mock("fs");
 
@@ -48,32 +44,44 @@ function baseManifest(): ClefManifest {
   };
 }
 
-function mockEncryption(): jest.Mocked<FileEncryptionBackend> {
+interface SourceMock extends SecretSource {
+  decrypt: jest.Mock;
+  readCell: jest.Mock;
+}
+
+function mockEncryption(): SourceMock {
+  const stub = jest.fn();
+  const readCell = jest.fn();
   return {
-    decrypt: jest.fn(),
-    encrypt: jest.fn(),
-    reEncrypt: jest.fn(),
-    addRecipient: jest.fn(),
-    removeRecipient: jest.fn(),
-    validateEncryption: jest.fn(),
-    getMetadata: jest.fn(),
-  };
+    id: "mock",
+    description: "mock",
+    readCell,
+    writeCell: stub,
+    deleteCell: stub,
+    cellExists: stub,
+    listKeys: stub,
+    scaffoldCell: stub,
+    getCellMetadata: stub,
+    getPendingMetadata: stub,
+    markPending: stub,
+    markResolved: stub,
+    recordRotation: stub,
+    removeRotation: stub,
+    decrypt: readCell,
+  } as unknown as SourceMock;
 }
 
 function mockRunner(): jest.Mocked<SubprocessRunner> {
   return { run: jest.fn() } as unknown as jest.Mocked<SubprocessRunner>;
 }
 
-function makeRequest(
-  encryption: FileEncryptionBackend,
-  backendOptions: Record<string, unknown>,
-): PackRequest {
+function makeRequest(source: SecretSource, backendOptions: Record<string, unknown>): PackRequest {
   return {
     identity: "api-gateway",
     environment: "dev",
     manifest: baseManifest(),
     repoRoot: "/repo",
-    services: { encryption, runner: mockRunner() },
+    services: { source, runner: mockRunner() },
     backendOptions,
   };
 }
