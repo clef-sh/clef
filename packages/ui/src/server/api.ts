@@ -1157,7 +1157,12 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
-      const importRunner = new ImportRunner(sops, tx);
+      const importSource = composeSecretSource(
+        new FilesystemStorageBackend(manifest, deps.repoRoot),
+        createSopsEncryptionBackend(sops),
+        manifest,
+      );
+      const importRunner = new ImportRunner(importSource, tx);
       const result = await importRunner.import(target, null, content, manifest, deps.repoRoot, {
         format,
         dryRun: true,
@@ -1223,7 +1228,12 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
-      const importRunner = new ImportRunner(sops, tx);
+      const importSource = composeSecretSource(
+        new FilesystemStorageBackend(manifest, deps.repoRoot),
+        createSopsEncryptionBackend(sops),
+        manifest,
+      );
+      const importRunner = new ImportRunner(importSource, tx);
       const result = await importRunner.import(target, null, content, manifest, deps.repoRoot, {
         format,
         keys,
