@@ -141,7 +141,6 @@ export function createApiRouter(deps: ApiDeps): Router {
   const tx = new TransactionManager(git);
   const scanRunner = new ScanRunner(deps.runner);
   const serviceIdManager = new ServiceIdentityManager(sops, matrix, tx);
-  const backendMigrator = new BackendMigrator(sops, matrix, tx);
   const structureManager = new StructureManager(matrix, sops, tx);
 
   // Manifest-bound managers are constructed per-request so the manifest
@@ -1724,6 +1723,7 @@ export function createApiRouter(deps: ApiDeps): Router {
       }
 
       const events: MigrationProgressEvent[] = [];
+      const backendMigrator = new BackendMigrator(buildSourceFor, matrix, tx);
       const result = await backendMigrator.migrate(
         manifest,
         deps.repoRoot,
@@ -1763,6 +1763,7 @@ export function createApiRouter(deps: ApiDeps): Router {
       }
 
       const events: MigrationProgressEvent[] = [];
+      const backendMigrator = new BackendMigrator(buildSourceFor, matrix, tx);
       const result = await backendMigrator.migrate(
         manifest,
         deps.repoRoot,

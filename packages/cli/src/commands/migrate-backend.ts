@@ -10,6 +10,12 @@ import {
   BackendType,
   TransactionManager,
 } from "@clef-sh/core";
+import {
+  composeSecretSource,
+  createSopsEncryptionBackend,
+  FilesystemStorageBackend,
+  type ClefManifest,
+} from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
@@ -116,19 +122,20 @@ export function registerMigrateBackendCommand(
           }
         }
 
-        const { client: decryptClient, cleanup: decryptCleanup } = await createSopsClient(
+        const { client: sopsClient, cleanup: decryptCleanup } = await createSopsClient(
           repoRoot,
           deps.runner,
           manifest,
         );
-        const { client: encryptClient, cleanup: encryptCleanup } = await createSopsClient(
-          repoRoot,
-          deps.runner,
-          manifest,
-        );
+        // Single SOPS client; the source factory rebuilds per manifest
+        // version (pre-mutate vs. post-mutate) inside the migrator.
+        const encryptCleanup = async (): Promise<void> => {};
         try {
           const tx = new TransactionManager(new GitIntegration(deps.runner));
-          const migrator = new BackendMigrator(decryptClient, matrixManager, tx, encryptClient);
+          const encryption = createSopsEncryptionBackend(sopsClient);
+          const buildSource = (m: ClefManifest) =>
+            composeSecretSource(new FilesystemStorageBackend(m, repoRoot), encryption, m);
+          const migrator = new BackendMigrator(buildSource, matrixManager, tx);
 
           const result = await migrator.migrate(
             manifest,

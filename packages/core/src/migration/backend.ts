@@ -3,11 +3,11 @@ import * as YAML from "yaml";
 import {
   BackendType,
   ClefManifest,
-  FileEncryptionBackend,
   EnvironmentSopsOverride,
   MatrixCell,
   SopsMetadata,
 } from "../types";
+import type { CellRef, SecretSource } from "../source/types";
 import { MatrixManager } from "../matrix/manager";
 import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
 import { readManifestYaml, writeManifestYaml } from "../manifest/io";
@@ -92,26 +92,22 @@ function metadataMatchesTarget(meta: SopsMetadata, target: MigrationTarget): boo
 // ── BackendMigrator ─────────────────────────────────────────────────────────
 
 export class BackendMigrator {
-  private readonly decryptBackend: FileEncryptionBackend;
-  private readonly encryptBackend: FileEncryptionBackend;
-
   /**
-   * @param encryption - Backend used for both decrypt and encrypt (standard case).
+   * @param buildSource - Factory that builds a `SecretSource` bound to a
+   *   given manifest. Called twice during a real migration: once with the
+   *   pre-migration manifest (for classification + decrypt) and once with
+   *   the post-mutation manifest (for re-encrypt + verify). The factory
+   *   pattern is required because the encryption layer of a composed
+   *   source is bound to a manifest at construction.
    * @param matrixManager - Matrix resolver.
    * @param tx - Transaction manager that wraps the migration in a single git commit
    *   so a partial failure rolls back ALL files + the manifest via `git reset --hard`.
-   * @param targetEncryption - Optional separate backend for encrypt. Use when migrating
-   *   from cloud (decrypt via keyservice) to another backend (encrypt via local credentials).
    */
   constructor(
-    encryption: FileEncryptionBackend,
+    private readonly buildSource: (manifest: ClefManifest) => SecretSource,
     private readonly matrixManager: MatrixManager,
     private readonly tx: TransactionManager,
-    targetEncryption?: FileEncryptionBackend,
-  ) {
-    this.decryptBackend = encryption;
-    this.encryptBackend = targetEncryption ?? encryption;
-  }
+  ) {}
 
   async migrate(
     manifest: ClefManifest,
@@ -145,12 +141,15 @@ export class BackendMigrator {
       };
     }
 
-    // Classify cells: skip those already on the target backend+key
+    // Classify cells: skip those already on the target backend+key.
+    // Reads run through the source bound to the *current* manifest.
+    const sourceBefore = this.buildSource(manifest);
     const toMigrate: MatrixCell[] = [];
     const skippedFiles: string[] = [];
 
     for (const cell of targetCells) {
-      const meta = await this.decryptBackend.getMetadata(cell.filePath);
+      const ref: CellRef = { namespace: cell.namespace, environment: cell.environment };
+      const meta = await sourceBefore.getCellMetadata(ref);
       if (metadataMatchesTarget(meta, target)) {
         skippedFiles.push(cell.filePath);
         onProgress?.({
@@ -223,6 +222,7 @@ export class BackendMigrator {
     const migratedFiles: string[] = [];
     let migrationFailed = false;
     let migrationError: Error | undefined;
+    let sourceAfter: SecretSource | undefined;
 
     try {
       await this.tx.run(repoRoot, {
@@ -239,6 +239,7 @@ export class BackendMigrator {
           writeManifestYaml(repoRoot, doc);
 
           const updatedManifest = YAML.parse(YAML.stringify(doc)) as ClefManifest;
+          sourceAfter = this.buildSource(updatedManifest);
 
           for (const cell of toMigrate) {
             onProgress?.({
@@ -247,13 +248,9 @@ export class BackendMigrator {
               message: `Migrating ${cell.namespace}/${cell.environment}...`,
             });
 
-            const decrypted = await this.decryptBackend.decrypt(cell.filePath);
-            await this.encryptBackend.encrypt(
-              cell.filePath,
-              decrypted.values,
-              updatedManifest,
-              cell.environment,
-            );
+            const ref: CellRef = { namespace: cell.namespace, environment: cell.environment };
+            const decrypted = await sourceBefore.readCell(ref);
+            await sourceAfter.writeCell(ref, decrypted.values);
 
             migratedFiles.push(cell.filePath);
           }
@@ -289,7 +286,7 @@ export class BackendMigrator {
     const verifiedFiles: string[] = [];
     const warnings: string[] = [];
 
-    if (!skipVerify) {
+    if (!skipVerify && sourceAfter) {
       for (const cell of toMigrate) {
         try {
           onProgress?.({
@@ -297,7 +294,8 @@ export class BackendMigrator {
             file: cell.filePath,
             message: `Verifying ${cell.namespace}/${cell.environment}...`,
           });
-          await this.encryptBackend.decrypt(cell.filePath);
+          const ref: CellRef = { namespace: cell.namespace, environment: cell.environment };
+          await sourceAfter.readCell(ref);
           verifiedFiles.push(cell.filePath);
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err);

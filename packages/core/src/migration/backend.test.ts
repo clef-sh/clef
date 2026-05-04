@@ -2,8 +2,9 @@ import * as fs from "fs";
 import * as YAML from "yaml";
 import writeFileAtomic from "write-file-atomic";
 import { BackendMigrator, MigrationTarget } from "./backend";
-import { ClefManifest, FileEncryptionBackend, SopsMetadata } from "../types";
+import { ClefManifest, SopsMetadata } from "../types";
 import { TransactionManager } from "../tx";
+import type { SecretSource } from "../source/types";
 
 jest.mock("fs");
 // write-file-atomic is auto-mocked via core's jest.config moduleNameMapper.
@@ -62,19 +63,58 @@ function kmsMeta(arn = "arn:aws:kms:us-east-1:123456789012:key/old"): SopsMetada
   };
 }
 
-function makeEncryption(overrides?: Partial<FileEncryptionBackend>): FileEncryptionBackend {
-  return {
-    decrypt: jest
-      .fn()
-      .mockResolvedValue({ values: { DB_URL: "postgres://..." }, metadata: ageMeta() }),
-    encrypt: jest.fn().mockResolvedValue(undefined),
-    reEncrypt: jest.fn(),
-    addRecipient: jest.fn(),
-    removeRecipient: jest.fn(),
-    validateEncryption: jest.fn(),
-    getMetadata: jest.fn().mockResolvedValue(ageMeta()),
-    ...overrides,
-  };
+interface SourceMock extends SecretSource {
+  readCell: jest.Mock;
+  writeCell: jest.Mock;
+  getCellMetadata: jest.Mock;
+}
+
+interface EncryptionShape {
+  /** Mock for source.readCell — kept named `decrypt` for diff readability. */
+  decrypt?: jest.Mock;
+  /** Mock for source.writeCell — kept named `encrypt` for diff readability. */
+  encrypt?: jest.Mock;
+  /** Mock for source.getCellMetadata. */
+  getMetadata?: jest.Mock;
+}
+
+/**
+ * Returns a single SourceMock plus a factory `(manifest) => source`.
+ * Tests assert against `enc.decrypt` (i.e. `source.readCell`) etc.
+ * The same single source is returned each call so call-count assertions
+ * cover both the pre-mutate (decrypt) and post-mutate (encrypt + verify)
+ * source instances at once — matching the old single-encryption-backend
+ * shape.
+ */
+function makeEncryption(overrides: EncryptionShape = {}): SourceMock & EncryptionShape {
+  const stub = jest.fn();
+  const source = {
+    id: "mock",
+    description: "mock",
+    readCell:
+      overrides.decrypt ??
+      jest.fn().mockResolvedValue({ values: { DB_URL: "postgres://..." }, metadata: ageMeta() }),
+    writeCell: overrides.encrypt ?? jest.fn().mockResolvedValue(undefined),
+    deleteCell: stub,
+    cellExists: stub,
+    listKeys: stub,
+    scaffoldCell: stub,
+    getCellMetadata: overrides.getMetadata ?? jest.fn().mockResolvedValue(ageMeta()),
+    getPendingMetadata: stub,
+    markPending: stub,
+    markResolved: stub,
+    recordRotation: stub,
+    removeRotation: stub,
+  } as unknown as SourceMock & EncryptionShape;
+  // Convenience aliases for assertion readability.
+  source.decrypt = source.readCell;
+  source.encrypt = source.writeCell;
+  source.getMetadata = source.getCellMetadata;
+  return source;
+}
+
+function makeFactory(source: SourceMock): (manifest: ClefManifest) => SecretSource {
+  return () => source;
 }
 
 const bothFiles = ["/repo/database/staging.enc.yaml", "/repo/database/production.enc.yaml"];
@@ -129,7 +169,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
+    const migrator = new BackendMigrator(makeFactory(enc), mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.rolledBack).toBe(false);
@@ -154,7 +194,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
+    const migrator = new BackendMigrator(makeFactory(enc), mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, {
       target: awsTarget,
       environment: "production",
@@ -193,7 +233,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks(makeManifestYaml(manifest));
 
-    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
+    const migrator = new BackendMigrator(makeFactory(enc), mm as never, makeStubTx());
     const result = await migrator.migrate(manifest, repoRoot, { target: awsTarget });
 
     expect(result.rolledBack).toBe(false);
@@ -206,7 +246,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
+    const migrator = new BackendMigrator(makeFactory(enc), mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.migratedFiles).toHaveLength(0);
@@ -220,7 +260,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
+    const migrator = new BackendMigrator(makeFactory(enc), mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, {
       target: awsTarget,
       dryRun: true,
@@ -244,7 +284,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
+    const migrator = new BackendMigrator(makeFactory(enc), mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.rolledBack).toBe(true);
@@ -261,7 +301,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
+    const migrator = new BackendMigrator(makeFactory(enc), mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.rolledBack).toBe(true);
@@ -283,7 +323,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
+    const migrator = new BackendMigrator(makeFactory(enc), mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.rolledBack).toBe(false);
@@ -296,7 +336,7 @@ describe("BackendMigrator", () => {
     const enc = makeEncryption();
     const mm = makeMatrixManager();
 
-    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
+    const migrator = new BackendMigrator(makeFactory(enc), mm as never, makeStubTx());
     await expect(
       migrator.migrate(baseManifest, repoRoot, { target: awsTarget, environment: "nonexistent" }),
     ).rejects.toThrow("Environment 'nonexistent' not found");
@@ -307,7 +347,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager([]);
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
+    const migrator = new BackendMigrator(makeFactory(enc), mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, { target: awsTarget });
 
     expect(result.migratedFiles).toHaveLength(0);
@@ -326,7 +366,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks(makeManifestYaml(manifestWithRecipients));
 
-    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
+    const migrator = new BackendMigrator(makeFactory(enc), mm as never, makeStubTx());
     const result = await migrator.migrate(manifestWithRecipients, repoRoot, { target: awsTarget });
 
     expect(result.warnings.some((w) => w.includes("age recipients"))).toBe(true);
@@ -337,7 +377,7 @@ describe("BackendMigrator", () => {
     const mm = makeMatrixManager();
     setupFsMocks();
 
-    const migrator = new BackendMigrator(enc, mm as never, makeStubTx());
+    const migrator = new BackendMigrator(makeFactory(enc), mm as never, makeStubTx());
     const result = await migrator.migrate(baseManifest, repoRoot, {
       target: awsTarget,
       skipVerify: true,
