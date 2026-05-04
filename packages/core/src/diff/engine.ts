@@ -10,9 +10,8 @@
  * Coverage threshold: 95% lines/functions, 90% branches.
  * See docs/contributing/testing.md for the rationale.
  */
-import * as path from "path";
-import { ClefManifest, DiffResult, DiffRow, DiffStatus } from "../types";
-import { FileEncryptionBackend } from "../types";
+import { DiffResult, DiffRow, DiffStatus } from "../types";
+import type { SecretSource } from "../source/types";
 
 /**
  * Compares decrypted values between two environments or two arbitrary key/value maps.
@@ -20,7 +19,7 @@ import { FileEncryptionBackend } from "../types";
  * @example
  * ```ts
  * const engine = new DiffEngine();
- * const result = await engine.diffFiles("app", "staging", "production", manifest, sopsClient, repoRoot);
+ * const result = await engine.diffCells("app", "staging", "production", source);
  * ```
  */
 export class DiffEngine {
@@ -86,31 +85,18 @@ export class DiffEngine {
    * @param namespace - Namespace containing both cells.
    * @param envA - Name of environment A.
    * @param envB - Name of environment B.
-   * @param manifest - Parsed manifest used to resolve file paths.
-   * @param sopsClient - SOPS client used to decrypt both files.
-   * @param repoRoot - Absolute path to the repository root.
-   * @throws {@link SopsDecryptionError} If either file cannot be decrypted.
+   * @param source - SecretSource that resolves both cells (substrate-agnostic).
+   * @throws {@link SopsDecryptionError} If either cell cannot be decrypted.
    */
-  async diffFiles(
+  async diffCells(
     namespace: string,
     envA: string,
     envB: string,
-    manifest: ClefManifest,
-    sopsClient: FileEncryptionBackend,
-    repoRoot: string,
+    source: SecretSource,
   ): Promise<DiffResult> {
-    const fileA = path.join(
-      repoRoot,
-      manifest.file_pattern.replace("{namespace}", namespace).replace("{environment}", envA),
-    );
-    const fileB = path.join(
-      repoRoot,
-      manifest.file_pattern.replace("{namespace}", namespace).replace("{environment}", envB),
-    );
-
     const [decryptedA, decryptedB] = await Promise.all([
-      sopsClient.decrypt(fileA),
-      sopsClient.decrypt(fileB),
+      source.readCell({ namespace, environment: envA }),
+      source.readCell({ namespace, environment: envB }),
     ]);
 
     return this.diff(decryptedA.values, decryptedB.values, envA, envB, namespace);

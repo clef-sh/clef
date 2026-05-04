@@ -22,6 +22,9 @@ import {
   ScanRunner,
   SubprocessRunner,
   ClefManifest,
+  composeSecretSource,
+  createSopsEncryptionBackend,
+  FilesystemStorageBackend,
   ScanResult,
   KmsConfig,
   getPendingKeys,
@@ -700,7 +703,13 @@ export function createApiRouter(deps: ApiDeps): Router {
           return;
         }
 
-        const result = await diffEngine.diffFiles(ns, envA, envB, manifest, sops, deps.repoRoot);
+        // Compose a per-request SecretSource. The manifest is parsed
+        // per-request (it can change while the server runs), so the
+        // source is built here rather than at router construction.
+        const storage = new FilesystemStorageBackend(manifest, deps.repoRoot);
+        const encryption = createSopsEncryptionBackend(sops);
+        const source = composeSecretSource(storage, encryption, manifest);
+        const result = await diffEngine.diffCells(ns, envA, envB, source);
 
         // Mask values by default — only reveal when client explicitly requests it
         if (req.query.showValues !== "true") {
