@@ -24,6 +24,7 @@ import {
   ClefManifest,
   composeSecretSource,
   createSopsEncryptionBackend,
+  describeCapabilities,
   FilesystemStorageBackend,
   ScanResult,
   KmsConfig,
@@ -288,6 +289,19 @@ export function createApiRouter(deps: ApiDeps): Router {
     store: apiRateLimitStore,
   });
   router.use(apiLimiter);
+
+  // GET /api/capabilities — boolean trait descriptor for the composed
+  // source. Lets the UI client gate buttons (e.g. hide "Migrate backend"
+  // when the source can't migrate) without per-feature probing.
+  router.get("/capabilities", (_req: Request, res: Response) => {
+    try {
+      const manifest = loadManifest();
+      res.json(describeCapabilities(buildSourceFor(manifest)));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to read capabilities";
+      res.status(500).json({ error: message, code: "CAPABILITIES_ERROR" });
+    }
+  });
 
   // GET /api/manifest
   router.get("/manifest", (_req: Request, res: Response) => {
