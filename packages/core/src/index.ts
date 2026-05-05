@@ -19,6 +19,7 @@ export { SopsClient } from "./sops/client";
 export { isClefHsmArn, pkcs11UriToSyntheticArn, syntheticArnToPkcs11Uri } from "./sops/hsm-arn";
 export { resolveSopsPath, resetSopsResolution } from "./sops/resolver";
 export type { SopsResolution, SopsSource } from "./sops/resolver";
+export { wrapWithLinuxStdinFifo, shouldUseLinuxStdinFifo } from "./sops/linux-stdin-fifo";
 export {
   resolveKeyservicePath,
   resetKeyserviceResolution,

@@ -28,6 +28,7 @@ import {
   resolveSopsPath,
   composeSecretSource,
   FilesystemStorageBackend,
+  wrapWithLinuxStdinFifo,
 } from "@clef-sh/core";
 import type {
   ClefManifest,
@@ -156,7 +157,10 @@ async function main(): Promise<void> {
   const path = await import("path");
   const repoRoot = path.dirname(path.resolve(args.manifest));
 
-  const runner = new ExecFileRunner();
+  // Wrap with the Linux FIFO workaround so SOPS can read its stdin
+  // input file when running on Linux (CDK synth pipes via stdin and
+  // /dev/stdin is unopenable for child Node processes).
+  const runner = wrapWithLinuxStdinFifo(new ExecFileRunner());
   // resolveSopsPath throws if no sops binary is available; let it propagate
   // so users see the install hint from @clef-sh/core.
   resolveSopsPath();
