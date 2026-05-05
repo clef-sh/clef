@@ -249,6 +249,19 @@ describe("composeSecretSource — pending metadata", () => {
     const meta = await source.getPendingMetadata(cell);
     expect(meta.rotations.map((r) => r.key)).toEqual(["B"]);
   });
+
+  it("recordRotation strips matching pending entries (mutually exclusive states)", async () => {
+    // Regression: CLI `clef set` relies on this to clear the pending
+    // placeholder after `set --random` is replaced with a real value,
+    // without a separate markResolved call.
+    const store = makeStorageBackend({ "api/dev": "x" });
+    const source = composeSecretSource(store, makeEncryption(), manifest);
+    await source.markPending(cell, ["P", "Q"], "clef set --random");
+    await source.recordRotation(cell, ["P"], "alice");
+    const meta = await source.getPendingMetadata(cell);
+    expect(meta.pending.map((p) => p.key)).toEqual(["Q"]);
+    expect(meta.rotations.map((r) => r.key)).toEqual(["P"]);
+  });
 });
 
 describe("composeSecretSource — Lintable trait", () => {

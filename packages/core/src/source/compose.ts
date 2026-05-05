@@ -167,6 +167,10 @@ class ComposedSecretSource implements SecretSource, Lintable, Rotatable, Bulk {
         meta.rotations.push({ key, lastRotatedAt: now, rotatedBy, rotationCount: 1 });
       }
     }
+    // Rotation resolves pending state — strip matching pending entries so
+    // the two are mutually exclusive. CLI `set` relies on this contract
+    // (no separate markResolved call after recordRotation).
+    meta.pending = meta.pending.filter((p) => !keys.includes(p.key));
     await this.storage.writePendingMetadata(cell, meta);
   }
 
