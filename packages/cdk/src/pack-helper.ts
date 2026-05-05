@@ -27,7 +27,6 @@ import {
   isKmsEnvelope,
   resolveSopsPath,
   composeSecretSource,
-  createSopsEncryptionBackend,
   FilesystemStorageBackend,
 } from "@clef-sh/core";
 import type {
@@ -182,7 +181,7 @@ async function main(): Promise<void> {
   if (args.signingKey) backendOptions.signingKey = args.signingKey;
   const source = composeSecretSource(
     new FilesystemStorageBackend(manifest, repoRoot),
-    createSopsEncryptionBackend(sopsClient),
+    sopsClient,
     manifest,
   );
   const request: PackRequest = {

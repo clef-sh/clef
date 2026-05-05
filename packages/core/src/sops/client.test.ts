@@ -115,7 +115,7 @@ describe("SopsClient", () => {
       });
 
       const client = new SopsClient(runner);
-      const result = await client.decrypt("database/dev.enc.yaml");
+      const result = await client.decryptFile("database/dev.enc.yaml");
 
       expect(result.values).toEqual({
         DATABASE_URL: "postgres://localhost/mydb",
@@ -133,7 +133,9 @@ describe("SopsClient", () => {
 
       // No ageKey/ageKeyFile → classifyDecryptError short-circuits to key-not-found
       const client = new SopsClient(runner);
-      await expect(client.decrypt("database/dev.enc.yaml")).rejects.toThrow(SopsKeyNotFoundError);
+      await expect(client.decryptFile("database/dev.enc.yaml")).rejects.toThrow(
+        SopsKeyNotFoundError,
+      );
     });
 
     it("should throw SopsKeyNotFoundError when configured age key does not match file recipients", async () => {
@@ -143,7 +145,9 @@ describe("SopsClient", () => {
       });
 
       const client = new SopsClient(runner, undefined, "AGE-SECRET-KEY-1WRONGKEY");
-      await expect(client.decrypt("database/dev.enc.yaml")).rejects.toThrow(SopsKeyNotFoundError);
+      await expect(client.decryptFile("database/dev.enc.yaml")).rejects.toThrow(
+        SopsKeyNotFoundError,
+      );
     });
 
     it("should throw SopsKeyNotFoundError when ageKeyFile cannot be read", async () => {
@@ -156,7 +160,9 @@ describe("SopsClient", () => {
       });
 
       const client = new SopsClient(runner, "/nonexistent/key.txt");
-      await expect(client.decrypt("database/dev.enc.yaml")).rejects.toThrow(SopsKeyNotFoundError);
+      await expect(client.decryptFile("database/dev.enc.yaml")).rejects.toThrow(
+        SopsKeyNotFoundError,
+      );
     });
 
     it("should throw SopsKeyNotFoundError when ageKeyFile contains no valid age private keys", async () => {
@@ -169,7 +175,9 @@ describe("SopsClient", () => {
       });
 
       const client = new SopsClient(runner, "/path/to/key.txt");
-      await expect(client.decrypt("database/dev.enc.yaml")).rejects.toThrow(SopsKeyNotFoundError);
+      await expect(client.decryptFile("database/dev.enc.yaml")).rejects.toThrow(
+        SopsKeyNotFoundError,
+      );
     });
 
     it("should throw SopsDecryptionError when age key matches a recipient but decrypt fails otherwise", async () => {
@@ -179,7 +187,7 @@ describe("SopsClient", () => {
       });
 
       const client = new SopsClient(runner, undefined, "AGE-SECRET-KEY-1VALID");
-      const err = await client.decrypt("database/dev.enc.yaml").catch((e: unknown) => e);
+      const err = await client.decryptFile("database/dev.enc.yaml").catch((e: unknown) => e);
       expect(err).toBeInstanceOf(SopsDecryptionError);
       expect(err).not.toBeInstanceOf(SopsKeyNotFoundError);
     });
@@ -198,7 +206,9 @@ sops:
       });
 
       const client = new SopsClient(runner);
-      await expect(client.decrypt("database/dev.enc.yaml")).rejects.toThrow(SopsDecryptionError);
+      await expect(client.decryptFile("database/dev.enc.yaml")).rejects.toThrow(
+        SopsDecryptionError,
+      );
     });
 
     it("should throw SopsDecryptionError when file metadata cannot be parsed on failure", async () => {
@@ -210,7 +220,9 @@ sops:
       });
 
       const client = new SopsClient(runner);
-      await expect(client.decrypt("database/dev.enc.yaml")).rejects.toThrow(SopsDecryptionError);
+      await expect(client.decryptFile("database/dev.enc.yaml")).rejects.toThrow(
+        SopsDecryptionError,
+      );
     });
 
     it("should throw SopsDecryptionError when key in multi-key file matches a recipient", async () => {
@@ -226,7 +238,7 @@ sops:
       });
 
       const client = new SopsClient(runner, "/path/to/key.txt");
-      const err = await client.decrypt("database/dev.enc.yaml").catch((e: unknown) => e);
+      const err = await client.decryptFile("database/dev.enc.yaml").catch((e: unknown) => e);
       expect(err).toBeInstanceOf(SopsDecryptionError);
       expect(err).not.toBeInstanceOf(SopsKeyNotFoundError);
     });
@@ -246,7 +258,7 @@ sops:
       });
 
       const client = new SopsClient(runner);
-      const result = await client.decrypt("database/dev.enc.yaml");
+      const result = await client.decryptFile("database/dev.enc.yaml");
 
       expect(result.values).toEqual({});
       expect(result.metadata.backend).toBe("age");
@@ -264,7 +276,9 @@ sops:
         },
       });
       const client = new SopsClient(runner, undefined, "AGE-SECRET-KEY-1abc");
-      await expect(client.decrypt("database/dev.enc.yaml")).rejects.toThrow(SopsDecryptionError);
+      await expect(client.decryptFile("database/dev.enc.yaml")).rejects.toThrow(
+        SopsDecryptionError,
+      );
     });
 
     it("should throw SopsDecryptionError on invalid YAML output", async () => {
@@ -277,7 +291,9 @@ sops:
       });
 
       const client = new SopsClient(runner);
-      await expect(client.decrypt("database/dev.enc.yaml")).rejects.toThrow(SopsDecryptionError);
+      await expect(client.decryptFile("database/dev.enc.yaml")).rejects.toThrow(
+        SopsDecryptionError,
+      );
     });
   });
 });
@@ -309,7 +325,7 @@ describe("SopsClient — keyservice address wiring", () => {
     });
 
     // We don't care about the metadata read failing — only the args we passed.
-    await client.decrypt("file.enc.yaml").catch(() => undefined);
+    await client.decryptFile("file.enc.yaml").catch(() => undefined);
 
     const decryptCall = runFn.mock.calls.find(
       (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[])[0] === "decrypt",
@@ -337,7 +353,10 @@ describe("SopsClient — keyservice address wiring", () => {
       ...testManifest(),
       sops: { default_backend: "age", age: { recipients: ["age1abc"] } },
     };
-    await client.encryptBlob({ KEY: "val" }, manifest, undefined, "yaml");
+    await client.encrypt(
+      { KEY: "val" },
+      { manifest: manifest, environment: undefined, format: "yaml" },
+    );
 
     const encryptCall = runFn.mock.calls.find(
       (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
@@ -359,7 +378,10 @@ describe("SopsClient — keyservice address wiring", () => {
       ...testManifest(),
       sops: { default_backend: "age", age: { recipients: ["age1abc"] } },
     };
-    await client.encryptBlob({ KEY: "val" }, manifest, undefined, "yaml");
+    await client.encrypt(
+      { KEY: "val" },
+      { manifest: manifest, environment: undefined, format: "yaml" },
+    );
 
     const encryptCall = runFn.mock.calls.find(
       (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
@@ -455,7 +477,7 @@ describe("JSON file format support", () => {
     });
 
     const client = new SopsClient({ run: runFn });
-    await client.decrypt("database/dev.enc.yaml");
+    await client.decryptFile("database/dev.enc.yaml");
 
     const decryptCall = runFn.mock.calls.find(
       (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "decrypt",
@@ -475,7 +497,7 @@ describe("JSON file format support", () => {
     });
 
     const client = new SopsClient({ run: runFn });
-    await client.decrypt("database/dev.enc.json");
+    await client.decryptFile("database/dev.enc.json");
 
     const decryptCall = runFn.mock.calls.find(
       (c: [string, string[]]) => c[0] === "sops" && c[1][0] === "decrypt",
@@ -490,7 +512,10 @@ describe("JSON file format support", () => {
     });
 
     const client = new SopsClient({ run: runFn });
-    await client.encryptBlob({ KEY: "val" }, testManifest(), undefined, "json");
+    await client.encrypt(
+      { KEY: "val" },
+      { manifest: testManifest(), environment: undefined, format: "json" },
+    );
 
     const sopsCall = runFn.mock.calls.find(
       (c: [string, string[]]) => c[0] === "sops" && (c[1] as string[]).includes("encrypt"),
@@ -515,7 +540,7 @@ describe("dependency checks", () => {
     const runner = mockRunner({});
     const client = new SopsClient(runner);
 
-    await expect(client.decrypt("file.enc.yaml")).rejects.toThrow(SopsMissingError);
+    await expect(client.decryptFile("file.enc.yaml")).rejects.toThrow(SopsMissingError);
   });
 
   it("encryptBlob should throw SopsMissingError when sops is missing", async () => {
@@ -524,9 +549,12 @@ describe("dependency checks", () => {
     const runner = mockRunner({});
     const client = new SopsClient(runner);
 
-    await expect(client.encryptBlob({ K: "v" }, testManifest(), undefined, "yaml")).rejects.toThrow(
-      SopsMissingError,
-    );
+    await expect(
+      client.encrypt(
+        { K: "v" },
+        { manifest: testManifest(), environment: undefined, format: "yaml" },
+      ),
+    ).rejects.toThrow(SopsMissingError);
   });
 
   it("should reject with SopsVersionError when sops is outdated", async () => {
@@ -537,7 +565,7 @@ describe("dependency checks", () => {
     const runner = mockRunner({});
     const client = new SopsClient(runner);
 
-    await expect(client.decrypt("file.enc.yaml")).rejects.toThrow(SopsVersionError);
+    await expect(client.decryptFile("file.enc.yaml")).rejects.toThrow(SopsVersionError);
   });
 });
 
@@ -552,7 +580,7 @@ describe("buildSopsEnv (credential injection)", () => {
     });
 
     const client = new SopsClient({ run: runFn }, "/custom/keys.txt");
-    await client.decrypt("database/dev.enc.yaml");
+    await client.decryptFile("database/dev.enc.yaml");
 
     const decryptCall = runFn.mock.calls.find((c) => c[0] === "sops" && c[1][0] === "decrypt");
     expect(decryptCall![2]).toEqual({ env: { SOPS_AGE_KEY_FILE: "/custom/keys.txt" } });
@@ -568,7 +596,7 @@ describe("buildSopsEnv (credential injection)", () => {
     });
 
     const client = new SopsClient({ run: runFn }, undefined, "AGE-SECRET-KEY-1TEST");
-    await client.decrypt("database/dev.enc.yaml");
+    await client.decryptFile("database/dev.enc.yaml");
 
     const decryptCall = runFn.mock.calls.find((c) => c[0] === "sops" && c[1][0] === "decrypt");
     expect(decryptCall![2]).toEqual({ env: { SOPS_AGE_KEY: "AGE-SECRET-KEY-1TEST" } });
@@ -584,7 +612,7 @@ describe("buildSopsEnv (credential injection)", () => {
     });
 
     const client = new SopsClient({ run: runFn }, "/custom/keys.txt", "AGE-SECRET-KEY-1TEST");
-    await client.decrypt("database/dev.enc.yaml");
+    await client.decryptFile("database/dev.enc.yaml");
 
     const decryptCall = runFn.mock.calls.find((c) => c[0] === "sops" && c[1][0] === "decrypt");
     expect(decryptCall![2]).toEqual({
@@ -602,7 +630,7 @@ describe("buildSopsEnv (credential injection)", () => {
     });
 
     const client = new SopsClient({ run: runFn });
-    await client.decrypt("database/dev.enc.yaml");
+    await client.decryptFile("database/dev.enc.yaml");
 
     const decryptCall = runFn.mock.calls.find((c) => c[0] === "sops" && c[1][0] === "decrypt");
     expect(decryptCall![2]).toEqual({});
@@ -745,13 +773,16 @@ describe("SopsClient — blob-shaped methods", () => {
     jest.clearAllMocks();
   });
 
-  describe("decryptBlob", () => {
+  describe("decrypt (blob shape)", () => {
     it("decrypts a ciphertext blob and returns values + metadata", async () => {
       const runner = mockRunner({
         "sops decrypt": { stdout: decryptedYaml, stderr: "", exitCode: 0 },
       });
       const client = new SopsClient(runner);
-      const result = await client.decryptBlob(sopsMetadataYaml, "yaml");
+      const result = await client.decrypt(sopsMetadataYaml, {
+        manifest: testManifest(),
+        format: "yaml",
+      });
       expect(result.values).toEqual({
         DATABASE_URL: "postgres://localhost/mydb",
         DATABASE_POOL_SIZE: "10",
@@ -768,7 +799,7 @@ describe("SopsClient — blob-shaped methods", () => {
         exitCode: 0,
       }));
       const client = new SopsClient({ run: runFn });
-      await client.decryptBlob(sopsMetadataYaml, "yaml");
+      await client.decrypt(sopsMetadataYaml, { manifest: testManifest(), format: "yaml" });
       const args = (runFn.mock.calls[0] as unknown[])[1] as string[];
       expect(args[args.length - 1]).toBe("/dev/stdin");
       const opts = (runFn.mock.calls[0] as unknown[])[2] as { stdin?: string };
@@ -781,9 +812,9 @@ describe("SopsClient — blob-shaped methods", () => {
         "sops decrypt": { stdout: "", stderr: "no key", exitCode: 1 },
       });
       const client = new SopsClient(runner, undefined, "AGE-SECRET-KEY-1abc");
-      await expect(client.decryptBlob(sopsMetadataYaml, "yaml")).rejects.toThrow(
-        SopsKeyNotFoundError,
-      );
+      await expect(
+        client.decrypt(sopsMetadataYaml, { manifest: testManifest(), format: "yaml" }),
+      ).rejects.toThrow(SopsKeyNotFoundError);
     });
 
     it("throws SopsDecryptionError on other decrypt failures", async () => {
@@ -792,9 +823,9 @@ describe("SopsClient — blob-shaped methods", () => {
         "sops decrypt": { stdout: "", stderr: "MAC mismatch", exitCode: 1 },
       });
       const client = new SopsClient(runner, undefined, "AGE-SECRET-KEY-1abc");
-      await expect(client.decryptBlob(sopsMetadataYaml, "yaml")).rejects.toThrow(
-        SopsDecryptionError,
-      );
+      await expect(
+        client.decrypt(sopsMetadataYaml, { manifest: testManifest(), format: "yaml" }),
+      ).rejects.toThrow(SopsDecryptionError);
     });
 
     it("throws SopsDecryptionError when stdout is not valid YAML", async () => {
@@ -802,9 +833,9 @@ describe("SopsClient — blob-shaped methods", () => {
         "sops decrypt": { stdout: "not: valid: yaml: at all", stderr: "", exitCode: 0 },
       });
       const client = new SopsClient(runner);
-      await expect(client.decryptBlob(sopsMetadataYaml, "yaml")).rejects.toThrow(
-        SopsDecryptionError,
-      );
+      await expect(
+        client.decrypt(sopsMetadataYaml, { manifest: testManifest(), format: "yaml" }),
+      ).rejects.toThrow(SopsDecryptionError);
     });
 
     it("classifies as 'key-not-found' when neither ageKey nor ageKeyFile is configured", async () => {
@@ -814,9 +845,9 @@ describe("SopsClient — blob-shaped methods", () => {
         "sops decrypt": { stdout: "", stderr: "no key", exitCode: 1 },
       });
       const client = new SopsClient(runner); // no ageKey, no ageKeyFile
-      await expect(client.decryptBlob(sopsMetadataYaml, "yaml")).rejects.toThrow(
-        SopsKeyNotFoundError,
-      );
+      await expect(
+        client.decrypt(sopsMetadataYaml, { manifest: testManifest(), format: "yaml" }),
+      ).rejects.toThrow(SopsKeyNotFoundError);
     });
 
     it("classifies a decrypt failure on a non-parseable blob as 'other' (SopsDecryptionError)", async () => {
@@ -825,9 +856,9 @@ describe("SopsClient — blob-shaped methods", () => {
         "sops decrypt": { stdout: "", stderr: "boom", exitCode: 1 },
       });
       const client = new SopsClient(runner);
-      await expect(client.decryptBlob("not yaml: at: all: : :", "yaml")).rejects.toThrow(
-        SopsDecryptionError,
-      );
+      await expect(
+        client.decrypt("not yaml: at: all: : :", { manifest: testManifest(), format: "yaml" }),
+      ).rejects.toThrow(SopsDecryptionError);
     });
 
     it("classifies a decrypt failure on a non-age backend as 'other' (SopsDecryptionError)", async () => {
@@ -842,7 +873,9 @@ sops:
         "sops decrypt": { stdout: "", stderr: "kms denied", exitCode: 1 },
       });
       const client = new SopsClient(runner);
-      await expect(client.decryptBlob(kmsBlob, "yaml")).rejects.toThrow(SopsDecryptionError);
+      await expect(
+        client.decrypt(kmsBlob, { manifest: testManifest(), format: "yaml" }),
+      ).rejects.toThrow(SopsDecryptionError);
     });
 
     it("classifies as 'key-not-found' when the configured ageKeyFile cannot be read", async () => {
@@ -853,9 +886,9 @@ sops:
         throw new Error("ENOENT: missing key file");
       });
       const client = new SopsClient(runner, "/nonexistent/key.txt");
-      await expect(client.decryptBlob(sopsMetadataYaml, "yaml")).rejects.toThrow(
-        SopsKeyNotFoundError,
-      );
+      await expect(
+        client.decrypt(sopsMetadataYaml, { manifest: testManifest(), format: "yaml" }),
+      ).rejects.toThrow(SopsKeyNotFoundError);
     });
 
     it("classifies as 'key-not-found' when the key file has no AGE-SECRET-KEY lines", async () => {
@@ -864,9 +897,9 @@ sops:
         "sops decrypt": { stdout: "", stderr: "no key", exitCode: 1 },
       });
       const client = new SopsClient(runner, "/some/key.txt");
-      await expect(client.decryptBlob(sopsMetadataYaml, "yaml")).rejects.toThrow(
-        SopsKeyNotFoundError,
-      );
+      await expect(
+        client.decrypt(sopsMetadataYaml, { manifest: testManifest(), format: "yaml" }),
+      ).rejects.toThrow(SopsKeyNotFoundError);
     });
 
     it("classifies as 'other' when age key derivation fails (SopsDecryptionError)", async () => {
@@ -875,9 +908,9 @@ sops:
         "sops decrypt": { stdout: "", stderr: "auth failed", exitCode: 1 },
       });
       const client = new SopsClient(runner, undefined, "AGE-SECRET-KEY-1abc");
-      await expect(client.decryptBlob(sopsMetadataYaml, "yaml")).rejects.toThrow(
-        SopsDecryptionError,
-      );
+      await expect(
+        client.decrypt(sopsMetadataYaml, { manifest: testManifest(), format: "yaml" }),
+      ).rejects.toThrow(SopsDecryptionError);
     });
 
     it("uses a named pipe as the input file on Windows", async () => {
@@ -912,7 +945,10 @@ sops:
         exitCode: 0,
       }));
       const client = new SopsClient({ run: runFn });
-      const promise = client.decryptBlob(sopsMetadataYaml, "yaml");
+      const promise = client.decrypt(sopsMetadataYaml, {
+        manifest: testManifest(),
+        format: "yaml",
+      });
       await Promise.resolve();
       listenCallback!();
       connectionHandler!(mockSocket);
@@ -956,7 +992,10 @@ sops:
       const client = new SopsClient({
         run: jest.fn(async () => ({ stdout: decryptedYaml, stderr: "", exitCode: 0 })),
       });
-      const promise = client.decryptBlob(sopsMetadataYaml, "yaml");
+      const promise = client.decrypt(sopsMetadataYaml, {
+        manifest: testManifest(),
+        format: "yaml",
+      });
       await Promise.resolve();
       listenCallback!();
       connectionHandler!(mockSocket);
@@ -1002,7 +1041,10 @@ sops:
         undefined,
         "AGE-SECRET-KEY-1abc",
       );
-      const promise = client.decryptBlob(sopsMetadataYaml, "yaml");
+      const promise = client.decrypt(sopsMetadataYaml, {
+        manifest: testManifest(),
+        format: "yaml",
+      });
       await Promise.resolve();
       listenCallback!();
       connectionHandler!(mockSocket);
@@ -1017,13 +1059,16 @@ sops:
     });
   });
 
-  describe("encryptBlob", () => {
+  describe("encrypt (blob shape)", () => {
     it("encrypts values and returns the ciphertext bytes", async () => {
       const runner = mockRunner({
         "sops --config": { stdout: sopsMetadataYaml, stderr: "", exitCode: 0 },
       });
       const client = new SopsClient(runner);
-      const out = await client.encryptBlob({ K: "v" }, testManifest(), "dev", "yaml");
+      const out = await client.encrypt(
+        { K: "v" },
+        { manifest: testManifest(), environment: "dev", format: "yaml" },
+      );
       expect(out).toBe(sopsMetadataYaml);
     });
 
@@ -1032,7 +1077,10 @@ sops:
         "sops --config": { stdout: sopsMetadataYaml, stderr: "", exitCode: 0 },
       });
       const client = new SopsClient(runner);
-      await client.encryptBlob({ K: "v" }, testManifest(), "dev", "yaml");
+      await client.encrypt(
+        { K: "v" },
+        { manifest: testManifest(), environment: "dev", format: "yaml" },
+      );
       expect(mockWriteFileAtomic).not.toHaveBeenCalled();
     });
 
@@ -1041,9 +1089,12 @@ sops:
         "sops --config": { stdout: "", stderr: "boom", exitCode: 1 },
       });
       const client = new SopsClient(runner);
-      await expect(client.encryptBlob({ K: "v" }, testManifest(), "dev", "yaml")).rejects.toThrow(
-        SopsEncryptionError,
-      );
+      await expect(
+        client.encrypt(
+          { K: "v" },
+          { manifest: testManifest(), environment: "dev", format: "yaml" },
+        ),
+      ).rejects.toThrow(SopsEncryptionError);
     });
 
     it("uses --age recipients from the manifest", async () => {
@@ -1057,7 +1108,7 @@ sops:
         ...testManifest(),
         sops: { default_backend: "age", age: { recipients: ["age1abc", "age1xyz"] } },
       };
-      await client.encryptBlob({ K: "v" }, manifest, "dev", "yaml");
+      await client.encrypt({ K: "v" }, { manifest: manifest, environment: "dev", format: "yaml" });
       const args = (runFn.mock.calls[0] as unknown[])[1] as string[];
       const ageIdx = args.indexOf("--age");
       expect(args[ageIdx + 1]).toBe("age1abc,age1xyz");
@@ -1095,7 +1146,10 @@ sops:
         exitCode: 0,
       }));
       const client = new SopsClient({ run: runFn });
-      const promise = client.encryptBlob({ K: "v" }, testManifest(), "dev", "yaml");
+      const promise = client.encrypt(
+        { K: "v" },
+        { manifest: testManifest(), environment: "dev", format: "yaml" },
+      );
       await Promise.resolve();
       listenCallback!();
       connectionHandler!(mockSocket);
@@ -1141,7 +1195,10 @@ sops:
       const okClient = new SopsClient({
         run: jest.fn(async () => ({ stdout: sopsMetadataYaml, stderr: "", exitCode: 0 })),
       });
-      await okClient.encryptBlob({ K: "v" }, testManifest(), "dev", "yaml");
+      await okClient.encrypt(
+        { K: "v" },
+        { manifest: testManifest(), environment: "dev", format: "yaml" },
+      );
       expect(success.close).toHaveBeenCalled();
 
       // failure
@@ -1150,7 +1207,10 @@ sops:
         run: jest.fn(async () => ({ stdout: "", stderr: "boom", exitCode: 1 })),
       });
       await expect(
-        failClient.encryptBlob({ K: "v" }, testManifest(), "dev", "yaml"),
+        failClient.encrypt(
+          { K: "v" },
+          { manifest: testManifest(), environment: "dev", format: "yaml" },
+        ),
       ).rejects.toThrow(SopsEncryptionError);
       expect(fail.close).toHaveBeenCalled();
 
@@ -1161,13 +1221,17 @@ sops:
     });
   });
 
-  describe("rotateBlob", () => {
+  describe("rotate (blob shape)", () => {
     it("returns the rotated ciphertext from stdout (no -i flag, no file IO)", async () => {
       const runner = mockRunner({
         "sops --config": { stdout: "rotated-content", stderr: "", exitCode: 0 },
       });
       const client = new SopsClient(runner);
-      const out = await client.rotateBlob(sopsMetadataYaml, { addAge: "age1new" }, "yaml");
+      const out = await client.rotate(
+        sopsMetadataYaml,
+        { addAge: "age1new" },
+        { manifest: testManifest(), format: "yaml" },
+      );
       expect(out).toBe("rotated-content");
       expect(mockWriteFileAtomic).not.toHaveBeenCalled();
     });
@@ -1179,7 +1243,11 @@ sops:
         exitCode: 0,
       }));
       const client = new SopsClient({ run: runFn });
-      await client.rotateBlob(sopsMetadataYaml, { addAge: "age1new", rmAge: "age1old" }, "yaml");
+      await client.rotate(
+        sopsMetadataYaml,
+        { addAge: "age1new", rmAge: "age1old" },
+        { manifest: testManifest(), format: "yaml" },
+      );
       const args = (runFn.mock.calls[0] as unknown[])[1] as string[];
       expect(args).toContain("--add-age");
       expect(args[args.indexOf("--add-age") + 1]).toBe("age1new");
@@ -1190,7 +1258,7 @@ sops:
     it("emits the right CLI flag for every recipient backend (addKms/rmKms/gcp/azure/pgp)", async () => {
       const runFn = jest.fn(async () => ({ stdout: "rotated", stderr: "", exitCode: 0 }));
       const client = new SopsClient({ run: runFn });
-      await client.rotateBlob(
+      await client.rotate(
         sopsMetadataYaml,
         {
           addKms: "arn:aws:kms:us-east-1:1:key/a",
@@ -1202,7 +1270,7 @@ sops:
           addPgp: "AABBCCDD",
           rmPgp: "00112233",
         },
-        "yaml",
+        { manifest: testManifest(), format: "yaml" },
       );
       const args = (runFn.mock.calls[0] as unknown[])[1] as string[];
       expect(args).toContain("--add-kms");
@@ -1222,7 +1290,11 @@ sops:
         exitCode: 0,
       }));
       const client = new SopsClient({ run: runFn });
-      await client.rotateBlob(sopsMetadataYaml, { addAge: "age1new" }, "yaml");
+      await client.rotate(
+        sopsMetadataYaml,
+        { addAge: "age1new" },
+        { manifest: testManifest(), format: "yaml" },
+      );
       const args = (runFn.mock.calls[0] as unknown[])[1] as string[];
       expect(args).not.toContain("-i");
     });
@@ -1233,7 +1305,11 @@ sops:
       });
       const client = new SopsClient(runner);
       await expect(
-        client.rotateBlob(sopsMetadataYaml, { addAge: "age1new" }, "yaml"),
+        client.rotate(
+          sopsMetadataYaml,
+          { addAge: "age1new" },
+          { manifest: testManifest(), format: "yaml" },
+        ),
       ).rejects.toThrow(SopsEncryptionError);
     });
 
@@ -1265,7 +1341,11 @@ sops:
 
       const runFn = jest.fn(async () => ({ stdout: "rotated", stderr: "", exitCode: 0 }));
       const client = new SopsClient({ run: runFn });
-      const promise = client.rotateBlob(sopsMetadataYaml, { addAge: "age1new" }, "yaml");
+      const promise = client.rotate(
+        sopsMetadataYaml,
+        { addAge: "age1new" },
+        { manifest: testManifest(), format: "yaml" },
+      );
       await Promise.resolve();
       listenCallback!();
       connectionHandler!(mockSocket);
@@ -1310,7 +1390,11 @@ sops:
       const okClient = new SopsClient({
         run: jest.fn(async () => ({ stdout: "rotated", stderr: "", exitCode: 0 })),
       });
-      await okClient.rotateBlob(sopsMetadataYaml, { addAge: "age1new" }, "yaml");
+      await okClient.rotate(
+        sopsMetadataYaml,
+        { addAge: "age1new" },
+        { manifest: testManifest(), format: "yaml" },
+      );
       expect(okClose).toHaveBeenCalled();
 
       const failClose = setup();
@@ -1318,7 +1402,11 @@ sops:
         run: jest.fn(async () => ({ stdout: "", stderr: "boom", exitCode: 1 })),
       });
       await expect(
-        failClient.rotateBlob(sopsMetadataYaml, { addAge: "age1new" }, "yaml"),
+        failClient.rotate(
+          sopsMetadataYaml,
+          { addAge: "age1new" },
+          { manifest: testManifest(), format: "yaml" },
+        ),
       ).rejects.toThrow(SopsEncryptionError);
       expect(failClose).toHaveBeenCalled();
 
@@ -1329,10 +1417,10 @@ sops:
     });
   });
 
-  describe("getMetadataFromBlob / validateEncryptionBlob", () => {
+  describe("getMetadata / validateEncryption (blob shape)", () => {
     it("getMetadataFromBlob extracts backend, recipients, version from a blob", () => {
       const client = new SopsClient(mockRunner({}));
-      const meta = client.getMetadataFromBlob(sopsMetadataYaml);
+      const meta = client.getMetadata(sopsMetadataYaml);
       expect(meta.backend).toBe("age");
       expect(meta.recipients).toEqual(["age1test123"]);
       expect(meta.version).toBe("3.8.1");
@@ -1341,29 +1429,27 @@ sops:
 
     it("getMetadataFromBlob throws on a blob without sops metadata", () => {
       const client = new SopsClient(mockRunner({}));
-      expect(() => client.getMetadataFromBlob("FOO: bar")).toThrow(SopsDecryptionError);
+      expect(() => client.getMetadata("FOO: bar")).toThrow(SopsDecryptionError);
     });
 
     it("getMetadataFromBlob throws on invalid YAML", () => {
       const client = new SopsClient(mockRunner({}));
-      expect(() => client.getMetadataFromBlob("not: valid: yaml: at all")).toThrow(
-        SopsDecryptionError,
-      );
+      expect(() => client.getMetadata("not: valid: yaml: at all")).toThrow(SopsDecryptionError);
     });
 
     it("validateEncryptionBlob returns true for a valid SOPS blob", () => {
       const client = new SopsClient(mockRunner({}));
-      expect(client.validateEncryptionBlob(sopsMetadataYaml)).toBe(true);
+      expect(client.validateEncryption(sopsMetadataYaml)).toBe(true);
     });
 
     it("validateEncryptionBlob returns false for a blob without metadata", () => {
       const client = new SopsClient(mockRunner({}));
-      expect(client.validateEncryptionBlob("FOO: bar")).toBe(false);
+      expect(client.validateEncryption("FOO: bar")).toBe(false);
     });
 
     it("validateEncryptionBlob returns false on invalid YAML (never throws)", () => {
       const client = new SopsClient(mockRunner({}));
-      expect(client.validateEncryptionBlob("not: valid: yaml: at all")).toBe(false);
+      expect(client.validateEncryption("not: valid: yaml: at all")).toBe(false);
     });
   });
 });

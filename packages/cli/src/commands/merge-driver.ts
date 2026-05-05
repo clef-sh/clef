@@ -125,7 +125,11 @@ export function registerMergeDriverCommand(
             // a temp filesystem path (oursPath) that doesn't map to a clef
             // CellRef, so the source seam isn't reachable here.
             const fmt = oursPath.endsWith(".json") ? "json" : "yaml";
-            const blob = await sopsClient.encryptBlob(result.merged, manifest, environment, fmt);
+            const blob = await sopsClient.encrypt(result.merged, {
+              manifest,
+              environment,
+              format: fmt,
+            });
             const writeFileAtomic = (await import("write-file-atomic")).default;
             await writeFileAtomic(oursPath, blob);
           } else {

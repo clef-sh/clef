@@ -6,10 +6,11 @@ import { DecryptedFile } from "../types";
  * onto a clef `CellRef` (especially `base` and `theirs`, which live in
  * `.git/`), so the path-shaped seam stays alive here even though the
  * rest of the codebase has moved to `SecretSource`. `SopsClient`
- * implements this surface; tests can pass any object that does.
+ * implements this surface via {@link "../sops/client".SopsClient.decryptFile};
+ * tests can pass any object that does.
  */
 export interface MergeDecrypter {
-  decrypt(filePath: string): Promise<DecryptedFile>;
+  decryptFile(filePath: string): Promise<DecryptedFile>;
 }
 
 /** Status of a single key in a three-way merge. */
@@ -152,9 +153,9 @@ export class SopsMergeDriver {
    */
   async mergeFiles(basePath: string, oursPath: string, theirsPath: string): Promise<MergeResult> {
     const [baseDecrypted, oursDecrypted, theirsDecrypted] = await Promise.all([
-      this.sopsClient.decrypt(basePath),
-      this.sopsClient.decrypt(oursPath),
-      this.sopsClient.decrypt(theirsPath),
+      this.sopsClient.decryptFile(basePath),
+      this.sopsClient.decryptFile(oursPath),
+      this.sopsClient.decryptFile(theirsPath),
     ]);
 
     return this.merge(baseDecrypted.values, oursDecrypted.values, theirsDecrypted.values);

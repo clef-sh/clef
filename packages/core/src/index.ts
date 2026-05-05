@@ -16,7 +16,6 @@ export {
 } from "./tx";
 export type { TransactionOptions, TransactionResult } from "./tx";
 export { SopsClient } from "./sops/client";
-export type { RotateBlobOptions } from "./sops/client";
 export { isClefHsmArn, pkcs11UriToSyntheticArn, syntheticArnToPkcs11Uri } from "./sops/hsm-arn";
 export { resolveSopsPath, resetSopsResolution } from "./sops/resolver";
 export type { SopsResolution, SopsSource } from "./sops/resolver";
@@ -175,7 +174,6 @@ export {
   isStructural,
   SourceCapabilityUnsupportedError,
   FilesystemStorageBackend,
-  createSopsEncryptionBackend,
   composeSecretSource,
 } from "./source";
 export type { StorageBackend, EncryptionBackend, EncryptionContext, RotateOptions } from "./source";

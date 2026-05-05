@@ -23,7 +23,6 @@ import {
   SubprocessRunner,
   ClefManifest,
   composeSecretSource,
-  createSopsEncryptionBackend,
   describeCapabilities,
   FilesystemStorageBackend,
   ScanResult,
@@ -140,11 +139,7 @@ export function createApiRouter(deps: ApiDeps): Router {
   // edits the user makes through other UI flows are picked up without
   // restarting the server.
   const buildSourceFor = (manifest: ClefManifest) =>
-    composeSecretSource(
-      new FilesystemStorageBackend(manifest, deps.repoRoot),
-      createSopsEncryptionBackend(sops),
-      manifest,
-    );
+    composeSecretSource(new FilesystemStorageBackend(manifest, deps.repoRoot), sops, manifest);
   const structureManager = new StructureManager(matrix, buildSourceFor, tx);
 
   // In-session scan cache
@@ -727,7 +722,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         // per-request (it can change while the server runs), so the
         // source is built here rather than at router construction.
         const storage = new FilesystemStorageBackend(manifest, deps.repoRoot);
-        const encryption = createSopsEncryptionBackend(sops);
+        const encryption = sops;
         const source = composeSecretSource(storage, encryption, manifest);
         const result = await diffEngine.diffCells(ns, envA, envB, source);
 
@@ -765,7 +760,7 @@ export function createApiRouter(deps: ApiDeps): Router {
 
       const lintSource = composeSecretSource(
         new FilesystemStorageBackend(manifest, deps.repoRoot),
-        createSopsEncryptionBackend(sops),
+        sops,
         manifest,
       );
       const lintRunner = new LintRunner(matrix, schemaValidator, lintSource);
@@ -913,7 +908,7 @@ export function createApiRouter(deps: ApiDeps): Router {
       const manifest = loadManifest();
       const lintSource = composeSecretSource(
         new FilesystemStorageBackend(manifest, deps.repoRoot),
-        createSopsEncryptionBackend(sops),
+        sops,
         manifest,
       );
       const lintRunner = new LintRunner(matrix, schemaValidator, lintSource);
@@ -931,7 +926,7 @@ export function createApiRouter(deps: ApiDeps): Router {
       const manifest = loadManifest();
       const lintSource = composeSecretSource(
         new FilesystemStorageBackend(manifest, deps.repoRoot),
-        createSopsEncryptionBackend(sops),
+        sops,
         manifest,
       );
       const lintRunner = new LintRunner(matrix, schemaValidator, lintSource);
@@ -1180,7 +1175,7 @@ export function createApiRouter(deps: ApiDeps): Router {
 
       const importSource = composeSecretSource(
         new FilesystemStorageBackend(manifest, deps.repoRoot),
-        createSopsEncryptionBackend(sops),
+        sops,
         manifest,
       );
       const importRunner = new ImportRunner(importSource, tx);
@@ -1251,7 +1246,7 @@ export function createApiRouter(deps: ApiDeps): Router {
 
       const importSource = composeSecretSource(
         new FilesystemStorageBackend(manifest, deps.repoRoot),
-        createSopsEncryptionBackend(sops),
+        sops,
         manifest,
       );
       const importRunner = new ImportRunner(importSource, tx);

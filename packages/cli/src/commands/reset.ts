@@ -15,12 +15,7 @@ import {
   describeScope,
   validateResetScope,
 } from "@clef-sh/core";
-import {
-  composeSecretSource,
-  createSopsEncryptionBackend,
-  FilesystemStorageBackend,
-  type ClefManifest,
-} from "@clef-sh/core";
+import { composeSecretSource, FilesystemStorageBackend, type ClefManifest } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
@@ -174,11 +169,10 @@ export function registerResetCommand(program: Command, deps: { runner: Subproces
         try {
           const schemaValidator = new SchemaValidator();
           const tx = new TransactionManager(new GitIntegration(deps.runner));
-          const encryption = createSopsEncryptionBackend(sopsClient);
           // Reset can swap the backend mid-tx; build a fresh source from
           // whichever manifest is in effect at scaffold time.
           const buildSource = (m: ClefManifest) =>
-            composeSecretSource(new FilesystemStorageBackend(m, repoRoot), encryption, m);
+            composeSecretSource(new FilesystemStorageBackend(m, repoRoot), sopsClient, m);
           const manager = new ResetManager(matrixManager, buildSource, schemaValidator, tx);
 
           const resetOpts: ResetOptions = {

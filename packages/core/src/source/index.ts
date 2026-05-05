@@ -35,5 +35,4 @@ export { MockSecretSource } from "./mock-source";
 export type { StorageBackend } from "./storage-backend";
 export { FilesystemStorageBackend } from "./filesystem-storage-backend";
 export type { EncryptionBackend, EncryptionContext, RotateOptions } from "./encryption-backend";
-export { createSopsEncryptionBackend } from "./sops-encryption-backend";
 export { composeSecretSource } from "./compose";

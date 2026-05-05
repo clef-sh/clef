@@ -10,7 +10,6 @@
  */
 import {
   composeSecretSource,
-  createSopsEncryptionBackend,
   FilesystemStorageBackend,
   type ClefManifest,
   type SecretSource,
@@ -37,7 +36,8 @@ export async function createSecretSource(
 ): Promise<SecretSourceHandle> {
   const { client, cleanup } = await createSopsClient(repoRoot, runner, manifest);
   const storage = new FilesystemStorageBackend(manifest, repoRoot);
-  const encryption = createSopsEncryptionBackend(client);
-  const source = composeSecretSource(storage, encryption, manifest);
+  // SopsClient implements EncryptionBackend directly (Phase 7c) — no
+  // adapter required.
+  const source = composeSecretSource(storage, client, manifest);
   return { source, cleanup };
 }

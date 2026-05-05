@@ -26,6 +26,11 @@ import {
   resolveBackendConfig,
   resolveRecipientsForEnvironment,
 } from "../types";
+import type {
+  EncryptionBackend,
+  EncryptionContext,
+  RotateOptions,
+} from "../source/encryption-backend";
 import { assertSops } from "../dependencies/checker";
 import { deriveAgePublicKey } from "../age/keygen";
 import { resolveSopsPath } from "./resolver";
@@ -100,28 +105,32 @@ function openWindowsInputPipe(content: string): Promise<{ inputArg: string; clea
  * extraction. All blob operations are piped via stdin/stdout — plaintext
  * never touches disk.
  *
- * The legacy file-path methods (`encrypt(filePath, ...)`, `addRecipient`,
- * `removeRecipient`, `reEncrypt`, `validateEncryption(filePath)`,
- * `getMetadata(filePath)`) were removed in Phase 7. The only remaining
- * file-path entry point is `decrypt(filePath)`, kept for the merge driver
- * which receives temp file paths from git.
- *
- * Production consumers should reach this class through
- * `composeSecretSource(storage, createSopsEncryptionBackend(client),
- * manifest)` and call `source.readCell` / `source.writeCell` etc.
+ * `SopsClient` implements {@link EncryptionBackend} directly — pass it
+ * straight to `composeSecretSource(storage, client, manifest)` without
+ * any adapter. The legacy file-path methods (`encrypt(filePath, ...)`,
+ * `addRecipient`, `removeRecipient`, `reEncrypt`,
+ * `validateEncryption(filePath)`, `getMetadata(filePath)`) were removed
+ * in Phase 7. The only remaining file-path entry point is
+ * {@link decryptFile}, kept for the merge driver which receives temp
+ * file paths from git.
  *
  * @example
  * ```ts
  * const client = new SopsClient(runner, "/home/user/.age/key.txt");
  * const source = composeSecretSource(
  *   new FilesystemStorageBackend(manifest, repoRoot),
- *   createSopsEncryptionBackend(client),
+ *   client,
  *   manifest,
  * );
  * const cell = await source.readCell({ namespace: "db", environment: "prod" });
  * ```
  */
-export class SopsClient {
+export class SopsClient implements EncryptionBackend {
+  /** {@link EncryptionBackend} identifier. */
+  readonly id = "sops";
+  /** {@link EncryptionBackend} short description (used by `clef doctor`). */
+  readonly description = "SOPS-based encryption via the bundled `sops` binary";
+
   private readonly sopsCommand: string;
   private readonly keyserviceArgs: readonly string[];
 
@@ -168,14 +177,18 @@ export class SopsClient {
   }
 
   /**
-   * Decrypt a SOPS-encrypted file and return its values and metadata.
+   * Decrypt a SOPS-encrypted file by path. The only remaining file-path
+   * entry point on this class — kept for the merge driver, which
+   * receives temp filesystem paths from git that don't map onto a
+   * `CellRef`. Production `SecretSource` consumers should call
+   * `source.readCell` instead.
    *
    * @param filePath - Path to the `.enc.yaml` or `.enc.json` file.
    * @returns {@link DecryptedFile} with plaintext values in memory only.
    * @throws {@link SopsKeyNotFoundError} If no matching decryption key is available.
    * @throws {@link SopsDecryptionError} On any other decryption failure.
    */
-  async decrypt(filePath: string): Promise<DecryptedFile> {
+  async decryptFile(filePath: string): Promise<DecryptedFile> {
     await assertSops(this.runner, this.sopsCommand);
     const fmt = formatFromPath(filePath);
     const env = this.buildSopsEnv();
@@ -453,10 +466,11 @@ export class SopsClient {
   // `SecretSource`. Plaintext never leaves the SOPS subprocess.
 
   /**
-   * Decrypt SOPS-encrypted bytes (e.g. read from a BlobStore) and return
-   * plaintext values + metadata. Plaintext lives only in memory.
+   * {@link EncryptionBackend.decrypt} — decrypt SOPS-encrypted bytes (e.g.
+   * read from a `StorageBackend`) and return plaintext values + metadata.
+   * Plaintext lives only in memory.
    */
-  async decryptBlob(blob: string, fmt: "yaml" | "json"): Promise<DecryptedFile> {
+  async decrypt(blob: string, ctx: EncryptionContext): Promise<DecryptedFile> {
     await assertSops(this.runner, this.sopsCommand);
     const env = this.buildSopsEnv();
     const pipe = await openInputPipe(blob);
@@ -469,9 +483,9 @@ export class SopsClient {
           "decrypt",
           ...this.keyserviceArgs,
           "--input-type",
-          fmt,
+          ctx.format,
           "--output-type",
-          fmt,
+          ctx.format,
           pipe.inputArg,
         ],
         {
@@ -508,19 +522,16 @@ export class SopsClient {
   }
 
   /**
-   * Encrypt plaintext values into a SOPS-formatted ciphertext blob.
-   * Returns the bytes as a string — caller (typically a BlobStore)
-   * decides where to put them. Plaintext is piped via stdin only.
+   * {@link EncryptionBackend.encrypt} — encrypt plaintext values into a
+   * SOPS-formatted ciphertext blob. Returns the bytes as a string;
+   * caller (typically a `StorageBackend`) decides where to put them.
+   * Plaintext is piped via stdin only.
    */
-  async encryptBlob(
-    values: Record<string, string>,
-    manifest: ClefManifest,
-    environment: string | undefined,
-    fmt: "yaml" | "json",
-  ): Promise<string> {
+  async encrypt(values: Record<string, string>, ctx: EncryptionContext): Promise<string> {
     await assertSops(this.runner, this.sopsCommand);
-    const content = fmt === "json" ? JSON.stringify(values, null, 2) : YAML.stringify(values);
-    const args = this.buildEncryptArgs(manifest, environment);
+    const content =
+      ctx.format === "json" ? JSON.stringify(values, null, 2) : YAML.stringify(values);
+    const args = this.buildEncryptArgs(ctx.manifest, ctx.environment);
     const env = this.buildSopsEnv();
     const pipe = await openInputPipe(content);
 
@@ -535,9 +546,9 @@ export class SopsClient {
           ...this.keyserviceArgs,
           ...args,
           "--input-type",
-          fmt,
+          ctx.format,
           "--output-type",
-          fmt,
+          ctx.format,
           pipe.inputArg,
         ],
         {
@@ -557,16 +568,17 @@ export class SopsClient {
   }
 
   /**
-   * Add or remove recipients from an encrypted SOPS blob via stdin/stdout.
-   * Drops the in-place `-i` flag the file-path-shaped methods use, so
-   * SOPS writes the rotated ciphertext to stdout instead of writing back
-   * to a file. Plaintext stays inside the SOPS subprocess; no plaintext
-   * window exists in this Node process.
+   * {@link EncryptionBackend.rotate} — add or remove recipients from an
+   * encrypted SOPS blob via stdin/stdout. Drops the in-place `-i` flag
+   * the deleted file-path-shaped methods used, so SOPS writes the
+   * rotated ciphertext to stdout instead of back to a file. Plaintext
+   * stays inside the SOPS subprocess; no plaintext window exists in
+   * this Node process.
    *
    * Single SOPS invocation can both add and remove recipients
    * simultaneously (matches the CLI flag set).
    */
-  async rotateBlob(blob: string, opts: RotateBlobOptions, fmt: "yaml" | "json"): Promise<string> {
+  async rotate(blob: string, opts: RotateOptions, ctx: EncryptionContext): Promise<string> {
     await assertSops(this.runner, this.sopsCommand);
     const env = this.buildSopsEnv();
     const pipe = await openInputPipe(blob);
@@ -594,9 +606,9 @@ export class SopsClient {
           ...this.keyserviceArgs,
           ...flagArgs,
           "--input-type",
-          fmt,
+          ctx.format,
           "--output-type",
-          fmt,
+          ctx.format,
           pipe.inputArg,
         ],
         {
@@ -616,18 +628,20 @@ export class SopsClient {
   }
 
   /**
-   * Extract SOPS metadata from a ciphertext blob without decrypting.
-   * Pure parser, no IO, no subprocess.
+   * {@link EncryptionBackend.getMetadata} — extract SOPS metadata from a
+   * ciphertext blob without decrypting. Pure parser, no IO, no
+   * subprocess.
    */
-  getMetadataFromBlob(content: string): SopsMetadata {
+  getMetadata(content: string): SopsMetadata {
     return this.parseMetadataFromContent(content, "<cell>");
   }
 
   /**
-   * Whether `content` is a valid SOPS-encrypted blob (parses + has the
-   * `sops:` metadata block). Never throws.
+   * {@link EncryptionBackend.validateEncryption} — whether `content` is a
+   * valid SOPS-encrypted blob (parses + has the `sops:` metadata
+   * block). Never throws.
    */
-  validateEncryptionBlob(content: string): boolean {
+  validateEncryption(content: string): boolean {
     try {
       this.parseMetadataFromContent(content, "<cell>");
       return true;
@@ -676,21 +690,4 @@ export class SopsClient {
       return "other";
     }
   }
-}
-
-/**
- * Recipient changes to apply during a `rotateBlob` call. Multiple
- * options can be combined in one invocation.
- */
-export interface RotateBlobOptions {
-  addAge?: string;
-  rmAge?: string;
-  addKms?: string;
-  rmKms?: string;
-  addGcpKms?: string;
-  rmGcpKms?: string;
-  addAzureKv?: string;
-  rmAzureKv?: string;
-  addPgp?: string;
-  rmPgp?: string;
 }

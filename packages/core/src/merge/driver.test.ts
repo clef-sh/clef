@@ -7,7 +7,7 @@ describe("SopsMergeDriver", () => {
 
   beforeEach(() => {
     mockSopsClient = {
-      decrypt: jest.fn(),
+      decryptFile: jest.fn(),
       encrypt: jest.fn(),
     } as unknown as jest.Mocked<SopsClient>;
     driver = new SopsMergeDriver(mockSopsClient);
@@ -379,7 +379,7 @@ describe("SopsMergeDriver", () => {
         "/tmp/ours": { A: "changed", B: "2" },
         "/tmp/theirs": { A: "1", B: "2", C: "new" },
       };
-      mockSopsClient.decrypt.mockImplementation(async (filePath: string) => {
+      mockSopsClient.decryptFile.mockImplementation(async (filePath: string) => {
         if (files[filePath]) return { values: files[filePath], metadata };
         throw new Error(`Unexpected path: ${filePath}`);
       });
@@ -388,11 +388,11 @@ describe("SopsMergeDriver", () => {
 
       expect(result.clean).toBe(true);
       expect(result.merged).toEqual({ A: "changed", B: "2", C: "new" });
-      expect(mockSopsClient.decrypt).toHaveBeenCalledTimes(3);
+      expect(mockSopsClient.decryptFile).toHaveBeenCalledTimes(3);
     });
 
     it("should propagate decryption errors", async () => {
-      mockSopsClient.decrypt.mockRejectedValue(new Error("key not found"));
+      mockSopsClient.decryptFile.mockRejectedValue(new Error("key not found"));
 
       await expect(driver.mergeFiles("/base", "/ours", "/theirs")).rejects.toThrow("key not found");
     });
@@ -404,7 +404,7 @@ describe("SopsMergeDriver", () => {
         lastModified: new Date(),
       };
 
-      mockSopsClient.decrypt.mockImplementation(async (filePath: string) => {
+      mockSopsClient.decryptFile.mockImplementation(async (filePath: string) => {
         if (filePath === "/base") return { values: { A: "original" }, metadata };
         if (filePath === "/ours") return { values: { A: "alice" }, metadata };
         if (filePath === "/theirs") return { values: { A: "bob" }, metadata };

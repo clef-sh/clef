@@ -10,12 +10,7 @@ import {
   BackendType,
   TransactionManager,
 } from "@clef-sh/core";
-import {
-  composeSecretSource,
-  createSopsEncryptionBackend,
-  FilesystemStorageBackend,
-  type ClefManifest,
-} from "@clef-sh/core";
+import { composeSecretSource, FilesystemStorageBackend, type ClefManifest } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
@@ -132,9 +127,8 @@ export function registerMigrateBackendCommand(
         const encryptCleanup = async (): Promise<void> => {};
         try {
           const tx = new TransactionManager(new GitIntegration(deps.runner));
-          const encryption = createSopsEncryptionBackend(sopsClient);
           const buildSource = (m: ClefManifest) =>
-            composeSecretSource(new FilesystemStorageBackend(m, repoRoot), encryption, m);
+            composeSecretSource(new FilesystemStorageBackend(m, repoRoot), sopsClient, m);
           const migrator = new BackendMigrator(buildSource, matrixManager, tx);
 
           const result = await migrator.migrate(

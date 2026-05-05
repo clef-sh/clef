@@ -27,7 +27,6 @@ import { ScanRunner, ScanResult } from "../scanner";
 import { LintResult, SubprocessRunner } from "../types";
 import { composeSecretSource } from "../source/compose";
 import { FilesystemStorageBackend } from "../source/filesystem-storage-backend";
-import { createSopsEncryptionBackend } from "../source/sops-encryption-backend";
 import type { SecretSource } from "../source/types";
 import { CLEF_POLICY_FILENAME, PolicyParser } from "../policy/parser";
 import { PolicyEvaluator } from "../policy/evaluator";
@@ -141,7 +140,7 @@ export async function runCompliance(opts: RunComplianceOptions): Promise<RunComp
   const schemaValidator = new SchemaValidator();
   const lintSource = composeSecretSource(
     new FilesystemStorageBackend(manifest, repoRoot),
-    createSopsEncryptionBackend(sopsClient),
+    sopsClient,
     manifest,
   );
 

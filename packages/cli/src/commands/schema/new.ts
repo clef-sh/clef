@@ -13,7 +13,6 @@ import {
   exampleTemplate,
   writeSchemaRaw,
   composeSecretSource,
-  createSopsEncryptionBackend,
   FilesystemStorageBackend,
 } from "@clef-sh/core";
 import { handleCommandError } from "../../handle-error";
@@ -143,8 +142,7 @@ async function makeStructureManager(
   const { client: sopsClient, cleanup } = await createSopsClient(repoRoot, runner, manifest);
   const matrixManager = new MatrixManager();
   const tx = new TransactionManager(new GitIntegration(runner));
-  const encryption = createSopsEncryptionBackend(sopsClient);
   const buildSource = (m: ClefManifest) =>
-    composeSecretSource(new FilesystemStorageBackend(m, repoRoot), encryption, m);
+    composeSecretSource(new FilesystemStorageBackend(m, repoRoot), sopsClient, m);
   return { structure: new StructureManager(matrixManager, buildSource, tx), cleanup };
 }
