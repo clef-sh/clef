@@ -1,28 +1,11 @@
 export * from "./types";
 export { ManifestParser, CLEF_MANIFEST_FILENAME } from "./manifest/parser";
 export { readManifestYaml, writeManifestYaml, writeManifestYamlRaw } from "./manifest/io";
-export {
-  ScanRunner,
-  shannonEntropy,
-  isHighEntropy,
-  matchPatterns,
-  redactValue,
-  loadIgnoreRules,
-  shouldIgnoreFile,
-  shouldIgnoreMatch,
-  parseIgnoreContent,
-} from "./scanner";
+export { ScanRunner } from "./scanner";
 export type { ScanMatch, ScanResult, ScanOptions, ClefIgnoreRules } from "./scanner";
 export { MatrixManager } from "./matrix/manager";
 export { SchemaValidator } from "./schema/validator";
-export {
-  serializeSchema,
-  writeSchema,
-  writeSchemaRaw,
-  emptyTemplate,
-  exampleTemplate,
-} from "./schema/writer";
-export type { SerializeSchemaOptions } from "./schema/writer";
+export { writeSchema, writeSchemaRaw, emptyTemplate, exampleTemplate } from "./schema/writer";
 export { DiffEngine } from "./diff/engine";
 export { GitIntegration } from "./git/integration";
 export {
@@ -55,23 +38,16 @@ export { checkDependency, checkAll, assertSops, REQUIREMENTS } from "./dependenc
 export { generateAgeIdentity, deriveAgePublicKey, formatAgeKeyFile } from "./age/keygen";
 export type { AgeIdentity } from "./age/keygen";
 export {
-  metadataPath,
-  loadMetadata,
-  saveMetadata,
   markPending,
-  markPendingWithRetry,
   markResolved,
-  getPendingKeys,
-  isPending,
   recordRotation,
   removeRotation,
-  getRotations,
   generateRandomValue,
 } from "./pending/metadata";
 export type { PendingKey, RotationRecord, CellMetadata } from "./pending/metadata";
 export { ImportRunner } from "./import";
 export type { ImportFormat, ImportOptions, ImportResult, ParsedImport } from "./import";
-export { parse, parseDotenv, parseJson, parseYaml, detectFormat } from "./import/parsers";
+export { parse, parseYaml } from "./import/parsers";
 export { RecipientManager } from "./recipients";
 export type { Recipient, RecipientsResult } from "./recipients";
 export { validateAgePublicKey, keyPreview } from "./recipients/validator";
@@ -96,7 +72,7 @@ export {
 } from "./report";
 export { SopsMergeDriver } from "./merge/driver";
 export type { MergeResult, MergeKey, MergeKeyStatus } from "./merge/driver";
-export { mergeMetadataContents, mergeMetadataFiles } from "./merge/metadata-driver";
+export { mergeMetadataFiles } from "./merge/metadata-driver";
 export { ServiceIdentityManager } from "./service-identity/manager";
 export type { CreateServiceIdentityOptions } from "./service-identity/manager";
 export { StructureManager } from "./structure/manager";
@@ -125,14 +101,7 @@ export type {
   KmsEnvelope,
   SignatureAlgorithm,
 } from "./artifact/types";
-export {
-  buildSigningPayload,
-  generateSigningKeyPair,
-  signEd25519,
-  signKms,
-  verifySignature,
-  detectAlgorithm,
-} from "./artifact/signer";
+export { buildSigningPayload, verifySignature } from "./artifact/signer";
 export { computeCiphertextHash } from "./artifact/hash";
 export type {
   InspectEnvelope,
@@ -155,7 +124,6 @@ export {
   buildVerifyResult,
   buildDecryptError,
   buildDecryptResult,
-  REVEAL_WARNING,
   formatRevealWarning,
   parseSignerKey,
 } from "./envelope-debug";
@@ -205,9 +173,7 @@ export {
   isRecipientManaged,
   isRotatable,
   isStructural,
-  defaultBulk,
   SourceCapabilityUnsupportedError,
-  MockSecretSource,
   FilesystemStorageBackend,
   createSopsEncryptionBackend,
   composeSecretSource,
