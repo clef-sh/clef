@@ -105,6 +105,12 @@ function runPackHelper(args: InvokePackHelperArgs): PackHelperResult {
   ];
   if (args.signingKmsKeyId) helperArgs.push("--signing-kms-key", args.signingKmsKeyId);
   if (args.signingKey) helperArgs.push("--signing-key", args.signingKey);
+  // The helper is its own process — strip JEST_WORKER_ID so any
+  // Jest-aware gates inside (e.g. wrapWithLinuxStdinFifo) treat it as
+  // production code rather than as a Jest-mocked context. The bug it
+  // works around (SOPS open of /dev/stdin failing on Linux pipes) hits
+  // the helper regardless of how its parent was invoked.
+  const { JEST_WORKER_ID: _jestWorkerId, ...childEnv } = process.env;
   try {
     const buf = execFileSync(process.execPath, helperArgs, {
       maxBuffer: 50 * 1024 * 1024,
@@ -113,7 +119,7 @@ function runPackHelper(args: InvokePackHelperArgs): PackHelperResult {
       // (CLEF_AGE_KEY / CLEF_AGE_KEY_FILE) and AWS SDK config reach the
       // helper. Some test harnesses (notably Jest with ts-jest) wrap the
       // worker in a way that drops the default inheritance.
-      env: process.env,
+      env: childEnv,
     });
     const envelopeJson = buf.toString("utf-8");
     const rawKeys = fs.readFileSync(keysOut, "utf-8");

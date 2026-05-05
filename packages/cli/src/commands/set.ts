@@ -7,13 +7,11 @@ import {
   SubprocessRunner,
   TransactionManager,
   generateRandomValue,
-  markPendingWithRetry,
-  recordRotation,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createSopsClient } from "../age-credential";
+import { createSecretSource } from "../source-factory";
 import { parseTarget } from "../parse-target";
 
 export function registerSetCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -54,11 +52,7 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
           const repoRoot = (program.opts().dir as string) || process.cwd();
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
-          const { client: sopsClient, cleanup } = await createSopsClient(
-            repoRoot,
-            deps.runner,
-            manifest,
-          );
+          const { source, cleanup } = await createSecretSource(repoRoot, deps.runner, manifest);
           try {
             if (opts.allEnvs) {
               const namespace = target.includes("/") ? target.split("/")[0] : target;
@@ -109,11 +103,7 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                   const relPath = manifest.file_pattern
                     .replace("{namespace}", namespace)
                     .replace("{environment}", env.name);
-                  return {
-                    env: env.name,
-                    filePath: path.join(repoRoot, relPath),
-                    relPath,
-                  };
+                  return { env: env.name, relPath };
                 });
 
               const git = new GitIntegration(deps.runner);
@@ -128,31 +118,31 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
                   t.relPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml"),
                 ]),
                 mutate: async () => {
-                  for (const target of targets) {
-                    const decrypted = await sopsClient.decrypt(target.filePath);
-                    decrypted.values[key] = values[target.env];
-                    await sopsClient.encrypt(
-                      target.filePath,
-                      decrypted.values,
-                      manifest,
-                      target.env,
-                    );
+                  for (const t of targets) {
+                    const cell = { namespace, environment: t.env };
+                    const decrypted = await source.readCell(cell);
+                    decrypted.values[key] = values[t.env];
+                    await source.writeCell(cell, decrypted.values);
                   }
 
                   // Metadata writes happen inside the same transaction.
                   // Any failure here aborts the whole set — better to roll
                   // back cleanly than to leave ciphertext without tracking.
                   if (allPending) {
-                    for (const target of targets) {
-                      await markPendingWithRetry(
-                        target.filePath,
+                    for (const t of targets) {
+                      await source.markPending(
+                        { namespace, environment: t.env },
                         [key],
                         "clef set --random --all-envs",
                       );
                     }
                   } else {
-                    for (const target of targets) {
-                      await recordRotation(target.filePath, [key], rotatedBy);
+                    for (const t of targets) {
+                      await source.recordRotation(
+                        { namespace, environment: t.env },
+                        [key],
+                        rotatedBy,
+                      );
                     }
                   }
                 },
@@ -229,7 +219,6 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
             const relCellPath = manifest.file_pattern
               .replace("{namespace}", namespace)
               .replace("{environment}", environment);
-            const filePath = path.join(repoRoot, relCellPath);
 
             // Single-cell set wraps both the encrypt and the metadata write
             // in one transaction. Either both land or both roll back —
@@ -237,6 +226,7 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
             const git = new GitIntegration(deps.runner);
             const rotatedBy = await resolveRotatedBy(git, repoRoot);
             const tx = new TransactionManager(git);
+            const cell = { namespace, environment };
             await tx.run(repoRoot, {
               description: isPendingValue
                 ? `clef set --random ${namespace}/${environment} ${key}`
@@ -246,18 +236,18 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
               // that and tx.run rolls back any new metadata file via git clean.
               paths: [relCellPath, relCellPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
               mutate: async () => {
-                const decrypted = await sopsClient.decrypt(filePath);
+                const decrypted = await source.readCell(cell);
                 decrypted.values[key] = secretValue;
-                await sopsClient.encrypt(filePath, decrypted.values, manifest, environment);
+                await source.writeCell(cell, decrypted.values);
 
                 if (isPendingValue) {
                   // --random generates a placeholder — not a rotation.  Track
                   // as pending; the real rotation lands on the next `clef set`.
-                  await markPendingWithRetry(filePath, [key], "clef set --random");
+                  await source.markPending(cell, [key], "clef set --random");
                 } else {
                   // Real value change = rotation.  recordRotation also strips
                   // any matching pending entry, so no separate markResolved.
-                  await recordRotation(filePath, [key], rotatedBy);
+                  await source.recordRotation(cell, [key], rotatedBy);
                 }
               },
             });
@@ -269,7 +259,7 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
               }
               formatter.success(`${key} set in ${namespace}/${environment} ${sym("locked")}`);
               formatter.print(
-                `   ${sym("pending")}  Marked as pending \u2014 replace with a real value before deploying`,
+                `   ${sym("pending")}  Marked as pending — replace with a real value before deploying`,
               );
               formatter.hint(`clef set ${namespace}/${environment} ${key}`);
             } else {
@@ -290,7 +280,7 @@ export function registerSetCommand(program: Command, deps: { runner: SubprocessR
 }
 
 /**
- * Resolve the rotator identity for {@link recordRotation}.  Uses the git
+ * Resolve the rotator identity for `recordRotation`.  Uses the git
  * author identity when set (the same identity TransactionManager requires
  * for commits), falling back to the command name if not configured.
  *

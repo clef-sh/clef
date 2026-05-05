@@ -1,7 +1,6 @@
 import * as path from "path";
 import { Command } from "commander";
 import {
-  EncryptionBackend,
   GitIntegration,
   ManifestParser,
   SubprocessRunner,
@@ -11,22 +10,26 @@ import {
   keyPreview,
   isKmsEnvelope,
   VALID_KMS_PROVIDERS,
+  type Bulk,
+  type Lintable,
+  type Rotatable,
+  type SecretSource,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import type { KmsConfig, KmsProviderType } from "@clef-sh/core";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createSopsClient } from "../age-credential";
+import { createSecretSource } from "../source-factory";
 import { copyToClipboard, maskedPlaceholder } from "../clipboard";
 
 /** Build a ServiceIdentityManager with a TransactionManager wired up. */
 function makeServiceIdManager(
-  sopsClient: EncryptionBackend,
+  source: SecretSource & Lintable & Rotatable & Bulk,
   matrixManager: MatrixManager,
   runner: SubprocessRunner,
 ): ServiceIdentityManager {
   const tx = new TransactionManager(new GitIntegration(runner));
-  return new ServiceIdentityManager(sopsClient, matrixManager, tx);
+  return new ServiceIdentityManager(source, matrixManager, tx);
 }
 
 export function registerServiceCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -105,13 +108,13 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
           }
 
           const matrixManager = new MatrixManager();
-          const { client: sopsClient, cleanup } = await createSopsClient(
+          const { source: secretSource, cleanup } = await createSecretSource(
             repoRoot,
             deps.runner,
             manifest,
           );
           try {
-            const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
+            const manager = makeServiceIdManager(secretSource, matrixManager, deps.runner);
 
             formatter.print(`${sym("working")}  Creating service identity '${name}'...`);
 
@@ -225,13 +228,13 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
         const matrixManager = new MatrixManager();
-        const { client: sopsClient, cleanup } = await createSopsClient(
+        const { source: secretSource, cleanup } = await createSecretSource(
           repoRoot,
           deps.runner,
           manifest,
         );
         try {
-          const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
+          const manager = makeServiceIdManager(secretSource, matrixManager, deps.runner);
 
           const identities = manager.list(manifest);
 
@@ -277,13 +280,13 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
         const matrixManager = new MatrixManager();
-        const { client: sopsClient, cleanup } = await createSopsClient(
+        const { source: secretSource, cleanup } = await createSecretSource(
           repoRoot,
           deps.runner,
           manifest,
         );
         try {
-          const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
+          const manager = makeServiceIdManager(secretSource, matrixManager, deps.runner);
 
           const identity = manager.get(manifest, name);
           if (!identity) {
@@ -333,13 +336,13 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
         const matrixManager = new MatrixManager();
-        const { client: sopsClient, cleanup } = await createSopsClient(
+        const { source: secretSource, cleanup } = await createSecretSource(
           repoRoot,
           deps.runner,
           manifest,
         );
         try {
-          const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
+          const manager = makeServiceIdManager(secretSource, matrixManager, deps.runner);
 
           const issues = await manager.validate(manifest, repoRoot);
 
@@ -413,13 +416,13 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         const kmsEnvConfigs = parseKmsEnvMappings(opts.kmsEnv);
 
         const matrixManager = new MatrixManager();
-        const { client: sopsClient, cleanup } = await createSopsClient(
+        const { source: secretSource, cleanup } = await createSecretSource(
           repoRoot,
           deps.runner,
           manifest,
         );
         try {
-          const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
+          const manager = makeServiceIdManager(secretSource, matrixManager, deps.runner);
 
           formatter.print(`${sym("working")}  Updating service identity '${name}'...`);
 
@@ -509,13 +512,13 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         }
 
         const matrixManager = new MatrixManager();
-        const { client: sopsClient, cleanup } = await createSopsClient(
+        const { source: secretSource, cleanup } = await createSecretSource(
           repoRoot,
           deps.runner,
           manifest,
         );
         try {
-          const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
+          const manager = makeServiceIdManager(secretSource, matrixManager, deps.runner);
 
           formatter.print(
             `${sym("working")}  Adding ${environment} to service identity '${name}'...`,
@@ -602,13 +605,13 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         }
 
         const matrixManager = new MatrixManager();
-        const { client: sopsClient, cleanup } = await createSopsClient(
+        const { source: secretSource, cleanup } = await createSecretSource(
           repoRoot,
           deps.runner,
           manifest,
         );
         try {
-          const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
+          const manager = makeServiceIdManager(secretSource, matrixManager, deps.runner);
 
           formatter.print(`${sym("working")}  Deleting service identity '${name}'...`);
 
@@ -639,13 +642,13 @@ export function registerServiceCommand(program: Command, deps: { runner: Subproc
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
         const matrixManager = new MatrixManager();
-        const { client: sopsClient, cleanup } = await createSopsClient(
+        const { source: secretSource, cleanup } = await createSecretSource(
           repoRoot,
           deps.runner,
           manifest,
         );
         try {
-          const manager = makeServiceIdManager(sopsClient, matrixManager, deps.runner);
+          const manager = makeServiceIdManager(secretSource, matrixManager, deps.runner);
 
           // Check for protected environments
           const identity = manager.get(manifest, name);

@@ -1,10 +1,11 @@
 import * as path from "path";
-import { BackendType, ClefManifest, EncryptionBackend, MatrixCell } from "../types";
+import { BackendType, ClefManifest, MatrixCell } from "../types";
+import type { CellRef, SecretSource } from "../source/types";
 import { MatrixManager } from "../matrix/manager";
 import { SchemaValidator } from "../schema/validator";
 import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
 import { readManifestYaml, writeManifestYaml } from "../manifest/io";
-import { markPendingWithRetry, generateRandomValue } from "../pending/metadata";
+import { generateRandomValue } from "../pending/metadata";
 import { TransactionManager } from "../tx";
 import { BACKEND_KEY_FIELDS, buildSopsOverride } from "../migration/backend";
 
@@ -71,7 +72,15 @@ export interface ResetResult {
 export class ResetManager {
   constructor(
     private readonly matrixManager: MatrixManager,
-    private readonly encryption: EncryptionBackend,
+    /**
+     * Factory rather than a single instance because reset can swap the
+     * SOPS backend mid-transaction (`opts.backend`).  The encryption
+     * layer of a composed source is bound to a manifest at construction,
+     * so writing cells under the *new* backend requires a fresh source.
+     * Callers pass `(m) => composeSecretSource(storage(m), enc, m)` (or
+     * equivalent) so the manager can recompose after the manifest swap.
+     */
+    private readonly buildSource: (manifest: ClefManifest) => SecretSource,
     private readonly schemaValidator: SchemaValidator,
     private readonly tx: TransactionManager,
   ) {}
@@ -132,21 +141,21 @@ export class ResetManager {
           effectiveManifest = withBackendOverride(manifest, affectedEnvs, opts.backend, opts.key);
         }
 
+        // Recompose the source against whichever manifest is in effect
+        // (post-swap when `opts.backend` was set, otherwise the input).
+        const source = this.buildSource(effectiveManifest);
+
         for (const cell of targetCells) {
           const keys = keyPlan.get(cell.namespace) ?? [];
           const placeholders = this.buildPlaceholders(keys);
+          const ref: CellRef = { namespace: cell.namespace, environment: cell.environment };
 
-          await this.encryption.encrypt(
-            cell.filePath,
-            placeholders,
-            effectiveManifest,
-            cell.environment,
-          );
+          await source.writeCell(ref, placeholders);
 
           if (keys.length > 0) {
             // Mark every scaffolded key as pending so `clef lint` and the UI
             // show the user which keys need real values.
-            await markPendingWithRetry(cell.filePath, keys, "clef reset");
+            await source.markPending(ref, keys, "clef reset");
             pendingKeysByCell[cell.filePath] = keys;
           }
           scaffoldedCells.push(cell.filePath);

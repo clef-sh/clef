@@ -313,6 +313,17 @@ export interface DecryptedFile {
   metadata: SopsMetadata;
 }
 
+/**
+ * Narrow surface the merge driver needs: decrypt-by-path. Git invokes the
+ * driver with three temp filesystem paths that don't map onto a clef
+ * `CellRef` (especially `base` and `theirs`, which live in `.git/`), so a
+ * path-shaped seam stays alive here even though the rest of the codebase
+ * has moved to `SecretSource`. Implemented by `SopsClient`.
+ */
+export interface MergeDecrypter {
+  decryptFile(filePath: string): Promise<DecryptedFile>;
+}
+
 /** SOPS metadata extracted from an encrypted file without decrypting its values. */
 export interface SopsMetadata {
   backend: BackendType;
@@ -338,35 +349,6 @@ export interface SopsMetadata {
   lastModifiedPresent?: boolean;
   /** SOPS format version string from the file's `sops.version` field (e.g. `"3.12.2"`). */
   version?: string;
-}
-
-/**
- * Backend-agnostic interface for all encryption/decryption operations.
- *
- * `SopsClient` is the canonical implementation. Consumers should depend on this
- * interface rather than the concrete class so the encryption backend can be
- * replaced without touching call sites.
- */
-export interface EncryptionBackend {
-  /** Decrypt a file and return its values and metadata. */
-  decrypt(filePath: string): Promise<DecryptedFile>;
-  /** Encrypt a key/value map and write it to a file. */
-  encrypt(
-    filePath: string,
-    values: Record<string, string>,
-    manifest: ClefManifest,
-    environment?: string,
-  ): Promise<void>;
-  /** Rotate encryption by adding a new recipient key. */
-  reEncrypt(filePath: string, newKey: string): Promise<void>;
-  /** Add an age recipient to an encrypted file (rotate + add-age). */
-  addRecipient(filePath: string, key: string): Promise<void>;
-  /** Remove an age recipient from an encrypted file (rotate + rm-age). */
-  removeRecipient(filePath: string, key: string): Promise<void>;
-  /** Check whether a file has valid encryption metadata. */
-  validateEncryption(filePath: string): Promise<boolean>;
-  /** Extract encryption metadata without decrypting. */
-  getMetadata(filePath: string): Promise<SopsMetadata>;
 }
 
 // ── Consumption ─────────────────────────────────────────────────────────────

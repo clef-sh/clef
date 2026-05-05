@@ -49,46 +49,58 @@ const validManifestYaml = YAML.stringify({
   file_pattern: "{namespace}/{environment}.enc.yaml",
 });
 
-const sopsFileContent = YAML.stringify({
-  sops: {
-    age: [{ recipient: "age1abc" }],
-    lastmodified: "2024-01-15T00:00:00Z",
-  },
+// Per-namespace cell blob content, used both as the bytes
+// `FilesystemStorageBackend.readBlob` returns and as a marker the runner
+// mock keys off (since `sops decrypt` now reads from `/dev/stdin` —
+// the cell-distinguishing filePath is no longer in argv).
+const authCellBlob = YAML.stringify({
+  __marker: "auth-cell",
+  sops: { age: [{ recipient: "age1abc" }], lastmodified: "2024-01-15T00:00:00Z" },
+});
+const paymentsCellBlob = YAML.stringify({
+  __marker: "payments-cell",
+  sops: { age: [{ recipient: "age1abc" }], lastmodified: "2024-01-15T00:00:00Z" },
 });
 
 function makeRunner(): SubprocessRunner {
   return {
-    run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
-      if (cmd === "age") {
-        return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
-      }
-      if (cmd === "sops" && args[0] === "--version") {
-        return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
-      }
-      if (cmd === "sops" && args[0] === "decrypt") {
-        // Return different values depending on the file path
-        const filePath = args[args.length - 1];
-        if (filePath.includes("auth/")) {
+    run: jest
+      .fn()
+      .mockImplementation(async (cmd: string, args: string[], opts?: { stdin?: string }) => {
+        if (cmd === "age") {
+          return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
+        }
+        if (cmd === "sops" && args[0] === "--version") {
+          return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
+        }
+        if (cmd === "sops" && args[0] === "decrypt") {
+          // After the SecretSource flip the input file is /dev/stdin and
+          // the cell-distinguishing content arrives via opts.stdin.
+          const stdin = opts?.stdin ?? "";
+          if (stdin.includes("auth-cell")) {
+            return {
+              stdout: YAML.stringify({ AUTH_TOKEN: "tok-789", API_KEY: "auth-override" }),
+              stderr: "",
+              exitCode: 0,
+            };
+          }
           return {
-            stdout: YAML.stringify({ AUTH_TOKEN: "tok-789", API_KEY: "auth-override" }),
+            stdout: YAML.stringify({
+              DATABASE_URL: "postgres://localhost",
+              API_KEY: "sk-123",
+            }),
             stderr: "",
             exitCode: 0,
           };
         }
-        return {
-          stdout: YAML.stringify({ DATABASE_URL: "postgres://localhost", API_KEY: "sk-123" }),
-          stderr: "",
-          exitCode: 0,
-        };
-      }
-      if (cmd === "sops" && args[0] === "filestatus") {
-        return { stdout: "", stderr: "", exitCode: 1 };
-      }
-      if (cmd === "cat") {
-        return { stdout: sopsFileContent, stderr: "", exitCode: 0 };
-      }
-      return { stdout: "", stderr: "", exitCode: 0 };
-    }),
+        if (cmd === "sops" && args[0] === "filestatus") {
+          return { stdout: "", stderr: "", exitCode: 1 };
+        }
+        if (cmd === "cat") {
+          return { stdout: paymentsCellBlob, stderr: "", exitCode: 0 };
+        }
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }),
   };
 }
 
@@ -133,7 +145,16 @@ describe("clef exec", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockFs.readFileSync.mockReturnValue(validManifestYaml);
+    // Dispatch by path: the manifest needs to round-trip as a manifest;
+    // cell paths return per-namespace cell blobs so the SecretSource ->
+    // SopsClient.decryptBlob pipeline sees realistic-shaped ciphertext.
+    mockFs.readFileSync.mockImplementation(((p: fs.PathOrFileDescriptor): string => {
+      const ps = String(p);
+      if (ps.endsWith("clef.yaml")) return validManifestYaml;
+      if (ps.includes("/auth/")) return authCellBlob;
+      if (ps.includes("/payments/")) return paymentsCellBlob;
+      return validManifestYaml;
+    }) as never);
     mockFs.existsSync.mockReturnValue(true);
     process.argv = originalArgv;
     // Record existing signal listeners before each test
@@ -460,32 +481,34 @@ describe("clef exec", () => {
 
   it("should exit 1 when --also target fails to decrypt", async () => {
     const runner: SubprocessRunner = {
-      run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
-        if (cmd === "age") {
-          return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
-        }
-        if (cmd === "sops" && args[0] === "--version") {
-          return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
-        }
-        if (cmd === "sops" && args[0] === "decrypt") {
-          const filePath = args[args.length - 1];
-          if (filePath.includes("auth/")) {
-            return { stdout: "", stderr: "decrypt failed for auth", exitCode: 1 };
+      run: jest
+        .fn()
+        .mockImplementation(async (cmd: string, args: string[], opts?: { stdin?: string }) => {
+          if (cmd === "age") {
+            return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
           }
-          return {
-            stdout: YAML.stringify({ DATABASE_URL: "postgres://localhost" }),
-            stderr: "",
-            exitCode: 0,
-          };
-        }
-        if (cmd === "sops" && args[0] === "filestatus") {
-          return { stdout: "", stderr: "", exitCode: 1 };
-        }
-        if (cmd === "cat") {
-          return { stdout: sopsFileContent, stderr: "", exitCode: 0 };
-        }
-        return { stdout: "", stderr: "", exitCode: 0 };
-      }),
+          if (cmd === "sops" && args[0] === "--version") {
+            return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
+          }
+          if (cmd === "sops" && args[0] === "decrypt") {
+            const stdin = opts?.stdin ?? "";
+            if (stdin.includes("auth-cell")) {
+              return { stdout: "", stderr: "decrypt failed for auth", exitCode: 1 };
+            }
+            return {
+              stdout: YAML.stringify({ DATABASE_URL: "postgres://localhost" }),
+              stderr: "",
+              exitCode: 0,
+            };
+          }
+          if (cmd === "sops" && args[0] === "filestatus") {
+            return { stdout: "", stderr: "", exitCode: 1 };
+          }
+          if (cmd === "cat") {
+            return { stdout: paymentsCellBlob, stderr: "", exitCode: 0 };
+          }
+          return { stdout: "", stderr: "", exitCode: 0 };
+        }),
     };
 
     const program = makeProgram(runner);

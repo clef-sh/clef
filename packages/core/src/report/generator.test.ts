@@ -1,28 +1,21 @@
 import * as fs from "fs";
-import {
-  ClefManifest,
-  ClefReport,
-  CLEF_REPORT_SCHEMA_VERSION,
-  EncryptionBackend,
-  MatrixCell,
-  SubprocessRunner,
-} from "../types";
+import { ClefManifest, ClefReport, CLEF_REPORT_SCHEMA_VERSION, MatrixCell } from "../types";
+import type { SubprocessRunner } from "../types";
 import { MatrixManager } from "../matrix/manager";
 import { SchemaValidator } from "../schema/validator";
-import { getPendingKeys } from "../pending/metadata";
 import { checkDependency } from "../dependencies/checker";
 import { ManifestParser } from "../manifest/parser";
 import { LintRunner } from "../lint/runner";
 import { ReportGenerator } from "./generator";
+import type { SecretSource, Lintable, CellRef, CellPendingMetadata } from "../source/types";
+import type { SopsMetadata } from "../types";
 
 jest.mock("fs");
 jest.mock("../manifest/parser");
 jest.mock("../lint/runner");
-jest.mock("../pending/metadata");
 jest.mock("../dependencies/checker");
 
 const mockFs = fs as jest.Mocked<typeof fs>;
-const mockGetPendingKeys = jest.mocked(getPendingKeys);
 const mockCheckDependency = jest.mocked(checkDependency);
 const mockManifestParserCtor = jest.mocked(ManifestParser);
 const mockLintRunnerCtor = jest.mocked(LintRunner);
@@ -52,20 +45,37 @@ function makeRunner(overrides?: Record<string, string>): jest.Mocked<SubprocessR
   };
 }
 
-function makeSopsClient(): jest.Mocked<EncryptionBackend> {
+interface SourceMock extends SecretSource, Lintable {
+  getCellMetadata: jest.Mock<Promise<SopsMetadata>, [CellRef]>;
+  getPendingMetadata: jest.Mock<Promise<CellPendingMetadata>, [CellRef]>;
+}
+
+function makeSource(): SourceMock {
+  const stub = jest.fn();
   return {
-    decrypt: jest.fn(),
-    encrypt: jest.fn(),
-    reEncrypt: jest.fn(),
-    addRecipient: jest.fn(),
-    removeRecipient: jest.fn(),
-    validateEncryption: jest.fn(),
-    getMetadata: jest.fn().mockResolvedValue({
+    id: "mock",
+    description: "mock",
+    readCell: stub,
+    writeCell: stub,
+    deleteCell: stub,
+    cellExists: stub,
+    listKeys: stub,
+    scaffoldCell: stub,
+    markPending: stub,
+    markResolved: stub,
+    recordRotation: stub,
+    removeRotation: stub,
+    validateEncryption: stub,
+    checkRecipientDrift: stub,
+    getCellMetadata: jest.fn().mockResolvedValue({
       backend: "age",
       recipients: ["age1abc123"],
       lastModified: new Date("2024-01-15T10:00:00.000Z"),
     }),
-  };
+    getPendingMetadata: jest
+      .fn()
+      .mockResolvedValue({ version: 1, pending: [], rotations: [] } as CellPendingMetadata),
+  } as unknown as SourceMock;
 }
 
 function makeMatrixManager(cells: MatrixCell[]): jest.Mocked<MatrixManager> {
@@ -116,7 +126,6 @@ describe("ReportGenerator", () => {
         }) as unknown as LintRunner,
     );
 
-    mockGetPendingKeys.mockResolvedValue([]);
     mockCheckDependency.mockResolvedValue({
       installed: "3.12.2",
       required: "3.8.0",
@@ -139,7 +148,7 @@ describe("ReportGenerator", () => {
     const cells = [existingCell("database", "dev")];
     const generator = new ReportGenerator(
       runner,
-      makeSopsClient(),
+      makeSource(),
       makeMatrixManager(cells),
       makeSchemaValidator(),
     );
@@ -167,7 +176,7 @@ describe("ReportGenerator", () => {
     mockCheckDependency.mockRejectedValue(new Error("sops not found"));
     const generator = new ReportGenerator(
       runner,
-      makeSopsClient(),
+      makeSource(),
       makeMatrixManager([]),
       makeSchemaValidator(),
     );
@@ -181,12 +190,12 @@ describe("ReportGenerator", () => {
   });
 
   it("SOPS metadata failure results in null metadata for that cell", async () => {
-    const sopsClient = makeSopsClient();
-    sopsClient.getMetadata.mockRejectedValue(new Error("metadata error"));
+    const source = makeSource();
+    source.getCellMetadata.mockRejectedValue(new Error("metadata error"));
     const cells = [existingCell("database", "dev")];
     const generator = new ReportGenerator(
       makeRunner(),
-      sopsClient,
+      source,
       makeMatrixManager(cells),
       makeSchemaValidator(),
     );
@@ -201,7 +210,7 @@ describe("ReportGenerator", () => {
     const cells = [existingCell("database", "dev"), existingCell("app", "dev")];
     const generator = new ReportGenerator(
       makeRunner(),
-      makeSopsClient(),
+      makeSource(),
       makeMatrixManager(cells),
       makeSchemaValidator(),
     );
@@ -216,7 +225,7 @@ describe("ReportGenerator", () => {
     const cells = [existingCell("database", "dev"), existingCell("database", "prod")];
     const generator = new ReportGenerator(
       makeRunner(),
-      makeSopsClient(),
+      makeSource(),
       makeMatrixManager(cells),
       makeSchemaValidator(),
     );
@@ -248,7 +257,7 @@ describe("ReportGenerator", () => {
     );
     const generator = new ReportGenerator(
       makeRunner(),
-      makeSopsClient(),
+      makeSource(),
       makeMatrixManager([existingCell("database", "dev")]),
       makeSchemaValidator(),
     );
@@ -263,8 +272,8 @@ describe("ReportGenerator", () => {
   });
 
   it("recipient summary aggregates across cells", async () => {
-    const sopsClient = makeSopsClient();
-    sopsClient.getMetadata
+    const source = makeSource();
+    source.getCellMetadata
       .mockResolvedValueOnce({
         backend: "age",
         recipients: ["age1abc", "age1shared"],
@@ -278,7 +287,7 @@ describe("ReportGenerator", () => {
     const cells = [existingCell("db", "dev"), existingCell("db", "prod")];
     const generator = new ReportGenerator(
       makeRunner(),
-      sopsClient,
+      source,
       makeMatrixManager(cells),
       makeSchemaValidator(),
     );
@@ -293,7 +302,7 @@ describe("ReportGenerator", () => {
   it("sets schemaVersion to CLEF_REPORT_SCHEMA_VERSION", async () => {
     const generator = new ReportGenerator(
       makeRunner(),
-      makeSopsClient(),
+      makeSource(),
       makeMatrixManager([]),
       makeSchemaValidator(),
     );
@@ -306,7 +315,7 @@ describe("ReportGenerator", () => {
   it("maps hasSchema, owners, and protected flag correctly", async () => {
     const generator = new ReportGenerator(
       makeRunner(),
-      makeSopsClient(),
+      makeSource(),
       makeMatrixManager([]),
       makeSchemaValidator(),
     );
@@ -332,7 +341,7 @@ describe("ReportGenerator", () => {
     const cells = [existingCell("database", "dev")];
     const generator = new ReportGenerator(
       makeRunner(),
-      makeSopsClient(),
+      makeSource(),
       makeMatrixManager(cells),
       makeSchemaValidator(),
     );
@@ -346,7 +355,7 @@ describe("ReportGenerator", () => {
     const cells = [missingCell("database", "dev")];
     const generator = new ReportGenerator(
       makeRunner(),
-      makeSopsClient(),
+      makeSource(),
       makeMatrixManager(cells),
       makeSchemaValidator(),
     );

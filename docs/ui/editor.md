@@ -4,24 +4,24 @@ Tabbed interface for viewing and editing secrets across environments within a na
 
 ## Layout
 
-```mermaid
-flowchart TD
-  header["Namespace: database · [Commit changes]"]
-  tabs["Tabs: DEV · STAGING · PRODUCTION · encrypted with age · 2 recipients"]
-  warning["⚠ PRODUCTION — Changes here affect the live system"]
-  subgraph keyTable["Key Table"]
-    th["Key | Value | Type | Actions"]
-    k1["* DB_HOST | ●●●●●●●●●● | string | 👁 🗑"]
-    k2["* DB_PORT | ●●●● | integer | 👁 🗑"]
-    k3["* DB_PASSWORD | ●●●●●●●●●●●● | string | 👁 🗑"]
-    k4["DB_POOL_SIZE | ●● | integer | 👁 🗑"]
-    k5["* DB_SSL | ●●●● | boolean | 👁 🗑"]
-    add["+ Add key"]
-  end
-  schema["Schema: schemas/database.yaml · ✓ 5/5 required keys · 0 warnings"]
+**Header** — Namespace: `database` · [Commit changes]
 
-  header --> tabs --> warning --> keyTable --> schema
-```
+**Tabs** — DEV · STAGING · **PRODUCTION** · _encrypted with age · 2 recipients_
+
+> ⚠ **PRODUCTION** — Changes here affect the live system
+
+| Key              | Value        | Type    | Actions |
+| ---------------- | ------------ | ------- | ------- |
+| \* `DB_HOST`     | ●●●●●●●●●●   | string  | 👁 🗑   |
+| \* `DB_PORT`     | ●●●●         | integer | 👁 🗑   |
+| \* `DB_PASSWORD` | ●●●●●●●●●●●● | string  | 👁 🗑   |
+| `DB_POOL_SIZE`   | ●●           | integer | 👁 🗑   |
+| \* `DB_SSL`      | ●●●●         | boolean | 👁 🗑   |
+|                  | _+ Add key_  |         |         |
+
+**Schema** — `schemas/database.yaml` · ✓ 5/5 required keys · 0 warnings
+
+_(Asterisk marks required keys per the schema.)_
 
 ## Environment tabs
 

@@ -1,5 +1,6 @@
 import * as crypto from "crypto";
-import { ClefRuntime, init } from "./index";
+import { ClefRuntime, init, InlineArtifactSource } from "./index";
+import type { ArtifactSource, ArtifactFetchResult } from "./sources/types";
 
 jest.mock("fs");
 jest.mock(
@@ -117,6 +118,82 @@ describe("ClefRuntime", () => {
 
       expect(runtime.ready).toBe(true);
       expect(runtime.revision).toBe("file-rev");
+    });
+  });
+
+  describe("with inline source", () => {
+    it("accepts a PackedArtifact object and exposes secrets", async () => {
+      const artifact = JSON.parse(makeArtifact("inline-obj"));
+
+      const runtime = new ClefRuntime({
+        source: artifact,
+        ageKey: "AGE-SECRET-KEY-1TEST",
+      });
+
+      await runtime.start();
+
+      expect(runtime.ready).toBe(true);
+      expect(runtime.get("DB_URL", "app")).toBe("postgres://...");
+      expect(runtime.revision).toBe("inline-obj");
+    });
+
+    it("accepts a JSON-string artifact via a pre-built InlineArtifactSource", async () => {
+      // A raw JSON-string `source` would hit the file-path branch by design
+      // (the JSON-string heuristic is intentionally not added). Users with a
+      // string in hand wrap it explicitly.
+      const runtime = new ClefRuntime({
+        source: new InlineArtifactSource(makeArtifact("inline-str")),
+        ageKey: "AGE-SECRET-KEY-1TEST",
+      });
+
+      await runtime.start();
+      expect(runtime.ready).toBe(true);
+      expect(runtime.revision).toBe("inline-str");
+    });
+
+    it("passes through a pre-built InlineArtifactSource instance unchanged", async () => {
+      const source = new InlineArtifactSource(JSON.parse(makeArtifact("inline-prebuilt")));
+      const runtime = new ClefRuntime({
+        source,
+        ageKey: "AGE-SECRET-KEY-1TEST",
+      });
+
+      await runtime.start();
+      expect(runtime.ready).toBe(true);
+      expect(runtime.revision).toBe("inline-prebuilt");
+    });
+
+    it("passes through a user-defined ArtifactSource (duck-typed)", async () => {
+      class CustomSource implements ArtifactSource {
+        async fetch(): Promise<ArtifactFetchResult> {
+          return { raw: makeArtifact("custom-rev"), contentHash: "custom-hash" };
+        }
+        describe(): string {
+          return "custom";
+        }
+      }
+
+      const runtime = new ClefRuntime({
+        source: new CustomSource(),
+        ageKey: "AGE-SECRET-KEY-1TEST",
+      });
+
+      await runtime.start();
+      expect(runtime.ready).toBe(true);
+      expect(runtime.revision).toBe("custom-rev");
+      expect(runtime.get("DB_URL", "app")).toBe("postgres://...");
+    });
+
+    it("throws at construction when the inline object is malformed", () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const bad = { version: 1, identity: "x" } as any;
+      expect(
+        () =>
+          new ClefRuntime({
+            source: bad,
+            ageKey: "AGE-SECRET-KEY-1TEST",
+          }),
+      ).toThrow(/inline artifact/);
     });
   });
 

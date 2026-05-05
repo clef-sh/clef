@@ -10,7 +10,6 @@ import {
   ManifestParser,
   MatrixManager,
   SchemaValidator,
-  SopsClient,
   SubprocessRunner,
   assertSops,
   SopsMissingError,
@@ -18,14 +17,15 @@ import {
   generateAgeIdentity,
   formatAgeKeyFile,
   generateRandomValue,
-  markPending,
   writeManifestYaml,
+  type SecretSource,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { setKeychainKey } from "../keychain";
 import { generateKeyLabel } from "../label-generator";
 import { ScaffoldResult, scaffoldPolicy } from "../scaffold";
+import { createSecretSource } from "../source-factory";
 
 const CLEF_DIR = ".clef";
 const CLEF_CONFIG_FILENAME = "config.yaml";
@@ -327,9 +327,12 @@ async function handleFullSetup(
   const initParser = new ManifestParser();
   initParser.validate(manifest);
 
-  // Handle age backend: generate a fresh key + label and store securely
+  // Handle age backend: generate a fresh key + label and store securely.
+  // The credentials are NOT cached in local variables here — once we
+  // write `.clef/config.yaml`, downstream `createSecretSource` calls
+  // re-resolve via the local config (keychain or file). Avoiding the
+  // duplicate cache keeps the privateKey reference window short.
   let ageKeyFile: string | undefined;
-  let ageKey: string | undefined;
   let publicKey: string | undefined;
   if (backend === "age") {
     const label = generateKeyLabel();
@@ -342,7 +345,6 @@ async function handleFullSetup(
 
     if (storedInKeychain) {
       formatter.success("Stored age key in OS keychain");
-      ageKey = privateKey;
     } else {
       // Keychain unavailable — filesystem fallback requires explicit acknowledgment
       formatter.warn(
@@ -416,7 +418,11 @@ async function handleFullSetup(
   formatter.success("Created clef.yaml");
 
   // Scaffold the matrix — manifest now has recipients so SOPS gets --age flag
-  const sopsClient = new SopsClient(deps.runner, ageKeyFile, ageKey);
+  const { source, cleanup: cleanupSource } = await createSecretSource(
+    repoRoot,
+    deps.runner,
+    manifest,
+  );
   const matrixManager = new MatrixManager();
   const cells = matrixManager.resolveMatrix(manifest, repoRoot);
 
@@ -424,7 +430,10 @@ async function handleFullSetup(
   for (const cell of cells) {
     if (!cell.exists) {
       try {
-        await matrixManager.scaffoldCell(cell, sopsClient, manifest);
+        await source.scaffoldCell(
+          { namespace: cell.namespace, environment: cell.environment },
+          manifest,
+        );
         scaffoldedCount++;
       } catch (err) {
         formatter.warn(
@@ -457,7 +466,7 @@ async function handleFullSetup(
         ns,
         manifest,
         schemaValidator,
-        sopsClient,
+        source,
         repoRoot,
         options.includeOptional,
         /* istanbul ignore next */ (count: number) => {
@@ -552,6 +561,8 @@ async function handleFullSetup(
   formatter.hint("clef scan                                 \u2014 look for plaintext leaks");
   formatter.hint("clef lint                                 \u2014 check repo health");
   formatter.hint("clef ui                                   \u2014 open the web UI");
+
+  await cleanupSource();
 }
 
 /* istanbul ignore next -- only reachable if a namespace has a schema field, which init never sets */
@@ -559,7 +570,7 @@ async function scaffoldRandomValues(
   ns: { name: string; schema?: string },
   manifest: ClefManifest,
   schemaValidator: SchemaValidator,
-  sopsClient: SopsClient,
+  source: SecretSource,
   repoRoot: string,
   includeOptional: boolean | undefined,
   addCount: (count: number) => void,
@@ -581,13 +592,9 @@ async function scaffoldRandomValues(
   if (keysToScaffold.length === 0) return;
 
   for (const env of manifest.environments) {
-    const filePath = path.join(
-      repoRoot,
-      manifest.file_pattern.replace("{namespace}", ns.name).replace("{environment}", env.name),
-    );
-
+    const ref = { namespace: ns.name, environment: env.name };
     try {
-      const decrypted = await sopsClient.decrypt(filePath);
+      const decrypted = await source.readCell(ref);
       const pendingKeys: string[] = [];
 
       for (const [keyName] of keysToScaffold) {
@@ -598,8 +605,8 @@ async function scaffoldRandomValues(
       }
 
       if (pendingKeys.length > 0) {
-        await sopsClient.encrypt(filePath, decrypted.values, manifest, env.name);
-        await markPending(filePath, pendingKeys, "clef init --random-values");
+        await source.writeCell(ref, decrypted.values);
+        await source.markPending(ref, pendingKeys, "clef init --random-values");
         addCount(pendingKeys.length);
       }
     } catch (err) {

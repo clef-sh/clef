@@ -2,7 +2,6 @@ import * as fs from "fs";
 import * as path from "path";
 import * as YAML from "yaml";
 import { ClefManifest, MatrixCell, MatrixIssue, MatrixStatus } from "../types";
-import { EncryptionBackend } from "../types";
 import { getPendingKeys } from "../pending/metadata";
 import { readSopsKeyNames } from "../sops/keys";
 
@@ -56,43 +55,16 @@ export class MatrixManager {
   }
 
   /**
-   * Create an empty encrypted SOPS file for a missing matrix cell.
-   *
-   * @param cell - The cell to scaffold (must not already exist).
-   * @param sopsClient - SOPS client used to write the initial encrypted file.
-   * @param manifest - Parsed manifest used to determine the encryption backend.
-   */
-  async scaffoldCell(
-    cell: MatrixCell,
-    sopsClient: EncryptionBackend,
-    manifest: ClefManifest,
-  ): Promise<void> {
-    const dir = path.dirname(cell.filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    await sopsClient.encrypt(cell.filePath, {}, manifest, cell.environment);
-  }
-
-  /**
    * Read each cell and return key counts, pending counts, and cross-environment issues.
    *
-   * The SOPS client parameter is currently unused — keys are read from the
-   * plaintext YAML structure directly, no decryption needed. It is retained
-   * in the signature for back-compat with callers that may need to swap to a
-   * decrypt-based implementation later (e.g. for backends that don't expose
-   * key names without decryption).
+   * Keys are read from the plaintext YAML structure directly — no
+   * decryption needed. A future backend that doesn't expose key names
+   * without decryption would need its own implementation.
    *
    * @param manifest - Parsed manifest.
    * @param repoRoot - Absolute path to the repository root.
-   * @param _sopsClient - Reserved for future use; pass any `EncryptionBackend`.
    */
-  async getMatrixStatus(
-    manifest: ClefManifest,
-    repoRoot: string,
-    _sopsClient: EncryptionBackend,
-  ): Promise<MatrixStatus[]> {
+  async getMatrixStatus(manifest: ClefManifest, repoRoot: string): Promise<MatrixStatus[]> {
     const cells = this.resolveMatrix(manifest, repoRoot);
     const statuses: MatrixStatus[] = [];
 

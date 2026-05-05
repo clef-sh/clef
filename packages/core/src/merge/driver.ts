@@ -1,4 +1,4 @@
-import { EncryptionBackend } from "../types";
+import { MergeDecrypter } from "../types";
 
 /** Status of a single key in a three-way merge. */
 export type MergeKeyStatus = "unchanged" | "ours" | "theirs" | "both_added" | "conflict";
@@ -46,7 +46,7 @@ export interface MergeResult {
  * ```
  */
 export class SopsMergeDriver {
-  constructor(private readonly sopsClient: EncryptionBackend) {}
+  constructor(private readonly sopsClient: MergeDecrypter) {}
 
   /**
    * Perform a three-way merge on three in-memory key/value maps.
@@ -140,9 +140,9 @@ export class SopsMergeDriver {
    */
   async mergeFiles(basePath: string, oursPath: string, theirsPath: string): Promise<MergeResult> {
     const [baseDecrypted, oursDecrypted, theirsDecrypted] = await Promise.all([
-      this.sopsClient.decrypt(basePath),
-      this.sopsClient.decrypt(oursPath),
-      this.sopsClient.decrypt(theirsPath),
+      this.sopsClient.decryptFile(basePath),
+      this.sopsClient.decryptFile(oursPath),
+      this.sopsClient.decryptFile(theirsPath),
     ]);
 
     return this.merge(baseDecrypted.values, oursDecrypted.values, theirsDecrypted.values);

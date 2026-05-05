@@ -1,6 +1,6 @@
 # @clef-sh/core
 
-Core library for [Clef](https://clef.sh) — git-native secrets management built on [Mozilla SOPS](https://github.com/getsops/sops).
+Core library for [Clef](https://clef.sh) — git-native secrets management built on [CNCF SOPS](https://github.com/getsops/sops).
 
 Provides manifest parsing, matrix management, SOPS encryption/decryption, schema validation, diffing, linting, secret scanning, import/export, recipient management, and more. Used by [`@clef-sh/cli`](https://www.npmjs.com/package/@clef-sh/cli) and the local web UI.
 
@@ -78,7 +78,6 @@ const result = await scanner.scan("/path/to/repo", { severity: "all" });
 | `SchemaValidator`   | Validate decrypted values against YAML schemas                |
 | `DiffEngine`        | Compare secrets between two environments                      |
 | `LintRunner`        | Full matrix health checks (completeness, schema, SOPS)        |
-| `BulkOps`           | Multi-environment set, delete, and copy                       |
 | `GitIntegration`    | Stage, commit, status, pre-commit hooks                       |
 | `ScanRunner`        | Detect plaintext secrets via entropy + pattern matching       |
 | `ImportRunner`      | Import from `.env`, JSON, or YAML                             |

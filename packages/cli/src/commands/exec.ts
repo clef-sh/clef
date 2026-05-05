@@ -5,7 +5,7 @@ import { Command } from "commander";
 import { ManifestParser, ConsumptionClient, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter } from "../output/formatter";
-import { createSopsClient } from "../age-credential";
+import { createSecretSource } from "../source-factory";
 import { parseTarget } from "../parse-target";
 
 function collect(value: string, previous: string[]): string[] {
@@ -80,20 +80,10 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
             formatter.warn(`Executing in protected environment '${environment}'.`);
           }
 
-          const { client: sopsClient, cleanup } = await createSopsClient(
-            repoRoot,
-            deps.runner,
-            manifest,
-          );
+          const { source, cleanup } = await createSecretSource(repoRoot, deps.runner, manifest);
           try {
             // Decrypt primary target
-            const primaryFilePath = path.join(
-              repoRoot,
-              manifest.file_pattern
-                .replace("{namespace}", namespace)
-                .replace("{environment}", environment),
-            );
-            const primaryDecrypted = await sopsClient.decrypt(primaryFilePath);
+            const primaryDecrypted = await source.readCell({ namespace, environment });
 
             // Merge values: primary first, then --also targets in order (later overrides earlier)
             const mergedValues = { ...primaryDecrypted.values };
@@ -101,13 +91,10 @@ export function registerExecCommand(program: Command, deps: { runner: Subprocess
             for (const alsoTarget of options.also) {
               try {
                 const [alsoNs, alsoEnv] = parseTarget(alsoTarget);
-                const alsoFilePath = path.join(
-                  repoRoot,
-                  manifest.file_pattern
-                    .replace("{namespace}", alsoNs)
-                    .replace("{environment}", alsoEnv),
-                );
-                const alsoDecrypted = await sopsClient.decrypt(alsoFilePath);
+                const alsoDecrypted = await source.readCell({
+                  namespace: alsoNs,
+                  environment: alsoEnv,
+                });
                 for (const key of Object.keys(alsoDecrypted.values)) {
                   if (key in mergedValues) {
                     if (!options.override) continue;

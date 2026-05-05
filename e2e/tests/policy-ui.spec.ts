@@ -67,7 +67,10 @@ test.describe.serial("clef policy → PolicyView: rotation verdicts", () => {
     await page.goto(server.url);
     await page.getByTestId("nav-policy").click();
 
-    await expect(page.getByText("clef policy check")).toBeVisible();
+    // Toolbar subtitle uniquely identifies the policy view (the body has
+    // a `<code>clef policy check</code>` that would also match a bare
+    // text search and trip Playwright's strict-mode).
+    await expect(page.getByText("clef policy check — rotation verdicts")).toBeVisible();
     await expect(page.getByTestId("all-compliant")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("policy-source")).toHaveText("Built-in default");
   });

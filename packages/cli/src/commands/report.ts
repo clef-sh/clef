@@ -12,7 +12,7 @@ import {
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createSopsClient } from "../age-credential";
+import { createSecretSource } from "../source-factory";
 import { generateReportAtCommit, getHeadSha, listCommitRange } from "../report/historical";
 import { reportToOtlp, pushOtlp, resolveTelemetryConfig, fetchCheckpoint } from "../output/otlp";
 import { version as cliVersion } from "../../package.json";
@@ -60,17 +60,13 @@ export function registerReportCommand(program: Command, deps: { runner: Subproce
           // ── Generate HEAD report (used by default, --push, --since) ─────
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
-          const { client: sopsClient, cleanup } = await createSopsClient(
-            repoRoot,
-            deps.runner,
-            manifest,
-          );
+          const { source, cleanup } = await createSecretSource(repoRoot, deps.runner, manifest);
           try {
             const matrixManager = new MatrixManager();
             const schemaValidator = new SchemaValidator();
             const generator = new ReportGenerator(
               deps.runner,
-              sopsClient,
+              source,
               matrixManager,
               schemaValidator,
             );

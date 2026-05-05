@@ -3,8 +3,8 @@
 Bundled [sops](https://github.com/getsops/sops) binary for **Linux x64**.
 
 This package is an implementation detail of [Clef](https://github.com/clef-sh/clef) — a
-git-native secrets management tool built on Mozilla SOPS. You should not need to install it
-directly.
+git-native secrets management tool built on SOPS, a CNCF Sandbox project. You should not need
+to install it directly.
 
 ## How it works
 
@@ -28,9 +28,12 @@ of `@clef-sh/core` and `@clef-sh/cli`.
 
 ## License
 
-The sops binary is © Mozilla and contributors, distributed under the
-[Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/) (see `LICENSE.sops`).
-The packaging code in this repository is MIT licensed.
+The sops binary is copyright © its authors and is distributed under the
+[Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/). The full license text
+ships as `LICENSE.sops` inside the published npm package — both the binary and the license
+are fetched from the upstream [SOPS](https://github.com/getsops/sops) release at publish time
+and are not stored in the source repository. SOPS is a CNCF Sandbox project hosted at
+`getsops/sops`. The packaging code in this repository is MIT licensed.
 
 ## Parent project
 

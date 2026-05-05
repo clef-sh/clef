@@ -13,13 +13,12 @@
 import * as fs from "fs";
 import * as net from "net";
 import { randomBytes } from "crypto";
-import writeFileAtomic from "write-file-atomic";
 import * as YAML from "yaml";
 import {
   BackendType,
   ClefManifest,
   DecryptedFile,
-  EncryptionBackend,
+  MergeDecrypter,
   SopsDecryptionError,
   SopsEncryptionError,
   SopsKeyNotFoundError,
@@ -28,6 +27,11 @@ import {
   resolveBackendConfig,
   resolveRecipientsForEnvironment,
 } from "../types";
+import type {
+  EncryptionBackend,
+  EncryptionContext,
+  RotateOptions,
+} from "../source/encryption-backend";
 import { assertSops } from "../dependencies/checker";
 import { deriveAgePublicKey } from "../age/keygen";
 import { resolveSopsPath } from "./resolver";
@@ -35,6 +39,34 @@ import { isClefHsmArn, pkcs11UriToSyntheticArn, syntheticArnToPkcs11Uri } from "
 
 function formatFromPath(filePath: string): "yaml" | "json" {
   return filePath.endsWith(".json") ? "json" : "yaml";
+}
+
+/**
+ * Resolve the right input-arg + stdin handling for piping `content` to a
+ * SOPS subprocess. On Unix returns `/dev/stdin` and feeds via the runner's
+ * stdin. On Windows opens a named pipe (which Go's CreateFile can read as
+ * a file) and feeds via the pipe server; stdin on the runner is unused.
+ *
+ * Cleanup must always be invoked in a finally block — the Windows server
+ * holds an open handle until closed.
+ */
+async function openInputPipe(
+  content: string,
+): Promise<{ inputArg: string; cleanup: () => void; runnerStdin?: string }> {
+  if (process.platform === "win32") {
+    const pipe = await openWindowsInputPipe(content);
+    return { inputArg: pipe.inputArg, cleanup: pipe.cleanup };
+  }
+  return { inputArg: "/dev/stdin", cleanup: () => {}, runnerStdin: content };
+}
+
+/**
+ * Path used as `--config` to bypass `.sops.yaml` creation rules. Clef
+ * passes recipients/backend explicitly via flags, so no creation rules
+ * are needed. Windows has no `/dev/null`; SOPS accepts `NUL`.
+ */
+function nullConfigPath(): string {
+  return process.platform === "win32" ? "NUL" : "/dev/null";
 }
 
 /**
@@ -70,16 +102,37 @@ function openWindowsInputPipe(content: string): Promise<{ inputArg: string; clea
 }
 
 /**
- * Wraps the `sops` binary for encryption, decryption, re-encryption, and metadata extraction.
- * All decrypt/encrypt operations are piped via stdin/stdout — plaintext never touches disk.
+ * Wraps the `sops` binary for encryption, decryption, rotation, and metadata
+ * extraction. All blob operations are piped via stdin/stdout — plaintext
+ * never touches disk.
+ *
+ * `SopsClient` implements {@link EncryptionBackend} directly — pass it
+ * straight to `composeSecretSource(storage, client, manifest)` without
+ * any adapter. The legacy file-path methods (`encrypt(filePath, ...)`,
+ * `addRecipient`, `removeRecipient`, `reEncrypt`,
+ * `validateEncryption(filePath)`, `getMetadata(filePath)`) were removed
+ * in Phase 7. The only remaining file-path entry point is
+ * {@link decryptFile}, kept for the merge driver which receives temp
+ * file paths from git — the contract for that surface is
+ * {@link MergeDecrypter}.
  *
  * @example
  * ```ts
  * const client = new SopsClient(runner, "/home/user/.age/key.txt");
- * const decrypted = await client.decrypt("secrets/production.enc.yaml");
+ * const source = composeSecretSource(
+ *   new FilesystemStorageBackend(manifest, repoRoot),
+ *   client,
+ *   manifest,
+ * );
+ * const cell = await source.readCell({ namespace: "db", environment: "prod" });
  * ```
  */
-export class SopsClient implements EncryptionBackend {
+export class SopsClient implements EncryptionBackend, MergeDecrypter {
+  /** {@link EncryptionBackend} identifier. */
+  readonly id = "sops";
+  /** {@link EncryptionBackend} short description (used by `clef doctor`). */
+  readonly description = "SOPS-based encryption via the bundled `sops` binary";
+
   private readonly sopsCommand: string;
   private readonly keyserviceArgs: readonly string[];
 
@@ -126,14 +179,18 @@ export class SopsClient implements EncryptionBackend {
   }
 
   /**
-   * Decrypt a SOPS-encrypted file and return its values and metadata.
+   * Decrypt a SOPS-encrypted file by path. The only remaining file-path
+   * entry point on this class — kept for the merge driver, which
+   * receives temp filesystem paths from git that don't map onto a
+   * `CellRef`. Production `SecretSource` consumers should call
+   * `source.readCell` instead.
    *
    * @param filePath - Path to the `.enc.yaml` or `.enc.json` file.
    * @returns {@link DecryptedFile} with plaintext values in memory only.
    * @throws {@link SopsKeyNotFoundError} If no matching decryption key is available.
    * @throws {@link SopsDecryptionError} On any other decryption failure.
    */
-  async decrypt(filePath: string): Promise<DecryptedFile> {
+  async decryptFile(filePath: string): Promise<DecryptedFile> {
     await assertSops(this.runner, this.sopsCommand);
     const fmt = formatFromPath(filePath);
     const env = this.buildSopsEnv();
@@ -173,198 +230,13 @@ export class SopsClient implements EncryptionBackend {
       values[key] = String(value);
     }
 
-    const metadata = await this.getMetadata(filePath);
+    // decrypt() is now the only public file-path method; populate metadata
+    // by reading the cipher's plaintext SOPS block directly rather than
+    // shelling out a second time. parseMetadataFromFile is private — the
+    // blob-shaped getMetadataFromBlob is the substrate-agnostic surface.
+    const metadata = this.parseMetadataFromFile(filePath);
 
     return { values, metadata };
-  }
-
-  /**
-   * Encrypt a key/value map and write it to an encrypted SOPS file.
-   *
-   * @param filePath - Destination path for the encrypted file.
-   * @param values - Flat key/value map to encrypt.
-   * @param manifest - Manifest used to determine the encryption backend and key configuration.
-   * @param environment - Optional environment name. When provided, per-env backend overrides
-   *   are resolved from the manifest. When omitted, the global `sops.default_backend` is used.
-   * @throws {@link SopsEncryptionError} On encryption or write failure.
-   */
-  async encrypt(
-    filePath: string,
-    values: Record<string, string>,
-    manifest: ClefManifest,
-    environment?: string,
-  ): Promise<void> {
-    await assertSops(this.runner, this.sopsCommand);
-    const fmt = formatFromPath(filePath);
-    const content = fmt === "json" ? JSON.stringify(values, null, 2) : YAML.stringify(values);
-    const args = this.buildEncryptArgs(filePath, manifest, environment);
-    const env = this.buildSopsEnv();
-
-    // sops requires an explicit input path — it does not read from stdin implicitly.
-    // On Unix we pass /dev/stdin (a special file backed by the process's stdin pipe).
-    // On Windows /dev/stdin does not exist, so we create a named pipe, feed content
-    // through it, and pass the pipe path as the input file instead.
-    let inputArg: string;
-    let pipeCleanup: (() => void) | undefined;
-
-    if (process.platform === "win32") {
-      const pipe = await openWindowsInputPipe(content);
-      inputArg = pipe.inputArg;
-      pipeCleanup = pipe.cleanup;
-    } else {
-      inputArg = "/dev/stdin";
-    }
-
-    let result;
-    try {
-      // --config must precede the subcommand — it is a global sops flag.
-      const configPath = process.platform === "win32" ? "NUL" : "/dev/null";
-      result = await this.runner.run(
-        this.sopsCommand,
-        [
-          "--config",
-          configPath,
-          "encrypt",
-          ...this.keyserviceArgs,
-          ...args,
-          "--input-type",
-          fmt,
-          "--output-type",
-          fmt,
-          "--filename-override",
-          filePath,
-          inputArg,
-        ],
-        {
-          // stdin is still piped on Unix (/dev/stdin reads from it);
-          // on Windows the named pipe server feeds content directly.
-          ...(process.platform !== "win32" ? { stdin: content } : {}),
-          ...(env ? { env } : {}),
-        },
-      );
-    } finally {
-      pipeCleanup?.();
-    }
-
-    if (result.exitCode !== 0) {
-      throw new SopsEncryptionError(
-        `Failed to encrypt '${filePath}': ${result.stderr.trim()}`,
-        filePath,
-      );
-    }
-
-    // Atomic write: a torn file from Ctrl+C / OOM mid-write would be undecryptable.
-    try {
-      await writeFileAtomic(filePath, result.stdout);
-    } catch (err) {
-      throw new SopsEncryptionError(
-        `Failed to write encrypted data to '${filePath}': ${(err as Error).message}`,
-        filePath,
-      );
-    }
-  }
-
-  /**
-   * Rotate encryption by adding a new age recipient key to an existing SOPS file.
-   *
-   * @param filePath - Path to the encrypted file to re-encrypt.
-   * @param newKey - New age public key to add as a recipient.
-   * @throws {@link SopsEncryptionError} On failure.
-   */
-  async reEncrypt(filePath: string, newKey: string): Promise<void> {
-    await this.addRecipient(filePath, newKey);
-  }
-
-  /**
-   * Add an age recipient to an existing SOPS file.
-   *
-   * @param filePath - Path to the encrypted file.
-   * @param key - age public key to add as a recipient.
-   * @throws {@link SopsEncryptionError} On failure.
-   */
-  async addRecipient(filePath: string, key: string): Promise<void> {
-    await assertSops(this.runner, this.sopsCommand);
-    const env = this.buildSopsEnv();
-    const result = await this.runner.run(
-      this.sopsCommand,
-      ["rotate", ...this.keyserviceArgs, "-i", "--add-age", key, filePath],
-      {
-        ...(env ? { env } : {}),
-      },
-    );
-
-    if (result.exitCode !== 0) {
-      throw new SopsEncryptionError(
-        `Failed to add recipient to '${filePath}': ${result.stderr.trim()}`,
-        filePath,
-      );
-    }
-  }
-
-  /**
-   * Remove an age recipient from an existing SOPS file.
-   *
-   * @param filePath - Path to the encrypted file.
-   * @param key - age public key to remove.
-   * @throws {@link SopsEncryptionError} On failure.
-   */
-  async removeRecipient(filePath: string, key: string): Promise<void> {
-    await assertSops(this.runner, this.sopsCommand);
-    const env = this.buildSopsEnv();
-    const result = await this.runner.run(
-      this.sopsCommand,
-      ["rotate", ...this.keyserviceArgs, "-i", "--rm-age", key, filePath],
-      {
-        ...(env ? { env } : {}),
-      },
-    );
-
-    if (result.exitCode !== 0) {
-      throw new SopsEncryptionError(
-        `Failed to remove recipient from '${filePath}': ${result.stderr.trim()}`,
-        filePath,
-      );
-    }
-  }
-
-  /**
-   * Check whether a file contains valid SOPS encryption metadata.
-   *
-   * @param filePath - Path to the file to check.
-   * @returns `true` if valid SOPS metadata is present; `false` otherwise. Never throws.
-   */
-  async validateEncryption(filePath: string): Promise<boolean> {
-    await assertSops(this.runner, this.sopsCommand);
-    try {
-      await this.getMetadata(filePath);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Extract SOPS metadata (backend, recipients, last-modified timestamp) from an encrypted file
-   * without decrypting its values.
-   *
-   * @param filePath - Path to the encrypted file.
-   * @returns {@link SopsMetadata} parsed from the file's `sops:` block.
-   * @throws {@link SopsDecryptionError} If the file cannot be read or parsed.
-   */
-  async getMetadata(filePath: string): Promise<SopsMetadata> {
-    await assertSops(this.runner, this.sopsCommand);
-    const env = this.buildSopsEnv();
-    const result = await this.runner.run(this.sopsCommand, ["filestatus", filePath], {
-      ...(env ? { env } : {}),
-    });
-
-    // filestatus returns JSON with encrypted status; if it fails, try parsing the file directly
-    if (result.exitCode !== 0) {
-      // Fall back to reading SOPS metadata from the encrypted file
-      return this.parseMetadataFromFile(filePath);
-    }
-
-    return this.parseMetadataFromFile(filePath);
   }
 
   /**
@@ -423,22 +295,32 @@ export class SopsClient implements EncryptionBackend {
         filePath,
       );
     }
+    return this.parseMetadataFromContent(content, filePath);
+  }
 
+  /**
+   * Parse SOPS metadata from a string (no IO). Used by both
+   * `parseMetadataFromFile` (after reading from disk) and the blob-shaped
+   * `getMetadataFromBlob` (which receives ciphertext directly from a
+   * BlobStore). The `label` is woven into error messages so callers can
+   * include the file path or cell ref the content came from.
+   */
+  private parseMetadataFromContent(content: string, label: string): SopsMetadata {
     let parsed: Record<string, unknown>;
     try {
       parsed = YAML.parse(content);
     } catch {
       throw new SopsDecryptionError(
-        `File '${filePath}' is not valid YAML. Cannot extract SOPS metadata.`,
-        filePath,
+        `${label} is not valid YAML. Cannot extract SOPS metadata.`,
+        label,
       );
     }
 
     const sops = parsed?.sops as Record<string, unknown> | undefined;
     if (!sops) {
       throw new SopsDecryptionError(
-        `File '${filePath}' does not contain SOPS metadata. It may not be encrypted.`,
-        filePath,
+        `${label} does not contain SOPS metadata. It may not be encrypted.`,
+        label,
       );
     }
 
@@ -517,11 +399,7 @@ export class SopsClient implements EncryptionBackend {
     }
   }
 
-  private buildEncryptArgs(
-    filePath: string,
-    manifest: ClefManifest,
-    environment?: string,
-  ): string[] {
+  private buildEncryptArgs(manifest: ClefManifest, environment?: string): string[] {
     const args: string[] = [];
 
     const config = environment
@@ -579,5 +457,239 @@ export class SopsClient implements EncryptionBackend {
     }
 
     return args;
+  }
+
+  // ── Blob-shaped methods ─────────────────────────────────────────────────
+  //
+  // These mirror the file-path methods above but operate on opaque
+  // ciphertext bytes via SOPS' stdin/stdout. They are the substrate-
+  // agnostic primitives used by the `composeSecretSource` factory to
+  // wrap any `BlobStore` (filesystem, postgres, etc.) into a full
+  // `SecretSource`. Plaintext never leaves the SOPS subprocess.
+
+  /**
+   * {@link EncryptionBackend.decrypt} — decrypt SOPS-encrypted bytes (e.g.
+   * read from a `StorageBackend`) and return plaintext values + metadata.
+   * Plaintext lives only in memory.
+   */
+  async decrypt(blob: string, ctx: EncryptionContext): Promise<DecryptedFile> {
+    await assertSops(this.runner, this.sopsCommand);
+    const env = this.buildSopsEnv();
+    const pipe = await openInputPipe(blob);
+
+    let result;
+    try {
+      result = await this.runner.run(
+        this.sopsCommand,
+        [
+          "decrypt",
+          ...this.keyserviceArgs,
+          "--input-type",
+          ctx.format,
+          "--output-type",
+          ctx.format,
+          pipe.inputArg,
+        ],
+        {
+          ...(pipe.runnerStdin !== undefined ? { stdin: pipe.runnerStdin } : {}),
+          ...(env ? { env } : {}),
+        },
+      );
+    } finally {
+      pipe.cleanup();
+    }
+
+    if (result.exitCode !== 0) {
+      const errorType = await this.classifyDecryptErrorFromContent(blob);
+      if (errorType === "key-not-found") {
+        throw new SopsKeyNotFoundError(`No decryption key found for cell. ${result.stderr.trim()}`);
+      }
+      throw new SopsDecryptionError(`Failed to decrypt cell: ${result.stderr.trim()}`);
+    }
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = YAML.parse(result.stdout) ?? {};
+    } catch {
+      throw new SopsDecryptionError("Decrypted content is not valid YAML.");
+    }
+
+    const values: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      values[key] = String(value);
+    }
+
+    const metadata = this.parseMetadataFromContent(blob, "<cell>");
+    return { values, metadata };
+  }
+
+  /**
+   * {@link EncryptionBackend.encrypt} — encrypt plaintext values into a
+   * SOPS-formatted ciphertext blob. Returns the bytes as a string;
+   * caller (typically a `StorageBackend`) decides where to put them.
+   * Plaintext is piped via stdin only.
+   */
+  async encrypt(values: Record<string, string>, ctx: EncryptionContext): Promise<string> {
+    await assertSops(this.runner, this.sopsCommand);
+    const content =
+      ctx.format === "json" ? JSON.stringify(values, null, 2) : YAML.stringify(values);
+    const args = this.buildEncryptArgs(ctx.manifest, ctx.environment);
+    const env = this.buildSopsEnv();
+    const pipe = await openInputPipe(content);
+
+    let result;
+    try {
+      result = await this.runner.run(
+        this.sopsCommand,
+        [
+          "--config",
+          nullConfigPath(),
+          "encrypt",
+          ...this.keyserviceArgs,
+          ...args,
+          "--input-type",
+          ctx.format,
+          "--output-type",
+          ctx.format,
+          pipe.inputArg,
+        ],
+        {
+          ...(pipe.runnerStdin !== undefined ? { stdin: pipe.runnerStdin } : {}),
+          ...(env ? { env } : {}),
+        },
+      );
+    } finally {
+      pipe.cleanup();
+    }
+
+    if (result.exitCode !== 0) {
+      throw new SopsEncryptionError(`Failed to encrypt cell: ${result.stderr.trim()}`);
+    }
+
+    return result.stdout;
+  }
+
+  /**
+   * {@link EncryptionBackend.rotate} — add or remove recipients from an
+   * encrypted SOPS blob via stdin/stdout. Drops the in-place `-i` flag
+   * the deleted file-path-shaped methods used, so SOPS writes the
+   * rotated ciphertext to stdout instead of back to a file. Plaintext
+   * stays inside the SOPS subprocess; no plaintext window exists in
+   * this Node process.
+   *
+   * Single SOPS invocation can both add and remove recipients
+   * simultaneously (matches the CLI flag set).
+   */
+  async rotate(blob: string, opts: RotateOptions, ctx: EncryptionContext): Promise<string> {
+    await assertSops(this.runner, this.sopsCommand);
+    const env = this.buildSopsEnv();
+    const pipe = await openInputPipe(blob);
+
+    const flagArgs: string[] = [];
+    if (opts.addAge) flagArgs.push("--add-age", opts.addAge);
+    if (opts.rmAge) flagArgs.push("--rm-age", opts.rmAge);
+    if (opts.addKms) flagArgs.push("--add-kms", opts.addKms);
+    if (opts.rmKms) flagArgs.push("--rm-kms", opts.rmKms);
+    if (opts.addGcpKms) flagArgs.push("--add-gcp-kms", opts.addGcpKms);
+    if (opts.rmGcpKms) flagArgs.push("--rm-gcp-kms", opts.rmGcpKms);
+    if (opts.addAzureKv) flagArgs.push("--add-azure-kv", opts.addAzureKv);
+    if (opts.rmAzureKv) flagArgs.push("--rm-azure-kv", opts.rmAzureKv);
+    if (opts.addPgp) flagArgs.push("--add-pgp", opts.addPgp);
+    if (opts.rmPgp) flagArgs.push("--rm-pgp", opts.rmPgp);
+
+    let result;
+    try {
+      result = await this.runner.run(
+        this.sopsCommand,
+        [
+          "--config",
+          nullConfigPath(),
+          "rotate",
+          ...this.keyserviceArgs,
+          ...flagArgs,
+          "--input-type",
+          ctx.format,
+          "--output-type",
+          ctx.format,
+          pipe.inputArg,
+        ],
+        {
+          ...(pipe.runnerStdin !== undefined ? { stdin: pipe.runnerStdin } : {}),
+          ...(env ? { env } : {}),
+        },
+      );
+    } finally {
+      pipe.cleanup();
+    }
+
+    if (result.exitCode !== 0) {
+      throw new SopsEncryptionError(`Failed to rotate cell: ${result.stderr.trim()}`);
+    }
+
+    return result.stdout;
+  }
+
+  /**
+   * {@link EncryptionBackend.getMetadata} — extract SOPS metadata from a
+   * ciphertext blob without decrypting. Pure parser, no IO, no
+   * subprocess.
+   */
+  getMetadata(content: string): SopsMetadata {
+    return this.parseMetadataFromContent(content, "<cell>");
+  }
+
+  /**
+   * {@link EncryptionBackend.validateEncryption} — whether `content` is a
+   * valid SOPS-encrypted blob (parses + has the `sops:` metadata
+   * block). Never throws.
+   */
+  validateEncryption(content: string): boolean {
+    try {
+      this.parseMetadataFromContent(content, "<cell>");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Blob-shaped variant of `classifyDecryptError`. Same logic as the
+   * file-path version but reads metadata from the in-memory ciphertext
+   * instead of disk.
+   */
+  private async classifyDecryptErrorFromContent(
+    content: string,
+  ): Promise<"key-not-found" | "other"> {
+    let metadata: SopsMetadata;
+    try {
+      metadata = this.parseMetadataFromContent(content, "<cell>");
+    } catch {
+      return "other";
+    }
+
+    if (metadata.backend !== "age") return "other";
+    if (!this.ageKey && !this.ageKeyFile) return "key-not-found";
+
+    let keyContent: string;
+    try {
+      keyContent = this.ageKey ?? fs.readFileSync(this.ageKeyFile!, "utf-8");
+    } catch {
+      return "key-not-found";
+    }
+
+    const privateKeys = keyContent
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("AGE-SECRET-KEY-"));
+
+    if (privateKeys.length === 0) return "key-not-found";
+
+    try {
+      const publicKeys = await Promise.all(privateKeys.map((k) => deriveAgePublicKey(k)));
+      const recipients = new Set(metadata.recipients);
+      return publicKeys.some((pk) => recipients.has(pk)) ? "other" : "key-not-found";
+    } catch {
+      return "other";
+    }
   }
 }

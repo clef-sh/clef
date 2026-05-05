@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/cdk",
-  "version": "0.4.6-beta.193",
+  "version": "0.5.0-alpha.201",
   "description": "AWS CDK L2 constructs for delivering Clef-managed secrets to AWS resources",
   "repository": {
     "type": "git",
@@ -18,8 +18,8 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "@clef-sh/core": "0.1.28-beta.193",
-    "@clef-sh/runtime": "0.1.31-beta.193"
+    "@clef-sh/core": "0.2.0-alpha.201",
+    "@clef-sh/runtime": "0.1.32-alpha.201"
   },
   "optionalDependencies": {
     "@clef-sh/sops-darwin-arm64": "3.12.2",
@@ -42,11 +42,11 @@
     "@aws-sdk/client-kms": "^3.500.0",
     "@aws-sdk/client-secrets-manager": "^3.500.0",
     "@aws-sdk/client-ssm": "^3.500.0",
-    "@types/jest": "^29.5.0",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.19.39",
     "aws-cdk-lib": "^2.100.0",
     "constructs": "^10.0.0",
-    "jest": "^29.7.0",
+    "jest": "^30.0.0",
     "ts-jest": "^29.4.9",
     "typescript": "^5.4.0"
   },

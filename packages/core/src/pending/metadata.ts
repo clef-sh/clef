@@ -60,9 +60,6 @@ interface CellMetadata {
   rotations: RotationRecord[];
 }
 
-/** @deprecated Use {@link CellMetadata}.  Retained for external import compatibility. */
-type PendingMetadata = CellMetadata;
-
 /**
  * Derive the `.clef-meta.yaml` path from an `.enc.yaml` path.
  * Example: `database/dev.enc.yaml` → `database/dev.clef-meta.yaml`
@@ -276,7 +273,6 @@ export {
   PendingKey,
   RotationRecord,
   CellMetadata,
-  PendingMetadata,
   metadataPath,
   loadMetadata,
   saveMetadata,

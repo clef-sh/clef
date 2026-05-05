@@ -1,14 +1,20 @@
-import type { ClefManifest, EncryptionBackend, SubprocessRunner } from "../types";
+import type { ClefManifest, SubprocessRunner } from "../types";
 import type { KmsProvider } from "../kms";
 import type { PackResult } from "../artifact/types";
+import type { SecretSource } from "../source/types";
 
 /**
  * Shared services a PackBackend may use. A backend is free to ignore any
  * field it does not need.
  */
 export interface PackServices {
-  /** Decryption/encryption of SOPS source files in the matrix. */
-  encryption: EncryptionBackend;
+  /**
+   * Plaintext-cell access to the matrix. Backends call `source.readCell`
+   * (typically via the shared `resolveIdentitySecrets` helper) to fetch
+   * decrypted values for an identity's scoped namespaces × environment.
+   * Encryption substrate is opaque to the backend.
+   */
+  source: SecretSource;
   /** KMS provider, already constructed. Undefined when the manifest does not require one. */
   kms?: KmsProvider;
   /** For subprocess access (git, external CLIs). Prefer this over child_process. */

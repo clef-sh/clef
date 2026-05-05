@@ -4,15 +4,13 @@ The matrix view is the home screen of the Clef UI. It answers the question "is m
 
 ## Layout
 
-```mermaid
-block-beta
-  columns 4
-  pills["13 healthy · 2 missing keys · 1 warning"]:4
-  space dev["DEV"] stg["STAGING"] prod["PRODUCTION"]
-  db["database"] dbd["● 5 keys · 2h ago"] dbs["● 5 keys · 1d ago"] dbp["● 5 keys · 3d ago"]
-  pay["payments"] payd["● 3 keys · 1h ago"] pays["● 3 keys · 1h ago"] payp["⚠ 4 keys · -1 missing"]
-  auth["auth"] authd["● 7 keys · 5m ago"] auths["● 7 keys · 5m ago"] authp["⚠ 7 keys · 1 warn"]
-```
+> **13 healthy · 2 missing keys · 1 warning**
+
+| Namespace    | DEV               | STAGING           | PRODUCTION            |
+| ------------ | ----------------- | ----------------- | --------------------- |
+| **database** | ● 5 keys · 2h ago | ● 5 keys · 1d ago | ● 5 keys · 3d ago     |
+| **payments** | ● 3 keys · 1h ago | ● 3 keys · 1h ago | ⚠ 4 keys · -1 missing |
+| **auth**     | ● 7 keys · 5m ago | ● 7 keys · 5m ago | ⚠ 7 keys · 1 warn     |
 
 ## Summary pills
 
@@ -51,7 +49,7 @@ If a cell is missing entirely (the encrypted file does not exist), it appears wi
 
 ## What the matrix reveals
 
-The matrix makes two problems visible that are otherwise invisible with raw SOPS:
+The matrix makes two project-level problems visible that aren't visible from any single encrypted file:
 
 1. **Missing cells** — a namespace/environment combination that has no file on disk. This usually means the matrix is incomplete after adding a new namespace or environment.
 

@@ -1,6 +1,6 @@
 # PGP
 
-[PGP (Pretty Good Privacy)](https://www.openpgp.org/) is a legacy encryption standard supported by SOPS. It uses GPG key pairs for encryption and decryption.
+[PGP (Pretty Good Privacy)](https://www.openpgp.org/) is one of the encryption backends supported by SOPS. It uses GPG key pairs for encryption and decryption, and remains in wide use in organizations with established GPG infrastructure.
 
 ## When to use PGP
 
