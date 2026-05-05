@@ -41,7 +41,7 @@ runs:
           packages/*/node_modules
           packages/pack/*/node_modules
           ~/.cache/puppeteer
-        key: nm-${{ runner.os }}-node24-scripts${{ inputs.ignore-scripts }}-${{ hashFiles('package-lock.json') }}
+        key: nm-${{ runner.os }}-${{ runner.arch }}-node24-scripts${{ inputs.ignore-scripts }}-${{ hashFiles('package-lock.json') }}
 
     - name: npm ci (cache miss)
       if: steps.nm-cache.outputs.cache-hit != 'true'
