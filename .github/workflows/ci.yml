@@ -180,7 +180,7 @@ jobs:
       - name: Install SoftHSM2 + OpenSC
         run: sudo apt-get update && sudo apt-get install -y softhsm2 opensc
       - uses: ./.github/actions/setup-node
-      - run: npm run build
+      - run: npm run build:packages
       - run: npm run test:integration
       - name: Agent integration tests
         run: npx jest --config packages/agent/jest.integration.config.js
@@ -339,7 +339,7 @@ jobs:
       - name: Build packages
         shell: bash
         run: |
-          npm run build
+          npm run build:packages
           if [[ "${{ matrix.mode }}" == "sea" ]]; then
             npm run build:sea -w packages/cli
           fi
