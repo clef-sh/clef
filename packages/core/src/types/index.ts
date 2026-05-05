@@ -340,35 +340,6 @@ export interface SopsMetadata {
   version?: string;
 }
 
-/**
- * Backend-agnostic interface for all encryption/decryption operations.
- *
- * `SopsClient` is the canonical implementation. Consumers should depend on this
- * interface rather than the concrete class so the encryption backend can be
- * replaced without touching call sites.
- */
-export interface FileEncryptionBackend {
-  /** Decrypt a file and return its values and metadata. */
-  decrypt(filePath: string): Promise<DecryptedFile>;
-  /** Encrypt a key/value map and write it to a file. */
-  encrypt(
-    filePath: string,
-    values: Record<string, string>,
-    manifest: ClefManifest,
-    environment?: string,
-  ): Promise<void>;
-  /** Rotate encryption by adding a new recipient key. */
-  reEncrypt(filePath: string, newKey: string): Promise<void>;
-  /** Add an age recipient to an encrypted file (rotate + add-age). */
-  addRecipient(filePath: string, key: string): Promise<void>;
-  /** Remove an age recipient from an encrypted file (rotate + rm-age). */
-  removeRecipient(filePath: string, key: string): Promise<void>;
-  /** Check whether a file has valid encryption metadata. */
-  validateEncryption(filePath: string): Promise<boolean>;
-  /** Extract encryption metadata without decrypting. */
-  getMetadata(filePath: string): Promise<SopsMetadata>;
-}
-
 // ── Consumption ─────────────────────────────────────────────────────────────
 
 /** Options for `ConsumptionClient.prepareEnvironment`. */

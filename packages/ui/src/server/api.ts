@@ -313,7 +313,7 @@ export function createApiRouter(deps: ApiDeps): Router {
   router.get("/matrix", async (_req: Request, res: Response) => {
     try {
       const manifest = loadManifest();
-      const statuses = await matrix.getMatrixStatus(manifest, deps.repoRoot, sops);
+      const statuses = await matrix.getMatrixStatus(manifest, deps.repoRoot);
       res.json(statuses);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to get matrix status";

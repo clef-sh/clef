@@ -120,7 +120,14 @@ export function registerMergeDriverCommand(
           }
 
           if (manifest) {
-            await sopsClient.encrypt(oursPath, result.merged, manifest, environment);
+            // encrypt(filePath) was deleted in Phase 7. Encrypt to bytes via
+            // the blob surface, then write atomically — git invoked us with
+            // a temp filesystem path (oursPath) that doesn't map to a clef
+            // CellRef, so the source seam isn't reachable here.
+            const fmt = oursPath.endsWith(".json") ? "json" : "yaml";
+            const blob = await sopsClient.encryptBlob(result.merged, manifest, environment, fmt);
+            const writeFileAtomic = (await import("write-file-atomic")).default;
+            await writeFileAtomic(oursPath, blob);
           } else {
             // Fallback: write merged YAML to ours path without re-encrypting via manifest.
             // This shouldn't happen in a properly configured Clef repo.

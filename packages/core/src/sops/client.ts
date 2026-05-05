@@ -13,13 +13,11 @@
 import * as fs from "fs";
 import * as net from "net";
 import { randomBytes } from "crypto";
-import writeFileAtomic from "write-file-atomic";
 import * as YAML from "yaml";
 import {
   BackendType,
   ClefManifest,
   DecryptedFile,
-  FileEncryptionBackend,
   SopsDecryptionError,
   SopsEncryptionError,
   SopsKeyNotFoundError,
@@ -98,16 +96,32 @@ function openWindowsInputPipe(content: string): Promise<{ inputArg: string; clea
 }
 
 /**
- * Wraps the `sops` binary for encryption, decryption, re-encryption, and metadata extraction.
- * All decrypt/encrypt operations are piped via stdin/stdout — plaintext never touches disk.
+ * Wraps the `sops` binary for encryption, decryption, rotation, and metadata
+ * extraction. All blob operations are piped via stdin/stdout — plaintext
+ * never touches disk.
+ *
+ * The legacy file-path methods (`encrypt(filePath, ...)`, `addRecipient`,
+ * `removeRecipient`, `reEncrypt`, `validateEncryption(filePath)`,
+ * `getMetadata(filePath)`) were removed in Phase 7. The only remaining
+ * file-path entry point is `decrypt(filePath)`, kept for the merge driver
+ * which receives temp file paths from git.
+ *
+ * Production consumers should reach this class through
+ * `composeSecretSource(storage, createSopsEncryptionBackend(client),
+ * manifest)` and call `source.readCell` / `source.writeCell` etc.
  *
  * @example
  * ```ts
  * const client = new SopsClient(runner, "/home/user/.age/key.txt");
- * const decrypted = await client.decrypt("secrets/production.enc.yaml");
+ * const source = composeSecretSource(
+ *   new FilesystemStorageBackend(manifest, repoRoot),
+ *   createSopsEncryptionBackend(client),
+ *   manifest,
+ * );
+ * const cell = await source.readCell({ namespace: "db", environment: "prod" });
  * ```
  */
-export class SopsClient implements FileEncryptionBackend {
+export class SopsClient {
   private readonly sopsCommand: string;
   private readonly keyserviceArgs: readonly string[];
 
@@ -201,185 +215,13 @@ export class SopsClient implements FileEncryptionBackend {
       values[key] = String(value);
     }
 
-    const metadata = await this.getMetadata(filePath);
+    // decrypt() is now the only public file-path method; populate metadata
+    // by reading the cipher's plaintext SOPS block directly rather than
+    // shelling out a second time. parseMetadataFromFile is private — the
+    // blob-shaped getMetadataFromBlob is the substrate-agnostic surface.
+    const metadata = this.parseMetadataFromFile(filePath);
 
     return { values, metadata };
-  }
-
-  /**
-   * Encrypt a key/value map and write it to an encrypted SOPS file.
-   *
-   * @param filePath - Destination path for the encrypted file.
-   * @param values - Flat key/value map to encrypt.
-   * @param manifest - Manifest used to determine the encryption backend and key configuration.
-   * @param environment - Optional environment name. When provided, per-env backend overrides
-   *   are resolved from the manifest. When omitted, the global `sops.default_backend` is used.
-   * @throws {@link SopsEncryptionError} On encryption or write failure.
-   */
-  async encrypt(
-    filePath: string,
-    values: Record<string, string>,
-    manifest: ClefManifest,
-    environment?: string,
-  ): Promise<void> {
-    await assertSops(this.runner, this.sopsCommand);
-    const fmt = formatFromPath(filePath);
-    const content = fmt === "json" ? JSON.stringify(values, null, 2) : YAML.stringify(values);
-    const args = this.buildEncryptArgs(manifest, environment);
-    const env = this.buildSopsEnv();
-
-    // sops requires an explicit input path — it does not read from stdin implicitly.
-    // openInputPipe gives us /dev/stdin (Unix) or a named pipe (Windows); both
-    // are paths SOPS can open with its file IO.
-    const pipe = await openInputPipe(content);
-
-    let result;
-    try {
-      // --config must precede the subcommand — it is a global sops flag.
-      result = await this.runner.run(
-        this.sopsCommand,
-        [
-          "--config",
-          nullConfigPath(),
-          "encrypt",
-          ...this.keyserviceArgs,
-          ...args,
-          "--input-type",
-          fmt,
-          "--output-type",
-          fmt,
-          "--filename-override",
-          filePath,
-          pipe.inputArg,
-        ],
-        {
-          ...(pipe.runnerStdin !== undefined ? { stdin: pipe.runnerStdin } : {}),
-          ...(env ? { env } : {}),
-        },
-      );
-    } finally {
-      pipe.cleanup();
-    }
-
-    if (result.exitCode !== 0) {
-      throw new SopsEncryptionError(
-        `Failed to encrypt '${filePath}': ${result.stderr.trim()}`,
-        filePath,
-      );
-    }
-
-    // Atomic write: a torn file from Ctrl+C / OOM mid-write would be undecryptable.
-    try {
-      await writeFileAtomic(filePath, result.stdout);
-    } catch (err) {
-      throw new SopsEncryptionError(
-        `Failed to write encrypted data to '${filePath}': ${(err as Error).message}`,
-        filePath,
-      );
-    }
-  }
-
-  /**
-   * Rotate encryption by adding a new age recipient key to an existing SOPS file.
-   *
-   * @param filePath - Path to the encrypted file to re-encrypt.
-   * @param newKey - New age public key to add as a recipient.
-   * @throws {@link SopsEncryptionError} On failure.
-   */
-  async reEncrypt(filePath: string, newKey: string): Promise<void> {
-    await this.addRecipient(filePath, newKey);
-  }
-
-  /**
-   * Add an age recipient to an existing SOPS file.
-   *
-   * @param filePath - Path to the encrypted file.
-   * @param key - age public key to add as a recipient.
-   * @throws {@link SopsEncryptionError} On failure.
-   */
-  async addRecipient(filePath: string, key: string): Promise<void> {
-    await assertSops(this.runner, this.sopsCommand);
-    const env = this.buildSopsEnv();
-    const result = await this.runner.run(
-      this.sopsCommand,
-      ["rotate", ...this.keyserviceArgs, "-i", "--add-age", key, filePath],
-      {
-        ...(env ? { env } : {}),
-      },
-    );
-
-    if (result.exitCode !== 0) {
-      throw new SopsEncryptionError(
-        `Failed to add recipient to '${filePath}': ${result.stderr.trim()}`,
-        filePath,
-      );
-    }
-  }
-
-  /**
-   * Remove an age recipient from an existing SOPS file.
-   *
-   * @param filePath - Path to the encrypted file.
-   * @param key - age public key to remove.
-   * @throws {@link SopsEncryptionError} On failure.
-   */
-  async removeRecipient(filePath: string, key: string): Promise<void> {
-    await assertSops(this.runner, this.sopsCommand);
-    const env = this.buildSopsEnv();
-    const result = await this.runner.run(
-      this.sopsCommand,
-      ["rotate", ...this.keyserviceArgs, "-i", "--rm-age", key, filePath],
-      {
-        ...(env ? { env } : {}),
-      },
-    );
-
-    if (result.exitCode !== 0) {
-      throw new SopsEncryptionError(
-        `Failed to remove recipient from '${filePath}': ${result.stderr.trim()}`,
-        filePath,
-      );
-    }
-  }
-
-  /**
-   * Check whether a file contains valid SOPS encryption metadata.
-   *
-   * @param filePath - Path to the file to check.
-   * @returns `true` if valid SOPS metadata is present; `false` otherwise. Never throws.
-   */
-  async validateEncryption(filePath: string): Promise<boolean> {
-    await assertSops(this.runner, this.sopsCommand);
-    try {
-      await this.getMetadata(filePath);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Extract SOPS metadata (backend, recipients, last-modified timestamp) from an encrypted file
-   * without decrypting its values.
-   *
-   * @param filePath - Path to the encrypted file.
-   * @returns {@link SopsMetadata} parsed from the file's `sops:` block.
-   * @throws {@link SopsDecryptionError} If the file cannot be read or parsed.
-   */
-  async getMetadata(filePath: string): Promise<SopsMetadata> {
-    await assertSops(this.runner, this.sopsCommand);
-    const env = this.buildSopsEnv();
-    const result = await this.runner.run(this.sopsCommand, ["filestatus", filePath], {
-      ...(env ? { env } : {}),
-    });
-
-    // filestatus returns JSON with encrypted status; if it fails, try parsing the file directly
-    if (result.exitCode !== 0) {
-      // Fall back to reading SOPS metadata from the encrypted file
-      return this.parseMetadataFromFile(filePath);
-    }
-
-    return this.parseMetadataFromFile(filePath);
   }
 
   /**

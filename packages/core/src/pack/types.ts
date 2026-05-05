@@ -1,4 +1,4 @@
-import type { ClefManifest, FileEncryptionBackend, SubprocessRunner } from "../types";
+import type { ClefManifest, SubprocessRunner } from "../types";
 import type { KmsProvider } from "../kms";
 import type { PackResult } from "../artifact/types";
 import type { SecretSource } from "../source/types";
@@ -15,14 +15,6 @@ export interface PackServices {
    * Encryption substrate is opaque to the backend.
    */
   source: SecretSource;
-  /**
-   * @deprecated Legacy file-encryption surface kept alive while published
-   * plugin packages (e.g. `@clef-sh/pack-aws-parameter-store@0.1.x`) still
-   * reference it. Bundled CLI + UI no longer populate this field after
-   * Phase 5k; new plugins should consume `source` instead. Phase 7
-   * cleanup deletes this once published plugins catch up.
-   */
-  encryption?: FileEncryptionBackend;
   /** KMS provider, already constructed. Undefined when the manifest does not require one. */
   kms?: KmsProvider;
   /** For subprocess access (git, external CLIs). Prefer this over child_process. */
