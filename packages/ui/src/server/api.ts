@@ -28,11 +28,6 @@ import {
   FilesystemStorageBackend,
   ScanResult,
   KmsConfig,
-  getPendingKeys,
-  markResolved,
-  markPendingWithRetry,
-  recordRotation,
-  removeRotation,
   generateRandomValue,
   ImportRunner,
   RecipientManager,
@@ -349,13 +344,15 @@ export function createApiRouter(deps: ApiDeps): Router {
           return;
         }
 
-        const filePath = `${deps.repoRoot}/${manifest.file_pattern.replace("{namespace}", ns).replace("{environment}", env)}`;
-        const decrypted = await sops.decrypt(filePath);
+        const source = buildSourceFor(manifest);
+        const ref = { namespace: ns, environment: env };
+        const decrypted = await source.readCell(ref);
 
         // Read pending keys from metadata (plaintext sidecar)
         let pending: string[] = [];
         try {
-          pending = await getPendingKeys(filePath);
+          const meta = await source.getPendingMetadata(ref);
+          pending = meta.pending.map((p) => p.key);
         } catch {
           // Metadata unreadable — no pending info
         }
@@ -426,8 +423,9 @@ export function createApiRouter(deps: ApiDeps): Router {
         const relCellPath = manifest.file_pattern
           .replace("{namespace}", ns)
           .replace("{environment}", env);
-        const filePath = `${deps.repoRoot}/${relCellPath}`;
-        const decrypted = await sops.decrypt(filePath);
+        const source = buildSourceFor(manifest);
+        const ref = { namespace: ns, environment: env };
+        const decrypted = await source.readCell(ref);
 
         // Inside the mutate callback we do the actual encrypt + metadata
         // update. When auto-commit is enabled this runs inside tx.run; when
@@ -436,15 +434,15 @@ export function createApiRouter(deps: ApiDeps): Router {
         const doWork = async (): Promise<void> => {
           if (random) {
             decrypted.values[key] = generateRandomValue();
-            await sops.encrypt(filePath, decrypted.values, manifest, env);
+            await source.writeCell(ref, decrypted.values);
             // Metadata update failure used to trigger an in-method rollback
             // here. Inside tx.run, that rollback comes for free via git
             // reset, so we just let the throw propagate.
-            await markPendingWithRetry(filePath, [key], "clef ui");
+            await source.markPending(ref, [key], "clef ui");
             response = { success: true, key, pending: true };
           } else {
             decrypted.values[key] = String(value);
-            await sops.encrypt(filePath, decrypted.values, manifest, env);
+            await source.writeCell(ref, decrypted.values);
 
             // Validate against schema if defined
             const nsDef = manifest.namespaces.find((n) => n.name === ns);
@@ -464,11 +462,11 @@ export function createApiRouter(deps: ApiDeps): Router {
                 // Schema load failed — skip validation, not fatal
               }
             }
-            // Real value set is a rotation event.  recordRotation also
+            // Real value set is a rotation event. recordRotation also
             // strips any matching pending entry, so this one call replaces
             // the old markResolved + implicit pending cleanup.
             try {
-              await recordRotation(filePath, [key], "clef ui");
+              await source.recordRotation(ref, [key], "clef ui");
             } catch {
               // Metadata update failed — non-fatal
             }
@@ -530,8 +528,9 @@ export function createApiRouter(deps: ApiDeps): Router {
         const relCellPath = manifest.file_pattern
           .replace("{namespace}", ns)
           .replace("{environment}", env);
-        const filePath = `${deps.repoRoot}/${relCellPath}`;
-        const decrypted = await sops.decrypt(filePath);
+        const source = buildSourceFor(manifest);
+        const ref = { namespace: ns, environment: env };
+        const decrypted = await source.readCell(ref);
 
         if (!(key in decrypted.values)) {
           res.status(404).json({
@@ -543,12 +542,12 @@ export function createApiRouter(deps: ApiDeps): Router {
 
         const doWork = async (): Promise<void> => {
           delete decrypted.values[key];
-          await sops.encrypt(filePath, decrypted.values, manifest, env);
+          await source.writeCell(ref, decrypted.values);
           // Strip both pending and rotation records — the key no longer
           // exists, so stale metadata would mislead policy.
           try {
-            await markResolved(filePath, [key]);
-            await removeRotation(filePath, [key]);
+            await source.markResolved(ref, [key]);
+            await source.removeRotation(ref, [key]);
           } catch {
             // Best effort — orphaned metadata is annoying but not dangerous
           }
@@ -595,8 +594,9 @@ export function createApiRouter(deps: ApiDeps): Router {
         const relCellPath = manifest.file_pattern
           .replace("{namespace}", ns)
           .replace("{environment}", env);
-        const filePath = `${deps.repoRoot}/${relCellPath}`;
-        const decrypted = await sops.decrypt(filePath);
+        const source = buildSourceFor(manifest);
+        const ref = { namespace: ns, environment: env };
+        const decrypted = await source.readCell(ref);
         const value = key in decrypted.values ? String(decrypted.values[key]) : undefined;
         await tx.run(deps.repoRoot, {
           description: `clef ui: accept ${ns}/${env}/${key}`,
@@ -607,7 +607,7 @@ export function createApiRouter(deps: ApiDeps): Router {
             // rotation — it establishes a point-in-time "this is the
             // current secret" assertion.  recordRotation also strips the
             // pending entry.
-            await recordRotation(filePath, [key], "clef ui (accept)");
+            await source.recordRotation(ref, [key], "clef ui (accept)");
           },
         });
         res.json({ success: true, key, value });
@@ -660,8 +660,11 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
-      const source = await sops.decrypt(fromCell.filePath);
-      if (!(key in source.values)) {
+      const cellSource = buildSourceFor(manifest);
+      const fromRef = { namespace: fromNs, environment: fromEnv };
+      const toRef = { namespace: toNs, environment: toEnv };
+      const sourceCell = await cellSource.readCell(fromRef);
+      if (!(key in sourceCell.values)) {
         res.status(404).json({
           error: `Key '${key}' not found in ${fromNs}/${fromEnv}.`,
           code: "KEY_NOT_FOUND",
@@ -674,18 +677,18 @@ export function createApiRouter(deps: ApiDeps): Router {
         description: `clef ui: copy ${key} from ${fromNs}/${fromEnv} to ${toNs}/${toEnv}`,
         paths: [relToPath, relToPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
         mutate: async () => {
-          const dest = await sops.decrypt(toCell.filePath);
-          const valueChanged = dest.values[key] !== source.values[key];
-          dest.values[key] = source.values[key];
-          await sops.encrypt(toCell.filePath, dest.values, manifest, toCell.environment);
+          const dest = await cellSource.readCell(toRef);
+          const valueChanged = dest.values[key] !== sourceCell.values[key];
+          dest.values[key] = sourceCell.values[key];
+          await cellSource.writeCell(toRef, dest.values);
           // Only a real value change is a rotation.  Copying an identical
           // value re-encrypts the ciphertext but does not rotate — matches
           // the import semantics agreed in the design.
           try {
             if (valueChanged) {
-              await recordRotation(toCell.filePath, [key], "clef ui (copy)");
+              await cellSource.recordRotation(toRef, [key], "clef ui (copy)");
             } else {
-              await markResolved(toCell.filePath, [key]);
+              await cellSource.markResolved(toRef, [key]);
             }
           } catch {
             // Non-fatal — destination may not have had pending state
