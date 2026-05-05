@@ -92,7 +92,7 @@ export interface RuntimeConfig {
    * - **`PackedArtifact` object** — use when the artifact is bundled into the
    *   deployed code (e.g. `import artifact from "./artifact.production.json"`
    *   in a Vercel serverless function). The runtime wraps it in an
-   *   {@link InlineArtifactSource} and validates eagerly. Do not call
+   *   `InlineArtifactSource` and validates eagerly. Do not call
    *   `runtime.startPolling()` with an inline source — the content is fixed
    *   for the process lifetime, so the timer would only no-op.
    * - **`ArtifactSource` instance** — pre-built source (e.g.

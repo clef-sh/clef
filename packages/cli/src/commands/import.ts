@@ -15,7 +15,7 @@ import {
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createSopsClient } from "../age-credential";
+import { createSecretSource } from "../source-factory";
 
 async function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -148,7 +148,7 @@ export function registerImportCommand(program: Command, deps: { runner: Subproce
             formatter.print(`Importing to ${namespace}/${environment} from ${sourceLabel}...\n`);
           }
 
-          const { client: sopsClient, cleanup } = await createSopsClient(
+          const { source: secretSource, cleanup } = await createSecretSource(
             repoRoot,
             deps.runner,
             manifest,
@@ -156,7 +156,7 @@ export function registerImportCommand(program: Command, deps: { runner: Subproce
           try {
             const git = new GitIntegration(deps.runner);
             const tx = new TransactionManager(git);
-            const importRunner = new ImportRunner(sopsClient, tx);
+            const importRunner = new ImportRunner(secretSource, tx);
 
             // Resolve the rotator identity for rotation records — git author
             // config when set, null when absent (ImportRunner skips recording

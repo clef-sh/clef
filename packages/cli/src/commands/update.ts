@@ -5,13 +5,12 @@ import {
   GitIntegration,
   ManifestParser,
   MatrixManager,
-  SopsClient,
   SubprocessRunner,
   TransactionManager,
 } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
-import { resolveAgeCredential, prepareSopsClientArgs } from "../age-credential";
+import { createSecretSource } from "../source-factory";
 
 export function registerUpdateCommand(program: Command, deps: { runner: SubprocessRunner }): void {
   program
@@ -37,12 +36,7 @@ export function registerUpdateCommand(program: Command, deps: { runner: Subproce
         const parser = new ManifestParser();
         const manifest = parser.parse(manifestPath);
 
-        const credential =
-          manifest.sops.default_backend === "age"
-            ? await resolveAgeCredential(repoRoot, deps.runner)
-            : null;
-        const { ageKeyFile, ageKey } = prepareSopsClientArgs(credential);
-        const sopsClient = new SopsClient(deps.runner, ageKeyFile, ageKey);
+        const { source, cleanup } = await createSecretSource(repoRoot, deps.runner, manifest);
         const matrixManager = new MatrixManager();
         const cells = matrixManager.resolveMatrix(manifest, repoRoot);
         const missing = cells.filter((c) => !c.exists);
@@ -60,29 +54,36 @@ export function registerUpdateCommand(program: Command, deps: { runner: Subproce
             ? `clef update: scaffold ${missing[0].namespace}/${missing[0].environment}`
             : `clef update: scaffold ${missing.length} matrix cells`;
 
-        const tx = new TransactionManager(new GitIntegration(deps.runner));
-        const result = await tx.run(repoRoot, {
-          description,
-          paths,
-          mutate: async () => {
-            for (const cell of missing) {
-              await matrixManager.scaffoldCell(cell, sopsClient, manifest);
-            }
-          },
-        });
-
-        if (isJsonMode()) {
-          formatter.json({
-            scaffolded: missing.length,
-            sha: result.sha,
-            paths: result.paths,
+        try {
+          const tx = new TransactionManager(new GitIntegration(deps.runner));
+          const result = await tx.run(repoRoot, {
+            description,
+            paths,
+            mutate: async () => {
+              for (const cell of missing) {
+                await source.scaffoldCell(
+                  { namespace: cell.namespace, environment: cell.environment },
+                  manifest,
+                );
+              }
+            },
           });
-          return;
-        }
 
-        formatter.success(`Scaffolded ${missing.length} encrypted file(s)`);
-        if (result.sha) {
-          formatter.print(`  Committed as ${result.sha.slice(0, 7)}`);
+          if (isJsonMode()) {
+            formatter.json({
+              scaffolded: missing.length,
+              sha: result.sha,
+              paths: result.paths,
+            });
+            return;
+          }
+
+          formatter.success(`Scaffolded ${missing.length} encrypted file(s)`);
+          if (result.sha) {
+            formatter.print(`  Committed as ${result.sha.slice(0, 7)}`);
+          }
+        } finally {
+          await cleanup();
         }
       } catch (err) {
         handleCommandError(err);

@@ -136,7 +136,7 @@ export class AwsParameterStoreBackend implements PackBackend {
       req.environment,
       req.manifest,
       req.repoRoot,
-      req.services.encryption,
+      req.services.source,
       matrixManager,
     );
 

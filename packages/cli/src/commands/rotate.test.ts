@@ -238,7 +238,9 @@ describe("clef rotate", () => {
         if (cmd === "sops" && args[0] === "--version") {
           return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
         }
-        if (cmd === "sops" && args[0] === "rotate")
+        // rotateBlob prefixes the args with --config nullConfigPath, so
+        // args[0] is no longer "rotate" — match by inclusion instead.
+        if (cmd === "sops" && args.includes("rotate"))
           return { stdout: "", stderr: "rotation failed", exitCode: 1 };
         if (cmd === "sops" && args[0] === "filestatus")
           return { stdout: "", stderr: "", exitCode: 1 };

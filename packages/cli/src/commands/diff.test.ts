@@ -43,31 +43,38 @@ const validManifestYaml = YAML.stringify({
   file_pattern: "{namespace}/{environment}.enc.yaml",
 });
 
+// After the SecretSource flip, sops decrypt always sees /dev/stdin as
+// the input arg — the cell-distinguishing signal arrives via the bytes
+// fs.readFileSync returns for each cell path AND via opts.stdin on the
+// runner.
+const devCellBlob =
+  "__marker: dev-cell\nsops:\n  age:\n    - recipient: age1\n  lastmodified: '2024-01-15'\n";
+const prodCellBlob =
+  "__marker: prod-cell\nsops:\n  age:\n    - recipient: age1\n  lastmodified: '2024-01-15'\n";
+
 function diffRunner(devVals: string, prodVals: string): SubprocessRunner {
   return {
-    run: jest.fn().mockImplementation(async (cmd: string, args: string[]) => {
-      if (cmd === "age") {
-        return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
-      }
-      if (cmd === "sops" && args[0] === "--version") {
-        return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
-      }
-      if (cmd === "sops" && args[0] === "decrypt") {
-        const filePath = args[args.length - 1];
-        if (filePath.includes("dev")) return { stdout: devVals, stderr: "", exitCode: 0 };
-        return { stdout: prodVals, stderr: "", exitCode: 0 };
-      }
-      if (cmd === "sops" && args[0] === "filestatus")
-        return { stdout: "", stderr: "", exitCode: 1 };
-      if (cmd === "cat") {
-        return {
-          stdout: "sops:\n  age:\n    - recipient: age1\n  lastmodified: '2024-01-15'\n",
-          stderr: "",
-          exitCode: 0,
-        };
-      }
-      return { stdout: "", stderr: "", exitCode: 0 };
-    }),
+    run: jest
+      .fn()
+      .mockImplementation(async (cmd: string, args: string[], opts?: { stdin?: string }) => {
+        if (cmd === "age") {
+          return { stdout: "v1.1.1", stderr: "", exitCode: 0 };
+        }
+        if (cmd === "sops" && args[0] === "--version") {
+          return { stdout: "sops 3.12.2 (latest)", stderr: "", exitCode: 0 };
+        }
+        if (cmd === "sops" && args[0] === "decrypt") {
+          const stdin = opts?.stdin ?? "";
+          if (stdin.includes("dev-cell")) return { stdout: devVals, stderr: "", exitCode: 0 };
+          return { stdout: prodVals, stderr: "", exitCode: 0 };
+        }
+        if (cmd === "sops" && args[0] === "filestatus")
+          return { stdout: "", stderr: "", exitCode: 1 };
+        if (cmd === "cat") {
+          return { stdout: prodCellBlob, stderr: "", exitCode: 0 };
+        }
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }),
   };
 }
 
@@ -82,7 +89,15 @@ function makeProgram(runner: SubprocessRunner): Command {
 describe("clef diff", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockFs.readFileSync.mockReturnValue(validManifestYaml);
+    // Manifest path returns the manifest YAML; cell paths return per-env
+    // blobs so the SopsClient.decryptBlob path sees realistic ciphertext.
+    mockFs.readFileSync.mockImplementation(((p: fs.PathOrFileDescriptor): string => {
+      const ps = String(p);
+      if (ps.endsWith("clef.yaml")) return validManifestYaml;
+      if (ps.includes("/dev")) return devCellBlob;
+      if (ps.includes("/production")) return prodCellBlob;
+      return validManifestYaml;
+    }) as never);
   });
 
   it("should display diff table with masked values by default", async () => {
@@ -212,7 +227,13 @@ describe("clef diff", () => {
       sops: { default_backend: "age" },
       file_pattern: "{namespace}/{environment}.enc.yaml",
     });
-    mockFs.readFileSync.mockReturnValue(protectedManifestYaml);
+    mockFs.readFileSync.mockImplementation(((p: fs.PathOrFileDescriptor): string => {
+      const ps = String(p);
+      if (ps.endsWith("clef.yaml")) return protectedManifestYaml;
+      if (ps.includes("/dev")) return devCellBlob;
+      if (ps.includes("/production")) return prodCellBlob;
+      return protectedManifestYaml;
+    }) as never);
 
     const runner = diffRunner("KEY: a\n", "KEY: b\n");
     const program = makeProgram(runner);

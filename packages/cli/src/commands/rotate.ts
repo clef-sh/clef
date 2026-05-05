@@ -4,7 +4,7 @@ import { ManifestParser, MatrixManager, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createSopsClient } from "../age-credential";
+import { createSecretSource } from "../source-factory";
 import { parseTarget } from "../parse-target";
 
 export function registerRotateCommand(program: Command, deps: { runner: SubprocessRunner }): void {
@@ -39,18 +39,7 @@ export function registerRotateCommand(program: Command, deps: { runner: Subproce
           }
         }
 
-        const filePath = path.join(
-          repoRoot,
-          manifest.file_pattern
-            .replace("{namespace}", namespace)
-            .replace("{environment}", environment),
-        );
-
-        const { client: sopsClient, cleanup } = await createSopsClient(
-          repoRoot,
-          deps.runner,
-          manifest,
-        );
+        const { source, cleanup } = await createSecretSource(repoRoot, deps.runner, manifest);
         try {
           const relativeFile = manifest.file_pattern
             .replace("{namespace}", namespace)
@@ -58,7 +47,7 @@ export function registerRotateCommand(program: Command, deps: { runner: Subproce
 
           formatter.print(`${sym("working")}  Rotating ${namespace}/${environment}...`);
 
-          await sopsClient.reEncrypt(filePath, options.newKey);
+          await source.rotate({ namespace, environment }, { addAge: options.newKey });
 
           if (isJsonMode()) {
             formatter.json({ namespace, environment, file: relativeFile, action: "rotated" });

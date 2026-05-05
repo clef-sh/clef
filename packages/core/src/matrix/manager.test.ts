@@ -1,7 +1,6 @@
 import * as fs from "fs";
 import { MatrixManager } from "./manager";
 import { ClefManifest } from "../types";
-import { SopsClient } from "../sops/client";
 
 jest.mock("fs");
 jest.mock("../pending/metadata", () => ({
@@ -131,99 +130,15 @@ describe("MatrixManager", () => {
     });
   });
 
-  describe("scaffoldCell", () => {
-    it("should create directory and call sopsClient.encrypt with manifest and environment", async () => {
-      mockFs.existsSync.mockReturnValue(false);
-      mockFs.mkdirSync.mockReturnValue(undefined);
-
-      const mockSopsClient = {
-        encrypt: jest.fn().mockResolvedValue(undefined),
-      } as unknown as SopsClient;
-
-      const cell = {
-        namespace: "database",
-        environment: "dev",
-        filePath: "/repo/database/dev.enc.yaml",
-        exists: false,
-      };
-
-      const manifest = testManifest();
-      await manager.scaffoldCell(cell, mockSopsClient, manifest);
-
-      expect(mockFs.mkdirSync).toHaveBeenCalledWith("/repo/database", { recursive: true });
-      expect(mockSopsClient.encrypt).toHaveBeenCalledWith(
-        "/repo/database/dev.enc.yaml",
-        {},
-        manifest,
-        "dev",
-      );
-    });
-
-    it("should not create directory if it already exists", async () => {
-      mockFs.existsSync.mockReturnValue(true);
-
-      const mockSopsClient = {
-        encrypt: jest.fn().mockResolvedValue(undefined),
-      } as unknown as SopsClient;
-
-      const cell = {
-        namespace: "database",
-        environment: "dev",
-        filePath: "/repo/database/dev.enc.yaml",
-        exists: false,
-      };
-
-      await manager.scaffoldCell(cell, mockSopsClient, testManifest());
-
-      expect(mockFs.mkdirSync).not.toHaveBeenCalled();
-    });
-
-    it("should pass per-env backend via environment param to encrypt", async () => {
-      mockFs.existsSync.mockReturnValue(false);
-      mockFs.mkdirSync.mockReturnValue(undefined);
-
-      const mockSopsClient = {
-        encrypt: jest.fn().mockResolvedValue(undefined),
-      } as unknown as SopsClient;
-
-      const manifest: ClefManifest = {
-        ...testManifest(),
-        environments: [
-          {
-            name: "production",
-            description: "Production",
-            sops: {
-              backend: "awskms",
-              aws_kms_arn: "arn:aws:kms:us-east-1:123:key/abc",
-            },
-          },
-        ],
-      };
-
-      const cell = {
-        namespace: "database",
-        environment: "production",
-        filePath: "/repo/database/production.enc.yaml",
-        exists: false,
-      };
-
-      await manager.scaffoldCell(cell, mockSopsClient, manifest);
-
-      expect(mockSopsClient.encrypt).toHaveBeenCalledWith(
-        "/repo/database/production.enc.yaml",
-        {},
-        manifest,
-        "production",
-      );
-    });
-  });
+  // scaffoldCell was removed in Phase 7 — consumers go through
+  // source.scaffoldCell on the composed source. The cell-create + initial
+  // encrypt is covered by ComposedSecretSource's scaffoldCell tests.
 
   describe("getMatrixStatus", () => {
     it("should report missing cells as issues", async () => {
       mockFs.existsSync.mockReturnValue(false);
 
-      const mockSopsClient = {} as SopsClient;
-      const statuses = await manager.getMatrixStatus(testManifest(), "/repo", mockSopsClient);
+      const statuses = await manager.getMatrixStatus(testManifest(), "/repo");
 
       expect(statuses).toHaveLength(6);
       expect(statuses.every((s) => s.issues.length > 0)).toBe(true);
@@ -242,8 +157,6 @@ describe("MatrixManager", () => {
         return "DB_URL: ENC[...]\nDB_POOL: ENC[...]\nsops:\n  lastmodified: '2024-01-14T00:00:00Z'\n";
       });
 
-      const mockSopsClient = {} as unknown as SopsClient;
-
       const manifest = {
         ...testManifest(),
         namespaces: [{ name: "database", description: "DB" }],
@@ -253,7 +166,7 @@ describe("MatrixManager", () => {
         ],
       };
 
-      const statuses = await manager.getMatrixStatus(manifest, "/repo", mockSopsClient);
+      const statuses = await manager.getMatrixStatus(manifest, "/repo");
 
       expect(statuses).toHaveLength(2);
 
@@ -271,15 +184,13 @@ describe("MatrixManager", () => {
         throw new Error("permission denied");
       });
 
-      const mockSopsClient = {} as unknown as SopsClient;
-
       const manifest = {
         ...testManifest(),
         namespaces: [{ name: "database", description: "DB" }],
         environments: [{ name: "dev", description: "Dev" }],
       };
 
-      const statuses = await manager.getMatrixStatus(manifest, "/repo", mockSopsClient);
+      const statuses = await manager.getMatrixStatus(manifest, "/repo");
 
       expect(statuses).toHaveLength(1);
       expect(statuses[0].keyCount).toBe(0);

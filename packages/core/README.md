@@ -78,7 +78,6 @@ const result = await scanner.scan("/path/to/repo", { severity: "all" });
 | `SchemaValidator`   | Validate decrypted values against YAML schemas                |
 | `DiffEngine`        | Compare secrets between two environments                      |
 | `LintRunner`        | Full matrix health checks (completeness, schema, SOPS)        |
-| `BulkOps`           | Multi-environment set, delete, and copy                       |
 | `GitIntegration`    | Stage, commit, status, pre-commit hooks                       |
 | `ScanRunner`        | Detect plaintext secrets via entropy + pattern matching       |
 | `ImportRunner`      | Import from `.env`, JSON, or YAML                             |

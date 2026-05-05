@@ -26,6 +26,9 @@ import {
   SopsClient,
   isKmsEnvelope,
   resolveSopsPath,
+  composeSecretSource,
+  FilesystemStorageBackend,
+  wrapWithLinuxStdinFifo,
 } from "@clef-sh/core";
 import type {
   ClefManifest,
@@ -154,7 +157,10 @@ async function main(): Promise<void> {
   const path = await import("path");
   const repoRoot = path.dirname(path.resolve(args.manifest));
 
-  const runner = new ExecFileRunner();
+  // Wrap with the Linux FIFO workaround so SOPS can read its stdin
+  // input file when running on Linux (CDK synth pipes via stdin and
+  // /dev/stdin is unopenable for child Node processes).
+  const runner = wrapWithLinuxStdinFifo(new ExecFileRunner());
   // resolveSopsPath throws if no sops binary is available; let it propagate
   // so users see the install hint from @clef-sh/core.
   resolveSopsPath();
@@ -177,12 +183,17 @@ async function main(): Promise<void> {
   const backendOptions: Record<string, unknown> = { output };
   if (args.signingKmsKeyId) backendOptions.signingKmsKeyId = args.signingKmsKeyId;
   if (args.signingKey) backendOptions.signingKey = args.signingKey;
+  const source = composeSecretSource(
+    new FilesystemStorageBackend(manifest, repoRoot),
+    sopsClient,
+    manifest,
+  );
   const request: PackRequest = {
     identity: args.identity,
     environment: args.environment,
     manifest,
     repoRoot,
-    services: { encryption: sopsClient, kms, runner },
+    services: { source, kms, runner },
     backendOptions,
   };
   backend.validateOptions?.(request.backendOptions);

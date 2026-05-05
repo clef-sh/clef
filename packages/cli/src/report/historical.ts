@@ -3,12 +3,13 @@ import * as path from "path";
 import * as fs from "fs";
 import {
   ClefReport,
+  ManifestParser,
   MatrixManager,
   ReportGenerator,
   SchemaValidator,
-  SopsClient,
   SubprocessRunner,
 } from "@clef-sh/core";
+import { createSecretSource } from "../source-factory";
 
 /**
  * Generate a {@link ClefReport} at a specific commit by creating a temporary
@@ -31,13 +32,19 @@ export async function generateReportAtCommit(
       throw new Error(`Failed to create worktree: ${addResult.stderr}`);
     }
 
-    // Create sops client — resolveSopsPath is called internally by SopsClient
-    const sopsClient = new SopsClient(runner);
-    const matrixManager = new MatrixManager();
-    const schemaValidator = new SchemaValidator();
-    const generator = new ReportGenerator(runner, sopsClient, matrixManager, schemaValidator);
+    // Build the source against the worktree's manifest — recipients and
+    // backend may differ between the historical commit and HEAD.
+    const manifest = new ManifestParser().parse(path.join(tmpDir, "clef.yaml"));
+    const { source, cleanup: cleanupSource } = await createSecretSource(tmpDir, runner, manifest);
+    try {
+      const matrixManager = new MatrixManager();
+      const schemaValidator = new SchemaValidator();
+      const generator = new ReportGenerator(runner, source, matrixManager, schemaValidator);
 
-    return await generator.generate(tmpDir, clefVersion);
+      return await generator.generate(tmpDir, clefVersion);
+    } finally {
+      await cleanupSource();
+    }
   } finally {
     // Always clean up the worktree
     try {

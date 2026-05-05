@@ -3,9 +3,9 @@
  *
  * Three-way merge driver for `.clef-meta.yaml` sidecar files.  Invoked by
  * git via the `merge=clef-metadata` attribute registered in
- * `.gitattributes`.  Single entry point: {@link mergeMetadataContents}
- * (pure string → string), with a {@link mergeMetadataFiles} wrapper that
- * handles the filesystem I/O.
+ * `.gitattributes`.  Public entry point: {@link mergeMetadataFiles} —
+ * thin filesystem wrapper around the internal `mergeMetadataContents`
+ * (pure string → string) helper.
  *
  * Unlike the SOPS merge driver, this one auto-resolves every conflict —
  * the data model (timestamps + counters) lets us pick the later value
@@ -225,10 +225,11 @@ export function mergeMetadataContents(oursContent: string, theirsContent: string
 }
 
 /**
- * Filesystem wrapper around {@link mergeMetadataContents}.  Reads ours and
- * theirs, writes the merged result back to `oursPath` (the conventional
- * destination git passes as `%A`).  Does not read `basePath` — see the
- * merge algorithm's docstring for why a base revision is not needed.
+ * Filesystem wrapper around `mergeMetadataContents` (internal).  Reads
+ * ours and theirs, writes the merged result back to `oursPath` (the
+ * conventional destination git passes as `%A`).  Does not read
+ * `basePath` — see the merge algorithm's docstring for why a base
+ * revision is not needed.
  */
 export function mergeMetadataFiles(_basePath: string, oursPath: string, theirsPath: string): void {
   const oursContent = fs.existsSync(oursPath) ? fs.readFileSync(oursPath, "utf-8") : "";

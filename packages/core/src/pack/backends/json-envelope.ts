@@ -47,11 +47,7 @@ export class JsonEnvelopeBackend implements PackBackend {
 
   async pack(req: PackRequest): Promise<BackendPackResult> {
     const opts = req.backendOptions as JsonEnvelopeOptions;
-    const packer = new ArtifactPacker(
-      req.services.encryption,
-      new MatrixManager(),
-      req.services.kms,
-    );
+    const packer = new ArtifactPacker(req.services.source, new MatrixManager(), req.services.kms);
     const output =
       opts.output ?? (opts.outputPath ? new FilePackOutput(opts.outputPath) : undefined);
     const result = await packer.pack(

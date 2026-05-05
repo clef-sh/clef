@@ -25,6 +25,9 @@ import { LintRunner } from "../lint/runner";
 import { SchemaValidator } from "../schema/validator";
 import { ScanRunner, ScanResult } from "../scanner";
 import { LintResult, SubprocessRunner } from "../types";
+import { composeSecretSource } from "../source/compose";
+import { FilesystemStorageBackend } from "../source/filesystem-storage-backend";
+import type { SecretSource } from "../source/types";
 import { CLEF_POLICY_FILENAME, PolicyParser } from "../policy/parser";
 import { PolicyEvaluator } from "../policy/evaluator";
 import { FileRotationStatus, PolicyDocument } from "../policy/types";
@@ -135,6 +138,11 @@ export async function runCompliance(opts: RunComplianceOptions): Promise<RunComp
   const sopsClient = new SopsClient(opts.runner, opts.ageKeyFile, opts.ageKey, opts.sopsPath);
   const matrixManager = new MatrixManager();
   const schemaValidator = new SchemaValidator();
+  const lintSource = composeSecretSource(
+    new FilesystemStorageBackend(manifest, repoRoot),
+    sopsClient,
+    manifest,
+  );
 
   // Detect git context in parallel with metadata lookups — both are cheap
   // and independent.
@@ -147,7 +155,7 @@ export async function runCompliance(opts: RunComplianceOptions): Promise<RunComp
           repoRoot,
           policy,
           matrixManager,
-          sopsClient,
+          source: lintSource,
           filter: opts.filter,
           now,
         })
@@ -156,7 +164,7 @@ export async function runCompliance(opts: RunComplianceOptions): Promise<RunComp
       ? new ScanRunner(opts.runner).scan(repoRoot, manifest)
       : Promise.resolve(emptyScan()),
     include.lint
-      ? new LintRunner(matrixManager, schemaValidator, sopsClient).run(manifest, repoRoot)
+      ? new LintRunner(matrixManager, schemaValidator, lintSource).run(manifest, repoRoot)
       : Promise.resolve(emptyLint()),
   ]);
 
@@ -192,7 +200,7 @@ interface EvaluateMatrixArgs {
   repoRoot: string;
   policy: PolicyDocument;
   matrixManager: MatrixManager;
-  sopsClient: SopsClient;
+  source: SecretSource;
   filter: RunComplianceOptions["filter"];
   now: Date;
 }
@@ -206,7 +214,10 @@ async function evaluateMatrix(args: EvaluateMatrixArgs): Promise<FileRotationSta
 
   return Promise.all(
     cells.map(async (cell) => {
-      const metadata = await args.sopsClient.getMetadata(cell.filePath);
+      const metadata = await args.source.getCellMetadata({
+        namespace: cell.namespace,
+        environment: cell.environment,
+      });
       const relPath = path.relative(args.repoRoot, cell.filePath).replace(/\\/g, "/");
       // Enumerate plaintext key names without decrypting — SOPS stores them
       // in plaintext at the top level.  `readSopsKeyNames` returns null on

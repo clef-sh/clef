@@ -240,7 +240,7 @@ export class AwsSecretsManagerBackend implements PackBackend {
       req.environment,
       req.manifest,
       req.repoRoot,
-      req.services.encryption,
+      req.services.source,
       matrixManager,
     );
 

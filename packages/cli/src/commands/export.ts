@@ -3,7 +3,7 @@ import { Command } from "commander";
 import { ManifestParser, ConsumptionClient, SubprocessRunner } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
-import { createSopsClient } from "../age-credential";
+import { createSecretSource } from "../source-factory";
 import { copyToClipboard } from "../clipboard";
 import { parseTarget } from "../parse-target";
 
@@ -56,20 +56,9 @@ export function registerExportCommand(program: Command, deps: { runner: Subproce
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const filePath = path.join(
-          repoRoot,
-          manifest.file_pattern
-            .replace("{namespace}", namespace)
-            .replace("{environment}", environment),
-        );
-
-        const { client: sopsClient, cleanup } = await createSopsClient(
-          repoRoot,
-          deps.runner,
-          manifest,
-        );
+        const { source, cleanup } = await createSecretSource(repoRoot, deps.runner, manifest);
         try {
-          const decrypted = await sopsClient.decrypt(filePath);
+          const decrypted = await source.readCell({ namespace, environment });
 
           if (isJsonMode()) {
             const pairs = Object.entries(decrypted.values).map(([k, v]) => ({

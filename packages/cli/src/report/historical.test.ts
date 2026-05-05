@@ -2,11 +2,28 @@ import { SubprocessRunner, SubprocessResult } from "@clef-sh/core";
 import { generateReportAtCommit, listCommitRange, getHeadSha } from "./historical";
 
 jest.mock("fs");
+jest.mock("../source-factory", () => ({
+  createSecretSource: jest.fn().mockResolvedValue({
+    source: {
+      id: "mock",
+      description: "mock",
+    },
+    cleanup: jest.fn().mockResolvedValue(undefined),
+  }),
+}));
 jest.mock("@clef-sh/core", () => {
   const actual = jest.requireActual("@clef-sh/core");
   return {
     ...actual,
-    SopsClient: jest.fn().mockImplementation(() => ({})),
+    ManifestParser: jest.fn().mockImplementation(() => ({
+      parse: jest.fn().mockReturnValue({
+        version: 1,
+        environments: [],
+        namespaces: [],
+        sops: { default_backend: "age" },
+        file_pattern: "{namespace}/{environment}.enc.yaml",
+      }),
+    })),
     ReportGenerator: jest.fn().mockImplementation(() => ({
       generate: jest.fn().mockResolvedValue({
         schemaVersion: 1,

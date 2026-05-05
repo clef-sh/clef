@@ -12,7 +12,7 @@ import {
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createSopsClient } from "../age-credential";
+import { createSecretSource } from "../source-factory";
 import { lintResultToOtlp, pushOtlp, resolveTelemetryConfig } from "../output/otlp";
 import { version as cliVersion } from "../../package.json";
 
@@ -33,15 +33,11 @@ export function registerLintCommand(program: Command, deps: { runner: Subprocess
         const parser = new ManifestParser();
         const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-        const { client: sopsClient, cleanup } = await createSopsClient(
-          repoRoot,
-          deps.runner,
-          manifest,
-        );
+        const { source, cleanup } = await createSecretSource(repoRoot, deps.runner, manifest);
         try {
           const matrixManager = new MatrixManager();
           const schemaValidator = new SchemaValidator();
-          const lintRunner = new LintRunner(matrixManager, schemaValidator, sopsClient);
+          const lintRunner = new LintRunner(matrixManager, schemaValidator, source);
 
           const cellCount = manifest.namespaces.length * manifest.environments.length;
           formatter.print(
