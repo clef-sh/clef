@@ -18,6 +18,7 @@ import {
   BackendType,
   ClefManifest,
   DecryptedFile,
+  MergeDecrypter,
   SopsDecryptionError,
   SopsEncryptionError,
   SopsKeyNotFoundError,
@@ -112,7 +113,8 @@ function openWindowsInputPipe(content: string): Promise<{ inputArg: string; clea
  * `validateEncryption(filePath)`, `getMetadata(filePath)`) were removed
  * in Phase 7. The only remaining file-path entry point is
  * {@link decryptFile}, kept for the merge driver which receives temp
- * file paths from git.
+ * file paths from git — the contract for that surface is
+ * {@link MergeDecrypter}.
  *
  * @example
  * ```ts
@@ -125,7 +127,7 @@ function openWindowsInputPipe(content: string): Promise<{ inputArg: string; clea
  * const cell = await source.readCell({ namespace: "db", environment: "prod" });
  * ```
  */
-export class SopsClient implements EncryptionBackend {
+export class SopsClient implements EncryptionBackend, MergeDecrypter {
   /** {@link EncryptionBackend} identifier. */
   readonly id = "sops";
   /** {@link EncryptionBackend} short description (used by `clef doctor`). */

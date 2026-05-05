@@ -313,6 +313,17 @@ export interface DecryptedFile {
   metadata: SopsMetadata;
 }
 
+/**
+ * Narrow surface the merge driver needs: decrypt-by-path. Git invokes the
+ * driver with three temp filesystem paths that don't map onto a clef
+ * `CellRef` (especially `base` and `theirs`, which live in `.git/`), so a
+ * path-shaped seam stays alive here even though the rest of the codebase
+ * has moved to `SecretSource`. Implemented by `SopsClient`.
+ */
+export interface MergeDecrypter {
+  decryptFile(filePath: string): Promise<DecryptedFile>;
+}
+
 /** SOPS metadata extracted from an encrypted file without decrypting its values. */
 export interface SopsMetadata {
   backend: BackendType;

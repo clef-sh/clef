@@ -1,17 +1,4 @@
-import { DecryptedFile } from "../types";
-
-/**
- * Narrow surface the merge driver actually needs: decrypt-by-path. Git
- * invokes the driver with three temp filesystem paths that don't map
- * onto a clef `CellRef` (especially `base` and `theirs`, which live in
- * `.git/`), so the path-shaped seam stays alive here even though the
- * rest of the codebase has moved to `SecretSource`. `SopsClient`
- * implements this surface via {@link "../sops/client".SopsClient.decryptFile};
- * tests can pass any object that does.
- */
-export interface MergeDecrypter {
-  decryptFile(filePath: string): Promise<DecryptedFile>;
-}
+import { MergeDecrypter } from "../types";
 
 /** Status of a single key in a three-way merge. */
 export type MergeKeyStatus = "unchanged" | "ours" | "theirs" | "both_added" | "conflict";
