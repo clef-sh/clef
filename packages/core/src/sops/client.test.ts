@@ -464,6 +464,235 @@ describe("SopsClient — HSM backend metadata", () => {
   });
 });
 
+describe("SopsClient — non-age backend metadata parsing", () => {
+  function makeClient(): SopsClient {
+    const noop = jest.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 }));
+    return new SopsClient({ run: noop });
+  }
+
+  function detect(client: SopsClient): (s: Record<string, unknown>) => string {
+    return (
+      client as unknown as { detectBackend(s: Record<string, unknown>): string }
+    ).detectBackend.bind(client);
+  }
+
+  function extract(client: SopsClient): (s: Record<string, unknown>, backend: string) => string[] {
+    return (
+      client as unknown as {
+        extractRecipients(s: Record<string, unknown>, b: string): string[];
+      }
+    ).extractRecipients.bind(client);
+  }
+
+  describe("detectBackend", () => {
+    it("classifies sops.gcp_kms entries as 'gcpkms'", () => {
+      expect(
+        detect(makeClient())({
+          gcp_kms: [{ resource_id: "projects/p/locations/l/keyRings/r/cryptoKeys/k" }],
+        }),
+      ).toBe("gcpkms");
+    });
+
+    it("classifies sops.azure_kv entries as 'azurekv'", () => {
+      expect(
+        detect(makeClient())({
+          azure_kv: [{ vaultUrl: "https://vault.vault.azure.net", name: "key1" }],
+        }),
+      ).toBe("azurekv");
+    });
+
+    it("classifies sops.pgp entries as 'pgp'", () => {
+      expect(detect(makeClient())({ pgp: [{ fp: "DEADBEEF" }] })).toBe("pgp");
+    });
+
+    it("falls back to 'age' when metadata lists no recognized backend", () => {
+      // Empty arrays count as absent — the runtime guard is `length > 0`.
+      expect(detect(makeClient())({ kms: [], gcp_kms: [], azure_kv: [], pgp: [] })).toBe("age");
+    });
+  });
+
+  describe("extractRecipients", () => {
+    it("returns gcp_kms resource_ids", () => {
+      const sopsBlock = {
+        gcp_kms: [
+          { resource_id: "projects/p/locations/l/keyRings/r/cryptoKeys/k1" },
+          { resource_id: "projects/p/locations/l/keyRings/r/cryptoKeys/k2" },
+        ],
+      };
+      expect(extract(makeClient())(sopsBlock, "gcpkms")).toEqual([
+        "projects/p/locations/l/keyRings/r/cryptoKeys/k1",
+        "projects/p/locations/l/keyRings/r/cryptoKeys/k2",
+      ]);
+    });
+
+    it("composes azure_kv key identifiers from vaultUrl + name", () => {
+      const sopsBlock = {
+        azure_kv: [{ vaultUrl: "https://v.vault.azure.net", name: "k1" }],
+      };
+      expect(extract(makeClient())(sopsBlock, "azurekv")).toEqual([
+        "https://v.vault.azure.net/keys/k1",
+      ]);
+    });
+
+    it("falls back to vaultUrl alone when azure_kv name is missing", () => {
+      const sopsBlock = {
+        azure_kv: [{ vaultUrl: "https://v.vault.azure.net" }],
+      };
+      expect(extract(makeClient())(sopsBlock, "azurekv")).toEqual(["https://v.vault.azure.net"]);
+    });
+
+    it("returns pgp fingerprints", () => {
+      expect(
+        extract(makeClient())({ pgp: [{ fp: "DEADBEEF" }, { fp: "CAFEBABE" }] }, "pgp"),
+      ).toEqual(["DEADBEEF", "CAFEBABE"]);
+    });
+  });
+});
+
+describe("SopsClient — buildEncryptArgs per backend", () => {
+  function buildArgs(client: SopsClient, manifest: ClefManifest): string[] {
+    return (
+      client as unknown as {
+        buildEncryptArgs(m: ClefManifest, env?: string): string[];
+      }
+    ).buildEncryptArgs(manifest);
+  }
+
+  function makeClient(): SopsClient {
+    const noop = jest.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 }));
+    return new SopsClient({ run: noop });
+  }
+
+  it("emits --kms <arn> for awskms", () => {
+    const manifest: ClefManifest = {
+      ...testManifest(),
+      sops: {
+        default_backend: "awskms",
+        aws_kms_arn: "arn:aws:kms:us-east-1:111122223333:key/abc-123",
+      },
+    };
+    expect(buildArgs(makeClient(), manifest)).toEqual([
+      "--kms",
+      "arn:aws:kms:us-east-1:111122223333:key/abc-123",
+    ]);
+  });
+
+  it("emits --gcp-kms <resource_id> for gcpkms", () => {
+    const manifest: ClefManifest = {
+      ...testManifest(),
+      sops: {
+        default_backend: "gcpkms",
+        gcp_kms_resource_id: "projects/p/locations/l/keyRings/r/cryptoKeys/k",
+      },
+    };
+    expect(buildArgs(makeClient(), manifest)).toEqual([
+      "--gcp-kms",
+      "projects/p/locations/l/keyRings/r/cryptoKeys/k",
+    ]);
+  });
+
+  it("emits --azure-kv <url> for azurekv", () => {
+    const manifest: ClefManifest = {
+      ...testManifest(),
+      sops: { default_backend: "azurekv", azure_kv_url: "https://v.vault.azure.net/keys/k/v" },
+    };
+    expect(buildArgs(makeClient(), manifest)).toEqual([
+      "--azure-kv",
+      "https://v.vault.azure.net/keys/k/v",
+    ]);
+  });
+
+  it("emits --pgp <fingerprint> for pgp", () => {
+    const manifest: ClefManifest = {
+      ...testManifest(),
+      sops: { default_backend: "pgp", pgp_fingerprint: "DEADBEEF" },
+    };
+    expect(buildArgs(makeClient(), manifest)).toEqual(["--pgp", "DEADBEEF"]);
+  });
+
+  it("wraps the pkcs11 URI in a synthetic ARN under --kms for hsm", () => {
+    const manifest: ClefManifest = {
+      ...testManifest(),
+      sops: { default_backend: "hsm", pkcs11_uri: "pkcs11:slot=0;label=clef-dek-wrapper" },
+    };
+    const args = buildArgs(makeClient(), manifest);
+    expect(args[0]).toBe("--kms");
+    // Synthetic ARN format: alias/clef-hsm/v1/<base64url(pkcs11 URI)>
+    expect(args[1]).toMatch(/^arn:aws:kms:[^:]+:[^:]+:alias\/clef-hsm\/v1\/[A-Za-z0-9_-]+$/);
+  });
+
+  it("emits no args when the backend slot is configured but its key field is empty", () => {
+    const manifest: ClefManifest = {
+      ...testManifest(),
+      sops: { default_backend: "awskms" }, // aws_kms_arn intentionally absent
+    };
+    expect(buildArgs(makeClient(), manifest)).toEqual([]);
+  });
+
+  it("emits no args for gcpkms/azurekv/pgp/hsm when their key field is absent", () => {
+    const client = makeClient();
+    for (const backend of ["gcpkms", "azurekv", "pgp", "hsm"] as const) {
+      const manifest: ClefManifest = {
+        ...testManifest(),
+        sops: { default_backend: backend },
+      };
+      expect(buildArgs(client, manifest)).toEqual([]);
+    }
+  });
+
+  it("unwraps age recipients given as { key } objects", () => {
+    const manifest: ClefManifest = {
+      ...testManifest(),
+      sops: {
+        default_backend: "age",
+        age: {
+          recipients: [
+            { key: "age1aaa", label: "alice" },
+            { key: "age1bbb", label: "bob" },
+          ],
+        },
+      },
+    };
+    expect(buildArgs(makeClient(), manifest)).toEqual(["--age", "age1aaa,age1bbb"]);
+  });
+});
+
+describe("SopsClient — parseMetadataFromContent edge cases", () => {
+  function parse(client: SopsClient): (content: string, label: string) => unknown {
+    return (
+      client as unknown as {
+        parseMetadataFromContent(content: string, label: string): unknown;
+      }
+    ).parseMetadataFromContent.bind(client);
+  }
+
+  function makeClient(): SopsClient {
+    const noop = jest.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 }));
+    return new SopsClient({ run: noop });
+  }
+
+  it("treats non-string `lastmodified` as absent and `version` as undefined", () => {
+    // Both fields present but with the wrong type — exercises the
+    // `typeof === 'string'` guards rather than the truthy path.
+    const yaml = `K: ENC[v]\nsops:\n  age:\n    - recipient: age1\n  lastmodified: 12345\n  version: 3\n`;
+    const result = parse(makeClient())(yaml, "fixture") as {
+      lastModifiedPresent: boolean;
+      version: string | undefined;
+    };
+    expect(result.lastModifiedPresent).toBe(false);
+    expect(result.version).toBeUndefined();
+  });
+
+  it("returns empty recipient list when extractRecipients sees an empty entries array", () => {
+    // sops.age is present-but-empty triggers the `?? []` empty-array branch.
+    // detectBackend falls through to "age" by default, so extractRecipients
+    // dispatches into the age case with an empty array.
+    const yaml = `K: ENC[v]\nsops:\n  age: []\n  lastmodified: "2024-01-01T00:00:00Z"\n  version: 3.8.1\n`;
+    const result = parse(makeClient())(yaml, "fixture") as { recipients: string[] };
+    expect(result.recipients).toEqual([]);
+  });
+});
+
 describe("JSON file format support", () => {
   it("should use yaml format flags for .enc.yaml files", async () => {
     const runFn = jest.fn(async (command: string, args: string[]) => {
