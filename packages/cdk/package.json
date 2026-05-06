@@ -41,7 +41,7 @@
   "devDependencies": {
     "@aws-sdk/client-kms": "^3.500.0",
     "@aws-sdk/client-secrets-manager": "^3.500.0",
-    "@aws-sdk/client-ssm": "^3.500.0",
+    "@aws-sdk/client-ssm": "^3.1043.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.19.39",
     "aws-cdk-lib": "^2.100.0",
