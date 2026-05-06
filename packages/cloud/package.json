@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/cloud",
-  "version": "0.1.35-alpha.201",
+  "version": "0.1.35-beta.202",
   "description": "Clef Cloud integration — managed KMS, device-flow auth, artifact hosting",
   "repository": {
     "type": "git",
@@ -64,7 +64,7 @@
     "yaml": "^2.8.3"
   },
   "peerDependencies": {
-    "@clef-sh/core": "0.2.0-alpha.201"
+    "@clef-sh/core": "0.2.0-beta.202"
   },
   "peerDependenciesMeta": {
     "@clef-sh/core": {
@@ -72,7 +72,7 @@
     }
   },
   "devDependencies": {
-    "@clef-sh/core": "0.2.0-alpha.201",
+    "@clef-sh/core": "0.2.0-beta.202",
     "@types/jest": "^30.0.0",
     "@types/node": "^20.19.39",
     "esbuild": "^0.28.0",
