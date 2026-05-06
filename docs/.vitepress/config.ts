@@ -1,17 +1,18 @@
-import { withMermaid } from "vitepress-plugin-mermaid";
+import { defineConfig } from "vitepress";
 
-export default withMermaid({
-  mermaid: {
-    theme: "dark",
-    themeVariables: {
-      background: "transparent",
-      fontFamily: "inherit",
-    },
-  },
+import { mermaidSvgPlugin } from "./plugins/mermaid-svg";
+
+export default defineConfig({
   title: "Clef",
   description: "Keep encrypted secrets alongside your code. One commit hash = your entire system.",
 
   appearance: "dark",
+
+  markdown: {
+    config(md) {
+      mermaidSvgPlugin(md);
+    },
+  },
 
   // Two chunks land over Vite's default 500 KB warning threshold:
   //   - `app.*.js` (~600 KB) — VitePress runtime + theme + minisearch.

@@ -17,14 +17,11 @@ Every secret in a Clef-managed repository lives at the intersection of two axes:
 
 This produces a matrix. Each cell in the matrix is a single encrypted YAML file containing the key-value pairs for that namespace in that environment.
 
-```mermaid
-block-beta
-  columns 4
-  space dev["DEV"] stg["STAGING"] prod["PRODUCTION"]
-  db["database"] dbd["5 keys"] dbs["5 keys"] dbp["5 keys"]
-  pay["payments"] payd["3 keys"] pays["3 keys"] payp["4 keys"]
-  auth["auth"] authd["7 keys"] auths["7 keys"] authp["7 keys"]
-```
+| Namespace    | DEV    | STAGING | PRODUCTION |
+| ------------ | ------ | ------- | ---------- |
+| **database** | 5 keys | 5 keys  | 5 keys     |
+| **payments** | 3 keys | 3 keys  | 4 keys     |
+| **auth**     | 7 keys | 7 keys  | 7 keys     |
 
 On disk, the matrix maps to a directory structure inside a `secrets/` directory:
 
@@ -47,10 +44,12 @@ your-repo/
         └── production.enc.yaml
 ```
 
-The two-axis model makes two problems visible that are otherwise invisible with raw SOPS:
+The two-axis model makes two project-level problems visible that aren't visible from any single encrypted file:
 
 1. **Missing cells** — a namespace/environment combination that should exist but does not. This means someone added a new environment but forgot to create files for it.
 2. **Key drift** — a key that exists in some environments but not others within the same namespace. For example, a key was added to `dev` but never promoted to `staging` or `production`. Clef compares the full set of keys across all environments in a namespace, not just the count.
+
+These are organizational concerns above the encryption layer — the matrix is where Clef adds them.
 
 Both problems are caught by `clef lint` and visualised in the UI matrix view.
 
@@ -140,7 +139,7 @@ The UI shows a persistent red warning banner on the production tab.
 
 ## The SOPS layer
 
-Clef never implements cryptography. All encryption and decryption is delegated to the `sops` binary via stdin/stdout pipes. Decrypted values exist only in memory — never written to temporary files or logged. Clef inherits all SOPS backend support (age, AWS KMS, GCP KMS, PGP) without implementing any of it.
+Clef never implements cryptography. All encryption and decryption is delegated to the `sops` binary via stdin/stdout pipes. Decrypted values exist only in memory — never written to temporary files or logged. Clef supports all SOPS backends (age, AWS KMS, GCP KMS, PGP) directly through the SOPS binary.
 
 ## Design decision: all namespaces are encrypted
 

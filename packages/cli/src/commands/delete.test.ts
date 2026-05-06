@@ -10,7 +10,6 @@ jest.mock("@clef-sh/core", () => {
   const actual = jest.requireActual("@clef-sh/core");
   return {
     ...actual,
-    markResolved: jest.fn().mockResolvedValue(undefined),
     GitIntegration: jest.fn().mockImplementation(() => ({})),
     TransactionManager: jest.fn().mockImplementation(() => ({
       run: jest
@@ -264,30 +263,38 @@ describe("clef delete", () => {
     expect(mockExit).toHaveBeenCalledWith(1);
   });
 
-  it("should call markResolved after successful single delete", async () => {
+  it("touches the .clef-meta.yaml sidecar after a successful single delete", async () => {
     const runner = sopsRunner();
     const program = makeProgram(runner);
 
     await program.parseAsync(["node", "clef", "delete", "database/dev", "KEY_TO_DELETE"]);
 
-    const { markResolved: mockMarkResolved } = jest.requireMock("@clef-sh/core");
-    expect(mockMarkResolved).toHaveBeenCalledWith(
-      expect.stringContaining("database/dev.enc.yaml"),
-      ["KEY_TO_DELETE"],
+    // After the SecretSource flip, source.markResolved + source.removeRotation
+    // go through FilesystemStorageBackend.writePendingMetadata -> saveMetadata
+    // -> fs.writeFileSync on the .clef-meta.yaml sidecar. Assert at that
+    // leaf rather than on the legacy markResolved/removeRotation core fns
+    // (which aren't called anymore).
+    const writeCalls = (fs.writeFileSync as jest.Mock).mock.calls.filter(
+      (c) => typeof c[0] === "string" && c[0].endsWith(".clef-meta.yaml"),
     );
+    expect(writeCalls.length).toBeGreaterThan(0);
+    expect(writeCalls.some(([p]) => String(p).includes("database/dev.clef-meta.yaml"))).toBe(true);
   });
 
-  it("succeeds even when markResolved fails after delete (non-fatal)", async () => {
-    const { markResolved: mockMarkResolved } = jest.requireMock("@clef-sh/core");
-    mockMarkResolved.mockRejectedValueOnce(new Error("disk full"));
+  it("succeeds even when sidecar write fails after delete (non-fatal)", async () => {
+    // Pending-metadata cleanup wraps source.markResolved + removeRotation
+    // in a try/catch — the cell may simply have no metadata. Make the
+    // sidecar write throw and verify the delete still succeeds.
+    (fs.writeFileSync as jest.Mock).mockImplementation(((target: string): void => {
+      if (typeof target === "string" && target.endsWith(".clef-meta.yaml")) {
+        throw new Error("disk full");
+      }
+    }) as never);
     const runner = sopsRunner();
     const program = makeProgram(runner);
 
     await program.parseAsync(["node", "clef", "delete", "database/dev", "KEY_TO_DELETE"]);
 
-    // markResolved failure is swallowed inside the tx mutate callback
-    // (the file may simply not have had pending state). The delete still
-    // succeeds and commits.
     expect(mockFormatter.success).toHaveBeenCalledWith(expect.stringContaining("Deleted"));
   });
 });

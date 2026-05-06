@@ -4,21 +4,18 @@ Side-by-side comparison of two environments for a namespace, with status indicat
 
 ## Layout
 
-```mermaid
-flowchart TD
-  controls["Namespace: payments · Env A: dev · Env B: production"]
-  summary["3 changed · 1 missing in dev · 1 identical"]
-  subgraph table["Diff Table"]
-    header["Key | dev | production | Status"]
-    r1["STRIPE_KEY | sk_test_abc123 | sk_live_xyz | changed"]
-    r2["STRIPE_PUB | pk_test_abc123 | pk_live_xyz | changed"]
-    r3["WEBHOOK_URL | https://test... | https://prod | changed"]
-    r4["REFUND_ENDPOINT | — not set — | /api/refund | missing"]
-  end
-  hint["Fix hint: clef set payments/dev REFUND_ENDPOINT &lt;value&gt;"]
+**Controls** — Namespace: `payments` · Env A: `dev` · Env B: `production`
 
-  controls --> summary --> table --> hint
-```
+**Summary** — 3 changed · 1 missing in dev · 1 identical
+
+| Key               | dev              | production     | Status  |
+| ----------------- | ---------------- | -------------- | ------- |
+| `STRIPE_KEY`      | `sk_test_abc123` | `sk_live_xyz`  | changed |
+| `STRIPE_PUB`      | `pk_test_abc123` | `pk_live_xyz`  | changed |
+| `WEBHOOK_URL`     | `https://test…`  | `https://prod` | changed |
+| `REFUND_ENDPOINT` | _— not set —_    | `/api/refund`  | missing |
+
+> **Fix hint:** `clef set payments/dev REFUND_ENDPOINT <value>`
 
 ## Controls
 

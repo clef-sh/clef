@@ -1,9 +1,9 @@
 import {
   ClefManifest,
-  EncryptionBackend,
   ServiceIdentityDefinition,
   ServiceIdentityEnvironmentConfig,
 } from "../types";
+import type { SecretSource } from "../source/types";
 import { MatrixManager } from "../matrix/manager";
 
 /** Resolved identity secrets: namespace → key → value, plus metadata. */
@@ -33,7 +33,7 @@ export async function resolveIdentitySecrets(
   environment: string,
   manifest: ClefManifest,
   repoRoot: string,
-  encryption: EncryptionBackend,
+  source: SecretSource,
   matrixManager: MatrixManager,
 ): Promise<ResolvedSecrets> {
   const identity = manifest.service_identities?.find((si) => si.name === identityName);
@@ -56,7 +56,10 @@ export async function resolveIdentitySecrets(
     );
 
   for (const cell of cells) {
-    const decrypted = await encryption.decrypt(cell.filePath);
+    const decrypted = await source.readCell({
+      namespace: cell.namespace,
+      environment: cell.environment,
+    });
     const bucket = (allValues[cell.namespace] ??= {});
     for (const [key, value] of Object.entries(decrypted.values)) {
       // Same-namespace key collisions can't happen via the matrix (each cell

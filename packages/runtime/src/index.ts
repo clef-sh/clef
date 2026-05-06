@@ -42,6 +42,7 @@ export { HttpArtifactSource } from "./sources/http";
 export { FileArtifactSource } from "./sources/file";
 export { VcsArtifactSource } from "./sources/vcs";
 export { S3ArtifactSource, isS3Url } from "./sources/s3";
+export { InlineArtifactSource } from "./sources/inline";
 
 // Signature verification (re-exported from @clef-sh/core to keep one source of truth)
 export { buildSigningPayload, verifySignature } from "@clef-sh/core";
@@ -56,8 +57,10 @@ import { VcsArtifactSource } from "./sources/vcs";
 import { HttpArtifactSource } from "./sources/http";
 import { FileArtifactSource } from "./sources/file";
 import { S3ArtifactSource, isS3Url } from "./sources/s3";
+import { InlineArtifactSource } from "./sources/inline";
 import { ArtifactSource } from "./sources/types";
 import { TelemetryEmitter } from "./telemetry";
+import type { PackedArtifact } from "@clef-sh/core";
 
 /**
  * Configuration for {@link ClefRuntime}.
@@ -82,8 +85,21 @@ export interface RuntimeConfig {
   /** Custom VCS API base URL for self-hosted instances. */
   apiUrl?: string;
 
-  /** HTTP URL or local file path to a packed artifact (alternative to VCS). */
-  source?: string;
+  /**
+   * Where to load the packed artifact from. Accepts three forms:
+   *
+   * - **String** — HTTP(S) URL, S3 URL, or local file path. Routed by prefix.
+   * - **`PackedArtifact` object** — use when the artifact is bundled into the
+   *   deployed code (e.g. `import artifact from "./artifact.production.json"`
+   *   in a Vercel serverless function). The runtime wraps it in an
+   *   `InlineArtifactSource` and validates eagerly. Do not call
+   *   `runtime.startPolling()` with an inline source — the content is fixed
+   *   for the process lifetime, so the timer would only no-op.
+   * - **`ArtifactSource` instance** — pre-built source (e.g.
+   *   `new InlineArtifactSource(artifact)`) or a custom implementation.
+   *   Passed through unchanged.
+   */
+  source?: string | PackedArtifact | ArtifactSource;
 
   /** Inline age private key (`AGE-SECRET-KEY-...`). */
   ageKey?: string;
@@ -244,8 +260,21 @@ export class ClefRuntime {
       return new VcsArtifactSource(provider, config.identity!, config.environment!);
     }
 
-    // HTTP, S3, or file source
+    // String, inline (PackedArtifact), or pre-built ArtifactSource
     if (config.source) {
+      // Pre-built ArtifactSource (ours or user-defined). Duck-type on `fetch`
+      // so any class implementing the interface passes through unchanged.
+      // Must precede the plain-object branch since both pass `typeof === "object"`.
+      if (
+        typeof config.source === "object" &&
+        typeof (config.source as ArtifactSource).fetch === "function"
+      ) {
+        return config.source as ArtifactSource;
+      }
+      // Plain `PackedArtifact` object — wrap so the poller sees a uniform source.
+      if (typeof config.source === "object") {
+        return new InlineArtifactSource(config.source as PackedArtifact);
+      }
       if (isS3Url(config.source)) {
         return new S3ArtifactSource(config.source);
       }

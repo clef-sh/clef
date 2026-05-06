@@ -163,7 +163,7 @@ jobs:
 
       - name: Build packages
         shell: bash
-        run: npm run build
+        run: npm run build:packages
 
       - name: Build SEA binary
         shell: bash

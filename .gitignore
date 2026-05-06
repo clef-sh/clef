@@ -67,3 +67,5 @@ playwright-report/
 docs/plans
 blog
 *.gif
+# Build-time-rendered mermaid SVGs (see docs/.vitepress/plugins/mermaid-svg.ts).
+docs/public/diagrams/

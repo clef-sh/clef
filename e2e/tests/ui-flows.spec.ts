@@ -82,7 +82,9 @@ test.describe("sidebar navigation", () => {
   test("[positive] Policy nav item opens the policy view", async ({ page }) => {
     await page.goto(server.url);
     await page.getByTestId("nav-policy").click();
-    await expect(page.getByText("clef policy check")).toBeVisible();
+    // Use the toolbar subtitle (unique) — the body also has a
+    // `<code>clef policy check</code>` snippet that trips strict-mode.
+    await expect(page.getByText("clef policy check — rotation verdicts")).toBeVisible();
   });
 
   test("[positive] Import nav item opens the import view", async ({ page }) => {

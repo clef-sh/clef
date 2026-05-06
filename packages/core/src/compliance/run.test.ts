@@ -254,12 +254,12 @@ describe("runCompliance", () => {
         repo: "o/r",
         now: NOW,
         ageKey: "AGE-SECRET-KEY-TEST",
-        include: { lint: false, scan: false },
+        // Lint hits sops decrypt via source.readCell; rotation now reads
+        // metadata from blob bytes (no subprocess), so we exercise lint to
+        // observe the env wiring.
+        include: { scan: false },
       });
 
-      // The sops filestatus call on each cell should see SOPS_AGE_KEY in its
-      // env.  We check any sops call because filestatus/decrypt all go
-      // through the same buildSopsEnv path.
       const sopsCallWithEnv = (runner.run as jest.Mock).mock.calls.find(
         ([cmd, _args, opts]: [string, string[], { env?: Record<string, string> }]) =>
           cmd === "sops" && opts?.env?.SOPS_AGE_KEY === "AGE-SECRET-KEY-TEST",
@@ -281,7 +281,7 @@ describe("runCompliance", () => {
         repo: "o/r",
         now: NOW,
         ageKeyFile: "/tmp/age-key.txt",
-        include: { lint: false, scan: false },
+        include: { scan: false },
       });
 
       const sopsCallWithEnv = (runner.run as jest.Mock).mock.calls.find(

@@ -12,8 +12,8 @@ import { mockClient } from "aws-sdk-client-mock";
 import type {
   ClefManifest,
   DecryptedFile,
-  EncryptionBackend,
   PackRequest,
+  SecretSource,
   SubprocessRunner,
 } from "@clef-sh/core";
 
@@ -59,20 +59,28 @@ function manifest(): ClefManifest {
   };
 }
 
-function mockEncryption(values: Record<string, string>): jest.Mocked<EncryptionBackend> {
+function mockEncryption(values: Record<string, string>): SecretSource {
   const decrypted: DecryptedFile = {
     values,
     metadata: { backend: "age", recipients: ["age1devkey"], lastModified: new Date() },
   };
+  const stub = jest.fn();
   return {
-    decrypt: jest.fn().mockResolvedValue(decrypted),
-    encrypt: jest.fn(),
-    reEncrypt: jest.fn(),
-    addRecipient: jest.fn(),
-    removeRecipient: jest.fn(),
-    validateEncryption: jest.fn(),
-    getMetadata: jest.fn(),
-  };
+    id: "mock",
+    description: "mock",
+    readCell: jest.fn().mockResolvedValue(decrypted),
+    writeCell: stub,
+    deleteCell: stub,
+    cellExists: stub,
+    listKeys: stub,
+    scaffoldCell: stub,
+    getCellMetadata: stub,
+    getPendingMetadata: stub,
+    markPending: stub,
+    markResolved: stub,
+    recordRotation: stub,
+    removeRotation: stub,
+  } as unknown as SecretSource;
 }
 
 function fakeRunner(): SubprocessRunner {
@@ -89,7 +97,7 @@ function fakeRequest(overrides: Partial<PackRequest> = {}): PackRequest {
     manifest: manifest(),
     repoRoot: "/repo",
     services: {
-      encryption: mockEncryption({ DB_PASSWORD: "p@ss", API_KEY: "secret" }),
+      source: mockEncryption({ DB_PASSWORD: "p@ss", API_KEY: "secret" }),
       runner: fakeRunner(),
     },
     backendOptions: { prefix: "/myapp/dev" },
@@ -253,7 +261,7 @@ describe("AwsParameterStoreBackend.pack", () => {
     const oversized = "x".repeat(4097);
     const req = fakeRequest({
       services: {
-        encryption: mockEncryption({ BIG: oversized }),
+        source: mockEncryption({ BIG: oversized }),
         runner: fakeRunner(),
       },
     });
@@ -269,7 +277,7 @@ describe("AwsParameterStoreBackend.pack", () => {
     const oversized = "x".repeat(4097);
     const req = fakeRequest({
       services: {
-        encryption: mockEncryption({ BIG: oversized }),
+        source: mockEncryption({ BIG: oversized }),
         runner: fakeRunner(),
       },
       backendOptions: { prefix: "/myapp/dev", tier: "Advanced" },
@@ -366,7 +374,7 @@ describe("AwsParameterStoreBackend.pack", () => {
       fakeRequest({
         identity: "multi",
         services: {
-          encryption: mockEncryption({ X: "1" }),
+          source: mockEncryption({ X: "1" }),
           runner: fakeRunner(),
         },
       }),

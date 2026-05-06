@@ -1,7 +1,6 @@
 import * as path from "path";
 import {
   ClefManifest,
-  EncryptionBackend,
   KmsConfig,
   MatrixCell,
   ServiceIdentityDefinition,
@@ -9,6 +8,7 @@ import {
   ServiceIdentityEnvironmentConfig,
   isKmsEnvelope,
 } from "../types";
+import type { CellRef, Rotatable, SecretSource } from "../source/types";
 import { generateAgeIdentity } from "../age/keygen";
 import { MatrixManager } from "../matrix/manager";
 import { CLEF_MANIFEST_FILENAME } from "../manifest/parser";
@@ -42,10 +42,15 @@ export interface CreateServiceIdentityOptions {
  */
 export class ServiceIdentityManager {
   constructor(
-    private readonly encryption: EncryptionBackend,
+    private readonly source: SecretSource & Rotatable,
     private readonly matrixManager: MatrixManager,
     private readonly tx: TransactionManager,
   ) {}
+
+  /** Helper: cell → ref for the source seam. */
+  private ref(cell: MatrixCell): CellRef {
+    return { namespace: cell.namespace, environment: cell.environment };
+  }
 
   /**
    * Compute repo-relative paths for a set of cells plus the manifest. Used
@@ -194,7 +199,7 @@ export class ServiceIdentityManager {
           if (isKmsEnvelope(envConfig)) continue;
 
           try {
-            await this.encryption.removeRecipient(cell.filePath, envConfig.recipient);
+            await this.source.rotate(this.ref(cell), { rmAge: envConfig.recipient });
           } catch {
             // May not be a current recipient
           }
@@ -265,7 +270,7 @@ export class ServiceIdentityManager {
             const scopedCells = cells.filter((c) => c.environment === envName);
             for (const cell of scopedCells) {
               try {
-                await this.encryption.removeRecipient(cell.filePath, oldConfig.recipient);
+                await this.source.rotate(this.ref(cell), { rmAge: oldConfig.recipient });
               } catch {
                 // May not be a current recipient
               }
@@ -306,7 +311,7 @@ export class ServiceIdentityManager {
       if (!envConfig.recipient) continue;
 
       try {
-        await this.encryption.addRecipient(cell.filePath, envConfig.recipient);
+        await this.source.rotate(this.ref(cell), { addAge: envConfig.recipient });
       } catch (err) {
         // SOPS exits non-zero for duplicate recipients — safe to ignore.
         // Re-throw genuine I/O or corruption errors.
@@ -373,7 +378,7 @@ export class ServiceIdentityManager {
             if (!envConfig.recipient) continue;
 
             try {
-              await this.encryption.addRecipient(cell.filePath, envConfig.recipient);
+              await this.source.rotate(this.ref(cell), { addAge: envConfig.recipient });
               affectedFiles.push(cell.filePath);
             } catch (err) {
               // SOPS may exit non-zero for duplicate recipients — safe to ignore
@@ -455,7 +460,7 @@ export class ServiceIdentityManager {
             if (!envConfig.recipient) continue;
 
             try {
-              await this.encryption.removeRecipient(cell.filePath, envConfig.recipient);
+              await this.source.rotate(this.ref(cell), { rmAge: envConfig.recipient });
               affectedFiles.push(cell.filePath);
             } catch {
               // May not be a current recipient — safe to skip
@@ -547,7 +552,7 @@ export class ServiceIdentityManager {
         if (!identity.pack_only && !isKmsEnvelope(envConfig) && envConfig.recipient) {
           for (const cell of cells) {
             try {
-              await this.encryption.addRecipient(cell.filePath, envConfig.recipient);
+              await this.source.rotate(this.ref(cell), { addAge: envConfig.recipient });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
               if (!message.includes("already")) {
@@ -653,14 +658,14 @@ export class ServiceIdentityManager {
             const scopedCells = cells.filter((c) => c.environment === envName);
             for (const cell of scopedCells) {
               try {
-                await this.encryption.removeRecipient(cell.filePath, oldRecipient);
+                await this.source.rotate(this.ref(cell), { rmAge: oldRecipient });
               } catch {
                 // May not be a current recipient — safe to skip
               }
               // No try/catch around add: failure here triggers full transaction
               // rollback (git reset --hard), which is safer than the old manual
               // re-add dance.
-              await this.encryption.addRecipient(cell.filePath, newPublicKey);
+              await this.source.rotate(this.ref(cell), { addAge: newPublicKey });
             }
           }
         }
@@ -741,7 +746,7 @@ export class ServiceIdentityManager {
         if (si.namespaces.includes(cell.namespace)) {
           // Should be registered
           try {
-            const metadata = await this.encryption.getMetadata(cell.filePath);
+            const metadata = await this.source.getCellMetadata(this.ref(cell));
             if (!metadata.recipients.includes(envConfig.recipient)) {
               issues.push({
                 identity: si.name,
@@ -758,7 +763,7 @@ export class ServiceIdentityManager {
         } else {
           // Should NOT be registered (scope mismatch)
           try {
-            const metadata = await this.encryption.getMetadata(cell.filePath);
+            const metadata = await this.source.getCellMetadata(this.ref(cell));
             if (metadata.recipients.includes(envConfig.recipient)) {
               issues.push({
                 identity: si.name,

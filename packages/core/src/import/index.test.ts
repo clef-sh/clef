@@ -1,17 +1,19 @@
 import { ImportRunner } from "./index";
-import { ClefManifest, DecryptedFile } from "../types";
+import { ClefManifest } from "../types";
 import { TransactionManager } from "../tx";
-import * as metadata from "../pending/metadata";
+import type { SecretSource } from "../source/types";
 
-const mockDecrypt = jest.fn();
-const mockEncrypt = jest.fn();
-const mockRecordRotation = jest.spyOn(metadata, "recordRotation").mockResolvedValue(undefined);
+const mockReadCell = jest.fn();
+const mockWriteCell = jest.fn();
+const mockRecordRotation = jest.fn();
 
-// Create a fake SopsClient with mocked methods
-const fakeSopsClient = {
-  decrypt: mockDecrypt,
-  encrypt: mockEncrypt,
-};
+const fakeSource = {
+  id: "mock",
+  description: "mock",
+  readCell: mockReadCell,
+  writeCell: mockWriteCell,
+  recordRotation: mockRecordRotation,
+} as unknown as SecretSource;
 
 const manifest: ClefManifest = {
   version: 1,
@@ -21,7 +23,7 @@ const manifest: ClefManifest = {
   file_pattern: "{namespace}/{environment}.enc.yaml",
 };
 
-const defaultDecrypted: DecryptedFile = {
+const defaultDecrypted = {
   values: { EXISTING_KEY: "existing_value" },
   metadata: { backend: "age", recipients: ["age1test"], lastModified: new Date() },
 };
@@ -41,15 +43,15 @@ function makeStubTx(): TransactionManager {
 }
 
 function makeRunner(): ImportRunner {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new ImportRunner(fakeSopsClient as any, makeStubTx());
+  return new ImportRunner(fakeSource, makeStubTx());
 }
 
 describe("ImportRunner", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockDecrypt.mockResolvedValue(defaultDecrypted);
-    mockEncrypt.mockResolvedValue(undefined);
+    mockReadCell.mockResolvedValue(defaultDecrypted);
+    mockWriteCell.mockResolvedValue(undefined);
+    mockRecordRotation.mockResolvedValue(undefined);
   });
 
   describe("basic import", () => {
@@ -71,7 +73,7 @@ describe("ImportRunner", () => {
       expect(result.dryRun).toBe(false);
     });
 
-    it("encrypts the file once with all imported keys merged", async () => {
+    it("writes the cell once with all imported keys merged", async () => {
       const runner = makeRunner();
       await runner.import(
         "database/staging",
@@ -83,10 +85,10 @@ describe("ImportRunner", () => {
       );
 
       // After the migration, the runner merges all candidates in memory and
-      // does a SINGLE encrypt instead of N encrypts. Cuts SOPS subprocess
+      // does a SINGLE writeCell instead of N encrypts. Cuts SOPS subprocess
       // overhead from O(N) to O(1) and makes the import atomic.
-      expect(mockEncrypt).toHaveBeenCalledTimes(1);
-      const lastCall = mockEncrypt.mock.calls[0];
+      expect(mockWriteCell).toHaveBeenCalledTimes(1);
+      const lastCall = mockWriteCell.mock.calls[0];
       expect(lastCall[1]).toMatchObject({
         EXISTING_KEY: "existing_value",
         DB_HOST: "localhost",
@@ -94,7 +96,7 @@ describe("ImportRunner", () => {
       });
     });
 
-    it("uses correct file path from manifest pattern", async () => {
+    it("uses the cell ref derived from target", async () => {
       const runner = makeRunner();
       await runner.import(
         "database/staging",
@@ -105,9 +107,10 @@ describe("ImportRunner", () => {
         {},
       );
 
-      expect(mockDecrypt).toHaveBeenCalledWith(
-        expect.stringContaining("database/staging.enc.yaml"),
-      );
+      expect(mockReadCell).toHaveBeenCalledWith({
+        namespace: "database",
+        environment: "staging",
+      });
     });
   });
 
@@ -194,7 +197,7 @@ describe("ImportRunner", () => {
   });
 
   describe("dry run", () => {
-    it("does not call sopsClient.encrypt in dry run mode", async () => {
+    it("does not call writeCell in dry run mode", async () => {
       const runner = makeRunner();
       await runner.import(
         "database/staging",
@@ -205,7 +208,7 @@ describe("ImportRunner", () => {
         { dryRun: true },
       );
 
-      expect(mockEncrypt).not.toHaveBeenCalled();
+      expect(mockWriteCell).not.toHaveBeenCalled();
     });
 
     it("returns dryRun: true in result", async () => {
@@ -235,7 +238,7 @@ describe("ImportRunner", () => {
 
       expect(result.skipped).toContain("EXISTING_KEY");
       expect(result.imported).toContain("NEW_KEY");
-      expect(mockEncrypt).not.toHaveBeenCalled();
+      expect(mockWriteCell).not.toHaveBeenCalled();
     });
 
     it("shows existing keys as would-import in dry run with overwrite", async () => {
@@ -251,11 +254,11 @@ describe("ImportRunner", () => {
 
       expect(result.imported).toContain("EXISTING_KEY");
       expect(result.skipped).not.toContain("EXISTING_KEY");
-      expect(mockEncrypt).not.toHaveBeenCalled();
+      expect(mockWriteCell).not.toHaveBeenCalled();
     });
 
-    it("treats decrypt failure as empty existing keys in dry run", async () => {
-      mockDecrypt.mockRejectedValueOnce(new Error("decrypt failed"));
+    it("treats readCell failure as empty existing keys in dry run", async () => {
+      mockReadCell.mockRejectedValueOnce(new Error("decrypt failed"));
       const runner = makeRunner();
       const result = await runner.import(
         "database/staging",
@@ -266,21 +269,21 @@ describe("ImportRunner", () => {
         { dryRun: true },
       );
 
-      // If decrypt fails, new keys are still shown as would-import
+      // If readCell fails, new keys are still shown as would-import
       expect(result.imported).toContain("NEW_KEY");
-      expect(mockEncrypt).not.toHaveBeenCalled();
+      expect(mockWriteCell).not.toHaveBeenCalled();
     });
   });
 
-  describe("encrypt failure", () => {
-    it("propagates the encrypt error so the transaction can roll back", async () => {
-      mockEncrypt.mockRejectedValueOnce(new Error("encryption failed"));
+  describe("write failure", () => {
+    it("propagates the write error so the transaction can roll back", async () => {
+      mockWriteCell.mockRejectedValueOnce(new Error("encryption failed"));
 
       const runner = makeRunner();
 
       // Import is now atomic — there is no per-key partial state. A failure
-      // during the single merged encrypt aborts the whole import and the
-      // error propagates so TransactionManager can `git reset --hard`.
+      // during the single merged write aborts the whole import and the error
+      // propagates so TransactionManager can `git reset --hard`.
       await expect(
         runner.import(
           "database/staging",
@@ -357,8 +360,8 @@ describe("ImportRunner", () => {
   });
 
   describe("propagate decrypt error in non-dry-run", () => {
-    it("propagates decrypt error when not dry run", async () => {
-      mockDecrypt.mockRejectedValueOnce(new Error("no key"));
+    it("propagates readCell error when not dry run", async () => {
+      mockReadCell.mockRejectedValueOnce(new Error("no key"));
       const runner = makeRunner();
 
       await expect(
@@ -368,8 +371,8 @@ describe("ImportRunner", () => {
   });
 
   describe("rotation recording", () => {
-    it("records rotation for brand-new keys", async () => {
-      mockDecrypt.mockResolvedValue({
+    it("records rotation for brand-new keys via the source", async () => {
+      mockReadCell.mockResolvedValue({
         values: {},
         metadata: { backend: "age", recipients: ["age1test"], lastModified: new Date() },
       });
@@ -385,14 +388,14 @@ describe("ImportRunner", () => {
       );
 
       expect(mockRecordRotation).toHaveBeenCalledWith(
-        expect.stringContaining("database/staging.enc.yaml"),
+        { namespace: "database", environment: "staging" },
         ["NEW_A", "NEW_B"],
         "Alice <alice@example.com>",
       );
     });
 
     it("records rotation only for keys whose value actually changed on --overwrite", async () => {
-      mockDecrypt.mockResolvedValue({
+      mockReadCell.mockResolvedValue({
         values: { SAME: "unchanged", CHANGED: "old_value", UNTOUCHED: "still_there" },
         metadata: { backend: "age", recipients: ["age1test"], lastModified: new Date() },
       });
@@ -410,14 +413,14 @@ describe("ImportRunner", () => {
       // Only CHANGED gets a rotation record. SAME was re-imported with the
       // same value → not a rotation.
       expect(mockRecordRotation).toHaveBeenCalledWith(
-        expect.any(String),
+        { namespace: "database", environment: "staging" },
         ["CHANGED"],
-        expect.any(String),
+        "Alice <alice@example.com>",
       );
     });
 
     it("does not call recordRotation when rotatedBy is omitted", async () => {
-      mockDecrypt.mockResolvedValue({
+      mockReadCell.mockResolvedValue({
         values: {},
         metadata: { backend: "age", recipients: ["age1test"], lastModified: new Date() },
       });
@@ -429,7 +432,7 @@ describe("ImportRunner", () => {
     });
 
     it("does not call recordRotation when every imported key re-imports the same value", async () => {
-      mockDecrypt.mockResolvedValue({
+      mockReadCell.mockResolvedValue({
         values: { A: "v", B: "w" },
         metadata: { backend: "age", recipients: ["age1test"], lastModified: new Date() },
       });
@@ -446,13 +449,12 @@ describe("ImportRunner", () => {
     });
 
     it("stages the .clef-meta.yaml path alongside the cipher for atomic rollback", async () => {
-      mockDecrypt.mockResolvedValue({
+      mockReadCell.mockResolvedValue({
         values: {},
         metadata: { backend: "age", recipients: ["age1test"], lastModified: new Date() },
       });
       const tx = makeStubTx();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const runner = new ImportRunner(fakeSopsClient as any, tx);
+      const runner = new ImportRunner(fakeSource, tx);
 
       await runner.import("database/staging", null, "NEW=v\n", manifest, "/repo", {
         rotatedBy: "Alice <a@example.com>",

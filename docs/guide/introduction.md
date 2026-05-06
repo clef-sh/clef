@@ -1,18 +1,18 @@
 # Introduction
 
-Clef is a local-first, open source developer tool that brings structure, validation, and a UI on top of [Mozilla SOPS](https://github.com/getsops/sops). It keeps encrypted secrets **under version control in git** — no external database, no hosted service, no sync step.
+Clef is a local-first, open source developer tool that brings structure, validation, and a UI on top of [CNCF SOPS](https://github.com/getsops/sops). It keeps encrypted secrets **under version control in git** — no external database, no hosted service, no sync step.
 
 ## Why this matters
 
-SOPS gives you Secrets as Code — encrypted values committed to git. But at team scale, raw SOPS falls apart:
+[SOPS](https://github.com/getsops/sops) is intentionally a primitive — a focused, sharp tool for encrypting and decrypting structured config files, with key-name visibility and pluggable backends. It deliberately doesn't ship the surrounding workflow (matrices, drift detection, lint, UI, schemas) because that's not its job. Clef builds those workflow layers _on top of_ the primitive:
 
-- **No structure.** There is no standard way to organise secrets across namespaces and environments. Every team invents its own folder layout, naming scheme, and promotion workflow.
-- **No visibility.** You cannot tell at a glance whether a key exists in production but not staging, or whether a required database URL is missing from a new environment. Key drift between environments is invisible until something breaks at deploy time.
-- **No validation.** SOPS does not know that `DB_PORT` should be an integer or that `DATABASE_URL` must start with `postgres://`. There is no schema layer.
-- **No UI.** Every operation requires memorising SOPS flags and piping YAML through the terminal. There is no way to browse, compare, or edit secrets visually.
-- **No guardrails.** Nothing stops a developer from committing a plaintext secrets file, or from accidentally overwriting production credentials without a confirmation step.
+- **Structure.** A standard `clef.yaml` manifest and a namespace × environment matrix, so every team's layout looks the same.
+- **Visibility.** A matrix view that shows at a glance which keys exist in which environments, and a `lint` command that catches drift before deploy.
+- **Validation.** Optional schemas per namespace — required keys, types, regex patterns — checked in CI.
+- **A local UI.** `clef ui` for browsing, editing, and diffing without leaving the browser, for users who prefer that to the SOPS CLI.
+- **Guardrails.** A pre-commit hook and `clef scan` that block accidentally-committed plaintext secrets.
 
-Clef solves all of these problems while keeping SOPS as the encryption engine and git as the source of truth.
+SOPS remains the encryption engine and git remains the source of truth. Clef is the workflow layer that sits on top of the primitive.
 
 ## Design philosophy
 
@@ -24,19 +24,21 @@ Three principles guide every decision in Clef:
 
 ## Competitive landscape
 
-|                      | Clef                              | Vault       | Doppler  | dotenv-vault | Raw SOPS |
-| -------------------- | --------------------------------- | ----------- | -------- | ------------ | -------- |
-| Git-native           | Yes                               | No          | No       | Yes          | Yes      |
-| Local-first          | Yes                               | No          | No       | No           | Yes      |
-| UI                   | Yes                               | Yes         | Yes      | Yes          | No       |
-| Schema validation    | Yes                               | No          | No       | No           | No       |
-| No infrastructure    | Yes                               | No          | No       | No           | Yes      |
-| Access control       | Via KMS IAM                       | Built-in    | Built-in | Limited      | Manual   |
-| Audit logs           | Via CloudTrail / Cloud Audit Logs | Built-in    | Built-in | No           | No       |
-| Vendor holds secrets | No (OSS)                          | Self-hosted | Yes      | Yes          | No       |
-| Key management       | age / KMS                         | Built-in    | SaaS     | SaaS         | Manual   |
+|                      | Clef                              | Vault       | Doppler  | dotenv-vault | SOPS alone[^sops] |
+| -------------------- | --------------------------------- | ----------- | -------- | ------------ | ----------------- |
+| Git-native           | Yes                               | No          | No       | Yes          | Yes               |
+| Local-first          | Yes                               | No          | No       | No           | Yes               |
+| UI                   | Yes                               | Yes         | Yes      | Yes          | No                |
+| Schema validation    | Yes                               | No          | No       | No           | No                |
+| No infrastructure    | Yes                               | No          | No       | No           | Yes               |
+| Access control       | Via KMS IAM                       | Built-in    | Built-in | Limited      | Manual            |
+| Audit logs           | Via CloudTrail / Cloud Audit Logs | Built-in    | Built-in | No           | No                |
+| Vendor holds secrets | No (OSS)                          | Self-hosted | Yes      | Yes          | No                |
+| Key management       | age / KMS                         | Built-in    | SaaS     | SaaS         | Manual            |
 
-Clef's unique position: **version-controlled secrets that scale to teams with no intermediary between you and your data.** Unlike Vault or Doppler, no server holds your secrets. Unlike raw SOPS, you get structure, validation, and a workflow layer.
+[^sops]: SOPS is the encryption engine Clef uses; this column shows what you get with SOPS alone, for reference. SOPS is a deliberately-scoped primitive — the workflow features above are not in its scope.
+
+Clef's unique position: **version-controlled secrets that scale to teams with no intermediary between you and your data.** Unlike Vault or Doppler, no server holds your secrets. On top of SOPS, you get structure, validation, and a workflow layer.
 
 ## Works with your existing KMS
 

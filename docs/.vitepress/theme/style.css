@@ -159,3 +159,37 @@ body {
 *::-webkit-scrollbar-thumb:hover {
   background: var(--clef-ash-deep);
 }
+
+/* Mermaid SVG diagrams (build-time rendered via .vitepress/plugins/mermaid-svg.ts).
+   Render two inline-SVG variants per diagram and show the one matching the
+   current appearance. vitepress toggles `html.dark` for dark mode. */
+.mermaid-diagram {
+  display: block;
+  margin: 1.5rem auto;
+  text-align: center;
+}
+/* mmdc emits each SVG with inline style="max-width: Xpx" capped to the
+   natural render size — too small at typical doc widths. Override so the
+   diagram scales up to fill the prose column, capped at a reasonable
+   reading width. !important is needed because the cap is an inline style. */
+.mermaid-diagram svg {
+  max-width: min(100%, 720px) !important;
+  width: 100%;
+  height: auto;
+}
+/* Force the diagram font to match what mmdc measured against (Arial). The
+   SVG declares it inline, but vitepress's `.vp-doc` body styles can leak
+   into foreignObject children — pin it here too so the live render can't
+   diverge from mmdc's measurement. */
+.mermaid-diagram svg,
+.mermaid-diagram svg foreignObject,
+.mermaid-diagram svg foreignObject *,
+.mermaid-diagram svg text {
+  font-family: Arial, sans-serif !important;
+}
+html:not(.dark) .mermaid-diagram-dark {
+  display: none;
+}
+html.dark .mermaid-diagram-light {
+  display: none;
+}

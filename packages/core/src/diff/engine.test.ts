@@ -1,6 +1,5 @@
 import { DiffEngine } from "./engine";
-import { ClefManifest } from "../types";
-import { SopsClient } from "../sops/client";
+import type { SecretSource } from "../source/types";
 
 describe("DiffEngine", () => {
   let engine: DiffEngine;
@@ -113,50 +112,34 @@ describe("DiffEngine", () => {
     });
   });
 
-  describe("diffFiles", () => {
-    it("should decrypt both files and diff them", async () => {
-      const mockSopsClient = {
-        decrypt: jest.fn().mockImplementation(async (filePath: string) => {
-          if (filePath.includes("dev")) {
+  describe("diffCells", () => {
+    it("should read both cells from the source and diff them", async () => {
+      const mockSource = {
+        readCell: jest
+          .fn()
+          .mockImplementation(async (cell: { namespace: string; environment: string }) => {
+            if (cell.environment === "dev") {
+              return {
+                values: { KEY: "dev-val", DEV_ONLY: "x" },
+                metadata: {
+                  backend: "age" as const,
+                  recipients: ["age1test"],
+                  lastModified: new Date(),
+                },
+              };
+            }
             return {
-              values: { KEY: "dev-val", DEV_ONLY: "x" },
+              values: { KEY: "prod-val", PROD_ONLY: "y" },
               metadata: {
                 backend: "age" as const,
                 recipients: ["age1test"],
                 lastModified: new Date(),
               },
             };
-          }
-          return {
-            values: { KEY: "prod-val", PROD_ONLY: "y" },
-            metadata: {
-              backend: "age" as const,
-              recipients: ["age1test"],
-              lastModified: new Date(),
-            },
-          };
-        }),
-      } as unknown as SopsClient;
+          }),
+      } as unknown as SecretSource;
 
-      const manifest: ClefManifest = {
-        version: 1,
-        environments: [
-          { name: "dev", description: "Dev" },
-          { name: "production", description: "Prod" },
-        ],
-        namespaces: [{ name: "auth", description: "Auth" }],
-        sops: { default_backend: "age" },
-        file_pattern: "{namespace}/{environment}.enc.yaml",
-      };
-
-      const result = await engine.diffFiles(
-        "auth",
-        "dev",
-        "production",
-        manifest,
-        mockSopsClient,
-        "/repo",
-      );
+      const result = await engine.diffCells("auth", "dev", "production", mockSource);
 
       expect(result.namespace).toBe("auth");
       expect(result.envA).toBe("dev");

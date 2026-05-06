@@ -4,24 +4,21 @@ Full-repo health report: every matrix file scanned, issues grouped by severity w
 
 ## Layout
 
-```mermaid
-flowchart TD
-  subgraph filters["Filter Bar"]
-    direction LR
-    severity["Severity: All · Errors · Warnings · Info"]
-    category["Category: Matrix · Schema · SOPS"]
-  end
-  subgraph errors["✗ 2 Errors"]
-    e1["matrix · database/staging.enc.yaml\nFile is missing from the matrix\nfix: clef lint --fix"]
-    e2["schema · payments/production.enc.yaml · WEBHOOK_SECRET\nRequired key 'WEBHOOK_SECRET' is missing\nfix: clef set payments/production WEBHOOK_SECRET"]
-  end
-  subgraph warnings["⚠ 1 Warning"]
-    w1["schema · auth/dev.enc.yaml · LEGACY_TOKEN\nKey 'LEGACY_TOKEN' is not declared in the schema"]
-  end
+**Filter bar** — Severity: All · Errors · Warnings · Info · Category: Matrix · Schema · SOPS
 
-  filters --> errors
-  filters --> warnings
-```
+**✗ 2 Errors**
+
+- **matrix** · `database/staging.enc.yaml`
+  File is missing from the matrix
+  _fix:_ `clef lint --fix`
+- **schema** · `payments/production.enc.yaml` · `WEBHOOK_SECRET`
+  Required key `WEBHOOK_SECRET` is missing
+  _fix:_ `clef set payments/production WEBHOOK_SECRET`
+
+**⚠ 1 Warning**
+
+- **schema** · `auth/dev.enc.yaml` · `LEGACY_TOKEN`
+  Key `LEGACY_TOKEN` is not declared in the schema
 
 ## Filter bar
 

@@ -11,7 +11,7 @@ import {
 import { handleCommandError } from "../handle-error";
 import { formatter, isJsonMode } from "../output/formatter";
 import { sym } from "../output/symbols";
-import { createSopsClient } from "../age-credential";
+import { createSecretSource } from "../source-factory";
 
 const MASKED = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
 
@@ -38,22 +38,11 @@ export function registerDiffCommand(program: Command, deps: { runner: Subprocess
           const parser = new ManifestParser();
           const manifest = parser.parse(path.join(repoRoot, "clef.yaml"));
 
-          const { client: sopsClient, cleanup } = await createSopsClient(
-            repoRoot,
-            deps.runner,
-            manifest,
-          );
+          const { source, cleanup } = await createSecretSource(repoRoot, deps.runner, manifest);
           try {
             const diffEngine = new DiffEngine();
 
-            const result = await diffEngine.diffFiles(
-              namespace,
-              envA,
-              envB,
-              manifest,
-              sopsClient,
-              repoRoot,
-            );
+            const result = await diffEngine.diffCells(namespace, envA, envB, source);
 
             // Warn if showing values for a protected environment
             if (options.showValues) {

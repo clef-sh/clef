@@ -11,7 +11,7 @@ import {
 } from "@clef-sh/core";
 import type { ClefManifest } from "@clef-sh/core";
 import { handleCommandError } from "../handle-error";
-import { createSopsClient } from "../age-credential";
+import { createSecretSource } from "../source-factory";
 import { formatter } from "../output/formatter";
 import { sym } from "../output/symbols";
 
@@ -121,16 +121,18 @@ export function registerServeCommand(program: Command, deps: { runner: Subproces
           ephemeral.publicKey,
         );
 
-        // Pack in memory
-        const { client: sopsClient, cleanup } = await createSopsClient(
+        // Pack in memory. Source is bound to the synthesized dev manifest
+        // so resolveIdentitySecrets sees the SI override and the ephemeral
+        // recipient flows through the encryption layer.
+        const { source: secretSource, cleanup } = await createSecretSource(
           repoRoot,
           deps.runner,
-          manifest,
+          devManifest,
         );
         const matrixManager = new MatrixManager();
 
         const memOutput = new MemoryPackOutput();
-        const packer = new ArtifactPacker(sopsClient, matrixManager);
+        const packer = new ArtifactPacker(secretSource, matrixManager);
         let result;
         try {
           result = await packer.pack(

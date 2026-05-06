@@ -1,5 +1,6 @@
 import * as crypto from "crypto";
-import { ClefManifest, EncryptionBackend, isKmsEnvelope } from "../types";
+import { ClefManifest, isKmsEnvelope } from "../types";
+import type { SecretSource } from "../source/types";
 import { KmsProvider } from "../kms";
 import { MatrixManager } from "../matrix/manager";
 import { PackConfig, PackResult, PackedArtifact } from "./types";
@@ -17,7 +18,7 @@ import { computeCiphertextHash } from "./hash";
  */
 export class ArtifactPacker {
   constructor(
-    private readonly encryption: EncryptionBackend,
+    private readonly source: SecretSource,
     private readonly matrixManager: MatrixManager,
     private readonly kms?: KmsProvider,
   ) {}
@@ -38,7 +39,7 @@ export class ArtifactPacker {
       config.environment,
       manifest,
       repoRoot,
-      this.encryption,
+      this.source,
       this.matrixManager,
     );
 

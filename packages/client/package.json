@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/client",
-  "version": "0.4.6",
+  "version": "0.4.7-beta.202",
   "description": "Lightweight SDK for consuming Clef secrets — Cloud KMS provider and app client",
   "repository": {
     "type": "git",
@@ -49,10 +49,10 @@
     "test:coverage": "jest --coverage"
   },
   "devDependencies": {
-    "@types/jest": "^29.5.0",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.19.39",
     "esbuild": "^0.28.0",
-    "jest": "^29.7.0",
+    "jest": "^30.0.0",
     "ts-jest": "^29.4.9",
     "typescript": "^5.9.3"
   },

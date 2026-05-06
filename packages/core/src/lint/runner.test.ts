@@ -1,17 +1,43 @@
 import { LintRunner } from "./runner";
 import { MatrixManager } from "../matrix/manager";
 import { SchemaValidator } from "../schema/validator";
-import { SopsClient } from "../sops/client";
 import { ClefManifest, MatrixCell } from "../types";
+import type { CellPendingMetadata, Lintable, SecretSource } from "../source/types";
 
 jest.mock("fs");
-jest.mock("../pending/metadata", () => ({
-  getPendingKeys: jest.fn().mockResolvedValue([]),
-  loadMetadata: jest.fn().mockResolvedValue({ version: 1, pending: [], rotations: [] }),
-}));
-jest.mock("../sops/keys", () => ({
-  readSopsKeyNames: jest.fn().mockReturnValue(null),
-}));
+
+interface SourceMock extends SecretSource, Lintable {
+  validateEncryption: jest.Mock;
+  readCell: jest.Mock;
+  getCellMetadata: jest.Mock;
+  getPendingMetadata: jest.Mock;
+  listKeys: jest.Mock;
+  scaffoldCell: jest.Mock;
+}
+
+function makeSource(): SourceMock {
+  const stub = jest.fn();
+  return {
+    id: "mock",
+    description: "mock",
+    readCell: jest.fn(),
+    writeCell: stub,
+    deleteCell: stub,
+    cellExists: stub,
+    listKeys: jest.fn().mockResolvedValue([]),
+    scaffoldCell: jest.fn().mockResolvedValue(undefined),
+    getCellMetadata: jest.fn(),
+    getPendingMetadata: jest
+      .fn()
+      .mockResolvedValue({ version: 1, pending: [], rotations: [] } as CellPendingMetadata),
+    markPending: stub,
+    markResolved: stub,
+    recordRotation: stub,
+    removeRotation: stub,
+    validateEncryption: jest.fn().mockResolvedValue(true),
+    checkRecipientDrift: stub,
+  } as unknown as SourceMock;
+}
 
 function testManifest(): ClefManifest {
   return {
@@ -61,7 +87,7 @@ function allExistCells(): MatrixCell[] {
 describe("LintRunner", () => {
   let matrixManager: MatrixManager;
   let schemaValidator: SchemaValidator;
-  let sopsClient: SopsClient;
+  let source: SourceMock;
   let runner: LintRunner;
 
   beforeEach(() => {
@@ -69,8 +95,8 @@ describe("LintRunner", () => {
 
     matrixManager = new MatrixManager();
     schemaValidator = new SchemaValidator();
-    sopsClient = {} as SopsClient;
-    runner = new LintRunner(matrixManager, schemaValidator, sopsClient);
+    source = makeSource();
+    runner = new LintRunner(matrixManager, schemaValidator, source);
   });
 
   describe("run", () => {
@@ -96,7 +122,7 @@ describe("LintRunner", () => {
       const cells = allExistCells();
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
 
-      sopsClient.validateEncryption = jest.fn().mockResolvedValue(false);
+      source.validateEncryption.mockResolvedValue(false);
 
       const result = await runner.run(testManifest(), "/repo");
 
@@ -110,8 +136,7 @@ describe("LintRunner", () => {
       const cells = [allExistCells()[0]]; // Just database/dev
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
 
-      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-      sopsClient.decrypt = jest.fn().mockResolvedValue({
+      source.readCell.mockResolvedValue({
         values: { DATABASE_URL: "mysql://bad" },
         metadata: {
           backend: "age",
@@ -146,8 +171,7 @@ describe("LintRunner", () => {
       const cells = [allExistCells()[0]];
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
 
-      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-      sopsClient.decrypt = jest.fn().mockResolvedValue({
+      source.readCell.mockResolvedValue({
         values: { DB_URL: "postgres://x", EXTRA: "val" },
         metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
       });
@@ -173,8 +197,7 @@ describe("LintRunner", () => {
       const cells = [allExistCells()[2]]; // auth/dev — no schema
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
 
-      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-      sopsClient.decrypt = jest.fn().mockResolvedValue({
+      source.readCell.mockResolvedValue({
         values: { AUTH_KEY: "secret" },
         metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
       });
@@ -192,19 +215,20 @@ describe("LintRunner", () => {
       const cells = [allExistCells()[0], allExistCells()[1]]; // database dev + production
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
 
-      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-      sopsClient.decrypt = jest.fn().mockImplementation(async (filePath: string) => {
-        if (filePath.includes("dev")) {
+      source.readCell.mockImplementation(
+        async (ref: { namespace: string; environment: string }) => {
+          if (ref.environment === "dev") {
+            return {
+              values: { DB_URL: "x", EXTRA: "y" },
+              metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
+            };
+          }
           return {
-            values: { DB_URL: "x", EXTRA: "y" },
+            values: { DB_URL: "x" },
             metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
           };
-        }
-        return {
-          values: { DB_URL: "x" },
-          metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
-        };
-      });
+        },
+      );
 
       jest.spyOn(schemaValidator, "loadSchema").mockReturnValue({
         keys: { DB_URL: { type: "string", required: true } },
@@ -229,8 +253,7 @@ describe("LintRunner", () => {
       const cells = [allExistCells()[0]];
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
 
-      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-      sopsClient.decrypt = jest.fn().mockResolvedValue({
+      source.readCell.mockResolvedValue({
         values: { KEY: "val" },
         metadata: { backend: "age", recipients: ["only-one"], lastModified: new Date() },
       });
@@ -252,17 +275,17 @@ describe("LintRunner", () => {
     });
 
     it("should report pending placeholder keys as warnings", async () => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports -- require() is necessary to access the Jest mock after jest.mock()
-      const { getPendingKeys } = require("../pending/metadata");
-      (getPendingKeys as jest.Mock).mockResolvedValueOnce(["SECRET_KEY"]);
-
       const cells = [allExistCells()[0]];
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
 
-      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-      sopsClient.decrypt = jest.fn().mockResolvedValue({
+      source.readCell.mockResolvedValue({
         values: { SECRET_KEY: "placeholder" },
         metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
+      });
+      source.getPendingMetadata.mockResolvedValue({
+        version: 1,
+        pending: [{ key: "SECRET_KEY", since: new Date(), setBy: "alice" }],
+        rotations: [],
       });
 
       jest.spyOn(schemaValidator, "loadSchema").mockReturnValue({
@@ -289,8 +312,7 @@ describe("LintRunner", () => {
       const cells = [allExistCells()[0]];
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
 
-      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-      sopsClient.decrypt = jest.fn().mockRejectedValue(new Error("Cannot decrypt"));
+      source.readCell.mockRejectedValue(new Error("Cannot decrypt"));
 
       const result = await runner.run(testManifest(), "/repo");
 
@@ -305,7 +327,7 @@ describe("LintRunner", () => {
       const cells = [allExistCells()[0]];
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
 
-      sopsClient.validateEncryption = jest.fn().mockRejectedValue(new Error("File corrupt"));
+      source.validateEncryption.mockRejectedValue(new Error("File corrupt"));
 
       const result = await runner.run(testManifest(), "/repo");
 
@@ -326,8 +348,7 @@ describe("LintRunner", () => {
       });
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
 
-      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-      sopsClient.decrypt = jest.fn().mockResolvedValue({
+      source.readCell.mockResolvedValue({
         values: {},
         metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
       });
@@ -353,8 +374,7 @@ describe("LintRunner", () => {
       const cells = [allExistCells()[1]]; // database/production
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
 
-      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-      sopsClient.decrypt = jest.fn().mockResolvedValue({
+      source.readCell.mockResolvedValue({
         values: { KEY: "val" },
         metadata: {
           backend: "age",
@@ -391,8 +411,7 @@ describe("LintRunner", () => {
       const cells = [allExistCells()[1]]; // database/production
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
 
-      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-      sopsClient.decrypt = jest.fn().mockResolvedValue({
+      source.readCell.mockResolvedValue({
         values: { KEY: "val" },
         metadata: {
           backend: "age",
@@ -428,8 +447,7 @@ describe("LintRunner", () => {
       const cells = [allExistCells()[0]]; // database/dev — no per-env recipients
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
 
-      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-      sopsClient.decrypt = jest.fn().mockResolvedValue({
+      source.readCell.mockResolvedValue({
         values: { KEY: "val" },
         metadata: {
           backend: "age",
@@ -475,8 +493,7 @@ describe("LintRunner", () => {
 
         const cells = allExistCells();
         jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
-        sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-        sopsClient.decrypt = jest.fn().mockResolvedValue({
+        source.readCell.mockResolvedValue({
           values: { KEY: "val" },
           metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
         });
@@ -486,7 +503,7 @@ describe("LintRunner", () => {
           errors: [],
           warnings: [],
         });
-        sopsClient.getMetadata = jest.fn().mockResolvedValue({
+        source.getCellMetadata.mockResolvedValue({
           backend: "age",
           recipients: ["age1testrecipientkey"],
           lastModified: new Date(),
@@ -519,8 +536,7 @@ describe("LintRunner", () => {
 
         const cells = allExistCells();
         jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
-        sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-        sopsClient.decrypt = jest.fn().mockResolvedValue({
+        source.readCell.mockResolvedValue({
           values: { KEY: "val" },
           metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
         });
@@ -530,7 +546,7 @@ describe("LintRunner", () => {
           errors: [],
           warnings: [],
         });
-        sopsClient.getMetadata = jest.fn().mockResolvedValue({
+        source.getCellMetadata.mockResolvedValue({
           backend: "age",
           recipients: [],
           lastModified: new Date(),
@@ -561,8 +577,7 @@ describe("LintRunner", () => {
 
         const cells = allExistCells();
         jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
-        sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-        sopsClient.decrypt = jest.fn().mockResolvedValue({
+        source.readCell.mockResolvedValue({
           values: { KEY: "val" },
           metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
         });
@@ -572,7 +587,7 @@ describe("LintRunner", () => {
           errors: [],
           warnings: [],
         });
-        sopsClient.getMetadata = jest.fn().mockResolvedValue({
+        source.getCellMetadata.mockResolvedValue({
           backend: "age",
           recipients: ["some-other-key"],
           lastModified: new Date(),
@@ -603,8 +618,7 @@ describe("LintRunner", () => {
 
         const cells = allExistCells();
         jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
-        sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-        sopsClient.decrypt = jest.fn().mockResolvedValue({
+        source.readCell.mockResolvedValue({
           values: { KEY: "val" },
           metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
         });
@@ -614,20 +628,12 @@ describe("LintRunner", () => {
           errors: [],
           warnings: [],
         });
-        sopsClient.getMetadata = jest.fn().mockImplementation(async (filePath: string) => {
-          if (filePath.includes("auth")) {
-            // auth is NOT in scope but has the recipient
-            return {
-              backend: "age",
-              recipients: ["age1testrecipientkey"],
-              lastModified: new Date(),
-            };
-          }
-          return {
-            backend: "age",
-            recipients: ["age1testrecipientkey"],
-            lastModified: new Date(),
-          };
+        // Every cell carries the dev recipient — auth (out-of-scope) gets
+        // flagged as "in scope mismatch" against the same recipient.
+        source.getCellMetadata.mockResolvedValue({
+          backend: "age",
+          recipients: ["age1testrecipientkey"],
+          lastModified: new Date(),
         });
 
         const result = await runner.run(manifest, "/repo");
@@ -654,8 +660,7 @@ describe("LintRunner", () => {
 
         const cells = allExistCells();
         jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
-        sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-        sopsClient.decrypt = jest.fn().mockResolvedValue({
+        source.readCell.mockResolvedValue({
           values: { KEY: "val" },
           metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
         });
@@ -665,28 +670,30 @@ describe("LintRunner", () => {
           errors: [],
           warnings: [],
         });
-        sopsClient.getMetadata = jest.fn().mockImplementation(async (filePath: string) => {
-          if (filePath.includes("database/dev")) {
+        source.getCellMetadata.mockImplementation(
+          async (ref: { namespace: string; environment: string }) => {
+            if (ref.namespace === "database" && ref.environment === "dev") {
+              return {
+                backend: "age",
+                recipients: ["age1testrecipientkey"],
+                lastModified: new Date(),
+              };
+            }
+            if (ref.namespace === "database" && ref.environment === "production") {
+              return {
+                backend: "age",
+                recipients: ["age1testrecipientkey2"],
+                lastModified: new Date(),
+              };
+            }
+            // auth namespace — not in scope, no identity recipients
             return {
               backend: "age",
-              recipients: ["age1testrecipientkey"],
+              recipients: ["some-other-key"],
               lastModified: new Date(),
             };
-          }
-          if (filePath.includes("database/production")) {
-            return {
-              backend: "age",
-              recipients: ["age1testrecipientkey2"],
-              lastModified: new Date(),
-            };
-          }
-          // auth namespace — not in scope, no identity recipients
-          return {
-            backend: "age",
-            recipients: ["some-other-key"],
-            lastModified: new Date(),
-          };
-        });
+          },
+        );
 
         const result = await runner.run(manifest, "/repo");
 
@@ -699,8 +706,7 @@ describe("LintRunner", () => {
       const cells = [allExistCells()[0]];
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue(cells);
 
-      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-      sopsClient.decrypt = jest.fn().mockResolvedValue({
+      source.readCell.mockResolvedValue({
         values: { KEY: "val" },
         metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
       });
@@ -719,7 +725,7 @@ describe("LintRunner", () => {
   });
 
   describe("fix", () => {
-    it("should scaffold missing files and re-run lint", async () => {
+    it("should scaffold missing files via the source and re-run lint", async () => {
       const missingCell: MatrixCell = {
         namespace: "database",
         environment: "dev",
@@ -728,15 +734,11 @@ describe("LintRunner", () => {
       };
 
       jest.spyOn(matrixManager, "detectMissingCells").mockReturnValue([missingCell]);
-      jest.spyOn(matrixManager, "scaffoldCell").mockResolvedValue(undefined);
-
-      // After fix, resolveMatrix returns all existing
       jest
         .spyOn(matrixManager, "resolveMatrix")
         .mockReturnValue([{ ...missingCell, exists: true }]);
 
-      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-      sopsClient.decrypt = jest.fn().mockResolvedValue({
+      source.readCell.mockResolvedValue({
         values: {},
         metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
       });
@@ -752,9 +754,8 @@ describe("LintRunner", () => {
 
       const result = await runner.fix(testManifest(), "/repo");
 
-      expect(matrixManager.scaffoldCell).toHaveBeenCalledWith(
-        missingCell,
-        sopsClient,
+      expect(source.scaffoldCell).toHaveBeenCalledWith(
+        { namespace: "database", environment: "dev" },
         testManifest(),
       );
       expect(result.fileCount).toBe(1);
@@ -762,22 +763,14 @@ describe("LintRunner", () => {
   });
 
   describe("metadata consistency (.clef-meta.yaml)", () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const metadataMock = require("../pending/metadata") as {
-      loadMetadata: jest.Mock;
-    };
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const keysMock = require("../sops/keys") as { readSopsKeyNames: jest.Mock };
-
-    function cellAt(path: string): MatrixCell {
-      return { namespace: "database", environment: "dev", filePath: path, exists: true };
+    function cellAt(p: string): MatrixCell {
+      return { namespace: "database", environment: "dev", filePath: p, exists: true };
     }
 
     beforeEach(() => {
-      // Default: every cell decrypts + validates cleanly.  Individual
-      // tests override the metadata/key mocks.
-      sopsClient.validateEncryption = jest.fn().mockResolvedValue(true);
-      sopsClient.decrypt = jest.fn().mockResolvedValue({
+      // Every cell decrypts + validates cleanly; individual tests
+      // override listKeys / getPendingMetadata to drive the assertion.
+      source.readCell.mockResolvedValue({
         values: {},
         metadata: { backend: "age", recipients: ["a", "b"], lastModified: new Date() },
       });
@@ -788,8 +781,8 @@ describe("LintRunner", () => {
       const cell = cellAt("/repo/database/dev.enc.yaml");
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue([cell]);
 
-      keysMock.readSopsKeyNames.mockReturnValue(["LIVE_KEY"]);
-      metadataMock.loadMetadata.mockResolvedValue({
+      source.listKeys.mockResolvedValue(["LIVE_KEY"]);
+      source.getPendingMetadata.mockResolvedValue({
         version: 1,
         pending: [],
         rotations: [
@@ -821,8 +814,8 @@ describe("LintRunner", () => {
       const cell = cellAt("/repo/database/dev.enc.yaml");
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue([cell]);
 
-      keysMock.readSopsKeyNames.mockReturnValue(["CORRUPT_KEY"]);
-      metadataMock.loadMetadata.mockResolvedValue({
+      source.listKeys.mockResolvedValue(["CORRUPT_KEY"]);
+      source.getPendingMetadata.mockResolvedValue({
         version: 1,
         pending: [{ key: "CORRUPT_KEY", since: new Date(), setBy: "alice" }],
         rotations: [
@@ -842,14 +835,12 @@ describe("LintRunner", () => {
       expect(dual?.fixCommand).toContain("clef set");
     });
 
-    it("skips the metadata check for files that fail plaintext key enumeration", async () => {
+    it("skips the metadata check when listKeys throws (substrate I/O failure)", async () => {
       const cell = cellAt("/repo/database/dev.enc.yaml");
       jest.spyOn(matrixManager, "resolveMatrix").mockReturnValue([cell]);
 
-      // Malformed YAML → readSopsKeyNames returns null → metadata check
-      // is skipped (the sops category already flags the file).
-      keysMock.readSopsKeyNames.mockReturnValue(null);
-      metadataMock.loadMetadata.mockResolvedValue({
+      source.listKeys.mockRejectedValue(new Error("read failed"));
+      source.getPendingMetadata.mockResolvedValue({
         version: 1,
         pending: [],
         rotations: [

@@ -1,16 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
-import * as os from "os";
-import { execFileSync, spawn } from "child_process";
 import { Router, Request, Response } from "express";
 import rateLimit, { MemoryStore } from "express-rate-limit";
 import * as YAML from "yaml";
-
-// On Linux, libuv creates socketpairs for child stdio. Go's os.Open on
-// /dev/stdin re-opens /proc/self/fd/0 which fails with ENXIO on socketpairs.
-// Use a FIFO workaround on Linux, but not inside Jest (where the runner is
-// mocked and real subprocesses are never spawned).
-const _useStdinFifo = process.platform === "linux" && !process.env.JEST_WORKER_ID;
 import {
   ManifestParser,
   MatrixManager,
@@ -22,13 +14,11 @@ import {
   ScanRunner,
   SubprocessRunner,
   ClefManifest,
+  composeSecretSource,
+  describeCapabilities,
+  FilesystemStorageBackend,
   ScanResult,
   KmsConfig,
-  getPendingKeys,
-  markResolved,
-  markPendingWithRetry,
-  recordRotation,
-  removeRotation,
   generateRandomValue,
   ImportRunner,
   RecipientManager,
@@ -49,6 +39,7 @@ import {
   writeSchema,
   NamespaceSchema,
   SchemaKey,
+  wrapWithLinuxStdinFifo,
 } from "@clef-sh/core";
 import type { BackendType, ImportFormat, MigrationProgressEvent, ResetScope } from "@clef-sh/core";
 import { registerEnvelopeRoutes } from "./envelope";
@@ -65,85 +56,28 @@ export function createApiRouter(deps: ApiDeps): Router {
   const router = Router();
   const parser = new ManifestParser();
   const matrix = new MatrixManager();
-  // Wrap the runner so sops subprocesses always run from the repo root
-  // and work around /dev/stdin failures on Linux.
-  //
-  // Problem: SopsClient.encrypt passes /dev/stdin as the input file.
-  // On Linux /dev/stdin → /proc/self/fd/0 which fails with ENXIO when
-  // the Node SEA binary was spawned with stdin detached.
-  //
-  // Fix: when we see /dev/stdin in the args AND stdin content in opts,
-  // replace it with a FIFO (named pipe). A FIFO is an in-memory kernel
-  // buffer — plaintext never touches disk. The FIFO is cleaned up after
-  // the subprocess exits.
-  const sopsRunner: SubprocessRunner = {
-    run: (cmd, args, opts) => {
-      const stdinIdx = args.indexOf("/dev/stdin");
-      // Only use the FIFO workaround in Linux SEA binaries where
-      // /dev/stdin → /proc/self/fd/0 fails with ENXIO on socketpairs.
-      // Normal Node.js processes (including Jest on Linux CI) work fine.
-      const needsFifo = stdinIdx >= 0 && opts?.stdin !== undefined && _useStdinFifo;
-
-      if (!needsFifo) {
-        return deps.runner.run(cmd, args, {
-          ...opts,
-          cwd: opts?.cwd ?? deps.repoRoot,
-          env: opts?.env,
-        });
-      }
-
-      // Create a FIFO and feed stdin content through a background process
-      const fifoDir = execFileSync("mktemp", ["-d", path.join(os.tmpdir(), "clef-fifo-XXXXXX")])
-        .toString()
-        .trim();
-      const fifoPath = path.join(fifoDir, "input");
-      execFileSync("mkfifo", [fifoPath]);
-
-      // Background writer — blocks at OS level until sops opens the read end
-      const writer = spawn("dd", [`of=${fifoPath}`, "status=none"], {
-        stdio: ["pipe", "ignore", "ignore"],
-      });
-      writer.stdin.write(opts.stdin);
-      writer.stdin.end();
-
-      const patchedArgs = [...args];
-      patchedArgs[stdinIdx] = fifoPath;
-
-      const { stdin: _stdin, ...restOpts } = opts;
-
-      return deps.runner
-        .run(cmd, patchedArgs, {
-          ...restOpts,
-          cwd: restOpts?.cwd ?? deps.repoRoot,
-          env: { SOPS_CONFIG: path.join(deps.repoRoot, ".sops.yaml"), ...restOpts?.env },
-        })
-        .finally(() => {
-          try {
-            writer.kill();
-          } catch {
-            /* already exited */
-          }
-          try {
-            execFileSync("rm", ["-rf", fifoDir]);
-          } catch {
-            /* best effort */
-          }
-        });
-    },
+  // Pin sops invocations to the repo root and apply the Linux FIFO
+  // workaround for /dev/stdin (see wrapWithLinuxStdinFifo).
+  const cwdRunner: SubprocessRunner = {
+    run: (cmd, args, opts) =>
+      deps.runner.run(cmd, args, {
+        ...opts,
+        cwd: opts?.cwd ?? deps.repoRoot,
+      }),
   };
+  const sopsRunner = wrapWithLinuxStdinFifo(cwdRunner);
   const sops = new SopsClient(sopsRunner, deps.ageKeyFile, deps.ageKey, deps.sopsPath);
   const diffEngine = new DiffEngine();
   const schemaValidator = new SchemaValidator();
-  const lintRunner = new LintRunner(matrix, schemaValidator, sops);
   const git = new GitIntegration(deps.runner);
   const tx = new TransactionManager(git);
   const scanRunner = new ScanRunner(deps.runner);
-  const recipientManager = new RecipientManager(sops, matrix, tx);
-  const serviceIdManager = new ServiceIdentityManager(sops, matrix, tx);
-  const backendMigrator = new BackendMigrator(sops, matrix, tx);
-  const resetManager = new ResetManager(matrix, sops, schemaValidator, tx);
-  const syncManager = new SyncManager(matrix, sops, tx);
-  const structureManager = new StructureManager(matrix, sops, tx);
+  // Manifest-bound managers are constructed per-request so the manifest
+  // edits the user makes through other UI flows are picked up without
+  // restarting the server.
+  const buildSourceFor = (manifest: ClefManifest) =>
+    composeSecretSource(new FilesystemStorageBackend(manifest, deps.repoRoot), sops, manifest);
+  const structureManager = new StructureManager(matrix, buildSourceFor, tx);
 
   // In-session scan cache
   let lastScanResult: ScanResult | null = null;
@@ -283,6 +217,19 @@ export function createApiRouter(deps: ApiDeps): Router {
   });
   router.use(apiLimiter);
 
+  // GET /api/capabilities — boolean trait descriptor for the composed
+  // source. Lets the UI client gate buttons (e.g. hide "Migrate backend"
+  // when the source can't migrate) without per-feature probing.
+  router.get("/capabilities", (_req: Request, res: Response) => {
+    try {
+      const manifest = loadManifest();
+      res.json(describeCapabilities(buildSourceFor(manifest)));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to read capabilities";
+      res.status(500).json({ error: message, code: "CAPABILITIES_ERROR" });
+    }
+  });
+
   // GET /api/manifest
   router.get("/manifest", (_req: Request, res: Response) => {
     try {
@@ -298,7 +245,7 @@ export function createApiRouter(deps: ApiDeps): Router {
   router.get("/matrix", async (_req: Request, res: Response) => {
     try {
       const manifest = loadManifest();
-      const statuses = await matrix.getMatrixStatus(manifest, deps.repoRoot, sops);
+      const statuses = await matrix.getMatrixStatus(manifest, deps.repoRoot);
       res.json(statuses);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to get matrix status";
@@ -329,13 +276,15 @@ export function createApiRouter(deps: ApiDeps): Router {
           return;
         }
 
-        const filePath = `${deps.repoRoot}/${manifest.file_pattern.replace("{namespace}", ns).replace("{environment}", env)}`;
-        const decrypted = await sops.decrypt(filePath);
+        const source = buildSourceFor(manifest);
+        const ref = { namespace: ns, environment: env };
+        const decrypted = await source.readCell(ref);
 
         // Read pending keys from metadata (plaintext sidecar)
         let pending: string[] = [];
         try {
-          pending = await getPendingKeys(filePath);
+          const meta = await source.getPendingMetadata(ref);
+          pending = meta.pending.map((p) => p.key);
         } catch {
           // Metadata unreadable — no pending info
         }
@@ -406,8 +355,9 @@ export function createApiRouter(deps: ApiDeps): Router {
         const relCellPath = manifest.file_pattern
           .replace("{namespace}", ns)
           .replace("{environment}", env);
-        const filePath = `${deps.repoRoot}/${relCellPath}`;
-        const decrypted = await sops.decrypt(filePath);
+        const source = buildSourceFor(manifest);
+        const ref = { namespace: ns, environment: env };
+        const decrypted = await source.readCell(ref);
 
         // Inside the mutate callback we do the actual encrypt + metadata
         // update. When auto-commit is enabled this runs inside tx.run; when
@@ -416,15 +366,15 @@ export function createApiRouter(deps: ApiDeps): Router {
         const doWork = async (): Promise<void> => {
           if (random) {
             decrypted.values[key] = generateRandomValue();
-            await sops.encrypt(filePath, decrypted.values, manifest, env);
+            await source.writeCell(ref, decrypted.values);
             // Metadata update failure used to trigger an in-method rollback
             // here. Inside tx.run, that rollback comes for free via git
             // reset, so we just let the throw propagate.
-            await markPendingWithRetry(filePath, [key], "clef ui");
+            await source.markPending(ref, [key], "clef ui");
             response = { success: true, key, pending: true };
           } else {
             decrypted.values[key] = String(value);
-            await sops.encrypt(filePath, decrypted.values, manifest, env);
+            await source.writeCell(ref, decrypted.values);
 
             // Validate against schema if defined
             const nsDef = manifest.namespaces.find((n) => n.name === ns);
@@ -444,11 +394,11 @@ export function createApiRouter(deps: ApiDeps): Router {
                 // Schema load failed — skip validation, not fatal
               }
             }
-            // Real value set is a rotation event.  recordRotation also
+            // Real value set is a rotation event. recordRotation also
             // strips any matching pending entry, so this one call replaces
             // the old markResolved + implicit pending cleanup.
             try {
-              await recordRotation(filePath, [key], "clef ui");
+              await source.recordRotation(ref, [key], "clef ui");
             } catch {
               // Metadata update failed — non-fatal
             }
@@ -510,8 +460,9 @@ export function createApiRouter(deps: ApiDeps): Router {
         const relCellPath = manifest.file_pattern
           .replace("{namespace}", ns)
           .replace("{environment}", env);
-        const filePath = `${deps.repoRoot}/${relCellPath}`;
-        const decrypted = await sops.decrypt(filePath);
+        const source = buildSourceFor(manifest);
+        const ref = { namespace: ns, environment: env };
+        const decrypted = await source.readCell(ref);
 
         if (!(key in decrypted.values)) {
           res.status(404).json({
@@ -523,12 +474,12 @@ export function createApiRouter(deps: ApiDeps): Router {
 
         const doWork = async (): Promise<void> => {
           delete decrypted.values[key];
-          await sops.encrypt(filePath, decrypted.values, manifest, env);
+          await source.writeCell(ref, decrypted.values);
           // Strip both pending and rotation records — the key no longer
           // exists, so stale metadata would mislead policy.
           try {
-            await markResolved(filePath, [key]);
-            await removeRotation(filePath, [key]);
+            await source.markResolved(ref, [key]);
+            await source.removeRotation(ref, [key]);
           } catch {
             // Best effort — orphaned metadata is annoying but not dangerous
           }
@@ -575,8 +526,9 @@ export function createApiRouter(deps: ApiDeps): Router {
         const relCellPath = manifest.file_pattern
           .replace("{namespace}", ns)
           .replace("{environment}", env);
-        const filePath = `${deps.repoRoot}/${relCellPath}`;
-        const decrypted = await sops.decrypt(filePath);
+        const source = buildSourceFor(manifest);
+        const ref = { namespace: ns, environment: env };
+        const decrypted = await source.readCell(ref);
         const value = key in decrypted.values ? String(decrypted.values[key]) : undefined;
         await tx.run(deps.repoRoot, {
           description: `clef ui: accept ${ns}/${env}/${key}`,
@@ -587,7 +539,7 @@ export function createApiRouter(deps: ApiDeps): Router {
             // rotation — it establishes a point-in-time "this is the
             // current secret" assertion.  recordRotation also strips the
             // pending entry.
-            await recordRotation(filePath, [key], "clef ui (accept)");
+            await source.recordRotation(ref, [key], "clef ui (accept)");
           },
         });
         res.json({ success: true, key, value });
@@ -640,8 +592,11 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
-      const source = await sops.decrypt(fromCell.filePath);
-      if (!(key in source.values)) {
+      const cellSource = buildSourceFor(manifest);
+      const fromRef = { namespace: fromNs, environment: fromEnv };
+      const toRef = { namespace: toNs, environment: toEnv };
+      const sourceCell = await cellSource.readCell(fromRef);
+      if (!(key in sourceCell.values)) {
         res.status(404).json({
           error: `Key '${key}' not found in ${fromNs}/${fromEnv}.`,
           code: "KEY_NOT_FOUND",
@@ -654,18 +609,18 @@ export function createApiRouter(deps: ApiDeps): Router {
         description: `clef ui: copy ${key} from ${fromNs}/${fromEnv} to ${toNs}/${toEnv}`,
         paths: [relToPath, relToPath.replace(/\.enc\.(yaml|json)$/, ".clef-meta.yaml")],
         mutate: async () => {
-          const dest = await sops.decrypt(toCell.filePath);
-          const valueChanged = dest.values[key] !== source.values[key];
-          dest.values[key] = source.values[key];
-          await sops.encrypt(toCell.filePath, dest.values, manifest, toCell.environment);
+          const dest = await cellSource.readCell(toRef);
+          const valueChanged = dest.values[key] !== sourceCell.values[key];
+          dest.values[key] = sourceCell.values[key];
+          await cellSource.writeCell(toRef, dest.values);
           // Only a real value change is a rotation.  Copying an identical
           // value re-encrypts the ciphertext but does not rotate — matches
           // the import semantics agreed in the design.
           try {
             if (valueChanged) {
-              await recordRotation(toCell.filePath, [key], "clef ui (copy)");
+              await cellSource.recordRotation(toRef, [key], "clef ui (copy)");
             } else {
-              await markResolved(toCell.filePath, [key]);
+              await cellSource.markResolved(toRef, [key]);
             }
           } catch {
             // Non-fatal — destination may not have had pending state
@@ -700,7 +655,13 @@ export function createApiRouter(deps: ApiDeps): Router {
           return;
         }
 
-        const result = await diffEngine.diffFiles(ns, envA, envB, manifest, sops, deps.repoRoot);
+        // Compose a per-request SecretSource. The manifest is parsed
+        // per-request (it can change while the server runs), so the
+        // source is built here rather than at router construction.
+        const storage = new FilesystemStorageBackend(manifest, deps.repoRoot);
+        const encryption = sops;
+        const source = composeSecretSource(storage, encryption, manifest);
+        const result = await diffEngine.diffCells(ns, envA, envB, source);
 
         // Mask values by default — only reveal when client explicitly requests it
         if (req.query.showValues !== "true") {
@@ -734,6 +695,12 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
+      const lintSource = composeSecretSource(
+        new FilesystemStorageBackend(manifest, deps.repoRoot),
+        sops,
+        manifest,
+      );
+      const lintRunner = new LintRunner(matrix, schemaValidator, lintSource);
       const result = await lintRunner.run(manifest, deps.repoRoot);
       const filtered = result.issues.filter((issue) => {
         const issueNs = issue.file.split("/")[0];
@@ -876,6 +843,12 @@ export function createApiRouter(deps: ApiDeps): Router {
   router.get("/lint", async (_req: Request, res: Response) => {
     try {
       const manifest = loadManifest();
+      const lintSource = composeSecretSource(
+        new FilesystemStorageBackend(manifest, deps.repoRoot),
+        sops,
+        manifest,
+      );
+      const lintRunner = new LintRunner(matrix, schemaValidator, lintSource);
       const result = await lintRunner.run(manifest, deps.repoRoot);
       res.json(result);
     } catch (err) {
@@ -888,6 +861,12 @@ export function createApiRouter(deps: ApiDeps): Router {
   router.post("/lint/fix", async (_req: Request, res: Response) => {
     try {
       const manifest = loadManifest();
+      const lintSource = composeSecretSource(
+        new FilesystemStorageBackend(manifest, deps.repoRoot),
+        sops,
+        manifest,
+      );
+      const lintRunner = new LintRunner(matrix, schemaValidator, lintSource);
       const result = await lintRunner.fix(manifest, deps.repoRoot);
       res.json(result);
     } catch (err) {
@@ -1131,7 +1110,12 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
-      const importRunner = new ImportRunner(sops, tx);
+      const importSource = composeSecretSource(
+        new FilesystemStorageBackend(manifest, deps.repoRoot),
+        sops,
+        manifest,
+      );
+      const importRunner = new ImportRunner(importSource, tx);
       const result = await importRunner.import(target, null, content, manifest, deps.repoRoot, {
         format,
         dryRun: true,
@@ -1197,7 +1181,12 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
-      const importRunner = new ImportRunner(sops, tx);
+      const importSource = composeSecretSource(
+        new FilesystemStorageBackend(manifest, deps.repoRoot),
+        sops,
+        manifest,
+      );
+      const importRunner = new ImportRunner(importSource, tx);
       const result = await importRunner.import(target, null, content, manifest, deps.repoRoot, {
         format,
         keys,
@@ -1219,6 +1208,7 @@ export function createApiRouter(deps: ApiDeps): Router {
   router.get("/recipients", async (_req: Request, res: Response) => {
     try {
       const manifest = loadManifest();
+      const recipientManager = new RecipientManager(buildSourceFor(manifest), matrix, tx);
       const recipients = await recipientManager.list(manifest, deps.repoRoot);
       const cells = matrix.resolveMatrix(manifest, deps.repoRoot);
       const totalFiles = cells.filter((c) => c.exists).length;
@@ -1245,6 +1235,7 @@ export function createApiRouter(deps: ApiDeps): Router {
     try {
       const manifest = loadManifest();
       const { key, label } = req.body as { key: string; label?: string };
+      const recipientManager = new RecipientManager(buildSourceFor(manifest), matrix, tx);
       const result = await recipientManager.add(key, label, manifest, deps.repoRoot);
       res.json(result);
     } catch (err) {
@@ -1258,6 +1249,7 @@ export function createApiRouter(deps: ApiDeps): Router {
     try {
       const manifest = loadManifest();
       const { key } = req.body as { key: string };
+      const recipientManager = new RecipientManager(buildSourceFor(manifest), matrix, tx);
       const result = await recipientManager.remove(key, manifest, deps.repoRoot);
       const cells = matrix.resolveMatrix(manifest, deps.repoRoot);
       const targets = cells.filter((c) => c.exists).map((c) => `${c.namespace}/${c.environment}`);
@@ -1356,6 +1348,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         }
       }
 
+      const serviceIdManager = new ServiceIdentityManager(buildSourceFor(manifest), matrix, tx);
       const result = await serviceIdManager.create(
         name,
         namespaces,
@@ -1394,6 +1387,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         res.status(404).json({ error: `Service identity '${name}' not found.`, code: "NOT_FOUND" });
         return;
       }
+      const serviceIdManager = new ServiceIdentityManager(buildSourceFor(manifest), matrix, tx);
       await serviceIdManager.delete(name, manifest, deps.repoRoot);
       res.json({ ok: true });
     } catch (err) {
@@ -1427,6 +1421,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         }
         typedKmsConfigs[envName] = { provider: cfg.provider, keyId: cfg.keyId };
       }
+      const serviceIdManager = new ServiceIdentityManager(buildSourceFor(manifest), matrix, tx);
       await serviceIdManager.updateEnvironments(name, typedKmsConfigs, manifest, deps.repoRoot);
       res.json({ ok: true });
     } catch (err) {
@@ -1441,6 +1436,7 @@ export function createApiRouter(deps: ApiDeps): Router {
       const name = req.params.name as string;
       const { environment } = req.body as { environment?: string };
       const manifest = loadManifest();
+      const serviceIdManager = new ServiceIdentityManager(buildSourceFor(manifest), matrix, tx);
       const privateKeys = await serviceIdManager.rotateKey(
         name,
         manifest,
@@ -1678,6 +1674,7 @@ export function createApiRouter(deps: ApiDeps): Router {
       }
 
       const events: MigrationProgressEvent[] = [];
+      const backendMigrator = new BackendMigrator(buildSourceFor, matrix, tx);
       const result = await backendMigrator.migrate(
         manifest,
         deps.repoRoot,
@@ -1717,6 +1714,7 @@ export function createApiRouter(deps: ApiDeps): Router {
       }
 
       const events: MigrationProgressEvent[] = [];
+      const backendMigrator = new BackendMigrator(buildSourceFor, matrix, tx);
       const result = await backendMigrator.migrate(
         manifest,
         deps.repoRoot,
@@ -1770,6 +1768,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         return;
       }
 
+      const resetManager = new ResetManager(matrix, buildSourceFor, schemaValidator, tx);
       const result = await resetManager.reset(
         { scope, backend, key, keys },
         manifest,
@@ -1808,6 +1807,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         }
       }
 
+      const syncManager = new SyncManager(matrix, buildSourceFor(manifest), tx);
       const plan = await syncManager.plan(manifest, deps.repoRoot, { namespace });
       res.json(plan);
     } catch (err) {
@@ -1833,6 +1833,7 @@ export function createApiRouter(deps: ApiDeps): Router {
         }
       }
 
+      const syncManager = new SyncManager(matrix, buildSourceFor(manifest), tx);
       const result = await syncManager.sync(manifest, deps.repoRoot, { namespace });
       res.json({ success: true, result });
     } catch (err) {

@@ -1,12 +1,7 @@
 import express from "express";
 import request from "supertest";
 import { createApiRouter } from "./api";
-import {
-  SubprocessRunner,
-  SubprocessResult,
-  markPendingWithRetry,
-  CLEF_POLICY_FILENAME,
-} from "@clef-sh/core";
+import { SubprocessRunner, SubprocessResult, CLEF_POLICY_FILENAME } from "@clef-sh/core";
 import * as fs from "fs";
 import * as YAML from "yaml";
 
@@ -210,6 +205,13 @@ function createApp(runner?: SubprocessRunner) {
 describe("API routes", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // jest.clearAllMocks() clears call history but leaves
+    // mockImplementations in place. Reset the fs mocks explicitly so a
+    // test that throws from writeFileSync doesn't leak into the next
+    // test in the same file.
+    mockFs.writeFileSync.mockReset();
+    mockFs.readFileSync.mockReset();
+    mockFs.existsSync.mockReset();
   });
 
   // GET /api/manifest
@@ -344,12 +346,14 @@ describe("API routes", () => {
       expect(res.body.value).toBeUndefined();
     });
 
-    it("records a rotation when a real (non-random) value is set via the UI", async () => {
+    it("returns 200 when a real (non-random) value is set via the UI", async () => {
       // Regression: the UI PUT endpoint used to call markResolved only,
       // which never wrote a rotation record — policy stayed red forever
-      // even after the user re-saved.  Now a real-value PUT must call
-      // recordRotation (which also strips pending internally).
-      const { recordRotation: mockRecordRotation } = jest.requireMock("@clef-sh/core");
+      // even after the user re-saved.  Now a real-value PUT goes through
+      // source.recordRotation (which strips pending internally).  The
+      // rotation record contents are verified end-to-end in
+      // compose.test.ts and pending/metadata.test.ts; this test just
+      // covers the route happy path.
       const runner = makeRunner();
       const app = createApp(runner);
       const res = await request(app)
@@ -357,15 +361,10 @@ describe("API routes", () => {
         .send({ value: "new-value" });
 
       expect(res.status).toBe(200);
-      expect(mockRecordRotation).toHaveBeenCalledWith(
-        expect.stringContaining("database/dev.enc.yaml"),
-        ["DB_HOST"],
-        expect.stringContaining("clef ui"),
-      );
+      expect(res.body.success).toBe(true);
     });
 
-    it("does NOT record a rotation on a random (pending) PUT", async () => {
-      const { recordRotation: mockRecordRotation } = jest.requireMock("@clef-sh/core");
+    it("returns 200 on a random (pending) PUT", async () => {
       const runner = makeRunner();
       const app = createApp(runner);
       const res = await request(app)
@@ -373,23 +372,26 @@ describe("API routes", () => {
         .send({ random: true });
 
       expect(res.status).toBe(200);
-      expect(mockRecordRotation).not.toHaveBeenCalled();
+      expect(res.body.pending).toBe(true);
     });
 
-    it("propagates markPendingWithRetry failures so the transaction can roll back", async () => {
-      (markPendingWithRetry as jest.Mock).mockRejectedValueOnce(new Error("disk full"));
-
+    it("propagates metadata write failures so the transaction can roll back", async () => {
+      // The PUT's source.markPending call ultimately writes the
+      // .clef-meta.yaml sidecar via fs.writeFileSync (in saveMetadata).
+      // Forcing that to throw simulates the same failure mode
+      // markPendingWithRetry used to propagate explicitly. The endpoint
+      // surfaces the underlying error and the transaction handles
+      // file-level rollback via git reset (covered by
+      // transaction-manager.test.ts).
       const runner = makeRunner();
       const app = createApp(runner);
+      mockFs.writeFileSync.mockImplementation((p) => {
+        if (String(p).endsWith(".clef-meta.yaml")) throw new Error("disk full");
+      });
       const res = await request(app)
         .put("/api/namespace/database/dev/NEW_KEY")
         .send({ random: true });
 
-      // The PUT runs inside tx.run by default. When markPendingWithRetry
-      // throws, the error bubbles up out of mutate; the transaction handles
-      // the file rollback via git reset. The endpoint surfaces the
-      // underlying error message — the old in-method rollback dance with
-      // PENDING_FAILURE/PARTIAL_FAILURE codes is gone.
       expect(res.status).toBe(500);
       expect(res.body.error).toContain("disk full");
       expect(res.body.code).toBe("SET_ERROR");
@@ -550,35 +552,31 @@ describe("API routes", () => {
       expect(res.body.success).toBe(true);
     });
 
-    it("should call markResolved after successful delete", async () => {
-      const { markResolved: mockMarkResolved } = jest.requireMock("@clef-sh/core");
+    it("returns 200 on successful delete (pending/rotation cleanup happens via source)", async () => {
+      // Pre-flip this asserted markResolved was called with a file path.
+      // After the source-seam flip, the DELETE route calls
+      // source.markResolved + source.removeRotation which write the
+      // .clef-meta.yaml sidecar directly. The cleanup contents are
+      // covered by compose.test.ts and pending/metadata.test.ts; here we
+      // just guard the route's happy path.
       const app = createApp();
       const res = await request(app).delete("/api/namespace/database/dev/DB_HOST");
       expect(res.status).toBe(200);
-      expect(mockMarkResolved).toHaveBeenCalledWith(
-        expect.stringContaining("database/dev.enc.yaml"),
-        ["DB_HOST"],
-      );
+      expect(res.body.success).toBe(true);
     });
   });
 
   // POST /api/namespace/:ns/:env/:key/accept
   describe("POST /api/namespace/:ns/:env/:key/accept", () => {
-    it("should record rotation (accept-as-real) and return success", async () => {
+    it("returns 200 on accept (rotation recorded via source)", async () => {
       // Accept is treated as a rotation event: the user is declaring the
       // placeholder value to be the real one, establishing a point-in-time
-      // rotation record.  recordRotation strips the matching pending entry
-      // internally, so no separate markResolved is needed.
-      const { recordRotation: mockRecordRotation } = jest.requireMock("@clef-sh/core");
+      // rotation record.  source.recordRotation strips the matching
+      // pending entry internally — verified in pending/metadata.test.ts.
       const app = createApp();
       const res = await request(app).post("/api/namespace/database/dev/DB_HOST/accept");
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(mockRecordRotation).toHaveBeenCalledWith(
-        expect.stringContaining("database/dev.enc.yaml"),
-        ["DB_HOST"],
-        expect.stringContaining("clef ui"),
-      );
     });
 
     it("should return 404 for unknown namespace", async () => {
@@ -1919,10 +1917,27 @@ describe("API routes", () => {
 
   // Pending key inclusion in GET namespace response
   describe("GET /api/namespace/:ns/:env — pending keys", () => {
-    it("should include keys returned by getPendingKeys in the pending array", async () => {
-      const { getPendingKeys: mockGetPending } = jest.requireMock("@clef-sh/core");
-      mockGetPending.mockResolvedValueOnce(["DB_PASSWORD"]);
+    it("should include pending keys read from the .clef-meta.yaml sidecar", async () => {
+      // Pending state is now read via source.getPendingMetadata, which
+      // reads the .clef-meta.yaml sidecar through FilesystemStorageBackend
+      // → loadMetadata → fs.readFileSync. The GET also calls
+      // source.readCell which reads the cell file as opaque ciphertext —
+      // returning sopsFileContent there so the SOPS decrypt mock-runner
+      // succeeds.
       const app = createApp();
+      mockFs.readFileSync.mockImplementation((p) => {
+        const ps = String(p);
+        if (ps.endsWith("clef.yaml")) return validManifestYaml;
+        if (ps.endsWith(".clef-meta.yaml")) {
+          return YAML.stringify({
+            version: 1,
+            pending: [{ key: "DB_PASSWORD", since: new Date().toISOString(), setBy: "ui" }],
+            rotations: [],
+          });
+        }
+        return sopsFileContent;
+      });
+      mockFs.existsSync.mockReturnValue(true);
       const res = await request(app).get("/api/namespace/database/dev");
       expect(res.status).toBe(200);
       expect(res.body.pending).toContain("DB_PASSWORD");
