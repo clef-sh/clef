@@ -61,7 +61,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "yaml": "^2.8.3"
+    "yaml": "^2.8.4"
   },
   "peerDependencies": {
     "@clef-sh/core": "0.2.0"
