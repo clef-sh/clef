@@ -10,7 +10,7 @@
     "generate-types": "wrangler types"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "^13.1.10",
+    "@astrojs/cloudflare": "^13.3.1",
     "@clef-sh/design": "*",
     "@tailwindcss/vite": "4.2.4",
     "astro": "^6.1.8",
