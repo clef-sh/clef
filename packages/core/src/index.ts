@@ -3,6 +3,9 @@ export { ManifestParser, CLEF_MANIFEST_FILENAME } from "./manifest/parser";
 export { readManifestYaml, writeManifestYaml, writeManifestYamlRaw } from "./manifest/io";
 export { ScanRunner } from "./scanner";
 export type { ScanMatch, ScanResult, ScanOptions, ClefIgnoreRules } from "./scanner";
+// Low-level scanner primitives. Re-exported for the @clef-sh/cloud repo's
+// edge-function scan path (not used inside this monorepo).
+export { matchPatterns, isHighEntropy, redactValue } from "./scanner/patterns";
 export { MatrixManager } from "./matrix/manager";
 export { SchemaValidator } from "./schema/validator";
 export { writeSchema, writeSchemaRaw, emptyTemplate, exampleTemplate } from "./schema/writer";
