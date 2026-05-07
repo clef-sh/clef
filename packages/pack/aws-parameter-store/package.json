@@ -18,7 +18,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
-    "@aws-sdk/client-ssm": "^3.500.0"
+    "@aws-sdk/client-ssm": "^3.1044.0"
   },
   "peerDependencies": {
     "@clef-sh/core": "0.3.0"
