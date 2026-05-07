@@ -1,6 +1,6 @@
 {
   "name": "@clef-sh/client",
-  "version": "0.4.8-beta.203",
+  "version": "0.4.8",
   "description": "Lightweight SDK for consuming Clef secrets — Cloud KMS provider and app client",
   "repository": {
     "type": "git",
