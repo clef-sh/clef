@@ -40,7 +40,7 @@
     "express": "^5.1.0",
     "express-rate-limit": "^8.3.2",
     "lucide-react": "^1.14.0",
-    "yaml": "^2.8.3"
+    "yaml": "^2.8.4"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.2.4",
@@ -74,6 +74,6 @@
   },
   "license": "MIT",
   "optionalDependencies": {
-    "@rollup/rollup-linux-x64-gnu": "^4.59.0"
+    "@rollup/rollup-linux-x64-gnu": "^4.60.3"
   }
 }
