@@ -106,6 +106,18 @@ jobs:
       - name: Stamp stable versions
         id: versions
         run: |
+          # Map short output-key names to the npm-style tag names used by
+          # `tag_if_released` further down. Only the nested `pack/*`
+          # workspaces differ; everything else is identity. Used to spot
+          # an "already-stamped from a partial previous run" state.
+          tag_name_for() {
+            case "$1" in
+              param_store)     echo "pack-aws-parameter-store" ;;
+              secrets_manager) echo "pack-aws-secrets-manager" ;;
+              *)               echo "$1" ;;
+            esac
+          }
+
           stamp_stable() {
             local DIR="$1"
             local NAME="$2"
@@ -115,6 +127,26 @@ jobs:
             STABLE=$(echo "$CURRENT" | sed 's/-.*//')
 
             if [ "$CURRENT" = "$STABLE" ]; then
+              # Already at a stable version. Two ways to land here:
+              #   (a) Genuinely nothing to release this cycle.
+              #   (b) A previous release.yml run stamped + pushed but
+              #       crashed before publishing — main now has the
+              #       stable version and the per-package tag already
+              #       exists on remote.
+              # Distinguish by looking for the per-package stable tag
+              # on remote. If it exists, treat this run as a recovery
+              # and emit released=true so the idempotent downstream
+              # jobs (build-sea-bins, publish, …) finish what was
+              # started instead of failing the bump-check gate.
+              local TAG_NAME
+              TAG_NAME=$(tag_name_for "$NAME")
+              local FULL_TAG="@clef-sh/${TAG_NAME}-v${STABLE}"
+              if git ls-remote --exit-code --tags origin "refs/tags/${FULL_TAG}" >/dev/null 2>&1; then
+                echo "${NAME}: ${CURRENT} (already stamped from previous run — recovering)"
+                echo "${NAME}_released=true" >> "$GITHUB_OUTPUT"
+                echo "${NAME}_version=${STABLE}" >> "$GITHUB_OUTPUT"
+                return
+              fi
               echo "${NAME}: ${CURRENT} (already stable, skipping)"
               echo "${NAME}_released=false" >> "$GITHUB_OUTPUT"
               return
