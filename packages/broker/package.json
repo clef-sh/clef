@@ -23,7 +23,7 @@
     "@clef-sh/core": "0.3.0",
     "@clef-sh/runtime": "0.1.33",
     "age-encryption": "^0.3.0",
-    "yaml": "^2.8.3"
+    "yaml": "^2.8.4"
   },
   "optionalDependencies": {
     "@aws-sdk/client-kms": "^3.500.0",
