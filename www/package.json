@@ -14,7 +14,7 @@
     "@clef-sh/design": "*",
     "@tailwindcss/vite": "4.2.4",
     "astro": "^6.1.8",
-    "tailwindcss": "4.2.4",
+    "tailwindcss": "4.3.0",
     "wrangler": "^4.82.2"
   },
   "engines": {
