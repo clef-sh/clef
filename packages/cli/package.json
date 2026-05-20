@@ -62,7 +62,7 @@
     "jest": "^30.0.0",
     "picocolors": "^1.0.0",
     "postject": "^1.0.0-alpha.6",
-    "ts-jest": "^29.4.9",
+    "ts-jest": "^29.4.10",
     "typescript": "^5.9.3",
     "yaml": "^2.8.3"
   },

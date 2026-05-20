@@ -44,7 +44,7 @@
     "@types/write-file-atomic": "^4.0.3",
     "esbuild": "^0.28.0",
     "jest": "^30.0.0",
-    "ts-jest": "^29.4.9",
+    "ts-jest": "^29.4.10",
     "typescript": "^5.4.0"
   },
   "publishConfig": {
