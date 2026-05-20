@@ -38,7 +38,7 @@
     "esbuild": "^0.28.0",
     "jest": "^30.0.0",
     "postject": "^1.0.0-alpha.6",
-    "ts-jest": "^29.4.9",
+    "ts-jest": "^29.4.10",
     "tsx": "^4.21.0",
     "typescript": "^5.4.0"
   },

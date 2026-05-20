@@ -47,7 +47,7 @@
     "aws-cdk-lib": "^2.100.0",
     "constructs": "^10.0.0",
     "jest": "^30.0.0",
-    "ts-jest": "^29.4.9",
+    "ts-jest": "^29.4.10",
     "typescript": "^5.4.0"
   },
   "publishConfig": {
